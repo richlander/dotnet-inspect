@@ -41,7 +41,10 @@ public sealed class PackagePayloadAcquisitionPlan
 
     public Action<string>? Log { get; }
 
-    internal IPackageStore GetStore(
+    /// <summary>
+    /// Gets the caller-owned store for one authority and producer.
+    /// </summary>
+    public IPackageStore GetStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer) =>
         _getStore(authority, producer)

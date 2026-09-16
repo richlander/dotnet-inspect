@@ -337,13 +337,37 @@ alias components and retain their existing behavior.
 Unused union registrations remain inert. No discriminator, replacement
 transport, or runtime schema validator is introduced.
 
-The envelope pilot has one deliberate converter exception: the shared
-`InertText.InertString` field converter is authenticated as the JSON `string`
-wire shape and preserves nullable fields as `string | null`. Polymorphic
-`System.Text.Json` base records remain structural in this generation slice;
-their runtime discriminator and derived members are preserved by the managed
-serializer, while a later union-lowering slice may expose them as a
-discriminated TypeScript union.
+The shared `InertText.InertString` field converter is one deliberate converter
+exception. Its exact metadata identity and converter evidence authenticate a
+JSON string wire value, while the generated TypeScript contract preserves its
+provenance as an opaque string brand:
+
+```ts
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
+```
+
+The JSON payload and JavaScript runtime value remain strings. The generated
+facade grants the brand only where the authenticated C# wire contract names the
+exact `InertText.InertString` type; an unrelated type with the same simple name
+remains an ordinary generated type. The brand has no public constructor,
+decoder, or unchecked helper. Its module-private `unique symbol` key follows
+the conventional TypeScript nominal-typing pattern used by Inspect Web's other
+opaque identities; the generator allocates that private binding against the
+whole module just like public declarations. The brand carries neither policy,
+forms, concerns, nor truncation state, and it does not mean HTML-, attribute-,
+DOM-, or URL-safe. Consumers retain their sink-specific escaping.
+
+The generator and browser receive only the already-encoded representation.
+They do not import or expose `InertText.Encoding`; recovering original text
+remains a separate CLI concern under the InertText audit boundary.
+Polymorphic `System.Text.Json` base records remain structural in this
+generation slice; their runtime discriminator and derived members are
+preserved by the managed serializer, while a later union-lowering slice may
+expose them as a discriminated TypeScript union.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
@@ -576,6 +600,36 @@ If a consumer emits declarations for the facade, `tsc` derives them from the
 generated TypeScript source. Those facade declarations are distinct from the
 SDK's declaration for the runtime module.
 
+### TypeScript lexical spelling policy
+
+`ts-jsexport` owns the lexical spelling of generated TypeScript identifiers.
+Preferred spelling and identifier allocation are separate stages: first derive
+the category-specific spelling below, then make that spelling legal, unique,
+and non-reserved through the deterministic allocator.
+
+| Identifier category | Preferred spelling |
+| --- | --- |
+| Generated type declaration | Preserve the owner-issued managed simple declaration name, removing only a generic arity suffix such as `` `2 ``. |
+| Operation or parameter binding | Apply `System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName` exactly; for example, `URLValue` becomes `urlValue`. |
+| JSON object key | Preserve authenticated serializer evidence. `[JsonPropertyName]` evidence takes precedence; otherwise apply the authenticated serializer naming policy. |
+| Enum wire string | Preserve authenticated enum-member evidence. `JsonStringEnumMemberName` takes precedence; otherwise retain the owner-issued member spelling. |
+| Generator-owned infrastructure | Use a fixed TypeScript-native spelling owned by the generator, such as `InertString`, `inertStringBrand`, `initializeRuntime`, or `runEntryPoint`. |
+| Declaring-type path or runtime dispatch key | Preserve the opaque owner-issued runtime identity without respelling. |
+
+Type declaration names and value bindings therefore follow conventional
+TypeScript category casing when the managed producer follows conventional .NET
+naming: PascalCase types remain PascalCase, while operations and parameters
+become camelCase. The generator does not split words, reinterpret vocabulary,
+or perform acronym-aware respelling beyond the exact named serializer
+transform. A type named `BrowserExactLibraryApiAssemblyIdentity`, for example,
+retains that spelling rather than being translated to another vocabulary.
+
+JSON object keys and enum wire strings are wire data, not facade-style
+bindings. A legal property name may be emitted directly and another supported
+name may be quoted, but neither is recased merely to match surrounding
+TypeScript. Runtime declaring-type paths and dispatch keys likewise remain
+owner-issued identities rather than presentation text.
+
 Generated identifiers must be valid, collision-free TypeScript bindings. One
 deterministic, scope-aware allocator validates the composed module before any
 output is published. At module scope it handles operation-to-operation,
@@ -585,10 +639,10 @@ infrastructure, runtime imports, and helpers are allocated first and are never
 renamed or displaced by a public declaration.
 
 Within each facade function, generated wrapper locals and every module binding
-referenced by that function are reserved first and remain immovable. Legal
-managed parameter spellings are then retained only when unique and unreserved
-in that function scope. A colliding parameter fallback derives from the
-complete managed operation identity and parameter ordinal. If distinct
+referenced by that function are reserved first and remain immovable. A
+preferred parameter spelling is retained when it is legal, unique, and
+unreserved in that function scope. A colliding parameter fallback derives from
+the complete managed operation identity and parameter ordinal. If distinct
 parameter identities still produce the same legal TypeScript spelling, the
 same stable canonical-identity digest rule disambiguates them. Parameter order
 and types remain unchanged, and genuinely illegal identifier input still fails
@@ -1072,6 +1126,11 @@ issue references below.
   types;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
+- exact `InertText.InertString` wire members emit an opaque string brand, the
+  TypeScript compiler rejects an untreated string at that boundary, and a
+  same-named application type does not acquire the brand;
+- the inert-text fixture remains a scalar JSON string at runtime and the
+  generated module exposes no decoder or unchecked branding helper;
 - structurally equal hand-composed owner-issued surfaces produce byte-identical
   TypeScript without any lowering-specific generator branch;
 - an integration gate gives the command paired compiler-async and
@@ -1121,6 +1180,11 @@ issue references below.
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript
   without changing runtime import or public facade semantics;
+- lexical-spelling tests pin owner-issued type declaration names with generic
+  arity removed, the exact `System.Text.Json` camel-case transform for
+  operation and parameter bindings including acronym runs, serializer-owned
+  JSON property and enum-member wire spelling, and fixed generator-owned
+  infrastructure names;
 - collision fixtures cover operation-to-operation, overload,
   DTO-to-DTO, enum-to-enum, enum-to-DTO, operation-to-infrastructure,
   operation-to-wire-declaration, parameter-to-parameter,

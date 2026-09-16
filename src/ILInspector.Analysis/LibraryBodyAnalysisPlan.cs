@@ -42,7 +42,10 @@ internal sealed record LibraryBodyAnalysisPlan(
         if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
-                & LibraryBodyAnalysisFeatures.JsonWireContractFlow) != 0)
+                & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
+                    | LibraryBodyAnalysisFeatures.LocalThrows
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles)) != 0)
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }

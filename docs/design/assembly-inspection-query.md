@@ -431,6 +431,9 @@ exceptions and cancellation propagate rather than entering that mapping.
 
 `ArtifactAssemblyProjection` is immutable, content-free, and bound to one
 in-process artifact generation. It is not a durable or serializable identity.
+Its construction and property mutation remain internal to the Metadata owner;
+public consumers receive owner-issued values and cannot synthesize or rewrite
+their Artifact, MVID, or assembly-identity binding.
 `Registration.Generation` must be the same owner-issued object exposed by
 `Registration.Artifact.Generation`. `Registration.Artifact` must be the exact
 `ArtifactIdentity` from the selected
@@ -1005,6 +1008,205 @@ This is a transitional host for a context-group-scoped query, not a second works
 The workspace must eventually lend its retained image generation to the Metadata catalog
 before it owns this path; constructing an independent catalog over the same path would create
 separate image lifetimes and budgets.
+
+#### Exact single-Type operation
+
+The first complete shared operation at this seam is exact single-Type API
+inspection. `ExactTypeInspectionRequest` names one explicitly versioned NuGet
+package, one explicit target framework other than `all`, and one non-glob Type.
+Its selection kind distinguishes a user query from an exact Metadata definition
+identity. CLI uses query selection, including its existing case-insensitive
+full-name preference, then arity-preserving exact short or namespace-suffix
+matching before generic-name fallback. Browser discovery uses exact definition
+selection: its escaped `DefinitionId` is compared ordinally and never enters
+fuzzy matching.
+`ExactTypeInspectionOperation.Execute` consumes an admitted
+`WorkspaceRealizationOperationLease` and the matching loaded assembly context;
+`ExecuteAsync` is the initial cold host composition that constructs, activates,
+uses, and fully settles one owner-bounded realization per request. Execution
+borrows the admitted lease for the full query, so disposing the outer lease
+rejects later execution and concurrent disposal cannot release realization
+drainage before the in-flight query detaches its result.
+
+The Metadata query considers only participants realized from the requested
+package coordinate. It projects public members for public Types and complete
+members for an exact non-public Type, prefers an exact full-name declaration
+over fuzzy generic-name matching, and retains every declaration matched by a
+non-full-name lookup through terminal resolution. It follows Type forwarders
+through the group binding policy and collapses roots only when Metadata resolves
+every matching root to the same terminal definition. Distinct resolved terminal
+definitions are ambiguous; any non-resolved matching root makes the selection
+unavailable because it could terminate at a different definition.
+`TypeResolutionAmbiguity.AssemblyBinding` is unavailable rather than
+Type-ambiguous because several plausible assemblies do not prove several
+terminal Type definitions. Only competing declarations or distinct resolved
+terminals produce `Ambiguous`.
+Any failed participant, unscoped non-constraint extraction failure, or
+non-constraint failure scoped to the effective exact or fuzzy match makes
+selection unavailable even when another healthy declaration matched. Both
+bounded and unbounded extraction retain rejected structured forwarder names as
+inspection failures; neither mode may turn malformed forwarding evidence into
+conclusive absence.
+Execution bounds are caller-owned: desktop callers may select the explicit unbounded
+overload, while Browser/Wasm must supply
+`BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
+`AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
+package participants. Both modes use resolution-aware extraction so retained
+generic-constraint failures have the same typed meaning. Any bounded projection
+stop makes terminal selection `Unavailable` with typed
+`ProjectionTruncated` evidence: an omitted participant may contain another
+matching root, so a retained declaration is not a conclusive exact answer.
+Truncated absence likewise never becomes a false `NotFound`.
+`NotFound` likewise requires a declaration scan conclusive for the requested
+Type across every participant. A failed participant, a failure without a
+Type-scoped identity, or a failure scoped to a definition matching the request
+makes the outcome `Unavailable`; failures explicitly scoped to unrelated Types
+do not invalidate a conclusive absence.
+The selected result retains a detached structured form of its
+`MetadataTypeDefinitionName` and per-segment introduced generic-parameter
+counts through the envelope. The CLI adapter reconstructs the Metadata-owned
+identity, restores those facts on the singleton `ApiType`, and performs
+presentation lookup with the selected display name rather than reusing the
+escaped request as a second selection.
+The requested and supplying assemblies retain Metadata-issued assembly
+identity and MVID; ordered forwarding hops preserve the route between them.
+Browser discovery transports its escaped `DefinitionId` separately from the
+Research-oriented dotted `QueryId`: the exact-Type operation consumes the
+injective definition identity with ordinal equality, while the adjacent
+relationship projection
+continues to consume the Research query identity.
+
+The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
+content contains declaration facts, member signatures and inventory, exact
+assembly identities, forwarding evidence, suggestions, and typed failure
+evidence. It contains no Workspace, realization identity, lease, reader,
+acquired content, opener, callback, or other resource-bearing handle. Share
+projection and diagnostics are computed once by the shared operation. CLI and
+Browser/Wasm consume that envelope rather than reconstructing its facts.
+Generic-constraint resolution failures remain typed and nonfatal for completion
+and exit status, and the shared operation also projects each one as an
+`exact-type.constraint-resolution-incomplete` warning so every host discloses
+the retained evidence. That projection is scoped to the selected terminal Type
+and its retained members; failures owned by discarded declarations do not
+become exact-Type warnings. Non-constraint failures remain package-wide because
+they may establish that lookup or extraction was incomplete.
+
+The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
+view for an explicit package version and TFM. Explicit sections, alternate
+formats, filters, `--all`, normal/detailed verbosity, documentation/source work,
+and every non-package source shape remain on the compatibility path because
+their richer facts are outside this result contract. Browser/Wasm embeds the
+same envelope unchanged beside its existing Research-owned relationship graph
+and dependency envelope; those outer results do not become exact-Type facts.
+
+The Release gates are:
+
+- `ExactTypeInspectionOperationTests` for detached cold equivalence, exact
+  assembly/MVID identity, forwarded supplier identity and hops, not-found,
+  conclusive ambiguity, matching malformed-declaration and forwarder failures,
+  ordinal definition identity, disposed-lease rejection, visible participant
+  rejection, bounded truncation, nonfatal constraint diagnostics, stable
+  diagnostics, and predecessor/successor realization association;
+- `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
+  member-signature rendering without the eligible legacy source resolver,
+  escaped definition-identity preservation, and nonfatal constraint-warning
+  visibility;
+- `BrowserEngineBoundaryTests.QueryTypeProjection_*` for Browser consumption,
+  ordinal and nested exact-definition selection, exact non-public selection,
+  bounded exact-Type truncation, and isolation from fuzzy dependency roots;
+  `BannedSymbols.txt` prevents Browser production code
+  from selecting the unbounded exact-Type overload; and
+- `metadata-inspection.test.ts` plus `type-panel.test.ts` for the generated
+  Browser contract and presentation composition.
+
+The broader retained Browser realization lifecycle, type listing, source/PDB,
+Analysis, body, decompiler, standalone `member`, and package/platform/project/
+direct-library routes are not changed by this operation.
+
+#### Exact Library API operation
+
+The exact-Library API operation answers one question: for one acquisition-bound
+package Root and one selected compile asset in its surface-role realization,
+what bounded public API is available? This is the single host-neutral semantic
+path for the existing CLI `type --package ... --library ...` listing and Inspect
+Web Library Overview. It does not add API ownership or output to the `library`
+command.
+
+An `ExactLibraryApiInspectionRequest` identifies an exact package id and
+version, one requested TFM other than `all`, and a Library selection. CLI
+compatibility selection accepts an exact package-relative asset path or an
+unambiguous assembly file/base name. Browser/Wasm submits the acquisition-issued
+opaque `PackageCompileAsset.Id`. Query selection never resolves ambiguity by
+enumeration order; exact asset-id selection is ordinal.
+
+The semantic operation consumes the acquisition-issued `PackageRootBinding`
+and matching `PackageAssemblyContextRealization`. The binding preserves the
+canonical package id/version, opaque producer identity, and acquisition
+framework that distinguish equal coordinates served by different sources. The
+operation requires the selected asset to remain associated with that package
+Root and exact surface-role participant. It projects exactly that participant
+through
+`AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` with
+`ApiSurfaceScope.Public`; it does not reconstruct a path-shaped inspection or
+project every package participant and filter afterward.
+
+The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
+
+- the exact acquisition source coordinate, requested TFM, selected compile
+  asset id/path and TFM, assembly identity, and MVID;
+- public type/member totals, type-kind facets from `ApiInventoryQuery`, and
+  ordered namespace counts;
+- typed selection, participant, extraction, and truncation failures, plus an
+  explicit completion bit;
+- one Share projection selecting the exact Library asset, and stable typed
+  diagnostics.
+
+  The host-neutral execution also returns the detached owner-issued `ApiSurface`
+  that the existing CLI renderer consumes. It is an execution companion rather
+  than envelope content because Browser Library Overview adopts only the bounded
+  inventory summary. Neither value contains a package Root, operation lease,
+  Workspace, assembly context, reader, stream, callback, or other live
+  authority. This slice does not implement the design-only
+  `LibraryContentOwner`, `LibraryOperationLease`, Library borrowing, or Library
+  retirement contracts from
+  [Library ownership and borrowing](library-ownership-and-borrowing.md).
+
+The CLI adapter acquires the exact package Root, realizes package assembly roles
+inside a #6752 candidate Workspace, cuts over, enters operation authority,
+invokes the shared semantic operation, and returns only the detached envelope.
+Inspect Web invokes the same semantic operation while its existing
+`BrowserScopeLease` retains the package Root and role realization. Shared cache
+or transport resources may back both hosts; semantic association and lifetime
+authority remain explicit in each composition.
+
+The Browser/Wasm interop adapter losslessly projects every field of the same
+complete envelope into its assembly-local generated wire records. The adapter
+does not recompute semantic content or transport the declaration-row
+`ApiSurface` execution companion, because this slice adopts only Library
+Overview counts and facets; Browser Type/member navigation keeps its separately
+owned package-wide projection.
+
+Platform Library Overview is outside this package-Root operation. It retains
+the existing Platform projection and does not invoke `QueryLibraryApi`.
+
+Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
+TFM, explicit Library, and the ordinary type-listing catalog. Documentation,
+source/PDB, clone candidates, performance, decompilation, direct-file, project,
+Platform, package ranges, and Type/member-detail requests remain on named
+compatibility paths. Inspect Web adopts only Library Overview public counts and
+facets; package-wide browsing and non-public navigation retain their separately
+owned package projection.
+
+The Release gates are:
+
+- `ExactLibraryApiInspectionOperationTests` for exact asset and compatibility
+  selection, missing and malformed Libraries, bounds, diagnostics, detached
+  identity/authority, and cold/in-scope equivalence;
+- `ExactLibraryWorkspaceRouteTests` for unchanged CLI output and non-vacuous
+  retirement of the eligible `ApiSourceResolver` path; and
+- `BrowserEngineBoundaryTests.QueryLibraryApiProjection_*` plus Library
+  Overview TypeScript tests for exact-asset Browser consumption, generated
+  contract stability, and producer-owned namespace/type-kind presentation.
 
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 

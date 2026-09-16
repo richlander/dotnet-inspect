@@ -13,6 +13,11 @@ import {
   typeSourceSignature,
 } from "../src/type-panel.ts";
 import type {
+  ExactTypeApi,
+  InertString,
+  InspectionDiagnostic,
+} from "../src/facades/inspect-web-metadata.d.ts";
+import type {
   MemberNavEntry,
   TypePanelBindingActions,
   TypeSummary,
@@ -20,6 +25,7 @@ import type {
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -72,6 +78,12 @@ class FakeRoot {
   }
 }
 
+function inertString(value: string): InertString {
+  // Test fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
+
 function keyboardEvent(
   key: string,
   modifiers: Partial<Pick<
@@ -122,6 +134,87 @@ function escapeHtml(value: unknown) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function availableExactTypeInspection(
+  overrides: Partial<ExactTypeApi> = {},
+  diagnostics: readonly InspectionDiagnostic[] = [],
+  isComplete = diagnostics.length === 0,
+) {
+  const fullName = overrides.fullName ?? "System.Text.Json.JsonSerializer";
+  return {
+    content: {
+      outcome: 0,
+      requestedType: fullName,
+      matchedType: fullName,
+      type: {
+        fullName,
+        namespace: "System.Text.Json",
+        name: "JsonSerializer",
+        definitionIdentity: {
+          namespace: "System.Text.Json",
+          segments: ["JsonSerializer"],
+        },
+        introducedTypeParameterCounts: [0],
+        kind: "class",
+        accessibility: "public",
+        attributes: [],
+        isSealed: false,
+        isAbstract: false,
+        isStatic: false,
+        isByRefLike: false,
+        isReadOnly: false,
+        baseType: null,
+        interfaces: [],
+        derivedTypes: [],
+        typeParameters: [],
+        members: [],
+        enumUnderlyingType: null,
+        isForwarded: false,
+        ...overrides,
+      },
+      requestedAssembly: null,
+      supplierAssembly: null,
+      forwardingHops: [],
+      suggestions: [],
+      inspectionFailures: [],
+      failures: [],
+      isAvailable: true,
+      isComplete,
+    },
+    share: {
+      fullUrl: null,
+      packet: null,
+    },
+    diagnostics,
+  };
+}
+
+function unavailableExactTypeInspection(
+  outcome: number,
+  diagnostics: readonly InspectionDiagnostic[],
+) {
+  return {
+    content: {
+      outcome,
+      requestedType: "System.Text.Json.JsonSerializer",
+      matchedType: null,
+      type: null,
+      requestedAssembly: null,
+      supplierAssembly: null,
+      forwardingHops: [],
+      suggestions: [],
+      inspectionFailures: [],
+      failures: [],
+      isAvailable: false,
+      isComplete: false,
+    },
+    share: {
+      fullUrl: null,
+      packet: null,
+    },
+    diagnostics,
+  };
 }
 
 function typeDisplayName(item: TypeSummary) {
@@ -188,6 +281,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onCopyTypeSource: () => {
       calls.push("copy-type-source");
+    },
+    onExploreSource: () => {
+      calls.push("explore-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
     onTypeNavBack: () => calls.push("type-nav-back"),
@@ -449,6 +545,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const copySignature = root.add("#copy-signature", new FakeElement());
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
+  const exploreSource = root.add("#explore-source", new FakeElement());
   const calls: string[] = [];
 
   bindPanel(root, recordingActions(calls));
@@ -470,6 +567,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
   invalidAnchor.dispatch("click");
   copyMemberSource.dispatch("click");
   copyTypeSource.dispatch("click");
+  exploreSource.dispatch("click");
 
   assert.deepEqual(calls, [
     "member-jump-kind:method",
@@ -488,6 +586,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "copy-anchor:undefined",
     "copy-member-source",
     "copy-type-source",
+    "explore-source",
   ]);
 });
 
@@ -895,13 +994,15 @@ test("type metadata renders composition, interfaces, and derived types once load
       typeMetadataLoading: false,
       typeMetadataError: null,
       typeMetadata: {
-        kind: "class",
-        accessibility: "public",
-        namespace: "System.Text.Json",
-        assembly: "System.Text.Json.dll",
-        interfaces: ["System.IDisposable"],
+        exactTypeInspection: availableExactTypeInspection({
+          interfaces: ["System.IDisposable"],
+          members: [{
+            name: "Serialize",
+            kind: "method",
+            signature: null,
+          }],
+        }),
         derivedTypes: ["System.Text.Json.MyJsonSerializer"],
-        composition: { total: 3 },
       },
     },
     memberCompositionHtml: `
@@ -947,6 +1048,105 @@ test("type metadata keeps projection failures inside the full-area surface", () 
   assert.match(html, /data-type-graph-surface/);
 });
 
+test("type metadata renders exact ambiguity instead of a legacy Type surface", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: unavailableExactTypeInspection(2, [{
+          code: "exact-type.ambiguous",
+          severity: 2,
+          summary: inertString(
+            "The Type resolved to more than one exact Metadata definition."),
+          correspondence: null,
+        }]),
+      },
+    },
+    memberCompositionHtml: "<div>legacy members</div>",
+    escapeHtml,
+    relatedTypeChip: escapeHtml,
+    factRows,
+  });
+
+  assert.match(html, /Type selection is ambiguous/);
+  assert.match(html, /exact-type\.ambiguous/);
+  assert.doesNotMatch(html, /Type shape/);
+  assert.doesNotMatch(html, /legacy members/);
+});
+
+test("type metadata renders exact diagnostics for incomplete available content", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection(
+          {},
+          [{
+            code: "exact-type.inspection-incomplete",
+            severity: 1,
+            summary: inertString(
+              "One metadata row could not be decoded."),
+            correspondence: null,
+          }],
+          false),
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    relatedTypeChip: escapeHtml,
+    factRows,
+  });
+
+  assert.match(html, /Type shape/);
+  assert.match(html, /Exact type inspection may be incomplete/);
+  assert.match(html, /exact-type\.inspection-incomplete/);
+  assert.match(html, /One metadata row could not be decoded/);
+});
+
+test("type metadata renders nonfatal exact constraint diagnostics", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection(
+          {},
+          [{
+            code: "exact-type.constraint-resolution-incomplete",
+            severity: 1,
+            summary: inertString(
+              "Generic-constraint classification was incomplete."),
+            correspondence: null,
+          }],
+          true),
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    relatedTypeChip: escapeHtml,
+    factRows,
+  });
+
+  assert.match(html, /Type shape/);
+  assert.match(html, /Exact type inspection may be incomplete/);
+  assert.match(html, /exact-type\.constraint-resolution-incomplete/);
+  assert.match(html, /Generic-constraint classification was incomplete/);
+});
+
 for (const nodeCount of [0, 1, 2]) {
   test(`type metadata keeps relationship warnings visible with ${nodeCount} graph nodes`, () => {
     const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
@@ -958,6 +1158,7 @@ for (const nodeCount of [0, 1, 2]) {
         typeMetadataLoading: false,
         typeMetadataError: null,
         typeMetadata: {
+          exactTypeInspection: availableExactTypeInspection(),
           graphNodes: Array.from({ length: nodeCount }, (_, index) => ({ id: `Type${index}` })),
           inspectionFailures: ["Unable to project <related> type"],
         },
@@ -984,7 +1185,13 @@ test("type PDB source renders code above provenance once loaded", () => {
     sourceState: {
       status: "ready",
       signature: "sig",
-      source: { provider: "pdb", provenance: "SourceLink", url: "https://example.test", text: "class JsonSerializer {}" },
+      source: {
+        provider: "pdb",
+        provenance: inertStringFixture("SourceLink"),
+        url: "https://example.test",
+        pdbSourceLimitation: null,
+        text: "class JsonSerializer {}",
+      },
     },
     escapeHtml,
     highlightCSharp,
@@ -998,12 +1205,13 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 
-test("source page actions render copy and open for the page-owned group", () => {
+test("source page actions render copy, open, and Explore for the page-owned group", () => {
   const html = renderSourcePageActions({
     source: {
       provider: "pdb",
-      provenance: "SourceLink",
+      provenance: inertStringFixture("SourceLink"),
       url: "https://example.test/source.cs?x=1&y=2",
+      pdbSourceLimitation: null,
       text: "class JsonSerializer {}",
     },
     copyButtonId: "copy-type-source",
@@ -1014,6 +1222,9 @@ test("source page actions render copy and open for the page-owned group", () => 
   assert.match(
     html,
     /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
+  assert.match(
+    html,
+    /id="explore-source"[^>]*title="Explore source options"[^>]*>Explore<\/button>/);
 });
 
 test("source page actions disable copy until source is available", () => {
@@ -1025,6 +1236,8 @@ test("source page actions disable copy until source is available", () => {
 
   assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
   assert.doesNotMatch(html, /shell-action-link/);
+  assert.match(html, /id="explore-source"[^>]*>Explore<\/button>/);
+  assert.doesNotMatch(html, /id="explore-source"[^>]* disabled/);
 });
 
 test("decompiled type source discloses an escaped PDB-source limitation", () => {
@@ -1036,7 +1249,8 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       signature: "sig",
       source: {
         provider: "decompiled",
-        provenance: "decompiled from IL",
+        provenance: inertStringFixture("decompiled from IL"),
+        url: null,
         pdbSourceLimitation: "<checksum mismatch>",
         text: "class JsonSerializer {}",
       },

@@ -40,6 +40,10 @@ import {
   renderSourcePageActions,
   renderSourceResult,
 } from "../src/type-panel.ts";
+import type {
+  BrowserSource,
+  InertString,
+} from "../src/facades/inspect-web-source.d.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import {
@@ -110,6 +114,7 @@ const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
+let applicationDialogReturn: "application" | "source" = "application";
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -238,8 +243,6 @@ function workspaceDetailHtml(): string {
         framework: item.activeFramework,
       })),
     packages: coordinates,
-      demos: [],
-      demoError: "",
       loading: false,
       error: "",
     escapeHtml,
@@ -276,11 +279,19 @@ let contentFrameReplacementFocus: MemberFocusSnapshot | null = null;
 let contentFrameReplacementFocusGeneration: number | null = null;
 let documentFocusGeneration = 0;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
-const source = {
+
+function inertString(value: string): InertString {
+  // Browser fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
+
+const source: BrowserSource = {
   provider: limitationMode ? "decompiled" : "pdb",
-  provenance: limitationMode
-    ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
-    : "SourceLink · github.com/dotnet/runtime",
+  provenance: inertString(
+    limitationMode
+      ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
+      : "SourceLink · github.com/dotnet/runtime"),
   url: "https://github.com/dotnet/runtime",
   pdbSourceLimitation: limitationMode
     ? "The selected type's primary source document is not uniquely identified in the portable PDB."
@@ -1013,11 +1024,19 @@ function setApplicationDialog(
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
   if (next === "settings") {
-    document.querySelector<HTMLElement>("#settings-title")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#settings-decompiler-title"
+        : "#settings-title",
+    )?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
   } else {
-    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#explore-source"
+        : "#application-menu-button",
+    )?.focus();
   }
 }
 
@@ -1030,6 +1049,7 @@ function handleApplicationAction(action: ApplicationAction): void {
     }, 50);
     return;
   }
+  applicationDialogReturn = "application";
   setApplicationDialog(applicationDialog === action ? null : action);
 }
 
@@ -1072,6 +1092,10 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
 };
 workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
+document.querySelector("#explore-source")?.addEventListener("click", () => {
+  applicationDialogReturn = "source";
+  setApplicationDialog("settings");
+});
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
   onOpenDiagnostics: () => {

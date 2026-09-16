@@ -6,39 +6,78 @@
   `member`;
 - operation-first commands such as `diff`.
 
-That split is useful, but only if transitions between commands follow an
-explicit model. A user should be able to predict whether a new gesture changes
-the subject, the observation, the operation, the lens, or only the rendering.
+That is the current grammar, not a requirement to put every distinct operation
+at the root. A user should be able to predict whether a new gesture changes
+the subject, observation, operation, lens, or only the rendering.
 
 The governing rule is:
 
-> One transition should change one axis. Change commands when the independently
-> navigable subject domain or operation arity changes; use selectors for points
-> within an established domain, and options or sections for context,
-> observations, lenses, and projection.
+> One transition should change one axis. Subject commands name independently
+> navigable domains; their selectors identify subjects. Distinct operations
+> are explicit and may be subcommands under that subject. A change in arity
+> requires a distinct request and outcome contract, not inherently another
+> top-level command. Options and sections select context, observations,
+> traversal, and projection without silently changing the subject.
+
+The proposed [subject-owned Diff](#subject-owned-diff) adoption is tracked by
+[#7046](https://github.com/richlander/dotnet-inspect/issues/7046), under
+[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+This document owns its command placement and completed-host-adoption boundary.
+It supersedes the top-level placement proposed in #6988; the
+[History owner](diff-history.md) retains temporal and population-count
+semantics, not CLI placement. The user also explicitly approved full shared
+envelopes, complete Browser delivery, and public CLI `--envelope` output as
+part of this adoption.
+
+The [location and result cardinality](#location-and-result-cardinality)
+contract is tracked by
+[#7215](https://github.com/richlander/dotnet-inspect/issues/7215). This document
+owns that cross-command pattern, while each command and Workspace retain their
+source, query, registration, result, and syntax internals. Its adoption is
+staged one owner at a time.
+
+The host-observable Result, Document, and owner-specific Outcome contract
+proposed in
+[#7055](https://github.com/richlander/dotnet-inspect/pull/7055)
+owns the names and semantic extents carried as `TContent`. This adoption
+consumes that contract; it does not define a competing Diff-specific content
+taxonomy.
+
+This is **specification only**. Existing top-level `diff` and `timeline` remain
+current until the cutover. Current examples elsewhere in this document are
+pre-cutover evidence; the target grammar is isolated below. Other root
+operations such as `match`, `find`, `depends`, and `graph` are not relocated
+by this adoption.
 
 Related docs:
 
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
+- [Host-observable content kinds](host-observable-content-kinds.md) defines
+  semantic Result, Document, and owner-specific Outcome extents.
 - [Output Composition](output-composition.md) separates data selection,
   filtering, and rendering.
 - [Rendering Model](rendering-model.md) defines verbosity and alternate lenses.
 - [Method Body Inspection](method-body-inspection.md) defines the shared member
   and IL-coordinate query model.
+- [Find assembly-semantic query](find-assembly-semantic-query.md) owns decoded
+  string-literal occurrence results.
+- [Workspace registration and call-graph focal
+  length](workspace-registration-and-call-graph-scope.md) owns inert
+  exact-Library and package-prefix registration.
 
 ## Independent axes
 
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
-| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Subject command and selector, or an existing operation-first command's focus selector |
 | Point selector / coordinate | Which exact instance or point is selected within that structural scope? | overload, MethodDef token, IL offset | Positional/named selector whose identity is complete within the current scope |
 | Observation / census | Which identities or facts are measured under that focus? | subject presence, child-member census, allocation sites, call sites | Section or producer descriptor such as `--finding` |
-| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
+| Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Explicit operation, at root or under its subject, and admitted modes; separate lifecycle and outcomes do not require root placement |
 | Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
-| Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
+| Projection / rendering | How is the same content shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
 Source context is not focus. In:
 
@@ -108,6 +147,400 @@ have zoomed to that identity. Focus defines the producer's scope and input
 subject; the producer defines the Finding identity and payload family within
 that scope.
 
+## Location and result cardinality
+
+### Claim and boundary
+
+The governing cardinality rule is:
+
+> Every command declares how many location coordinates one invocation admits,
+> which semantic result identity families it can return, and whether each
+> selected result mode is scalar or vector. These are independent dimensions.
+> Unary Package, Library, Type, and Member inspection admits one location
+> coordinate; Workspace owns multi-location top-level inventory; search and
+> query operations admit multiple coordinates only when their operation
+> contract says so.
+
+A **location coordinate** is one hierarchical address from a source root to
+the subject scope needed by the request. Depending on the command, its fields
+may include:
+
+```text
+source root -> Package -> Library -> Type -> Member -> point
+```
+
+Not every coordinate uses every field. A direct local Library can be the root,
+while a package-relative Library is a child field within a Package coordinate.
+`--package P --library L` therefore supplies one compound coordinate: Library
+`L` within Package `P`. It does not name two locations and then intersect
+them.
+
+**Location cardinality** is the number of independently resolvable coordinates
+an operation plan may evaluate:
+
+- a **single-coordinate** operation evaluates at most one exact coordinate;
+- a **multi-coordinate** operation may evaluate an operation-owned population
+  of exact coordinates.
+
+This is a plan capability, not an observed count. A repeated exact-source
+gesture and a bounded population selector can both produce a multi-coordinate
+plan even when resolution later yields one or zero candidates. Conversely, a
+range plus an exact `--at` selection is single-coordinate because the operation
+may evaluate only the selected address. Expansion order, bounds, resolution,
+deduplication, and acquisition remain with the operation and source owners.
+
+Workspace is the aggregate owner for top-level location **inputs**, including
+inert population declarations that are not yet coordinates. Its inventory
+operation reports those inputs without implying that they have been expanded
+or evaluated. A later operation selecting one realized occurrence establishes
+its own location cardinality.
+
+**Result identity family** states what independently meaningful answers the
+selected mode emits, such as Package, Library, Type, or Member. **Result
+cardinality** is scalar or vector within that selected identity family. The
+number of resolved locations does not determine the number of results.
+
+This pattern does not introduce one universal coordinate, result, document, or
+outcome CLR type. Source owners retain their typed identities and resolution
+rules. Result owners retain their schemas, ordering, completeness, and
+non-success cases. The pattern defines how commands declare and compose those
+contracts.
+
+### Complexity basis and analogous designs
+
+Three dimensions are the smallest model that explains the current tensions
+without making syntax or rendering accidental semantics:
+
+- the same Library spelling can currently change the Type command's positional
+  grammar;
+- one Package location and one Library location can each produce either a
+  focused answer or a child census;
+- multi-package Package inspection supports a substantially smaller operation
+  set than unary Package inspection; and
+- output can reduce a vector to one displayed row without changing what the
+  operation returned.
+
+Collapsing any two dimensions loses a required distinction. Location count
+cannot determine result count, result count cannot identify the result family,
+and rendered shape cannot define either.
+
+`kubectl get` is an analogous noun-oriented surface: namespace and resource
+scope are separate from whether an exact resource name or a list is requested.
+`ripgrep` and `git grep` are analogous multi-location searches: several paths
+contribute search scope while the result remains one match collection. These
+tools support separating location scope from result cardinality; their syntax
+and resource models are evidence, not authority for this CLI.
+
+### Coordinate fields, result selection, and filtering
+
+Command planning keeps five roles distinct:
+
+| Role | Meaning | Example |
+| --- | --- | --- |
+| Root field | Establishes the source root of one coordinate | `--package P`, direct Library path |
+| Descendant field | Qualifies that coordinate below its root | Library `L` within Package `P`, Type `T` within Library `L` |
+| Result-mode selector | Chooses the identity family and scalar/vector contract | exact Type lookup versus Type inventory |
+| Result predicate | Narrows the selected result population | visibility, name pattern, classification |
+| Projection | Changes presentation of the same semantic content | fields, columns, count, JSON |
+
+A descendant field never adds a location. A result predicate never creates a
+source or changes a scalar request into a vector request. A projection never
+changes location or result cardinality.
+
+Repeated or sibling root fields add coordinates only for a command whose
+declared location cardinality is multiple. For a single-coordinate command,
+supplying a second independent root is invalid even if the two roots happen to
+resolve to the same bytes. Equality or deduplication after resolution does not
+repair an invalid request.
+
+Within one coordinate, each hierarchy level has zero or one selected value
+unless that coordinate owner defines a typed aggregate subject. A package-wide
+Type inventory may evaluate Types from a package-owned aggregate Library
+subject while remaining one Package coordinate; that does not make the Type
+command multi-coordinate. The aggregate identity and its completeness remain
+owned by the Package/Library query.
+
+The parser, operation plan, portable request identity, and completed content
+must preserve these distinctions. Hosts do not recover them from rendered
+labels, file names, assembly simple names, or the number of returned rows.
+
+### Positional grammar is stable
+
+Each positional slot has one command-declared role. Lexical shape must not
+reassign that slot or change the role of another token.
+
+For the Type command target:
+
+```bash
+dotnet-inspect type Cases.Widget --library ./app.dll
+dotnet-inspect type Cases.Widget --package P --library L
+```
+
+`Cases.Widget` is the Type selector in both requests. In the second request,
+`--package P --library L` fills one package-relative Library coordinate. A bare
+`L.dll` value must not reinterpret `Cases.Widget` as a positional package merely
+because it lacks a path separator. Package selection uses the command's
+declared Package field.
+
+Current routes that infer positional meaning from whether a Library value
+looks like a path are migration gaps. Their adopting command must classify the
+change, reserve obsolete grammar against silent rerouting, and fail visibly
+when a former form cannot be interpreted under the stable slots. This pattern
+does not require every command to use the same positional slots; it requires
+each command's slots to retain one meaning.
+
+### Scalar and vector results
+
+Result cardinality is selected by the semantic gesture, not inferred from the
+observed number of matches:
+
+- an exact lookup remains scalar when it succeeds;
+- an exact lookup with no valid answer returns an owner-specific typed
+  non-available Outcome, not a null Result or empty vector;
+- a listing or query remains vector when it returns one item;
+- a complete listing or query with no matches retains its vector semantics;
+  and
+- a bounded or incomplete vector retains its declared cardinality and exposes
+  the bound, completion state, and scoped failures required by its owner.
+
+A command that supports both scalar and vector modes chooses the mode before
+result population. It does not run a plural query and collapse a one-item
+vector into a scalar, nor promote an ambiguous scalar match into a vector after
+resolution.
+
+Multi-coordinate operations select one result identity family for the
+invocation. `find` returns a Type vector or a Member vector according to its
+selected ordinary search mode, never an untyped mixture. Assembly-semantic
+`find --literal` instead retains its owner-issued decoded-literal occurrence
+family. Package Query returns a Package vector. A typed sum may be one result
+identity family when the owning schema defines its closed cases; Workspace
+inventory uses that approach rather than returning unrelated objects in one
+bare collection.
+
+Semantic result cardinality is not the rendered
+[Document → Table → Vector → Scalar](output-shapes.md) ladder. One scalar
+Result may render as a multi-section report. One semantic vector may render as
+a table, JSON array, count, or one selected row without changing the completed
+operation's baseline content. Content projection cannot be used to infer or
+rewrite the semantic contract. The content owner separately decides whether
+the completed value is a Result, Document, or owner-specific Outcome under
+[Host-observable content kinds](host-observable-content-kinds.md).
+
+### Target command classification
+
+The target primary result contracts are:
+
+| Operation | Location coordinates | Primary result identity | Result cardinality |
+| --- | ---: | --- | --- |
+| `package` inspection | One | Package | Scalar |
+| `library` inspection | One | Library | Scalar |
+| `type` inspection | One | Type | Scalar or vector, selected by gesture |
+| `member` inspection | One | Member | Scalar or vector, selected by gesture |
+| `find` | Multiple | Type or Member, selected by mode | Vector |
+| `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
+| `package query` | Multiple | Package | Vector |
+| `workspace` inventory | Multiple top-level inputs; no implied evaluation | Workspace inventory entry | Vector |
+
+The table classifies the command's primary semantic answer. Observations below
+that focus may contain other typed populations. Package files and versions,
+Library dependencies, Type members, and attached Findings do not change the
+primary identity merely because they render rows.
+
+Package version ranges remain address spaces under
+[A version range is an address space](#a-version-range-is-an-address-space).
+A unary inspection selects one address; a metadata version listing returns its
+owner's version-address Document, not a Package vector. Pairwise and temporal
+operations retain their separately declared operation arity.
+
+### Workspace is the aggregate inventory owner
+
+Workspace owns the experience for collecting and inventorying independently
+addressable top-level inputs. The current CLI's ordered Package inventory is
+the first production subset of that role. The target inventory admits, at
+minimum:
+
+- exact Package roots;
+- exact-Library registrations; and
+- package-prefix registrations.
+
+These are not flattened into one accidental common identity. The Workspace
+owner must preserve enough owner-issued type and identity to distinguish exact
+Package content, an inert package-prefix declaration, and an exact-Library
+registration. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219)
+owns the inventory schema, state, diagnostics, and filter semantics.
+
+Registration remains inert. Merely inventorying a package prefix does not
+enumerate matching packages, and merely inventorying an exact Library does not
+acquire or analyze it. A Workspace operation that realizes a registration owns
+its explicit source authorization, bounds, and failure semantics.
+
+Inventory filters select entries from the completed top-level inventory. They
+do not add registrations, mutate Workspace membership, activate an occurrence,
+or reinterpret a Package as a Library. Selecting one exact inventory occurrence
+for drill-down establishes one coordinate for the subsequent unary
+Package/Library/Type/Member operation.
+
+The focused Workspace owner must define the host-neutral completed content,
+registration syntax, filters, occurrence identity, and CLI/Browser adoption.
+In particular, new direct-Library registration syntax must not overload the
+current Workspace `--library` descendant selector in a way that recreates the
+root-versus-child ambiguity this contract removes.
+
+### Current behavior and migration
+
+Several current behaviors are evidence for the target, not permanent
+precedent:
+
+| Current behavior | Target disposition |
+| --- | --- |
+| `package` accepts multiple positional packages and adds an outer Package column. | Move aggregate Package inventory to Workspace through [#7219](https://github.com/richlander/dotnet-inspect/issues/7219), then retire multi-package `package` through [#7221](https://github.com/richlander/dotnet-inspect/issues/7221); do not copy it into `library`. |
+| Multi-package `package` rejects Library selection, versions, layout, discovery, printing, dependencies, and other unary operations. | Preserve those operations on one Package coordinate instead of growing a second constrained command mode. |
+| Package-backed `library` can emit several Libraries, including all-TFM populations. | Inventory those Library occurrences through Workspace or a package-owned child census; [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) makes `library` select one exact Library Result. |
+| A bare `.dll` Library value can change the Type command's positional interpretation. | [#7220](https://github.com/richlander/dotnet-inspect/issues/7220) gives the Type positional slot one stable role and requires explicit coordinate fields. |
+| `workspace` accepts repeatable Packages and renders an ordered Package inventory. | [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) owns the focused typed top-level Package, package-prefix, and exact-Library inventory adoption. |
+| Ordinary `find`, assembly-semantic `find --literal`, and Package Query resolve plural source populations. | Preserve their operation-owned multi-coordinate inputs and owner-issued homogeneous result modes. |
+
+This is an intentional CLI transition. Adopting commands must follow
+[CLI change classification](cli-change-classification.md), update help and
+schema discovery, and remove obsolete forms without forwarding aliases or
+silent fallback. Workspace parity for the useful aggregate scenario must land
+before the corresponding noun-command route is removed.
+
+### Disclosure, identity, and errors
+
+Help and machine-readable discovery must disclose, in command-owned language:
+
+- whether location cardinality is one or multiple;
+- which syntax fills each root and descendant coordinate field;
+- which fields may repeat and whether repetition adds coordinates;
+- the available result identity families and scalar/vector modes;
+- whether zero matches is an empty Document or a typed non-available Outcome;
+  and
+- which options are result predicates or output projections rather than
+  location selectors.
+
+Portable request and result identity retain the complete typed coordinate and
+selected result mode. They do not encode meaning only in display text or infer
+parentage from a file name.
+
+Invalid combinations fail before acquisition when the contradiction is
+syntactic or plan-level. Diagnostics name the violated cardinality and the
+valid aggregate owner. Representative failures include:
+
+- a second Package or direct-Library root on a unary noun command;
+- two sibling Library children inside one coordinate;
+- a descendant selector without an admitted parent or direct-root form;
+- an option presented as a filter that would have to create another source;
+  and
+- an obsolete positional form whose meaning would otherwise depend on path
+  spelling.
+
+Acquisition and resolution failures remain typed owner outcomes. They are not
+reported as cardinality errors merely because fewer coordinates or results
+survived than requested.
+
+### Demo
+
+The target semantic experience separates unary inspection from aggregate
+inventory. This is a contract mockup; the Workspace owner has not yet selected
+new CLI syntax:
+
+```text
+package System.Text.Json@10.0.0 Markout@0.35.2
+  error: package accepts one location; use Workspace inventory for multiple
+         top-level inputs
+
+Workspace top-level inputs
+  1  Package        System.Text.Json@10.0.0
+  2  Package        Markout@0.35.2
+  3  PackagePrefix  Microsoft.Extensions.
+  4  ExactLibrary   ./System.Text.Json.dll
+
+Workspace inventory, filter Kind = ExactLibrary
+  4  ExactLibrary   ./System.Text.Json.dll
+```
+
+Drill-down then returns to one coordinate. The exact package-relative Library
+syntax belongs to [#7222](https://github.com/richlander/dotnet-inspect/issues/7222);
+the semantic request is:
+
+```text
+Library coordinate
+  Package  System.Text.Json@10.0.0
+  Library  compile:lib/net10.0/System.Text.Json.dll
+
+Result
+  Library  System.Text.Json.dll
+```
+
+The request returns one Library Result. The existing exact Type spelling:
+
+```bash
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.0 \
+  --library compile:lib/net10.0/System.Text.Json.dll
+```
+
+returns one Type Result. Omitting the exact Type selector in an admitted
+Type-listing gesture returns a Type vector even when exactly one Type matches.
+
+### Adoption and evidence
+
+Adopt the pattern through focused owners:
+
+1. Lock this cardinality contract.
+2. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) adopts
+   typed top-level inventory in the Workspace owner and delivers its
+   host-neutral result to CLI and Browser consumers.
+3. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) adopts
+   single-coordinate Package inspection after the Workspace replacement is
+   usable.
+4. [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) adopts
+   exact scalar Library inspection after aggregate Library inventory has an
+   owner.
+5. [#7220](https://github.com/richlander/dotnet-inspect/issues/7220) adopts
+   stable Type coordinate grammar. Other command owners adopt the pattern only
+   through separately scoped issues when a concrete gap is identified.
+
+Total steps: **5**. A later step may split into independently reviewed command
+adoptions, but no command removes a current aggregate route before the
+Workspace replacement for that scenario is usable.
+
+The motivating real cases are aggregate inspection of
+`System.Text.Json@10.0.0` with `Markout@0.35.2`, exact Library and Type
+drill-down in `System.Text.Json@10.0.0`, and bounded `Microsoft.Extensions.`
+package-prefix registration. The current multi-package Package route's reduced
+operation set demonstrates why it is not the model to reproduce for Library.
+
+Each focused adoption owns its exact implementation and gates. Pattern
+conformance requires evidence for the applicable subset of:
+
+- declared location cardinality is enforced before acquisition;
+- scalar and vector modes retain their semantic cardinality for zero, one, and
+  many observed matches;
+- result identity remains typed and homogeneous, including closed typed sums;
+- coordinate fields, result predicates, and projections do not exchange roles;
+- positional roles remain stable across lexical variants of the same field;
+  and
+- help, discovery, portable identity, and structured output disclose the
+  selected contract.
+
+These gates are **unverified** in this specification-only change. Existing
+Workspace Package inventory, exact-Library inspection, and multi-source search
+tests are implementation baselines, not proof of the target cutover.
+
+### Cardinality non-goals
+
+This contract does not:
+
+- choose the new Workspace registration or filter option spellings;
+- redefine Workspace registration, realization, drainage, or source policy;
+- require one generic result collection across Package, Library, Type, and
+  Member;
+- relocate Find or Package Query;
+- make rendering shape determine semantic cardinality; or
+- retain current plural noun-command behavior solely for compatibility.
+
 ## When a command transition is justified
 
 A command transition is justified when either of these changes:
@@ -119,16 +552,18 @@ A command transition is justified when either of these changes:
    `library --il-offset`, however, remains an option when the selector is
    complete within the established library scope and does not need an
    independent command surface.
-2. **Operation arity:** the acquisition topology and outcome envelope change.
+2. **Operation arity:** the acquisition topology and Outcome content change.
    Unary inspection, pairwise comparison, and N-address correlation have
-   different failure semantics, backpressure, and result shapes.
+   different failure semantics, backpressure, and content kinds. An explicit
+   subject-owned operation or mode can express that transition without moving
+   the operation to the root.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
 type-scoped member census can both participate in `diff --type T`;
 `member -S IL` does not become an `il` command because it is the same member
 under another representation. `--json` does not become a command; it is another
-writer over the same result.
+writer over the same content.
 
 An execution lifecycle is different when at least one of these is true:
 
@@ -156,7 +591,8 @@ These commands are ergonomic spellings of the conceptual unary operation
 `inspect(package|type|member)`. There is no need to add a literal `inspect`
 command until it enables a concrete composition benefit.
 
-Multi-address operations are operation-first:
+Current multi-address operations are operation-first. Before the proposed
+subject-owned Diff cutover:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
@@ -165,14 +601,294 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer --finding api.member --at all
 ```
 
-`timeline` belongs beside `diff`, not behind `type --timeline` or a
-`Timeline` section. It changes arity, acquisition, failure topology, and the
-top-level result from a subject document to an ordered history.
+The current `timeline` command changes arity, acquisition, failure topology,
+and the content from a subject Document to an ordered History Document.
+Subject-owned Diff preserves those distinctions as an explicit operation and
+mode, not a `History` output section. Its native temporal evidence remains
+owned by [Diff History inspection](diff-history.md).
 
-Operation-first commands carry source and focus as explicit selectors. Existing
-positional source shorthands, such as `diff Package@A..B`, may remain compatible,
-but documentation and new cross-operation examples should prefer the named form
-so the source/focus/operation axes stay visible.
+### Subject-owned API coordinate match
+
+`--match` on `type` and `member` is an explicit pairwise operation over the
+already selected API subject. It changes operation arity without changing
+focus:
+
+```bash
+dotnet-inspect type System.Text.Json.Schema.JsonSchemaExporter \
+  --package System.Text.Json@9.0.0..8.0.6 --match
+dotnet-inspect member System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --match
+```
+
+The package range supplies exactly two literal endpoints in caller order.
+`--match` authorizes acquisition of those two payload cells only; it does not
+resolve an intermediate version population, run History, or change the default
+unary behavior when omitted. `--tfm` selects one API surface, and `--all`
+widens source selection from the public API to the existing IncludeAll scope.
+An optional `--library` narrows the source Library only; destination Library
+selection is owned by coordinate-library pairing.
+
+The source Type query is exact. Member focus adds one source selector using the
+existing name, `Name:N`, `Name~digest`, or `--index N` grammar. Generic arity,
+such as `RegisterAttached<TOwner,THost,TValue>:1`, remains part of that selector
+when CLI admission forms the shared request. A bare name may resolve only when
+unique. This operation matches declarations, not accessor
+bodies: `Foo:1`, `Foo~digest:1`, or `Foo --index 1` is refused when it selects
+an accessor of a singleton Property or Event. Omit that accessor ordinal to
+match the Property/Event declaration. An ordinal that selects among overloaded
+indexer declarations remains valid.
+
+`ApiCoordinateMatchCommandTests.Avalonia_GenericArityPreservesTheSelectedSource`
+gates the two- and three-type-parameter Avalonia overloads through the CLI in
+Release; the focused cases are PR-fast, measured below the two-second threshold
+in isolation.
+
+The source selector is not independently replayed at the destination: the
+destination coordinate comes from the established Metadata correspondence and
+forwarding contracts. `--all` does not filter the destination: strict native
+declaration matching remains independent of ordinary accessibility changes.
+The
+[coordinate-library pairing](coordinate-library-pairing.md) and
+[forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
+owners define those semantics; this section owns only CLI admission and
+placement.
+
+Admission rejects `--at`, Type/member populations, Count and row projections,
+projection filters, sections, body/source/Analysis requests,
+platform/project/local sources, and other rendering modes before package
+acquisition. Markdown and plain text lower the typed result through its
+host-neutral presentation. `--json` emits the unprojected Content, while
+`--envelope` emits that identical Content with Share and diagnostics. This
+operation does not reuse or relocate the root `match` command, whose subject is
+implementation-clone comparison rather than cross-version API-coordinate
+correspondence.
+
+## Subject-owned Diff
+
+### Claim and scope
+
+The user-approved target is:
+
+> A subject-owned Diff request names what is compared before naming its
+> source. Each admitted operation consumes its owner's shared query and
+> delivers one complete `InspectionEnvelope<TContent>` to either host.
+> Placement does not change subject identity, comparison meaning, or content
+> merely to fit a command name.
+
+This section owns the CLI subject/operation mapping and its adoption boundary.
+It consumes, rather than redefines, the existing comparison, History,
+population-range, Count, envelope, and source contracts. Browser controls,
+navigation, state, and transport mechanics remain with their focused owners.
+CLI envelope framing and output-option interaction remain with #6719 and
+[output shapes](output-shapes.md).
+
+`package query` and `package activity` are existing subject-owned operation
+precedents. The Browser's
+[Compare experience](inspect-web-compare-experience.md) already scopes Diff
+to Library, Type, and Member. These are evidence for consistent placement, not
+donors of a universal query or comparison algorithm.
+
+### Subject and source are different
+
+| Subject surface | Meaning and initial boundary |
+| --- | --- |
+| `library diff` | Existing Library/API, admitted Analysis/Implementation, and filtered Library comparison work. Package and Platform options supply sources, not a different subject. |
+| `type diff <Type>` | Comparison of an exact Type, including its owned members; admitted Type History uses the existing Finding domain. |
+| `member diff <Type> <Member>` | Comparison of an exact Member's declaration or admitted body/Findings; admitted Member History retains that domain's focus requirements. |
+| `package P@A..B --count` | Metadata-only version-population reduction, not a Diff operation or package payload inspection. |
+| Future `package diff` | Must compare genuine package facts such as metadata, assets, or dependencies. This adoption does not invent that content or advertise an unsupported command. |
+
+Likewise, this does not add placeholder Project, Workspace, or every-other-
+subject Diff commands. A subject exposes Diff only when its comparison
+meaning, shared content, and supported modes are defined.
+
+Current `diff --package P@A..B` commonly compares Libraries acquired from
+packages. It therefore maps to `library diff`, not automatically `package
+diff`. Multiple Libraries must retain their owner-issued population and
+correspondence rather than being collapsed into one invented Library.
+Type and Member filters on a Library comparison remain filters; they do not
+become exact subject identities merely because one row survives.
+
+Subject-specific selectors keep their established grammar after the `diff`
+subcommand. Ambiguity is handled by the subject owner; legitimate absence at
+one endpoint remains comparison evidence. Source, TFM, visibility, and
+producer semantics retain their owners. No cross-source or cross-subject
+comparison capability is created by relocating the command.
+
+### Target requests
+
+These are proposed examples, not currently executable new syntax:
+
+```bash
+# Compare Libraries acquired from two package versions
+dotnet-inspect library diff --package System.Text.Json@9.0.0..10.0.0 \
+  --envelope
+
+# Evaluate the selected Type across the version population
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history --envelope
+
+# Count versions without acquiring inspection payloads
+dotnet-inspect package Markout@0.33.0..0.35.2 --count --envelope
+
+# Count changed destination versions for the selected Member
+dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --history --count
+
+# Sample endpoints and an intermediate checkpoint within the full population
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --at endpoints --at 9.0.5
+
+# Select one manual-bisection probe; the caller decides the next range
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --at endpoints --at midpoint
+
+# Equivalent range inferred from exact checkpoint versions
+dotnet-inspect type diff System.Text.Json.JsonSerializer \
+  --package System.Text.Json --history \
+  --at 9.0.0 --at 9.0.5 --at 10.0.0
+```
+
+Plain subject Diff consumes its two endpoints; an admitted `--history` selects
+temporal inspection. There is no standalone `--endpoints` flag.
+The History owner's [operation and checkpoint contract](diff-history.md#explicit-range-consumers)
+defines full evaluation by default and optional `--at` restriction, including
+`endpoints`, `midpoint`, and exact-checkpoint range inference. Count on a source-range
+Diff request reduces its owner's admitted cohort and does not change the
+operation. Type/Member History consumes the History
+owner's [Changed Versions cohort](diff-history.md#subject-specific-history-count),
+including its evidence and section-selection rules. Only the Package
+version-population request uses Count alone as its consumer. `--envelope`
+selects output, not an operation. The History owner's recorded future Package
+version-row counting intent does not admit a `package diff` command here.
+
+The [population-range rule](population-range-selection.md) is unchanged:
+creating a population needs a consumer, which the explicitly named subject
+Diff supplies; filtering declared rows does not need another. A `--rows`
+range cannot supply a missing operation. History authorizes bounded evaluation;
+Package version listing and Count retain metadata-only discovery. `--at`
+without History is rejected on Diff rather than silently changing its arity.
+
+Initial History remains package-scoped Type/Member Findings. Library-wide,
+Platform, and local multi-version History remain unsupported. Existing
+non-range local Library pairs move under `library diff` without changing
+their pairwise argument meaning. The separately recorded single endpoint plus
+duration remains a future population-construction example, not a new flag.
+
+### Envelope-complete adoption
+
+`InspectionEnvelope<TContent>` already exists, and
+`LibraryApiDiffInspection.Execute` already returns
+`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`LibraryApiDiffDocument`, retaining endpoint summaries, the existing
+`ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
+and rejected execution retain their typed cases. The
+[Library content adoption](library-api-diff-presentation.md#content-kind-adoption-in-both-hosts)
+settles those semantic extents without completing public CLI envelope output
+or full Browser baseline delivery.
+
+Reuse that terminal and complete missing terminals and host delivery; do not
+add another envelope, universal Diff content type, or host-specific semantic copy.
+
+The [envelope owner](inspection-envelope.md) requires one owner-issued Content
+value, required Share, and ordered typed diagnostics at the completed shared
+boundary. A subject projection is constructed by its content owner before
+that boundary. CLI and Browser requests with equal semantic plans receive
+equal baselines, including typed unavailable/rejected/partial outcomes.
+Hosts can render less information, but cannot discard it from the delivered
+baseline or move semantic failure into an empty value.
+
+Every adopted CLI leaf must consume that envelope internally and support the
+public `--envelope` projection tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
+the already constructed baseline without another inspection, Share projection,
+or host enrichment. The
+[CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
+distinguishes content-layer shapes and `--json` from service-layer
+`--envelope`. Adopted leaves must satisfy its unprojected content-JSON
+equivalence and explicit machine-schema migration requirements; retaining a
+different legacy JSON view is not complete adoption. Other content rendering
+remains separate from service passthrough.
+Framing, schema/version, content-kind and owner-specific Outcome
+discrimination, serializer registration, option conflicts, output-stream
+handling, and serialization failures are settled by the CLI transport owner,
+not invented by each subject command.
+
+Browser adoption preserves Content, Share, and diagnostic identity/order in
+one identifiable received baseline. It may compose UI state and additional
+owner-issued content outside that envelope. An existing DTO that drops parts
+of the baseline is not complete adoption simply because the current view
+does not render them. Existing transport bounds and visible rejection remain
+in force; completeness is not permission to exceed them.
+
+Markout remains the default lowering for typed CLI content and Count.
+Structured content survives to the rendering boundary; envelope output uses
+the transport owner's typed serialization. Browser rendering remains a
+host-specific projection of the same baseline under its existing UI owner.
+
+### Cutover and production path
+
+This is an intentional CLI change, not a compatibility layer. The production
+cutover removes top-level `diff` and `timeline` and their argument rewriting;
+it does not retain forwarding aliases, hidden routes, or a legacy execution
+fallback. Obsolete-input handling must prevent silent package routing, while
+legitimate subject identifiers remain addressable through established named
+source/selector forms.
+Classify the route removals, changed History evaluation default, and Count unit as
+**intentionally breaking** under
+[CLI change classification](cli-change-classification.md).
+
+Before removal, map every existing API, multi-Library, Type/Member-filtered,
+Analysis, Implementation, and Finding Transitions route to an admitted subject
+leaf and owner-issued Result, Document, or Outcome. Preserve supported outcomes
+and explicit cost gates. Missing replacement coverage blocks the cutover; it is
+not silently reclassified as an unsupported command. Any deliberate capability
+retirement beyond the approved command/default removals requires a separate
+decision. The separately approved #7229
+[History Count revision](diff-history.md#subject-specific-history-count)
+supersedes arbitrary selected-cohort Timeline counts for Type/Member History.
+Its accompanying operation/checkpoint revision supersedes the proposed
+`--endpoints` requirement and Timeline's no-`--at` discovery behavior. Disclose
+the changed count unit and evaluation authorization with this cutover.
+
+Update help, discovery, completion, replay/probe generation, README, shipped
+skills, and active examples with the executable cutover. Do not change current
+product guidance in this specification PR. `package query`, `package activity`,
+and other non-Diff operations retain their behavior.
+
+1. Lock this placement and envelope-adoption specification.
+2. Complete the owner-specific shared enveloped comparison, History, and
+   population-count terminals, reusing already completed Library work.
+3. Implement the supported public CLI envelope transport through #6719,
+   including its owned output contract and more than one content kind.
+4. Adopt subject CLI routes and Package version counts with that transport;
+   atomically retire the old Diff/Timeline routes and update guidance.
+5. Adopt the same complete envelopes in Browser Compare and population-count
+   consumers through their existing owners.
+
+Total steps: **5**. Steps 2 and 3 may progress independently where existing
+enveloped operations provide transport evidence. Step 4 needs both; step 5
+needs the relevant shared content, not the CLI option. Delivery is not complete
+until both hosts consume the complete baseline. This deliberately supersedes
+the earlier decision to defer public envelope output for this migration;
+already-shipped Compare work and unrelated Call Graph/canvas work are not
+blocked by the plan.
+
+The real cases are Library Diff for `System.Text.Json@9.0.0..10.0.0`, Type
+History for `Markout.MarkoutWriterOptions` in `Markout@0.33.0..0.35.2`, and
+version counts for that same range. Implementation gates must cover unchanged
+endpoint content under the new placement, non-range local pairs, explicit
+mode/count units, sparse and failed History, retired-input rejection without
+misrouting valid identifiers, and absence of duplicate execution for output.
+They must compare complete cross-host envelopes and round-trip available and
+owner-issued non-success content, both Share arms, and ordered typed
+diagnostics through public CLI and Browser transports.
+
+These new Release gates are **unverified** in this specification-only change.
+Existing envelope and Library Diff evidence is a baseline, not proof that
+the new commands or complete host migration are implemented.
 
 ## A version range is an address space
 
@@ -368,30 +1084,42 @@ a type-focused collection census.
 
 ### Operation / arity
 
+The current command split is:
+
 ```text
 inspect -> diff -> timeline
+```
+
+The approved target retains the subject while selecting the operation:
+
+```text
+library -> library diff
+type    -> type diff [--history [--at ...]]
+member  -> member diff [--history [--at ...]]
+package range -> package range --count
 ```
 
 The user keeps the source and structural focus but changes the question:
 
 - inspect: what does the selected observation report at this address?
 - diff: how does the selected observation transition between these addresses?
-- timeline: what is known for the selected observation across this ordered
+- history: what is known for the selected observation across this ordered
   address space?
 
 A workflow may move on any axis, but one command transition should not hide
 multiple changes. For example:
 
 ```text
-diff type presence
-  -> diff type members  observation change, same type focus and operation
-  -> diff member        structural zoom to one member
-  -> timeline member    operation change, same member focus and observation
+type diff presence
+  -> type diff members    observation change, same Type and operation
+  -> member diff          structural zoom to one Member
+  -> member diff history  operation mode change, same Member
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
-changing operations. That repetition is not a reason to conflate the commands;
-it makes the transition explicit and reproducible.
+changing operations. In the target subject-owned Diff family, `--history`
+makes the mode change explicit without conflating endpoint and temporal
+content contracts. The diagram describes axes, not positional argument grammar.
 
 ### Selection / discovery
 
@@ -756,16 +1484,19 @@ Before adding a command or mode, answer in order:
 
 1. What is the structural focus and its stable identity?
 2. What is the source context?
-3. Is there a point selector, and is its identity complete within that scope?
-4. What observation census runs within that focus?
-5. What is the operation arity and acquisition plan?
-6. Does the change require a new top-level outcome schema?
-7. Is this only another lens over the same focus and operation?
-8. Is this only traversal policy or output projection?
-9. Does every range-consuming path state how many payload cells it may acquire?
-10. Are unevaluated, absent, missing, and failed states kept distinct?
+3. Is the location-coordinate cardinality one or multiple?
+4. What result identity family and scalar/vector mode does the gesture select?
+5. Is there a point selector, and is its identity complete within that scope?
+6. What observation census runs within that focus?
+7. What is the operation arity and acquisition plan?
+8. Does the change require a new top-level outcome schema?
+9. Is this only another lens over the same focus and operation?
+10. Is this only traversal policy or output projection?
+11. Does every range-consuming path state how many payload cells it may
+    acquire?
+12. Are unevaluated, absent, missing, and failed states kept distinct?
 
-Question 6 does not discriminate by itself. Pair it with question 1 or 5:
+Question 8 does not discriminate by itself. Pair it with question 1 or 7:
 
 - changed addressed-subject identity plus a changed schema means a focus
   transition;
@@ -778,7 +1509,8 @@ Otherwise, prefer an option, section, or writer.
 This model does not:
 
 - add an `inspect` command;
-- remove existing positional shorthands;
+- remove existing positional shorthands by itself; a focused adoption may
+  intentionally retire an ambiguous form under the CLI change contract;
 - make source options global;
 - add session state that implicitly carries source/focus between commands;
 - authorize implicit or unbounded range scans;

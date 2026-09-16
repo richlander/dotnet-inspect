@@ -15,7 +15,6 @@ import type {
 } from "./facades/inspect-web-package.d.ts";
 import {
   isProductHomeDemoId,
-  type ProductHomeDemoCatalogEntry,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 
@@ -37,8 +36,6 @@ export interface WorkspaceViewRenderOptions {
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
   platform?: PlatformNavigationState | null;
-  demos: readonly ProductHomeDemoCatalogEntry[];
-  demoError: string;
   loading: boolean;
   error: string;
   escapeHtml: (value: unknown) => string;
@@ -62,6 +59,7 @@ export interface WorkspaceOccurrenceVisibility {
   explorerOpen: boolean;
   creditsOpen: boolean;
   packageQueryOpen: boolean;
+  packageActivityOpen: boolean;
   loading: boolean;
   error: string;
   home: boolean;
@@ -84,6 +82,7 @@ export function workspaceOccurrenceActionsAreVisible(
     && !state.explorerOpen
     && !state.creditsOpen
     && !state.packageQueryOpen
+    && !state.packageActivityOpen
     && !state.loading
     && !state.error
     && !state.home
@@ -126,8 +125,6 @@ export function renderWorkspaceView(
   const {
     occurrences,
     packages,
-    demos,
-    demoError,
     loading,
     error,
     escapeHtml,
@@ -171,19 +168,6 @@ export function renderWorkspaceView(
   const content = status + (rows
     ? `<ul class="workspace-detail-list loaded">${rows}</ul>`
     : `<p class="workspace-empty">No packages are loaded in this Workspace.</p>`);
-  const demoRows = demos.map(demo =>
-    `<li class="workspace-demo-row">
-      <div>
-        <strong>${escapeHtml(demo.title)}</strong>
-        <small>${escapeHtml(demo.summary)}</small>
-      </div>
-      <button type="button" data-workspace-demo="${escapeHtml(demo.id)}" aria-label="Open demo ${escapeHtml(demo.title)}">Open demo</button>
-    </li>`).join("");
-  const demoContent = demoError
-    ? `<p class="workspace-empty">${escapeHtml(demoError)}</p>`
-    : demoRows
-    ? `<ul class="workspace-demo-list">${demoRows}</ul>`
-    : `<p class="workspace-empty">No product demos are available.</p>`;
   return `<header class="type-heading workspace-heading">
     <div class="type-badge">W</div>
     <div>
@@ -195,11 +179,6 @@ export function renderWorkspaceView(
   </header>
   <div class="workspace-overview">
     ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
-    <section class="document-section workspace-section">
-      <div class="section-title"><h2>Demos</h2><span>${demos.length} available</span></div>
-      <p>Open a product demo as a new Workspace with its packages and initial view.</p>
-      ${demoContent}
-    </section>
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>

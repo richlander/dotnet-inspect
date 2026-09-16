@@ -14,7 +14,7 @@
     "test": "npm run typecheck && node --test",
     "test:browser": "playwright test --project=firefox",
     "inspect-web-worker-envelope-validation": "node --test test/worker-runtime-protocol.test.ts",
-    "inspect-web-worker-protocol": "node --test test/worker-runtime-protocol.test.ts test/worker-runtime-core.test.ts test/worker-runtime-events.test.ts test/engine-worker-epoch-work.test.ts test/engine-worker-startup.test.ts test/engine-worker-ordinary.test.ts test/engine-worker-source.test.ts test/engine-worker-package-query.test.ts test/engine-worker-cpu.test.ts",
+    "inspect-web-worker-protocol": "node --test test/worker-runtime-protocol.test.ts test/worker-runtime-core.test.ts test/worker-runtime-events.test.ts test/engine-worker-epoch-work.test.ts test/engine-worker-startup.test.ts test/engine-worker-ordinary.test.ts test/engine-worker-source.test.ts test/engine-worker-package-query.test.ts test/engine-worker-package-changes.test.ts test/engine-worker-cpu.test.ts",
     "inspect-web-worker-browser-binding": "node --test test/worker-runtime-browser.test.ts && playwright test --config playwright.worker.config.ts",
     "inspect-web-worker-cpu-isolation": "playwright test --config playwright.worker-cpu.config.ts",
     "inspect-web-published-benchmark": "playwright test --config playwright.published-benchmark.config.ts",
@@ -25,20 +25,20 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.1",
     "@types/prismjs": "^1.26.6",
-    "html-validate": "^11.13.0",
-    "knip": "^6.34.0",
-    "oxc-parser": "^0.148.0",
-    "oxlint": "^1.81.0",
+    "html-validate": "^11.15.0",
+    "knip": "^6.35.1",
+    "oxc-parser": "^0.149.0",
+    "oxlint": "^1.82.0",
     "oxlint-tsgolint": "7.0.2001",
     "type-fest": "5.8.0",
     "typescript": "7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.3.0"
   },
   "dependencies": {
-    "dompurify": "3.4.14",
-    "marked": "18.0.11",
+    "dompurify": "3.4.15",
+    "marked": "18.0.12",
     "mermaid": "11.17.2",
     "prismjs": "1.30.0"
   }

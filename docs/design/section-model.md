@@ -91,6 +91,12 @@ The whole-package listing is unbounded, so it remains outside every automatic
 verbosity preset even though it belongs to `@Package`. Explicitly selecting
 `@Package` requests the complete package-native lens.
 
+The `type` command's assembly type-list catalog uses `@Surface` as its sole
+base category. It contains the bounded `API Info` overview, public type and
+type-forwarder inventories, and `Inspection Failures`. Exact-type inspection
+uses the shared type/member-list catalog and is curated with the `member`
+command.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -367,12 +373,13 @@ persistent lookup and publication. This target is unverified pending
 `LocalAssemblyFacts_DoNotEnterACrossRunCache` in the
 [assembly image lifetime](assembly-image-lifetime.md) contract.
 
-At the slice-5 cutover a persistent platform or package key includes the
+At the future #3478 cutover, a persistent platform or package key includes the
 resolved path, the digest of an acquisition-owned immutable artifact-content
 snapshot, and typed network-free local-symbol discovery evidence, plus typed
 `LibraryCatalogRouteEvidence`. Scoped discovery does not populate the bare
 catalog, failures are not stored, and a category-version change invalidates
-older semantics.
+older semantics. This cutover is not assigned to a slice in the type/member
+migration plan.
 
 `LibraryCatalogRouteEvidence` is an owner-issued identity for the root subject
 route and every stable route fact consumed by effective discovery, including

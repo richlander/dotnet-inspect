@@ -112,10 +112,12 @@ npm test
 npm run lint
 ```
 
-The managed suite is an xUnit in-process executable. It covers the
-`DotnetInspect.Web` host, shared Sections and Networking implementation, and
-domain-specific `DotnetInspect.Web.Interop.*` export assemblies. The frontend
-gates cover the generated public facade contracts and browser application
+The managed suite is an xUnit Microsoft Testing Platform executable. Use
+`--filter-class` and `--filter-method` after `--` for focused selections. It
+covers the `DotnetInspect.Web` host, shared Sections and Networking
+implementation, and domain-specific `DotnetInspect.Web.Interop.*` export
+assemblies. The frontend gates cover the generated public facade contracts and
+browser application
 without renaming the published `inspect-web-*` modules.
 
 ### Network tests
@@ -196,7 +198,7 @@ dotnet run --project tests/InertText.Tests -c Release
 dotnet run --project tests/Inspector.Text.Tests -c Release
 ```
 
-Both are xUnit in-process executables. Their source lives under `tests/`, while
+Both are xUnit MTP executables. Their source lives under `tests/`, while
 their built outputs remain under `artifacts/`. The in-process corpus data stays
 with its test host; it is not an independently compiled inspected fixture.
 See [repository layout](fixture-governance.md#repository-layout).

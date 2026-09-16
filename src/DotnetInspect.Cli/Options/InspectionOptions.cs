@@ -299,6 +299,9 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string[]? Fields { get; init; }
 
+    /// <summary>Whether the caller explicitly supplied <c>--fields</c>.</summary>
+    public bool FieldsExplicitlySet { get; init; }
+
     /// <summary>
     /// Show static discovery schema instead of target-effective discovery.
     /// </summary>

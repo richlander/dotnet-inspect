@@ -34,7 +34,7 @@ public sealed class PackageSetRegistryConsumerTests
         EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
         EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
 
-        Assert.Equal(4, packs.Length);
+        Assert.Equal(8, packs.Length);
         Assert.Equal(10, demos.Length);
         Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
         Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
@@ -82,6 +82,117 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Null(platform.PackageSet);
         Assert.False(platform.HasScanner);
         Assert.Equal(3, platform.Demos.Length);
+
+        EcosystemPackDescriptor ai = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.AI)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.VectorData",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.AI.Abstractions",
+                "Microsoft.Extensions.VectorData.Abstractions",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.CorePackages.Select(package => package.PackageId));
+        Assert.Null(ai.PackageSet);
+        Assert.False(ai.HasScanner);
+        Assert.Empty(ai.Demos);
+        Assert.Contains(
+            curated.Members,
+            member => member.PackageId == "Microsoft.Extensions.AI");
+
+        EcosystemPackDescriptor azure = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Azure)).Descriptor;
+        Assert.Equal(
+            [
+                "Azure",
+                "Microsoft.Extensions.Azure",
+            ],
+            azure.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Null(azure.PackageSet);
+        Assert.False(azure.HasScanner);
+        Assert.Empty(azure.Demos);
+        Assert.DoesNotContain(
+            curated.Members,
+            member => member.PackageId == "Microsoft.Extensions.Azure");
+
+        EcosystemPackDescriptor blazor = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Blazor)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            blazor.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components.WebAssembly",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                "Microsoft.Authentication.WebAssembly.Msal",
+            ],
+            blazor.CorePackages.Select(package => package.PackageId));
+        Assert.Null(blazor.PackageSet);
+        Assert.False(blazor.HasScanner);
+        Assert.Empty(blazor.Demos);
+        PackageSetDescriptor aspNetCore = Assert.IsType<PackageSetLookupResult.Known>(
+            PackageSetCatalog.Lookup(PackageSetIds.AspNetCore)).Descriptor;
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId == "Microsoft.AspNetCore.Components.WebAssembly");
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId == "Microsoft.AspNetCore.Components.WebView.Maui");
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId
+                == "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter");
+
+        EcosystemPackDescriptor maui = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Maui)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.Maui",
+                "CommunityToolkit.Maui",
+            ],
+            maui.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Null(maui.PackageSet);
+        Assert.False(maui.HasScanner);
+        Assert.Empty(maui.Demos);
+        PackageCoordinate blazorMaui =
+            new("Microsoft.AspNetCore.Components.WebView.Maui");
+        Assert.Contains(blazorMaui, blazor.CorePackages);
+        Assert.Contains(blazorMaui, maui.CorePackages);
     }
 
     [Fact]

@@ -90,10 +90,10 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DefaultCorpusFidelityOracle_IsNativeReturnToSenderCutover()
+    public void DefaultCorpusFidelityOracle_IsNativeReturnToSenderWithoutLegacyComparison()
     {
         Assert.Equal(
-            CorpusFidelityOracle.ReturnToSenderCutover,
+            CorpusFidelityOracle.ReturnToSenderNative,
             CorpusSensor.DefaultFidelityOracle);
     }
 
@@ -397,18 +397,25 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void ValidateReturnToSenderCutoverCaps_RejectsMultipleDistinctPositiveCaps()
+    public void ValidateIndependentReturnToSenderCaps_RejectsMultipleDistinctPositiveCaps()
     {
-        var error = CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        var nativeError = CorpusSensor.ValidateIndependentReturnToSenderCaps(
+            CorpusFidelityOracle.ReturnToSenderNative,
+            [0, 1, 2, 2]);
+        var cutoverError = CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.ReturnToSenderCutover,
             [0, 1, 2, 2]);
 
-        Assert.NotNull(error);
-        Assert.Contains("only one distinct positive", error, StringComparison.Ordinal);
-        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        Assert.NotNull(nativeError);
+        Assert.Contains("rts-native", nativeError, StringComparison.Ordinal);
+        Assert.Contains("only one distinct positive", nativeError, StringComparison.Ordinal);
+        Assert.NotNull(cutoverError);
+        Assert.Contains("rts-cutover", cutoverError, StringComparison.Ordinal);
+        Assert.Contains("only one distinct positive", cutoverError, StringComparison.Ordinal);
+        Assert.Null(CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.ReturnToSenderCutover,
             [0, 2, 2]));
-        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        Assert.Null(CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.CompileBack,
             [1, 2]));
     }
@@ -1791,7 +1798,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public async Task ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
+    public async Task IndependentReturnToSender_ContextFailureRetainsEverySelectedTarget()
     {
         FidelityCheck.CompileBackTarget[] targets =
         [
@@ -1799,7 +1806,7 @@ public class CorpusSensorComparisonTests
             new("test.dll", "Fixture", "Two", 0, "() -> corelib:System.Int32"),
         ];
 
-        var results = await CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
+        var results = await CorpusSensor.EvaluateIndependentReturnToSenderTargetsForTesting(
             targets,
             () => throw new InvalidOperationException(
                 "Compilation reference preparation failed with ReferencePlatformSelectionUnavailable."));
@@ -1987,7 +1994,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle()
+    public void DeterministicIndependentReturnToSenderTargets_SelectsExactCapBeforeAnyOracle()
     {
         string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
         CorpusMethodSnapshot[] methods =
@@ -2000,11 +2007,11 @@ public class CorpusSensorComparisonTests
             SnapshotMethod("<Owner>b__0_0", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
         ];
 
-        var selected = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+        var selected = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
             methods,
             assemblyPath,
             cap: 4);
-        var reordered = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+        var reordered = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
             methods.Reverse().ToArray(),
             assemblyPath,
             cap: 4);
@@ -2018,7 +2025,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable()
+    public void DeterministicIndependentReturnToSenderTargets_FailsWhenExactCapIsUnavailable()
     {
         string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
         CorpusMethodSnapshot[] methods =
@@ -2028,7 +2035,7 @@ public class CorpusSensorComparisonTests
         ];
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+            CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
                 methods,
                 assemblyPath,
                 cap: 2));
@@ -2325,6 +2332,45 @@ public class CorpusSensorComparisonTests
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
         Assert.Contains("RTS cutover input identity differs from baseline", regressions);
+    }
+
+    [Fact]
+    public void Compare_ReturnToSenderNative_RejectsDifferentModuleIdentity()
+    {
+        var run = new CorpusRunIdentity(
+            SourceRevision: new string('a', 40),
+            SourceState: "clean",
+            Compiler: "Roslyn test",
+            Runtime: ".NET test",
+            OperatingSystem: "TestOS",
+            ProcessArchitecture: "X64");
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("One", null, "Exact")],
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderNative,
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var current = baseline with
+        {
+            Assemblies =
+            [
+                new CorpusAssemblySnapshot(
+                    "Test",
+                    "test.dll",
+                    1,
+                    Guid.Parse("22222222-2222-2222-2222-222222222222")),
+            ],
+        };
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains("Native RTS input identity differs from baseline", regressions);
     }
 
     [Fact]

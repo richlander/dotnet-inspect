@@ -53,6 +53,7 @@ test("Workspace occurrence actions are visible only in the rendered Workspace vi
     explorerOpen: false,
     creditsOpen: false,
     packageQueryOpen: false,
+    packageActivityOpen: false,
     loading: false,
     error: "",
     home: false,
@@ -65,6 +66,7 @@ test("Workspace occurrence actions are visible only in the rendered Workspace vi
     { explorerOpen: true },
     { creditsOpen: true },
     { packageQueryOpen: true },
+    { packageActivityOpen: true },
     { loading: true },
     { error: "failed" },
     { home: true },
@@ -102,20 +104,12 @@ test("Workspace details render product occurrences as opaque actions", () => {
     }],
     packages,
     platform: { tfm: "net11.0", version: "11.0.0-preview.7.26381.103", includeAllLibraries: false, filter: "" },
-    demos: [{
-      id: "stj-serializer",
-      title: "System.Text.Json",
-      summary: "Browse a real package API",
-    }],
-    demoError: "",
     loading: false,
     error: "",
     escapeHtml,
   });
 
-  assert.match(html, /Demos[\s\S]*System\.Text\.Json[\s\S]*Browse a real package API/);
-  assert.match(html, /data-workspace-demo="stj-serializer"/);
-  assert.match(html, /aria-label="Open demo System\.Text\.Json"/);
+  assert.doesNotMatch(html, /Demos|data-workspace-demo/);
   assert.match(
     html,
     /data-workspace-activate="opaque-action"[\s\S]*System\.Text\.Json/);
@@ -128,12 +122,9 @@ test("Workspace details distinguish loading, empty, and failure", () => {
   const render = (
     loading: boolean,
     error = "",
-    demoError = "",
   ) => renderWorkspaceView({
     occurrences: [],
     packages: [],
-    demos: [],
-    demoError,
     loading,
     error,
     escapeHtml,
@@ -142,16 +133,13 @@ test("Workspace details distinguish loading, empty, and failure", () => {
   assert.match(render(true), /Reading Workspace package occurrences/);
   assert.match(render(false), /No packages are loaded/);
   assert.match(render(false, "Acquisition failed"), /Acquisition failed/);
-  assert.match(
-    render(false, "", "Product demos are unavailable"),
-    /Product demos are unavailable/);
 });
 
 test("Workspace removal remains available while occurrence activation loads or fails", () => {
   for (const status of [{ loading: true, error: "" }, { loading: false, error: "Offline" }]) {
     const html = renderWorkspaceView({
       packages: [{ id: "Alpha", version: "1.0.0", activeFramework: "net10.0", isRuntimePack: false }],
-      occurrences: [], demos: [], demoError: "", escapeHtml, ...status,
+      occurrences: [], escapeHtml, ...status,
     });
     assert.match(html, /data-workspace-remove=/);
     assert.match(html, /aria-label="Remove Alpha 1\.0\.0 net10\.0 from Workspace"/);
@@ -161,7 +149,7 @@ test("Workspace removal remains available while occurrence activation loads or f
 
 test("Workspace Add is offered independently of occurrence loading and disabled until ready", () => {
   const options = {
-    packages: [], occurrences: [], demos: [], demoError: "",
+    packages: [], occurrences: [],
     loading: true, error: "", escapeHtml,
   };
   assert.match(renderWorkspaceView({ ...options, canAddPackage: true }),

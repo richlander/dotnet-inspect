@@ -1,6 +1,6 @@
-using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
@@ -32,6 +32,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryOperations.Plan(
                 text,
                 [],
+                terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
                 includePrerelease: true));
@@ -63,6 +64,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryOperations.Plan(
                 text,
                 [],
+                terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
                 includePrerelease: false));
@@ -106,10 +108,10 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Facets_MatchProductCatalogOrderAndMetadata()
+    public void Catalog_MatchesProductFacetAndTermOrderAndMetadata()
     {
-        BrowserPackageQueryFacetCatalog catalog =
-            BrowserPackageQueryOperations.Facets();
+        BrowserPackageQueryCatalog catalog =
+            BrowserPackageQueryOperations.Catalog();
 
         Assert.Equal(PackageQuery.Facets.Length, catalog.Facets.Length);
         for (int index = 0; index < catalog.Facets.Length; index++)
@@ -132,6 +134,74 @@ public sealed class BrowserPackageQueryOperationsTests
                     : BrowserPackageQueryFacetTier.PackageContent,
                 actual.Tier);
         }
+
+        Assert.Equal(PackageQuery.Terms.Length, catalog.Terms.Length);
+        for (int index = 0; index < catalog.Terms.Length; index++)
+        {
+            PackageQueryTermDescriptor expected = PackageQuery.Terms[index];
+            BrowserPackageQueryTermDescriptor actual = catalog.Terms[index];
+            Assert.Equal(expected.Key, actual.Key);
+            Assert.Equal(expected.Label, actual.Label);
+            Assert.Equal(expected.Summary, actual.Summary);
+            Assert.Equal(expected.Weight, actual.Weight);
+            Assert.Equal(expected.Operators, actual.Operators);
+            Assert.Equal(expected.ValueKind, actual.ValueKind);
+            Assert.Equal(expected.ExampleValue, actual.Example);
+            Assert.Equal(
+                expected.Tier == PackageQueryFacetTier.Nuspec
+                    ? BrowserPackageQueryFacetTier.Nuspec
+                    : BrowserPackageQueryFacetTier.PackageContent,
+                actual.Tier);
+        }
+    }
+
+    [Fact]
+    public void Plan_PreservesPortableTermsForProductBinding()
+    {
+        var term = new PortableQueryTerm(
+            "depends",
+            PortableQueryOperator.Equal,
+            "Microsoft.Extensions.Hosting");
+
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Microsoft.*",
+                [],
+                [term],
+                maximumCandidates: 200,
+                maximumMatches: 100,
+                includePrerelease: false));
+
+        Assert.Same(term, Assert.Single(accepted.Plan.Terms));
+        Assert.Equal(
+            "Microsoft.Extensions.Hosting",
+            Assert.Single(accepted.Plan.BoundTerms).Value.ToString());
+    }
+
+    [Fact]
+    public void TryCreateTerms_ParsesCanonicalOperatorsWithoutChangingText()
+    {
+        Assert.True(BrowserPackageQueryOperations.TryCreateTerms(
+            [
+                new BrowserPackageQueryTerm(
+                    "depends",
+                    "eq",
+                    "  Microsoft.Extensions.Hosting  "),
+            ],
+            out PortableQueryTerm[] terms,
+            out string error));
+
+        PortableQueryTerm term = Assert.Single(terms);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal("  Microsoft.Extensions.Hosting  ", term.Value);
+        Assert.Equal("", error);
+
+        Assert.False(BrowserPackageQueryOperations.TryCreateTerms(
+            [new BrowserPackageQueryTerm("depends", "=", "Contoso")],
+            out terms,
+            out error));
+        Assert.Empty(terms);
+        Assert.Contains("Unknown package-query operator", error);
     }
 
     [Fact]
@@ -386,6 +456,50 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Project_PreservesStructuredTermAttribution()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageProfileMatch package = new(
+            "Contoso.Library",
+            "1.0.0",
+            [],
+            TotalDownloads: 42,
+            Verified: false,
+            source.Source,
+            Manifest("Contoso.Library", "1.0.0", isToolPackage: false));
+        var term = new PortableQueryTerm(
+            "depends",
+            PortableQueryOperator.Equal,
+            "Microsoft.Extensions.Hosting");
+        var match = new PackageQueryMatch(
+            package,
+            PackageQueryFacetTier.Nuspec,
+            [
+                new PackageQueryEvidence(
+                    "depends",
+                    new InertString(
+                        TextPolicy.Prose,
+                        "Direct dependency Microsoft.Extensions.Hosting [10.0.0, )."))
+                {
+                    Term = term,
+                },
+            ]);
+
+        BrowserPackageQueryEvidence evidence = Assert.Single(
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Match(match)).Row!.Evidence);
+
+        Assert.Equal(
+            new BrowserPackageQueryTerm(
+                "depends",
+                "eq",
+                "Microsoft.Extensions.Hosting"),
+            evidence.Term);
+    }
+
+    [Fact]
     public async Task Serialize_RoundTripsThroughBrowserJsonContext()
     {
         var queryEvent = new BrowserPackageQueryEvent(
@@ -476,18 +590,28 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task ListFacets_PreparesSerializationWithoutChangingCatalog()
+    public async Task ListCatalog_PreparesSerializationWithoutChangingCatalog()
     {
-        string json = PackageExports.ListPackageQueryFacets();
+        string json = PackageExports.ListPackageQueryCatalog();
         await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
-        BrowserPackageQueryFacetCatalog? catalog = JsonSerializer.Deserialize(
+        BrowserPackageQueryCatalog? catalog = JsonSerializer.Deserialize(
             json,
-            BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
+            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
 
         Assert.NotNull(catalog);
         Assert.Equal(
-            BrowserPackageQueryOperations.Facets().Facets,
+            BrowserPackageQueryOperations.Catalog().Facets,
             catalog.Facets);
+        BrowserPackageQueryTermDescriptor[] expectedTerms =
+            BrowserPackageQueryOperations.Catalog().Terms;
+        Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
+        for (int index = 0; index < expectedTerms.Length; index++)
+        {
+            Assert.Equal(expectedTerms[index].Key, catalog.Terms[index].Key);
+            Assert.Equal(
+                expectedTerms[index].Operators,
+                catalog.Terms[index].Operators);
+        }
     }
 
     [Fact]
@@ -648,6 +772,21 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void ExpectedFailure_UsesTheVisibleExpectedRoute()
+    {
+        BrowserPackageQueryResult result =
+            BrowserPackageQueryResult.ExpectedFailure(
+                "A package-query term value is invalid.");
+
+        Assert.Equal(BrowserPackageQueryResultKind.Failed, result.Kind);
+        Assert.Equal(
+            BrowserPackageQueryOperationFailureKind.Expected,
+            result.FailureKind);
+        Assert.Equal("A package-query term value is invalid.", result.Error);
+        Assert.Equal("A package-query term value is invalid.", result.Diagnostic);
+    }
+
+    [Fact]
     public async Task PumpAsync_EmitsOnlyNonterminalEventsAndReturnsCompletion()
     {
         using IPackageSourceClient source =
@@ -694,7 +833,7 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task EventObserverUsesEnvelopeContentForCompletion()
+    public async Task EventObserverPublishesOnlyNonterminalContent()
     {
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
@@ -720,26 +859,25 @@ public sealed class BrowserPackageQueryOperationsTests
                 emitted.Add,
                 deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             progress,
             TestContext.Current.CancellationToken);
-        await observer.ObserveAsync(
-            completed,
-            TestContext.Current.CancellationToken);
-        var envelope = new InspectionEnvelope<
-            ImmutableArray<PackageQueryEvent>>(
-                [progress, completed],
+        var envelope = new InspectionEnvelope<PackageQueryDocument>(
+                new(
+                    Results: [],
+                    Failures: [],
+                    completed.Value),
                 new InspectionShare.NonProjectable(
                     "package-query/share",
                     "No canonical Workspace packet."));
-        BrowserPackageQueryInspection inspection = observer.Complete(envelope);
+        BrowserPackageQueryInspection inspection =
+            BrowserPackageQueryOperations.Complete(envelope);
 
+        Assert.Empty(inspection.Content.Results);
+        Assert.Empty(inspection.Content.Failures);
         Assert.Equal(
-            [
-                BrowserPackageQueryEventKind.Progress,
-                BrowserPackageQueryEventKind.Completed,
-            ],
-            inspection.Content.Select(queryEvent => queryEvent.Kind));
+            BrowserPackageQueryCompletionKind.Exhausted,
+            inspection.Content.Completion.Kind);
         Assert.Equal(
             BrowserInspectionShareKind.NonProjectable,
             inspection.Share.Kind);
@@ -768,7 +906,10 @@ public sealed class BrowserPackageQueryOperationsTests
                 Failures: 0,
                 BrowserPackageQueryCompletionKind.Exhausted));
         var inspection = new BrowserPackageQueryInspection(
-            [completed],
+            new BrowserPackageQueryDocument(
+                Results: [],
+                Failures: [],
+                completed.Completion!),
             new BrowserInspectionShare(
                 BrowserInspectionShareKind.NonProjectable,
                 FullUrl: null,
@@ -796,12 +937,14 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
 
         Assert.NotNull(roundTripped);
-        Assert.Equal(2, roundTripped.Version);
+        Assert.Equal(3, roundTripped.Version);
         Assert.Null(roundTripped.Value);
         Assert.NotNull(roundTripped.Inspection);
         Assert.Equal(
-            inspection.Content,
-            roundTripped.Inspection.Content);
+            inspection.Content.Completion,
+            roundTripped.Inspection.Content.Completion);
+        Assert.Empty(roundTripped.Inspection.Content.Results);
+        Assert.Empty(roundTripped.Inspection.Content.Failures);
         Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
         Assert.Equal(
             inspection.Diagnostics,
@@ -819,10 +962,10 @@ public sealed class BrowserPackageQueryOperationsTests
             emitted.Add,
             deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             MatchEvent("Contoso.One"),
             TestContext.Current.CancellationToken);
-        Task pending = observer.ObserveAsync(
+        Task pending = observer.ReportAsync(
                 MatchEvent("Contoso.Two"),
                 TestContext.Current.CancellationToken)
             .AsTask();
@@ -848,10 +991,10 @@ public sealed class BrowserPackageQueryOperationsTests
             emitted.Add,
             deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             MatchEvent("Contoso.One"),
             cancellation.Token);
-        Task pending = observer.ObserveAsync(
+        Task pending = observer.ReportAsync(
                 MatchEvent("Contoso.Two"),
                 cancellation.Token)
             .AsTask();
@@ -881,12 +1024,12 @@ public sealed class BrowserPackageQueryOperationsTests
                             matchCredit,
                             emitted.Add,
                             deadline);
-                    await observer.ObserveAsync(
+                    await observer.ReportAsync(
                         MatchEvent("Contoso.One"),
                         deadline.Token);
                     while (!deadline.HasExpired)
                         Thread.SpinWait(100);
-                    await observer.ObserveAsync(
+                    await observer.ReportAsync(
                         MatchEvent("Contoso.Two"),
                         deadline.Token);
                     return 0;
@@ -1205,7 +1348,7 @@ public sealed class BrowserPackageQueryOperationsTests
             yield return queryEvent;
     }
 
-    static PackageQueryEvent MatchEvent(string packageId)
+    static PackageQueryEvent.Match MatchEvent(string packageId)
     {
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(

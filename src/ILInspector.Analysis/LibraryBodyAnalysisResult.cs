@@ -21,9 +21,11 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<FieldLoadFact> FieldLoads,
     ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
+    ImmutableArray<MethodBodyImplementationMetrics> ImplementationProfiles,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
-    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources);
+    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
+    ImmutableArray<MethodLocalThrowEvidence> LocalThrows);
 
 internal sealed record SafetyAnalysisResult(
     ImmutableArray<UnsafeEvidence> Evidence,

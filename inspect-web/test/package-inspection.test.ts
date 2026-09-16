@@ -16,6 +16,7 @@ import type {
 } from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
+  BrowserPackagePruningResult,
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
   BrowserPackageIntegrations,
@@ -69,6 +70,11 @@ function inspectionState(
     packageDependenciesLoading: false,
     packageDependenciesError: "",
     packageDependenciesKey: "",
+    packagePruning: null,
+    packagePruningLoading: false,
+    packagePruningError: "",
+    packagePruningKey: "",
+    packagePruningFamily: "Microsoft.NETCore.App",
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
     workspaceDependencyLoads: new Set<string>(),
@@ -107,6 +113,7 @@ function dependencyResult(
       isActive: true,
       dependencies: [{ id: "Example.Dependency", versionRange: "[1.0.0,)" }],
     }],
+    declarationFailures: [],
     assemblyReferences: { references: [] },
     dependencyGroupError: error,
     compileLibrary: selectedCompileLibrary,
@@ -123,6 +130,38 @@ function integrationsResult(): BrowserPackageIntegrations {
     isComplete: true,
     inspectionError: null,
     compileLibrary: selectedCompileLibrary,
+  };
+}
+
+function pruningResult(): BrowserPackagePruningResult {
+  return {
+    schemaVersion: 1,
+    package: "Example.Package",
+    version: "1.2.3",
+    targetFramework: "net10.0",
+    selectedFramework: "net10.0",
+    family: "Microsoft.NETCore.App",
+    platformVersion: "10.0.0",
+    completion: "Complete",
+    rows: [{
+      package: "Example.Dependency",
+      requestedRange: "[1.0.0]",
+      candidateVersion: "1.0.0",
+      platformSuppliedVersion: "1.0.0",
+      disposition: "PlatformDelegation",
+      reason: "Subsumed",
+    }],
+    declarationFailures: [],
+    summary: {
+      declarations: 1,
+      evaluated: 1,
+      delegated: 1,
+      retained: 0,
+      notEvaluated: 0,
+      failed: 0,
+      declarationFailures: 0,
+    },
+    message: null,
   };
 }
 
@@ -254,6 +293,7 @@ function inspectionDependencies(
   return {
     state,
     queryDependencies: async packageItem => dependencyResult(packageItem.id),
+    queryPruning: async () => pruningResult(),
     queryPackageIntegrations: async () => integrationsResult(),
     queryPlatformIntegrations: async () => integrationsResult(),
     queryPackageOpportunities: async () => opportunitiesResult(),
@@ -283,6 +323,25 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+test("dependency loading does not start explicit pruning work", async () => {
+  const selected = packageModel();
+  const state = inspectionState({ packages: [selected] });
+  let pruningQueries = 0;
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPruning: async () => {
+        pruningQueries++;
+        return pruningResult();
+      },
+    }));
+
+  await coordinator.loadDependencies(selected, "dependencies");
+
+  assert.equal(pruningQueries, 0);
+  assert.equal(state.packagePruning, null);
+  assert.equal(state.packagePruningKey, "");
+});
 
 test("Library References does not acquire other workspace dependencies", async () => {
   const selected = packageModel();
@@ -581,6 +640,39 @@ test("foreground dependency success refreshes cached groups and clears a prior e
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, key), false);
 });
 
+test("dependency normalization failures keep the workspace graph visibly partial", async () => {
+  const packageItem = packageModel();
+  const key = workspaceDependencyKey(packageItem);
+  const complete = dependencyResult();
+  const result: BrowserPackageDependencies = {
+    ...complete,
+    dependencyGroups: complete.dependencyGroups.map(group => ({
+      ...group,
+      dependencies: [],
+    })),
+    declarationFailures: [{
+      kind: "ConflictingPackageDeclaration",
+      framework: "net10.0",
+      package: "example.dependency",
+      sourceOccurrenceCount: 2,
+    }],
+  };
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => result,
+    }));
+
+  await coordinator.loadDependencies(packageItem, "current");
+
+  assert.match(
+    state.workspaceDependencyErrors[key] ?? "",
+    /incomplete \(1 failure\)/);
+  assert.deepEqual(
+    state.workspaceDependencies[key]?.dependencyGroups?.[0]?.dependencies,
+    []);
+});
+
 test("package lens loaders reuse cached results without querying or clearing them", async () => {
   const packageItem = packageModel();
   const dependencies = dependencyResult();
@@ -655,6 +747,10 @@ test("package lens loaders reuse cached results without querying or clearing the
           queries++;
           return dependencyResult();
         },
+        queryPruning: async () => {
+          queries++;
+          return pruningResult();
+        },
         queryPackageIntegrations: async () => {
           queries++;
           return integrationsResult();
@@ -706,6 +802,66 @@ test("package lens loaders reuse cached failures without querying", async () => 
   assert.equal(state.packagePerformanceError, "cached failure");
 });
 
+test("explicit pruning evaluation refreshes a settled result", async () => {
+  const packageItem = packageModel();
+  const first = pruningResult();
+  const second: BrowserPackagePruningResult = {
+    ...first,
+    summary: {
+      ...first.summary,
+      delegated: 0,
+      retained: 1,
+    },
+  };
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPruning: async () => ++queries === 1 ? first : second,
+    }));
+
+  await coordinator.loadPruning(
+    packageItem,
+    "same",
+    "Microsoft.NETCore.App");
+  await coordinator.loadPruning(
+    packageItem,
+    "same",
+    "Microsoft.NETCore.App");
+
+  assert.equal(queries, 2);
+  assert.strictEqual(state.packagePruning, second);
+});
+
+test("explicit pruning evaluation retries a settled failure", async () => {
+  const packageItem = packageModel();
+  const result = pruningResult();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPruning: async () => {
+        if (++queries === 1) throw new Error("temporary failure");
+        return result;
+      },
+    }));
+
+  await coordinator.loadPruning(
+    packageItem,
+    "same",
+    "Microsoft.NETCore.App");
+  assert.equal(state.packagePruningError, "temporary failure");
+
+  await coordinator.loadPruning(
+    packageItem,
+    "same",
+    "Microsoft.NETCore.App");
+
+  assert.equal(queries, 2);
+  assert.strictEqual(state.packagePruning, result);
+  assert.equal(state.packagePruningError, "");
+});
+
 test("every package lens preserves its lifecycle and same-coordinate ownership across invalidation", async () => {
   const packageItem = packageModel();
 
@@ -725,6 +881,27 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     readError: state => state.packageDependenciesError,
     setKey: (state, key) => { state.packageDependenciesKey = key; },
     setError: (state, error) => { state.packageDependenciesError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "pruning",
+    result: pruningResult(),
+    cachesFailure: false,
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPruning: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadPruning(
+        packageItem,
+        signature,
+        "Microsoft.NETCore.App"),
+    readResult: state => state.packagePruning,
+    readLoading: state => state.packagePruningLoading,
+    readError: state => state.packagePruningError,
+    setKey: (state, key) => { state.packagePruningKey = key; },
+    setError: (state, error) => { state.packagePruningError = error; },
   });
   await verifyPackageLensLifecycle({
     name: "integrations",
@@ -903,6 +1080,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
     packageDependenciesLoading: true,
     packageDependenciesError: "dependency failure",
     packageDependenciesKey: "dependencies",
+    packagePruning: pruningResult(),
+    packagePruningLoading: true,
+    packagePruningError: "pruning failure",
+    packagePruningKey: "pruning",
     packageIntegrations: integrationsResult(),
     packageIntegrationsLoading: true,
     packageIntegrationsError: "integration failure",

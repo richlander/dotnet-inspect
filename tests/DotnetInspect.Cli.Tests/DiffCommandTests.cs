@@ -2629,18 +2629,11 @@ public class DiffCommandTests
                 }));
 
             Assert.Equal(1, exitCode);
-            Assert.Empty(error);
-            Assert.Contains(
-                "API comparison is incomplete",
-                output,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "## Inspection Failures",
-                output,
-                StringComparison.Ordinal);
+            Assert.Empty(output);
+            Assert.Contains("not compared", error, StringComparison.Ordinal);
             Assert.Contains(
                 "Invalid.dll",
-                output,
+                error,
                 StringComparison.Ordinal);
         }
         finally

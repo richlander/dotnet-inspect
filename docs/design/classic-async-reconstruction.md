@@ -159,6 +159,20 @@ Metadata-owned
 the inverse requires the certified kickoff and execution identities, not a
 support MethodDef.
 
+For a production execution body with available Instructions exception-flow
+facts, request correlation additionally requires the exact composition join:
+
+```text
+StateMachineRelationship.MoveNext
+    == InstructionExceptionFlowFacts.Body.Method
+```
+
+This compares owner-issued MethodDef identity, not generated names, exception
+extents, clause ordinals, or object reference. A foreign body observation
+invalidates the request before recipe recognition. Missing or unavailable
+exception-flow evidence continues through the existing visible EH decline
+path rather than becoming a success-shaped absence.
+
 ### Body availability and post-build artifacts
 
 `Unmodified` describes pipeline state, not provenance. The snapshots contain
@@ -402,18 +416,23 @@ independently recognizable shapes:
   `AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter, ref
   TStateMachine)` by-ref generic definition instantiated over this machine. Any
   additional, nested, lookalike, or unmodeled builder callback fails the proof;
-- **the completion catch** — the import's single catch region with its exact
-  core-library `System.Exception` type, no filter, a handler range that contains
-  `SetException` and excludes `SetResult`, and a handler-entry variable that is
-  the local `SetException` receives; the planning view's structured clause must
-  agree on type, variable, and the compiler's state/`SetException`/return arm;
+- **the completion catch** — the import's single Instructions-issued catch
+  clause with its exact core-library `System.Exception` type, no filter, a
+  `LocationAt` context that contains `SetException` in its handler and excludes
+  `SetResult`, and a handler-entry variable that is the local `SetException`
+  receives; the planning view's structured clause must retain that exact
+  association and agree on type, variable, and the compiler's
+  state/`SetException`/return arm;
 - **protected exception contexts** — every provenance-bearing planning node
-  keeps the raw offset's protected/handler membership, including awaited
-  operands, `GetAwaiter`, user work, and nested finally work. The admitted
-  shell has one completion catch and at most one user finally. Its structured
-  region identities agree with the import, and any retained flat regions keep
-  their exact extents. Checking only the callback or final result offset is
-  insufficient; repairing a detached planning view cannot repair the import;
+  keeps the raw offset's Instructions-issued protected/handler membership,
+  including awaited operands, `GetAwaiter`, user work, and nested finally work.
+  The raw and planning indexes retain one exact exception-flow observation; the
+  admitted shell has one completion catch and at most one user finally, and
+  every structured catch/finally carries its exact clause and region
+  associations. Equal ranges from another body observation do not correspond.
+  Checking only the callback or final result offset is insufficient. Missing,
+  unavailable, ambiguous, or re-paired production evidence declines visibly;
+  only explicit non-Metadata Layer 0 requests retain range-based compatibility;
 - **successful completion** — the exact terminal block for each accepted
   recipe must have no remaining planning successor, and its corresponding raw
   block must end in the sole `leave` to the exact `SetResult` block. A detached
@@ -1122,10 +1141,16 @@ Release gates:
 | `ClassicInverseConsumedMemberAccountingChargesEveryLookup` | Consumed-member resolution stops charging for the elements it indexes or the questions it answers, or raw-effect accounting buys a planning-tree rescan per call. |
 | `ClassicInverseRawKickoffBindsExactParameterTransfers` | A raw kickoff parameter transfer has a different argument index than the planning view registered, or the raw/planning transfer counts differ, including when a planning runner repairs only its detached kickoff clone. |
 | `ClassicInverseRawKickoffRetainsItsOrderedShell` | A planning-only repair hides an early raw return, premature builder start, different initial state, or duplicated parameter transfer. |
-| `ClassicInverseRawFinallyBindsItsExactRegion` | A narrowed or shifted raw finally handler region still reconstructs because the recipe checked only the planning `TryFinally` structure, not the raw `HandlerRegion` ranges. |
-| `ClassicInverseCompletionCatchBindsItsExactProtectedExtent` | A narrowed raw completion catch `TryOffset`/`TryLength` still reconstructs because the lowering proof checked only handler offset/length, not the protected extent. |
-| `ClassicInverseCompletionCatchRejectsDetachedPlanningRepair` | Planning hides a raw completion catch that excludes the await operand and `GetAwaiter` while still covering its await callback. |
-| `ClassicInverseFinallyRejectsDetachedPlanningRepair` | Planning hides a raw finally protected range that excludes awaited work while still covering `GetResult` and the result store. |
+| `ClassicInverseRawFinallyBindsItsExactRegion` | The explicit non-Metadata compatibility seam stops checking a narrowed or shifted raw finally region. |
+| `ClassicInverseCompletionCatchBindsItsExactProtectedExtent` | The explicit non-Metadata compatibility seam stops checking a narrowed completion-catch protected extent. |
+| `ClassicInverseCompletionCatchUsesSharedFactsInsteadOfCompatibilityRanges` | A production completion catch consults mutated compatibility ranges instead of the correlated Instructions observation. |
+| `ClassicInverseFinallyUsesSharedFactsInsteadOfCompatibilityRanges` | A production user finally consults mutated compatibility ranges instead of the correlated Instructions observation. |
+| `ClassicInverseMissingSharedExceptionFlowDeclinesVisibly` | Metadata-backed classic reconstruction falls back when correlated Instructions evidence is missing. |
+| `ClassicInverseUnavailableSharedExceptionFlowDeclinesVisibly` | Metadata-backed classic reconstruction treats rejected Instructions evidence as usable or silently falls back. |
+| `ClassicInverseStructuredContextRejectsSameRangeForeignBodyIdentity` | Equal protected extents from another body observation license structured membership. |
+| `ClassicInverseCatchRejectsSameRangeForeignClauseIdentity` | A structured catch clause accepts a foreign owner-issued clause association. |
+| `ClassicInverseFinallyRejectsSameRangeForeignClauseIdentity` | A structured finally accepts a foreign owner-issued clause association. |
+| `ClassicInversePlanningAndRawRequireOneExceptionFlowObservation` | Raw and planning indexes join facts from different body observations. |
 | `ClassicInverseStorageBindsExactTypedFieldIdentity` | A same-named machine field with a different type resolves to the original parameter's argument index through name-only mapping in the candidate, rewriter, or realization rules. |
 | `ClassicInverseCoherentAwaitCannotAliasAnotherTypedField` | An internally consistent alternate awaitable field and `GetAwaiter` member, accepted by the lowering proof, resolves to the original differently typed parameter. |
 | `ClassicInverseRecipeScanChargesEveryNodeVisit` | Recipe matching performs uncharged full-tree scans that the budget cannot observe, allowing quadratic work at a linear charge. |

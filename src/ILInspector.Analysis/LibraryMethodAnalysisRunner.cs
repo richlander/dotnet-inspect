@@ -40,8 +40,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
     ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions);
+        MethodInstructions instructions);
 
     IMethodCallResolver CreateCallResolver(
         GenericScope scope,
@@ -146,6 +145,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<MethodReturnFlow> ReturnFlows;
+    public MethodLocalThrowEvidence? LocalThrows;
     // Reachable whole-value writes or unrecognized by-ref escapes of this
     // method's current instance, consumed only by the assembly-level proof.
     public ImmutableArray<int> CurrentInstanceMutations;
@@ -161,6 +161,7 @@ internal sealed class LibraryMethodAnalysisResult
     public bool ScopeExcluded;
     public bool HasSignals;
     public BodySignals Signals;
+    public MethodBodyImplementationMetrics? ImplementationProfile;
     public LeakTriageResult? LeakTriage;
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
@@ -185,7 +186,8 @@ internal enum UnsafeCallProbeResult
 /// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
-    ILibraryMethodAnalysisInfrastructure infrastructure)
+    ILibraryMethodAnalysisInfrastructure infrastructure,
+    LibraryBodyExceptionTypeClassifier? exceptionTypes = null)
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
@@ -539,12 +541,21 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeAsyncSiblingOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
+        bool includeImplementationProfiles = plan.Includes(
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        bool includeLocalThrows = plan.Includes(
+            LibraryBodyAnalysisFeatures.LocalThrows);
+        LibraryBodyExceptionTypeClassifier? localExceptionTypes =
+            includeLocalThrows
+                ? exceptionTypes ?? throw new InvalidOperationException(
+                    "Local throws require exception-type qualification.")
+                : null;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         IReadOnlySet<int>? requestedMethodScope =
@@ -564,7 +575,16 @@ internal sealed class LibraryMethodAnalysisRunner(
             RequiresCompleteFieldAccessCensus =
                 includeJsonWireContractFlow
                 && !plan.IsScoped,
+            LocalThrows = includeLocalThrows
+                ? new MethodLocalThrowEvidence.Unavailable(
+                    MetadataTokens.GetToken(methodHandle),
+                    LocalThrowUnavailableReason.AnalysisFailed,
+                    [])
+                : null,
         };
+        ImmutableArray<LocalThrowSite>.Builder? localThrowSites =
+            includeLocalThrows ? ImmutableArray.CreateBuilder<LocalThrowSite>() : null;
+        bool isReferenceAssembly = false;
         var evidence =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
@@ -607,6 +627,17 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.HasCaller = true;
             result.Caller = caller;
             result.Token = caller.MetadataToken;
+            if (localExceptionTypes is not null)
+            {
+                isReferenceAssembly = localExceptionTypes.IsReferenceAssembly;
+                if (isReferenceAssembly)
+                {
+                    result.LocalThrows = new MethodLocalThrowEvidence.Unavailable(
+                        caller.MetadataToken,
+                        LocalThrowUnavailableReason.ReferenceAssembly,
+                        []);
+                }
+            }
             // Tally the unsafe mode for every method, including bodiless
             // extern/abstract members (P/Invokes are a major source).
             result.Mode = caller.CallerUnsafeMode;
@@ -628,6 +659,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
+                SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
                     false;
                 if (includeAsyncSiblingOpportunities
@@ -661,6 +693,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             if (bodyScope is not null
                 && !bodyScope.Contains(caller.MetadataToken))
             {
+                SetLocalThrowUnavailable(LocalThrowUnavailableReason.ScopeExcluded);
                 return result;
             }
             bool directlySelectedType =
@@ -684,7 +717,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     && (!mappedEvidence
                         || !sourceTypes.Any(
                             bodyTypeScope)))
+                {
+                    SetLocalThrowUnavailable(LocalThrowUnavailableReason.ScopeExcluded);
                     return result;
+                }
             }
             MethodIdentity? opportunityDeclaredMethod = null;
             MethodIdentity? unresolvedOpportunityOwner = null;
@@ -794,9 +830,12 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
+            MethodBodyData metadataBody = RequireMethodBody(
+                _infrastructure.PeReader,
+                caller.MetadataToken);
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
-            var il = body.GetILBytes() ?? [];
+            var il = metadataBody.IL.ToArray();
             if (includeLeakTriage)
             {
                 if (!SignatureBlobGuard.IsSafeToDecode(
@@ -817,8 +856,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             LeakTriageAnalyzer
                                 .CreateAssemblyScanMethodIdentity(
                                     caller),
-                            il,
-                            body.ExceptionRegions,
+                            metadataBody,
                             token => _infrastructure.ResolveMethod(
                                 token,
                                 scope,
@@ -830,22 +868,28 @@ internal sealed class LibraryMethodAnalysisRunner(
                                     scope));
                 }
             }
-            var methodInstructions =
-                DecodeBody(
-                    il,
-                    body.ExceptionRegions);
-            var loopRegions =
-                CollectLoopRegions(methodInstructions);
-            var localTypes =
-                DecodeLocalTypes(
+            LocalTypeDecodeResult localTypes =
+                DecodeLocalTypesWithStatus(
                     body,
                     scope);
-            var context = new MethodBodyAnalysisContext(
+            MethodBodyAnalysisContext context =
+                MethodBodyAnalysisContext.Create(
                 caller,
-                methodInstructions,
-                body.ExceptionRegions,
-                loopRegions,
-                localTypes);
+                metadataBody,
+                localTypes.Types,
+                localTypes.DeclaredCount,
+                localTypes.IncompleteReason);
+            MethodInstructions methodInstructions =
+                context.Instructions;
+            if (includeImplementationProfiles)
+            {
+                result.ImplementationProfile =
+                    MethodImplementationProfileAnalysis.Measure(
+                        context,
+                        result.DeclaredMethod ?? caller,
+                        il.Length,
+                        asyncBody is not null);
+            }
             // Build allocation's Layer-1 indexes before other topic producers,
             // then keep every result and query bound to this exact context.
             var allocationFacts =
@@ -854,8 +898,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 _infrastructure.CreateMethodAnalysisResolver(
                     scope,
                     caller,
-                    il,
-                    body.ExceptionRegions);
+                    methodInstructions);
             var localSafety =
                 MethodSafetyAnalysis.InspectLocals(
                     context,
@@ -947,7 +990,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                     fieldLoads: fieldLoads,
                     currentInstanceMutations:
                         currentInstanceMutations,
-                    returnFlows: returnFlows);
+                    returnFlows: returnFlows,
+                    localThrows: isReferenceAssembly ? null : localThrowSites,
+                    qualifyExceptionType: localExceptionTypes is null
+                        ? null : localExceptionTypes.Qualify);
+                if (localThrowSites is not null && !isReferenceAssembly)
+                {
+                    result.LocalThrows = new MethodLocalThrowEvidence.Inspected(
+                        caller, localThrowSites.ToImmutable());
+                }
                 result.FieldAccessCensusComplete =
                     result.RequiresCompleteFieldAccessCensus;
             }
@@ -1160,8 +1211,27 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.CurrentInstanceMutations =
                 currentInstanceMutations?.ToImmutable() ?? [];
             result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
+            if (result.LocalThrows is MethodLocalThrowEvidence.Unavailable
+                { Reason: LocalThrowUnavailableReason.AnalysisFailed } failed)
+            {
+                result.LocalThrows = failed with
+                {
+                    Sites = localThrowSites?.ToImmutable() ?? [],
+                    Detail = result.Diagnostic?.Message
+                        ?? "Method analysis did not reach local-throw projection.",
+                };
+            }
         }
         return result;
+
+        void SetLocalThrowUnavailable(LocalThrowUnavailableReason reason)
+        {
+            if (includeLocalThrows && !isReferenceAssembly)
+            {
+                result.LocalThrows = new MethodLocalThrowEvidence.Unavailable(
+                    MetadataTokens.GetToken(methodHandle), reason, []);
+            }
+        }
     }
 
     LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(
@@ -1228,14 +1298,13 @@ internal sealed class LibraryMethodAnalysisRunner(
 
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
-            var body =
-                _infrastructure.PeReader.GetMethodBody(
-                    methodDefinition.RelativeVirtualAddress);
+            MethodBodyData body = RequireMethodBody(
+                _infrastructure.PeReader,
+                method.MetadataToken);
             result.LeakTriage =
                 LeakTriageAnalyzer.AnalyzeMethodDetailed(
                     method,
-                    body.GetILBytes() ?? [],
-                    body.ExceptionRegions,
+                    body,
                     token => _infrastructure.ResolveMethod(
                         token,
                         scope,
@@ -1284,56 +1353,84 @@ internal sealed class LibraryMethodAnalysisRunner(
                 exceptionRegions));
     }
 
-    static IReadOnlyList<(int Start, int End)> CollectLoopRegions(
-        MethodInstructions body)
-    {
-        var regions = new List<(int Start, int End)>();
-        var blockGraph = body.Blocks;
-        foreach (var instruction in body.Instructions)
+    static MethodBodyData RequireMethodBody(
+        PEReader peReader,
+        int methodToken) =>
+        MethodBodySource.Read(peReader, methodToken) switch
         {
-            if (instruction.OpCode == ILOpCode.Switch)
-                continue;
-            int sourceBlock =
-                blockGraph.BlockIndexAt(instruction.Offset);
-            foreach (int target in instruction.BranchTargets)
-            {
-                if (target >= instruction.Offset)
-                    continue;
-                int targetBlock =
-                    blockGraph.BlockIndexAt(target);
-                if (sourceBlock >= 0
-                    && targetBlock >= 0
-                    && blockGraph.Blocks[sourceBlock]
-                        .Edges.Successors.Contains(targetBlock))
-                {
-                    regions.Add(
-                        (target, instruction.Offset));
-                }
-            }
-        }
-        return regions;
-    }
+            MethodBodyReadResult.Available available =>
+                available.Body,
+            MethodBodyReadResult.NoBody =>
+                throw new InvalidOperationException(
+                    $"Method token 0x{methodToken:X8} has no managed IL body."),
+            MethodBodyReadResult.Unavailable unavailable =>
+                throw new BadImageFormatException(
+                    $"Metadata method-body evidence is unavailable "
+                    + $"({unavailable.Reason.GetType().Name})."),
+            _ => throw new InvalidOperationException(
+                "Unknown Metadata method-body result."),
+        };
 
     ImmutableArray<TypeRef> DecodeLocalTypes(
         MethodBodyBlock body,
         GenericScope scope)
+        => DecodeLocalTypesWithStatus(body, scope).Types;
+
+    LocalTypeDecodeResult DecodeLocalTypesWithStatus(
+        MethodBodyBlock body,
+        GenericScope scope)
     {
         if (body.LocalSignature.IsNil)
-            return [];
+            return new([], 0, null);
         MetadataReader reader = _infrastructure.Reader;
         var signature =
             reader.GetStandaloneSignature(body.LocalSignature);
+        BlobReader blob = reader.GetBlobReader(signature.Signature);
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.LocalVariables
+            || header.RawValue != 0x07)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature does not have the local-variable signature kind.");
+        }
+        int declaredCount = blob.ReadCompressedInteger();
+        if (declaredCount < 0)
+        {
+            throw new BadImageFormatException(
+                "A method body local signature has an invalid local count.");
+        }
         if (!SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 signature.Signature,
                 SignatureBlobGuard.Kind.LocalVariables))
         {
-            return [];
+            return new(
+                [],
+                declaredCount,
+                "The local signature exceeds the guarded decode policy.");
         }
-        return signature.DecodeLocalSignature(
-            TypeRefDecoder.Instance,
-            scope);
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                signature.Signature,
+                SignatureBlobGuard.Kind.LocalVariables))
+        {
+            return new(
+                [],
+                declaredCount,
+                "The local signature is incomplete or contains trailing data.");
+        }
+        return new(
+            signature.DecodeLocalSignature(
+                TypeRefDecoder.Instance,
+                scope),
+            declaredCount,
+            null);
     }
+
+    readonly record struct LocalTypeDecodeResult(
+        ImmutableArray<TypeRef> Types,
+        int DeclaredCount,
+        string? IncompleteReason);
 
     // Razor-generated render methods lack generated-code attributes. Trust-gate
     // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.

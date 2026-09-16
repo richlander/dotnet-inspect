@@ -79,14 +79,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+        MethodInstructions instructions) =>
         new MethodAnalysisResolver(
             this,
             scope,
             caller,
-            il,
-            exceptionRegions);
+            instructions);
 
     internal IMethodCallResolver CreateCallResolver(
         GenericScope scope,
@@ -325,8 +323,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         LibraryBodyPrimaryMetadataResolver owner,
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        MethodInstructions instructions)
         : ILibraryMethodAnalysisResolver
     {
         public TypeRef ResolveType(int token)
@@ -380,9 +377,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public ReachingDefinitionsResult AnalyzeReachingDefinitions()
             => ReachingDefinitions.Analyze(
-                il,
-                ArgumentSlotCount(caller),
-                exceptionRegions);
+                instructions,
+                ArgumentSlotCount(caller));
     }
 
     // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns
@@ -1022,20 +1018,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         }
     }
 
-    // Peel a generic-method call operand (MethodSpec) to the underlying MethodDef
-    // token in this assembly, so a call to G<int> is attributed to G's definition.
-    // Returns the token unchanged when it is not a same-assembly MethodSpec instantiation.
+    // Recover an exact local MethodDef from metadata shapes that carry one.
     int PeelToDefinitionToken(int token)
-    {
-        var handle = MetadataTokens.EntityHandle(token);
-        if (handle.Kind == HandleKind.MethodSpecification)
-        {
-            var spec = _reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-            if (spec.Method.Kind == HandleKind.MethodDefinition)
-                return MetadataTokens.GetToken(spec.Method);
-        }
-        return token;
-    }
+        => MemberResolver.DefinitionToken(_reader, token);
 
     internal GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
         => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));

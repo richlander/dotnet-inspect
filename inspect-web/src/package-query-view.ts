@@ -1,15 +1,12 @@
 import type {
   PackageQueryState,
-  QueryAssemblyPatternDescriptor,
   QueryFacetTerm,
   QueryRequest,
   QueryResultRow,
   QuerySourceSelection,
+  QueryTermDescriptor,
 } from "./package-query.ts";
-import {
-  createAssemblyQueryRequest,
-  createQueryRequest,
-} from "./package-query.ts";
+import { createQueryRequest } from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
   type PackageQueryViewportSnapshot,
@@ -18,14 +15,25 @@ import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
 
 const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
-const DEFAULT_ASSEMBLY_QUERY_TARGET_FRAMEWORK = "net10.0";
-const MAX_ASSEMBLY_QUERY_PACKAGES = 5;
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
-  onAssemblyRun?: (request: QueryRequest) => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
+  onTermAdd?: (termKey: string) => void;
+  onTermApply?: (
+    index: number | null,
+    operator: string,
+    value: string,
+    prefix: string,
+  ) => void;
+  onTermEdit?: (
+    index: number | null,
+    operator: string,
+    value: string,
+  ) => void;
+  onTermDraftCancel?: () => void;
+  onTermRemove?: (index: number, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
   onResultPressure: () => void;
   onResultViewportChange: () => void;
@@ -52,23 +60,23 @@ export type PackageQueryFocusSnapshot =
   | { kind: "run" }
   | { kind: "results" }
   | { kind: "prerelease" }
-  | {
-      kind: "assembly";
-      control: "pattern" | "packages" | "operand" | "tfm" | "run";
-    }
   | { kind: "facet"; facetKey: string }
+  | { kind: "term-add"; termKey: string }
+  | {
+      kind: "term";
+      index: number;
+      control: "operator" | "value" | "apply" | "remove";
+    }
+  | {
+      kind: "term-draft";
+      control: "operator" | "value" | "apply" | "cancel";
+    }
   | { kind: "row"; packageId: string; version: string }
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
 interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
-}
-
-interface AssemblyQueryControl extends HTMLElement {
-  value: string;
-  setCustomValidity(message: string): void;
-  reportValidity(): boolean;
 }
 
 function isFocusableQueryElement(
@@ -85,6 +93,34 @@ function supportsSelectionRange(
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
+}
+
+function termControl(
+  value: string | undefined,
+): "operator" | "value" | "apply" | "remove" | null {
+  switch (value) {
+    case "operator":
+    case "value":
+    case "apply":
+    case "remove":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function termDraftControl(
+  value: string | undefined,
+): "operator" | "value" | "apply" | "cancel" | null {
+  switch (value) {
+    case "operator":
+    case "value":
+    case "apply":
+    case "cancel":
+      return value;
+    default:
+      return null;
+  }
 }
 
 export function capturePackageQueryFocus(
@@ -111,12 +147,30 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
-  const assemblyControl = assemblyControlName(active.id);
-  if (assemblyControl) {
-    return { kind: "assembly", control: assemblyControl };
-  }
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
+  }
+  if (active.dataset.queryTermAdd) {
+    return { kind: "term-add", termKey: active.dataset.queryTermAdd };
+  }
+  const activeTermControl = termControl(active.dataset.queryTermControl);
+  if (activeTermControl) {
+    const index = Number(active.dataset.queryTermIndex);
+    if (Number.isInteger(index) && index >= 0) {
+      return {
+        kind: "term",
+        index,
+        control: activeTermControl,
+      };
+    }
+  }
+  const activeDraftControl =
+    termDraftControl(active.dataset.queryTermDraftControl);
+  if (activeDraftControl) {
+    return {
+      kind: "term-draft",
+      control: activeDraftControl,
+    };
   }
   if (active.dataset.queryRowOpen && active.dataset.queryRowVersion) {
     return {
@@ -159,14 +213,29 @@ export function restorePackageQueryFocus(
     case "prerelease":
       target = root.querySelector(`#package-query-${snapshot.kind}`);
       break;
-    case "assembly":
-      target = root.querySelector(
-        `#package-query-assembly-${snapshot.control}`);
-      break;
     case "facet":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
         .find(element => element.dataset.queryFacet === snapshot.facetKey)
         ?? null;
+      break;
+    case "term-add":
+      target = [...root.querySelectorAll<HTMLElement>("[data-query-term-add]")]
+        .find(element => element.dataset.queryTermAdd === snapshot.termKey)
+        ?? null;
+      break;
+    case "term":
+      target = [
+        ...root.querySelectorAll<HTMLElement>("[data-query-term-control]"),
+      ].find(element =>
+        element.dataset.queryTermIndex === String(snapshot.index)
+        && element.dataset.queryTermControl === snapshot.control) ?? null;
+      break;
+    case "term-draft":
+      target = [
+        ...root.querySelectorAll<HTMLElement>(
+          "[data-query-term-draft-control]"),
+      ].find(element =>
+        element.dataset.queryTermDraftControl === snapshot.control) ?? null;
       break;
     case "row":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-row-open]")]
@@ -239,12 +308,12 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
       prefixInput()?.value ?? "")));
+  bindPackageQueryTerms(root, actions, prefixInput);
   const prerelease = root.querySelector<HTMLInputElement>(
     "#package-query-prerelease");
   prerelease?.addEventListener("change", () => actions.onSourceChange({
     includePrerelease: prerelease.checked,
   }, prefixInput()?.value ?? ""));
-  bindAssemblyQueryControls(root, actions);
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
   const reportResultPressure = () => {
@@ -265,149 +334,68 @@ export function bindPackageQueryView(
   };
 }
 
-function assemblyControlName(
-  id: string,
-): "pattern" | "packages" | "operand" | "tfm" | "run" | null {
-  const prefix = "package-query-assembly-";
-  if (!id.startsWith(prefix)) return null;
-  const control = id.slice(prefix.length);
-  switch (control) {
-    case "pattern":
-    case "packages":
-    case "operand":
-    case "tfm":
-    case "run":
-      return control;
-    default:
-      return null;
-  }
-}
-
-function bindAssemblyQueryControls(
+function bindPackageQueryTerms(
   root: ParentNode,
   actions: PackageQueryBindingActions,
+  prefixInput: () => HTMLInputElement | null,
 ): void {
-  const form = root.querySelector<HTMLFormElement>(
-    "#package-query-assembly-form");
-  if (!form) return;
-  const editableControls = [
-    root.querySelector<HTMLSelectElement>(
-      "#package-query-assembly-pattern"),
-    root.querySelector<HTMLTextAreaElement>(
-      "#package-query-assembly-packages"),
-    root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-operand"),
-    root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-tfm"),
-  ];
-  for (const control of editableControls) {
-    if (!control) continue;
-    const clearError = () => control.setCustomValidity("");
-    control.addEventListener("input", clearError);
-    control.addEventListener("change", clearError);
-  }
-  form.addEventListener("submit", event => {
-    event.preventDefault();
-    const pattern = root.querySelector<HTMLSelectElement>(
-      "#package-query-assembly-pattern");
-    const packages = root.querySelector<HTMLTextAreaElement>(
-      "#package-query-assembly-packages");
-    const operand = root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-operand");
-    const targetFramework = root.querySelector<HTMLInputElement>(
-      "#package-query-assembly-tfm");
-    if (!pattern || !packages || !operand || !targetFramework) {
-      throw new Error("Assembly query controls are incomplete.");
-    }
-    clearCustomValidity([
-      pattern,
-      packages,
-      operand,
-      targetFramework,
-    ]);
-    const selectedPattern = pattern.selectedOptions.item(0);
-    const maximumPackages = Number(
-      selectedPattern?.dataset.maximumPackages ?? 0);
-    const maximumOperandLength = Number(
-      selectedPattern?.dataset.maximumOperandLength ?? 0);
-    if (!pattern.value || maximumPackages <= 0 || maximumOperandLength <= 0) {
-      reportControlError(
-        pattern,
-        "Select an available assembly pattern.");
-      return;
-    }
-    const coordinates = parseExactPackageCoordinates(
-      packages.value,
-      maximumPackages);
-    if (typeof coordinates === "string") {
-      reportControlError(packages, coordinates);
-      return;
-    }
-    if (operand.value.length === 0) {
-      reportControlError(operand, "Enter a literal operand.");
-      return;
-    }
-    if (operand.value.length > maximumOperandLength) {
-      reportControlError(
-        operand,
-        `The literal operand must be at most ${maximumOperandLength.toLocaleString()} characters.`);
-      return;
-    }
-    const framework = targetFramework.value.trim();
-    if (!framework) {
-      reportControlError(
-        targetFramework,
-        "Enter a target framework.");
-      return;
-    }
-    if (!actions.onAssemblyRun) {
-      reportControlError(
-        pattern,
-        "Assembly-pattern package queries are unavailable.");
-      return;
-    }
-    actions.onAssemblyRun(createAssemblyQueryRequest(
-      pattern.value,
-      operand.value,
-      coordinates,
-      framework));
-  });
+  root.querySelectorAll<HTMLElement>("[data-query-term-add]").forEach(button =>
+    button.addEventListener("click", () =>
+      actions.onTermAdd?.(button.dataset.queryTermAdd ?? "")));
+  root.querySelectorAll<HTMLFormElement>("[data-query-term-form]")
+    .forEach(form => {
+      const termValue = form.querySelector<HTMLInputElement>(
+        "[data-query-term-value]");
+      const termOperator =
+        form.querySelector<HTMLInputElement | HTMLSelectElement>(
+          "[data-query-term-operator]");
+      const indexText = form.dataset.queryTermForm;
+      const index = indexText === "draft" ? null : Number(indexText);
+      if (index !== null && (!Number.isInteger(index) || index < 0)) {
+        throw new Error("Package-query term index is invalid.");
+      }
+      const retainEdit = () => {
+        if (!termValue || !termOperator) return;
+        actions.onTermEdit?.(index, termOperator.value, termValue.value);
+      };
+      if (termValue) {
+        const updateValue = () => {
+          termValue.setCustomValidity("");
+          retainEdit();
+        };
+        termValue.addEventListener("input", updateValue);
+        termValue.addEventListener("change", updateValue);
+      }
+      termOperator?.addEventListener("change", retainEdit);
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        if (!termValue || !termOperator) {
+          throw new Error("Package-query term controls are incomplete.");
+        }
+        termValue.setCustomValidity("");
+        if (termValue.value.trim().length === 0) {
+          termValue.setCustomValidity("Enter a term value.");
+          termValue.reportValidity();
+          return;
+        }
+        actions.onTermApply?.(
+          index,
+          termOperator.value,
+          termValue.value,
+          prefixInput()?.value ?? "");
+      });
+    });
+  root.querySelectorAll<HTMLElement>("[data-query-term-remove]")
+    .forEach(button => button.addEventListener("click", () => {
+      const index = Number(button.dataset.queryTermRemove);
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error("Package-query term index is invalid.");
+      }
+      actions.onTermRemove?.(index, prefixInput()?.value ?? "");
+    }));
+  root.querySelector("[data-query-term-draft-cancel]")
+    ?.addEventListener("click", () => actions.onTermDraftCancel?.());
 }
-
-function clearCustomValidity(
-  controls: readonly AssemblyQueryControl[],
-): void {
-  for (const control of controls) control.setCustomValidity("");
-}
-
-function reportControlError(
-  control: AssemblyQueryControl,
-  message: string,
-): void {
-  control.setCustomValidity(message);
-  control.reportValidity();
-}
-
-export function parseExactPackageCoordinates(
-  value: string,
-  maximumPackages: number,
-): readonly string[] | string {
-  const coordinates = value
-    .split(/\r?\n/)
-    .map(coordinate => coordinate.trim())
-    .filter(Boolean);
-  if (coordinates.length === 0) {
-    return "Enter at least one exact package as ID@VERSION.";
-  }
-  if (coordinates.length > maximumPackages) {
-    return `Enter no more than ${maximumPackages.toLocaleString()} packages.`;
-  }
-  if (coordinates.some(coordinate => !/^[^@\s]+@[^@\s]+$/.test(coordinate))) {
-    return "Enter one exact ID@VERSION package per line.";
-  }
-  return coordinates;
-}
-
 function bindPackageQueryStreamControls(
   root: ParentNode,
   actions: PackageQueryBindingActions,
@@ -438,12 +426,8 @@ function renderRow(
     .filter(item => item.scope === "package")
     .map(item => `<li>${escapeHtml(item.text)}</li>`)
     .join("");
-  const rootRequest = row.tier === "assembly" ? row.rootRequest : undefined;
-  const openAction = row.tier === "assembly" && !rootRequest?.trim()
-    ? `<span>Workspace opening request unavailable</span>`
-    : `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}"${rootRequest
-        ? ` data-query-root-request="${escapeHtml(rootRequest)}"`
-        : ""}>Open in workspace</button>`;
+  const openAction =
+    `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>`;
   return `
     <article class="query-row"
       role="listitem"
@@ -462,68 +446,15 @@ function renderRow(
         : ""}
       ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
-        <span>${row.tier === "assembly"
-          ? "Selector-issued primary implementation assembly"
-          : row.totalDownloads === null
-            ? "Lifetime downloads unavailable"
-            : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
+        <span>${row.totalDownloads === null
+          ? "Lifetime downloads unavailable"
+          : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
         ${row.producer
           ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}
         ${openAction}
       </div>
     </article>`;
-}
-
-function renderAssemblyControls(
-  patterns: readonly QueryAssemblyPatternDescriptor[],
-  state: PackageQueryState,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (patterns.length === 0) return "";
-  const active = state.request?.assemblyPattern;
-  const selected = patterns.find(pattern => pattern.id === active?.patternId)
-    ?? patterns[0]!;
-  const maximumPackages = Math.min(
-    selected.maximumPackages,
-    MAX_ASSEMBLY_QUERY_PACKAGES);
-  const unavailablePattern = active
-    && !patterns.some(pattern => pattern.id === active.patternId)
-    ? `<option value="${escapeHtml(active.patternId)}" selected disabled>Unavailable pattern</option>`
-    : "";
-  const options = patterns.map(pattern => `
-    <option
-      value="${escapeHtml(pattern.id)}"
-      data-maximum-operand-length="${pattern.maximumOperandLength}"
-      data-maximum-packages="${Math.min(
-        pattern.maximumPackages,
-        MAX_ASSEMBLY_QUERY_PACKAGES)}"${pattern.id === selected.id && !unavailablePattern ? " selected" : ""}>
-      ${escapeHtml(pattern.label)}
-    </option>`).join("");
-  return `
-    <details class="query-source-controls query-assembly-controls"${active ? " open" : ""}>
-      <summary>Assembly patterns</summary>
-      <p>Explicit bounded analysis of the selector-issued primary implementation assembly. It does not search every assembly in a package.</p>
-      <form id="package-query-assembly-form">
-        <label for="package-query-assembly-pattern">Pattern
-          <select id="package-query-assembly-pattern" aria-describedby="package-query-assembly-summary">
-            ${unavailablePattern}${options}
-          </select>
-        </label>
-        <p id="package-query-assembly-summary">${escapeHtml(selected.summary)}</p>
-        <label for="package-query-assembly-packages">Exact packages
-          <textarea id="package-query-assembly-packages" rows="${maximumPackages}" required aria-describedby="package-query-assembly-packages-description" placeholder="Package.Id@1.2.3">${escapeHtml(active?.packageCoordinates.join("\n") ?? "")}</textarea>
-        </label>
-        <p id="package-query-assembly-packages-description">One exact ID@VERSION per line, up to ${maximumPackages.toLocaleString()}.</p>
-        <label for="package-query-assembly-operand">Literal operand
-          <input id="package-query-assembly-operand" type="text" required maxlength="${selected.maximumOperandLength}" value="${escapeHtml(active?.operand ?? "")}" autocomplete="off" spellcheck="false" />
-        </label>
-        <label for="package-query-assembly-tfm">Target framework
-          <input id="package-query-assembly-tfm" type="text" required value="${escapeHtml(active?.targetFramework ?? DEFAULT_ASSEMBLY_QUERY_TARGET_FRAMEWORK)}" autocomplete="off" spellcheck="false" />
-        </label>
-        <button id="package-query-assembly-run" type="submit">Run assembly query</button>
-      </form>
-    </details>`;
 }
 
 function renderQueryContext(
@@ -586,6 +517,126 @@ function renderFacets(
   }).join("");
 }
 
+function renderTermOperator(
+  descriptor: QueryTermDescriptor,
+  selectedOperator: string,
+  index: number | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const controlAttributes = index === null
+    ? 'data-query-term-draft-control="operator"'
+    : `data-query-term-index="${index}" data-query-term-control="operator"`;
+  if (descriptor.operators.length <= 1) {
+    return `<input type="hidden" data-query-term-operator value="${escapeHtml(selectedOperator)}" />`;
+  }
+  return `
+    <label class="query-term-operator">
+      <span>Operator</span>
+      <select data-query-term-operator ${controlAttributes}>
+        ${descriptor.operators.map(operator => `
+          <option value="${escapeHtml(operator)}"${operator === selectedOperator ? " selected" : ""}>${escapeHtml(operator)}</option>`)
+          .join("")}
+      </select>
+    </label>`;
+}
+
+function renderTermEditor(
+  descriptor: QueryTermDescriptor,
+  operator: string,
+  value: string,
+  index: number | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const draft = index === null;
+  const identity = draft ? "draft" : String(index);
+  const valueAttributes = draft
+    ? 'data-query-term-draft-value data-query-term-draft-control="value"'
+    : `data-query-term-index="${index}" data-query-term-control="value"`;
+  const applyAttributes = draft
+    ? 'data-query-term-draft-control="apply"'
+    : `data-query-term-index="${index}" data-query-term-control="apply"`;
+  return `
+    <form
+      class="query-term"
+      data-query-term-form="${identity}"
+      aria-label="${escapeHtml(descriptor.label)}">
+      <label class="query-term-value" for="package-query-term-${identity}">
+        <span>${escapeHtml(descriptor.label)}</span>
+        <input
+          id="package-query-term-${identity}"
+          data-query-term-value
+          ${valueAttributes}
+          type="text"
+          required
+          value="${escapeHtml(value)}"
+          placeholder="${escapeHtml(descriptor.example)}"
+          title="${escapeHtml(descriptor.summary)}"
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      ${renderTermOperator(descriptor, operator, index, escapeHtml)}
+      <div class="query-term-actions">
+        <button type="submit" ${applyAttributes}>Apply</button>
+        ${draft
+          ? `<button type="button" data-query-term-draft-cancel data-query-term-draft-control="cancel">Cancel</button>`
+          : `<button type="button" data-query-term-remove="${index}" data-query-term-index="${index}" data-query-term-control="remove">Remove</button>`}
+      </div>
+    </form>`;
+}
+
+function renderTermControls(
+  state: PackageQueryState,
+  availableTerms: readonly QueryTermDescriptor[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  const applied = state.request?.terms ?? [];
+  const draft = state.termDraft;
+  const active = [
+    ...applied.map((term, index) => {
+      const edit = state.termEdits?.[index];
+      return renderTermEditor(
+        term.descriptor,
+        edit?.operator ?? term.operator,
+        edit?.value ?? term.value,
+        index,
+        escapeHtml);
+    }),
+    ...(draft
+      ? [renderTermEditor(
+          draft.descriptor,
+          draft.operator,
+          draft.value,
+          null,
+          escapeHtml)]
+      : []),
+  ].join("");
+  const activeZone = active
+    ? `
+      <section class="query-active-terms" aria-labelledby="query-active-terms-heading">
+        <h2 id="query-active-terms-heading">Active terms</h2>
+        <div class="query-term-list">${active}</div>
+      </section>`
+    : "";
+  const palette = availableTerms
+    .filter(term => term.operators.length > 0)
+    .map(term => `
+      <button
+        type="button"
+        class="query-term-add"
+        data-query-term-add="${escapeHtml(term.key)}"
+        title="${escapeHtml(term.summary)}">
+        Add ${escapeHtml(term.label)}
+      </button>`)
+    .join("");
+  return `
+    ${activeZone}
+    <section class="query-available-terms" aria-labelledby="query-available-terms-heading">
+      <h2 id="query-available-terms-heading">Available terms</h2>
+      <p>Applied terms are combined; changes rerun nonblank package input.</p>
+      <div class="query-term-palette">${palette}</div>
+    </section>`;
+}
+
 function renderCompletionFooter(
   request: QueryRequest | null,
   outcome: PackageQueryState["outcome"],
@@ -611,9 +662,7 @@ function renderCompletionFooter(
   const cancelButton = completion.kind === "streaming"
     ? `<button type="button" data-query-cancel="1">Cancel</button>`
     : "";
-  const resultLabel = request?.assemblyPattern
-    ? `assembly match${outcome.rows.length === 1 ? "" : "es"}`
-    : `package${outcome.rows.length === 1 ? "" : "s"}`;
+  const resultLabel = `package${outcome.rows.length === 1 ? "" : "s"}`;
   return `
     <div class="query-footer">
       <span>${outcome.rows.length} ${resultLabel} · ${label}</span>
@@ -677,35 +726,6 @@ function renderEmptyState(
   escapeHtml: (value: unknown) => string,
 ): string {
   const completion = state.outcome.completion;
-  if (state.request?.assemblyPattern) {
-    if (completion.kind === "cancelled") {
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>Assembly query cancelled</h2>
-          <p>This was stopped before every selected package was assessed.</p>
-        </section>`;
-    }
-    if (completion.kind === "failed") {
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>Assembly query failed</h2>
-          <p>${escapeHtml(completion.reason)} This is not a semantic no-match result.</p>
-        </section>`;
-    }
-    if (completion.kind !== "streaming") {
-      const completionScope = completion.kind === "bounded"
-        ? ` Scope: ${escapeHtml(completion.reason)}.`
-        : "";
-      return `
-        <section class="query-empty">
-          <span class="large-glyph">◇</span>
-          <h2>No selected assembly matches</h2>
-          <p>Each outcome applies only to the selector-issued primary implementation assembly. It is not a package-wide absence claim.${completionScope}</p>
-        </section>`;
-    }
-  }
   if (!state.request) {
     return `
       <section class="query-empty">
@@ -777,7 +797,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   viewport?: PackageQueryViewportSnapshot | null;
   availableFacets: readonly QueryFacetTerm[];
-  availableAssemblyPatterns?: readonly QueryAssemblyPatternDescriptor[];
+  availableTerms?: readonly QueryTermDescriptor[];
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -789,9 +809,7 @@ function renderFailures(
   return state.outcome.failures.length
     ? `
       <section class="query-failures">
-        <strong>${state.request?.assemblyPattern
-          ? "Some selected-assembly work failed"
-          : "Some package source work failed"}</strong>
+        <strong>Some package source work failed</strong>
         <ul>${state.outcome.failures
           .map(failure => `<li>${escapeHtml(failure)}</li>`)
           .join("")}</ul>
@@ -855,7 +873,7 @@ function renderResults(
   return rows
     ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}${renderedRows}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>${state.request.assemblyPattern ? "Evaluating selected assemblies" : "Acquiring package input"}</h2><p>${state.request.assemblyPattern ? "Matches, semantic non-matches, and non-applicable selections will appear as the explicit packages are evaluated." : "Matches will appear as package candidates are evaluated."}</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Acquiring package input</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
       : `${assessments}${renderEmptyState(state, escapeHtml)}`;
 }
 
@@ -897,7 +915,7 @@ export function renderPackageQueryView(
     state,
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
-    availableAssemblyPatterns = [],
+    availableTerms = [],
     navigationError = "",
     escapeHtml,
     viewport = null,
@@ -907,6 +925,7 @@ export function renderPackageQueryView(
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
+  const terms = renderTermControls(state, availableTerms, escapeHtml);
 
   return `
     <div class="query-page">
@@ -920,7 +939,7 @@ export function renderPackageQueryView(
         <div class="query-heading">
           <p class="query-kicker">Exact package + literal prefix · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Run a bounded query over an exact package ID or literal prefix. Manifests and package content are acquired only with inspection facets.</p>
+          <p>Run a bounded query over an exact package ID or literal prefix. Manifests and package content are acquired only for selected inspection work.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
           <label for="package-query-prefix">Package ID or prefix</label>
@@ -937,10 +956,7 @@ export function renderPackageQueryView(
         <div class="query-layout">
           <aside class="query-facet-rail" aria-label="Package query controls">
             ${renderPackageOptions(request)}
-            ${renderAssemblyControls(
-              availableAssemblyPatterns,
-              state,
-              escapeHtml)}
+            ${terms}
             <h2>Inspection facets</h2>
             <p>Changes rerun the selected input; blank package input stays idle.</p>
             <div class="query-facets">${facets}</div>

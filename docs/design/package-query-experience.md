@@ -93,6 +93,41 @@ summary, weight, tier, optional compatibility-selection group, and optional
 display group. A descriptor also states whether it can form an OR-union with
 other combining members of its selection group.
 
+### Initial active term delivery
+
+The Browser catalog also projects `PackageQuery.Terms`; it does not define a
+TypeScript term table. Each descriptor preserves the product-issued key, label,
+summary, weight, tier, admitted Portable Query operator identities, value kind,
+and example. The initial catalog contains only the nuspec-tier `depends` term
+defined by
+[Package Query parameterized term binding](package-query-cli.md#parameterized-term-binding).
+
+The rail renders applied operand-bearing terms in an **Active terms** zone
+above an **Available terms** palette. The active zone is absent when no term is
+applied and no term draft is open. Choosing a palette entry opens one empty
+draft and focuses its operand without starting source work. Applying the draft
+requires a nonempty operand, retains the exact `(key, operator, value)` triple,
+and starts a replacement query only when the package input is nonblank.
+Draft and active-term editor values survive unrelated rerenders and mode
+switches; they remain separate from executable request terms until Apply.
+Cancel discards a draft, Remove discards the corresponding active editor with
+its term, and leaving Package Query discards all unapplied editor values.
+Package Query remains the authority for vocabulary, NuGet package-ID
+validation, duplicate-after-binding rejection, bounds, and failures; a planning
+rejection is a visible expected query failure and performs no acquisition.
+
+Applied terms are individually editable and removable. Apply or remove
+preserves package input, prerelease selection, and selected facets, and starts
+a replacement query when the package input is runnable. Repeated
+`depends` terms remain separate active rows and AND through the product planner.
+The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
+the operand, or infer a term from evidence text. Product-issued term
+attribution remains structured across the Browser engine boundary.
+
+This delivery keeps request state in memory only. Portable intent resolution,
+payload encoding, `/query` URL persistence, Workspace packet attachment,
+and parameterless-facet retirement remain later owner slices: #6971 and #6972.
+
 Rows carry the highest evidence tier used by the request: `search-metadata`
 for basic discovery, `nuspec` for explicit manifest evaluation, or
 `package-content` when a selected facet opens the
@@ -178,6 +213,11 @@ and
   `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
   `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
   that content facets may download up to 20 candidate archives.
+- **Active terms and palette**: derived from `PackageQuery.Terms`. Available
+  descriptors add an operand editor; applied terms remain visible above the
+  palette with Apply and Remove actions. An empty draft performs no work.
+  Applying or removing a term reruns the current nonblank package input through
+  the product planner rather than filtering retained rows.
 - **Assembly patterns**: a collapsed rail section rendered only when the
   engine returns at least one pattern descriptor. It opens for the active
   assembly request and exposes the registered pattern selector, one exact
@@ -261,8 +301,12 @@ with this feature-owned vocabulary:
   one durable match, assessment, or failure outcome per explicit candidate.
 - `Assessment` is a durable `NoMatch` or `NotApplicable` candidate outcome. It
   does not consume match credit, increment match counts, or become a failure.
-- `Completed` is the only terminal event. The Browser adapter returns it through
-  the managed task result and never sends it through the callback channel.
+- `Completed` is the producer stream's only terminal event. In package mode,
+  the sole adapter retains its Summary, never sends it through the callback,
+  and returns one `InspectionEnvelope<PackageQueryDocument>` through the
+  managed task. The Browser derives its terminal UI event from the Document
+  Summary. Assembly mode remains a separate event-only operation and returns
+  its terminal event directly.
 
 Progress is monotonic per phase and keyed by phase for Browser-state
 coalescing. A request produces at most two search checkpoints, one manifest
@@ -309,6 +353,20 @@ credit bound therefore also stops later-page work once its held match pauses
 the producer, while still permitting one retained source page.
 A future worker adapter may preserve the same sizes and meanings while
 batching durable events under the shared owner.
+
+The completed package-mode Document contains ordered Results, typed Failures,
+and terminal Summary. Progress checkpoints and the interleaving of streamed
+Matches and Failures are operation history, not settled semantic content, so
+they are not serialized into the envelope. The Browser facade and Worker
+validate that Summary match and failure counts agree with the Document arrays.
+Package-mode Worker settlement carries the inspection without a second
+completion-event field; consumers derive the terminal UI event from the
+Document Summary. This incompatible Browser result-schema change advances the
+managed boundary to version 3. Assembly mode retains its event-only terminal
+under that shared result version.
+Cancellation and unexpected execution failure settle outside the envelope;
+expected source or item failure can still produce a valid Document whose
+Summary reports failed completion.
 
 This direct callback is the shared stream contract's transitional first-adopter
 path. The Package Query controller's feature-owned generation guard suppresses

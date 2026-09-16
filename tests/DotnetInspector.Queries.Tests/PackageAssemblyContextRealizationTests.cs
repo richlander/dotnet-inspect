@@ -17,6 +17,29 @@ public sealed class PackageAssemblyContextRealizationTests
     const string Framework = "net11.0";
 
     [Fact]
+    public void PackageRoot_ReportsAssemblyCandidatesOutsideImplementationUniverse()
+    {
+        PackageRootRealization complete = Selection(
+            "Complete.Package",
+            ("lib/net11.0/Complete.Package.dll", [0x01]));
+        PackageRootRealization reference = Selection(
+            "Reference.Package",
+            ("lib/net11.0/Reference.Package.dll", [0x01]),
+            ("ref/net11.0/Reference.Package.dll", [0x01]));
+        PackageRootRealization runtime = Selection(
+            "Runtime.Package",
+            ("lib/net11.0/Runtime.Package.dll", [0x01]),
+            ("runtimes/any/lib/net11.0/Runtime.Package.dll", [0x01]));
+
+        Assert.False(
+            complete.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.True(
+            reference.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.True(
+            runtime.HasUnselectedTargetFrameworkAssemblyCandidates);
+    }
+
+    [Fact]
     public async Task PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(
@@ -226,6 +249,119 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.NotEqual(
             firstBinding.Root.AssetSelection.DefaultAsset?.Path,
             replacementBinding.Root.AssetSelection.DefaultAsset?.Path);
+    }
+
+    [Fact]
+    public void PackageRootBinding_SourceSelectionRejectsForeignPackageOrGeneration()
+    {
+        const string packageId = "receipt.sample";
+        var content = new InMemoryPackageContent(
+            Archive(("lib/net11.0/Receipt.Sample.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt foreignPackage =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "another.package",
+                Framework);
+        var replacement = new InMemoryPackageContent(
+            Archive(("lib/net11.0/Receipt.Sample.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        PackageCompileAssetSelectionReceipt foreignGeneration =
+            PackageCompileAssetSelector.Evaluate(
+                replacement,
+                packageId,
+                Framework);
+
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                foreignPackage));
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                foreignGeneration));
+    }
+
+    [Fact]
+    public void
+        PackageRootBinding_TrySourceSelectionReturnsFalseForRuntimeWithoutFramework()
+    {
+        const string packageId = "owner-default.runtime";
+        var content = new InMemoryPackageContent(
+            Archive(("lib/net11.0/Owner.Default.Runtime.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                targetFramework: null,
+                runtimeIdentifier: "linux-x64");
+
+        Assert.False(
+            PackageRootBinding.TryCreateFromSourceSelection(
+                payload,
+                receipt,
+                out PackageRootBinding? binding));
+        Assert.Null(binding);
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                receipt));
+    }
+
+    [Fact]
+    public void PackageRootBinding_SourceSelectionPreservesInvalidSelectionReceipt()
+    {
+        const string packageId = "invalid.receipt";
+        var content = new InMemoryPackageContent(
+            Archive(
+                ("lib/net11.0/Invalid.Receipt.dll", [0x01]),
+                ("LIB/NET11.0/invalid.receipt.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                Framework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus
+                .InvalidImplementationAssets,
+            receipt.Selection.Status);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                receipt);
+
+        Assert.Same(
+            receipt.Generation,
+            binding.ContentGenerationIdentity);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus
+                .InvalidImplementationAssets,
+            binding.Root.AssetSelection.Status);
+        Assert.Equal(
+            receipt.Selection.Message,
+            binding.Root.AssetSelection.Message);
     }
 
     [Fact]

@@ -18,6 +18,7 @@ retain their contracts:
 | [Decompiler quality](decompiler-quality.md) | Quality strategy, oracle interpretation, and target selection. |
 | [Correctness pipeline](decompiler-correctness-pipeline.md) | Evidence levels, test selection, gates, and change-specific requirements. |
 | [Raise-work discipline](decompiler-raise-discipline.md) | Lowering recognition, ownership proofs, and decline boundaries. |
+| [C# decompiler service](design/csharp-decompiler-service.md) (planned) | The independent producer's explicit symbol input, composition work, and detached result evidence. |
 | [Harness reference](../tools/DecompilerHarness/README.md) | Diagnostic and measurement commands. |
 
 The named classes and paths below describe current implementation. The ordered

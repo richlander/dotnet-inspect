@@ -95,14 +95,18 @@ Issue #6113 adopts the stateless-core pattern within this existing Navigation
 owner: immutable product-issued `NavigationState` is passed explicitly to
 `NavigationTransitions`, while the host owns the current-state slot and
 operation execution. The approved slice separates semantic revision from
-action-publication generation; it does not implement Browser cutover (#6757),
-protected Scope-result admission (#5584), or restoration (#6112).
-Implementation conformance remains unverified until the relevant Release
-gates in [Verification](#verification) pass. The workspace-owned identity
-prerequisite is implemented by `InspectionWorkspaceIdentity`; the observational
-occurrence view remains available for its unmigrated Browser consumer.
-Registry adoption is tracked by #5509, and portable Workspace/Package subject
-projection by #5525.
+action-publication generation. Issue #6112 adds the canonical preparation
+participant for a fresh unpublished Workspace: it validates the exact retained
+context and optional subject/lens pair, then returns either one complete
+independent `NavigationState` with effect authority or a typed non-prepared
+result with no state or authority. It does not implement Browser cutover
+(#6757), protected Scope-result admission (#5584), complete Definitions
+restoration, or Workspace publication. Implementation conformance is gated by
+the named Release tests in [Verification](#verification). The workspace-owned
+identity prerequisite is implemented by `InspectionWorkspaceIdentity`; the
+observational occurrence view remains available for its unmigrated Browser
+consumer. Registry adoption is tracked by #5509, and portable
+Workspace/Package subject projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -117,6 +121,57 @@ presentation. The browser still seeds a Type cursor, widens accessibility
 to admit it, reconstructs coordinate activation from package keys, and
 reconciles subject levels locally; #5510 and #5511 track removal of those
 migration paths.
+
+Within that current Browser migration boundary, a Package Version or Framework
+change carries the initiating Package inspector preference: Overview stays
+Overview and Dependencies stays Dependencies. This is inspector intent for the
+replacement coordinate, not correspondence for an old subject or bound lens
+identity. Retry retains the same intent; dependency queries use the returned
+coordinate rather than reusing the previous coordinate's results. The existing
+content-local loading path keeps coordinate focus through those result renders.
+`System.Text.Json@10.0.0`, inspecting Dependencies and selecting `net9.0` or
+version `10.0.1`, motivates this bounded behavior. The production-composition
+cases in `inspect-web/browser/library-hierarchy.spec.ts` gate both inspectors,
+both controls, pending/success, immediate return, failure/retry, and narrow
+layout. Initial package selection keeps its existing behavior. This Package-view
+slice does not establish Library/Type/Member correspondence or retain filters.
+
+A separately user-approved interim Browser slice carries Library-selection
+intent through the same coordinate controls and retry. It requests the selected
+Library's name through the existing library selector against the returned
+package. A unique resolution retains the Library inspector preference and uses
+the returned asset ID for fresh content, counts, and the Type inventory. Missing
+or ambiguous resolution selects Package Overview with a visible explanation;
+it never selects an arbitrary neighboring Library. A Library with no public
+Types remains selected when its descriptor is available. Initial package
+selection and explicit links are unchanged; Type/Member and filter retention
+remain out of scope.
+`System.Text.Json@10.0.0`, inspecting its Library Metadata while selecting
+`net9.0` or version `10.0.1`, motivates this behavior; the
+`library-hierarchy.spec.ts` production-composition gate includes changed asset
+IDs, missing and ambiguous names, empty Type inventories, and failed-load retry.
+
+This is a reissued selector preference, not proof of subject identity or
+cross-Workspace correspondence. The operator chose this bounded migration
+behavior instead of expanding the task into the Browser Navigation
+prerequisites. It does not alter the target reconciliation policy below.
+Browser adoption in #5511 retires these host-local preference mechanisms in
+favor of product-issued Navigation results.
+
+The ancestor Type fallback and coordinate inspector-request retention specified
+below are **target-only and unverified**, the focused policy step of
+[#7061](https://github.com/richlander/dotnet-inspect/issues/7061). Current
+ordinary `NavigationWorkspaceSnapshotEvaluation.Refresh` can still choose a
+sibling Type and does not implement occurrence-replacement correspondence.
+The new policy's Release gates below have not landed. This design step changes
+neither that implementation nor the shipped Browser preferences above.
+
+The [forwarded ancestry policy](#forwarded-api-ancestry) settles
+[#7169](https://github.com/richlander/dotnet-inspect/issues/7169) within that
+same adoption path. The shared correspondence producer and completed matching
+envelope landed in #7188/#7189; they do not implement Navigation replacement.
+Adoption of their actual defining-Library result, active-ancestor preservation,
+and forwarded fallback remains **target-only and unverified** under #5584.
 
 ## Consumer and complexity record
 
@@ -191,6 +246,25 @@ because focus, accessibility, and responsive interactive navigation are
 browser concerns; it does not reconstruct product semantics from rendered
 text.
 
+The approved #7061 delivery map counts six capability steps: this Navigation
+policy, the focused correspondence producer, protected Navigation replacement
+consumption, CLI adoption, Browser descriptor/control adoption, and Browser
+result installation. Existing shared realization and restoration prerequisites
+are separate costs, not hidden inside those six steps. The CLI #5513 consumes
+the stateless result; Browser/Wasm #5510/#5511 consumes the same policy through
+retained results. At Browser cutover, retire the corresponding host-local
+Package/Library preferences only after preserving their shipped behavior.
+The added policy serves one experience: a coordinate change must not replace
+the selected API with a sibling or silently discard an explicit inspector
+request. It adds no matching algorithm, cache, or concurrency protocol.
+
+Forwarded ancestry is part of protected replacement step 3, not a seventh
+capability step. The ordinary policy preserves ancestors before descendants;
+the bounded exception below lets an exact Type counterpart replace its
+non-active Library context with its actual defining Library. An explicitly
+active Library still wins over lower-path retention. This avoids both false
+ancestry and a surprising Library switch without adding another retained path.
+
 ## Design demo
 
 The production Browser/Wasm scenario in #5433 is behavioral evidence:
@@ -219,6 +293,60 @@ Selecting Workspace changes the active subject but retains the exact
 Workspace-bound snapshot; no label or tab key identifies it. If the current
 occurrence is replaced by an exact owner-supplied occurrence, retained
 descendants reconcile only through typed correspondence.
+
+### Coordinate retention
+
+This is a mockup of the #7061 target, not current Browser output. The motivating
+coordinate pair is `System.Text.Json@10.0.0` and `10.0.1`, with `net10.0` and
+`net9.0` as the framework variation. The implementing gate must acquire the
+real pair and retain its API evidence; the mockup does not certify a particular
+overload's presence in those assets.
+
+```text
+Before: JsonSerializer -> one exact Deserialize overload -> requested Source
+Action: change Version or Framework
+After:  corresponding overload -> requested Source, resolved for the new subject
+
+Missing Member: containing Type, with the correspondence diagnostic
+Missing Type:   defining Library, even when another Type is available
+Inspector unavailable: resolved API remains selected; exact reason is visible
+```
+
+The missing-Type case deliberately differs from the former sibling-Type
+recommendation. Returning to a containing subject leaves the person in control
+of the next API selection. Existing Member-to-Type fallback and exact Registry
+resolution without a neighboring facet are the analogous policies; they do not
+establish correspondence. An exact supplied Package replacement and typed
+descendant correspondence are prerequisites, not facts inferred from this
+example's labels. Coordinate controls on Type/Member views, fresh content
+queries, focus, and history remain counted Browser adoption work.
+
+#### Forwarded coordinate retention
+
+The real witness is `Avalonia.Data.MultiBinding` in
+`Avalonia@11.3.14 -> 12.1.2 / net8.0`: `Avalonia.Markup` defines it before,
+then forwards it to `Avalonia.Base`. The
+[correspondence owner](forwarded-api-coordinate-correspondence.md#product-question-and-real-demo)
+records the assets and route; its acceptance gates cover the exact Type and
+constructor, and a non-matching `Converter` declaration after relocation.
+The following Navigation outcomes are a mockup, not current Browser behavior:
+
+```text
+Before: Package P  -> Library A  -> Type T  -> Member M
+After:  Package P' -> Library B' -> Type T' -> Member M'
+Route:  entry A' forwards T to B'; A still pairs with A', not B'
+
+Type or exact Member active: follow the declaration into B'.
+Package or Workspace active: keep it active; retain the lower path through B'.
+Library A active: keep paired A' active; discard T/M outside A', explain why.
+Member absent, Type exact: retain B'.T'; an active Member falls back to T'.
+Type not exact: retain the available entry ancestor A', with native evidence.
+```
+
+The active-Library case deliberately sacrifices lower context rather than
+change the subject the person selected. The Type/Member case instead follows
+that selected API; the Library change is ancestry of its exact counterpart,
+not a Library correspondence or a separate Library activation.
 
 ## Problem
 
@@ -369,6 +497,12 @@ subject.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.
+
+[Forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
+owns the exact source/entry/defining-Library association, declaration result,
+and detached forwarding evidence. It consumes Library pairing and Metadata
+resolution/matching; Navigation consumes that composed evidence, not a second
+forwarder walker or a host-selected destination.
 
 [Workspace definitions](workspace-definitions.md) owns portable view-facet
 registry binding. The [View Facet Registry](view-facet-registry.md), established
@@ -674,9 +808,9 @@ Library choice is independent of Type count, accessibility, UI filters, search
 text, display labels, and arrival order. Type inventory retains its producer
 order for explicit navigation; it does not choose the initial subject.
 
-Initial recommendation does not rank Types. When retained-context derivation or
-level-local Type fallback below requires the highest-ranked trustworthy Type,
-it uses these tiers:
+Initial recommendation does not rank Types. When retained-context derivation
+requires the highest-ranked trustworthy Type for inventory context, it uses
+these tiers, not as a replacement for a missing selected Type:
 
 1. Primary Library and default accessibility.
 2. Other Library and default accessibility.
@@ -968,11 +1102,14 @@ retain an earlier recommendation basis.
 An unavailable request never silently activates a sibling, ancestor, or
 recommended subject. If the already committed subject became invalid
 independently, automatic reconciliation may change it before the unavailable
-outcome is returned. When that reconciliation changes the exact subject, its
-structural consistency takes precedence: the replacement snapshot installs a
-recommendation basis for the replacement subject, while the operation result
+outcome is returned. When that reconciliation falls back to a different subject,
+its structural consistency takes precedence: the replacement snapshot installs
+a recommendation basis for the fallback subject, while the operation result
 still returns the original exact request's non-success outcome and evidence.
 It never installs an exact-request basis bound to the inactive subject.
+Coordinate inspector retention below transfers a previously retained request
+through a resolved path; it does not retarget an in-flight standalone or
+descendant subject-plus-lens command.
 
 Outcome labels do not determine revision behavior. Every semantically changed
 snapshot advances the state revision, including an unavailable result with
@@ -1097,7 +1234,7 @@ resolution, correspondence, or fallback.
 | Package | Retain while the same exact occurrence remains present in the complete owner-issued inventory; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
 | All Libraries | Retain when aggregate remains available; otherwise the exact Package |
 | One Library | Retain when available; otherwise aggregate, then the exact Package |
-| Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package |
+| Type | Retain when available; otherwise its defining Library, aggregate, then the exact Package |
 | Member | Retain when available; otherwise containing Type; if that Type is unavailable, apply the Type rule |
 
 Navigation reconciles one retained context with one occurrence-first
@@ -1112,12 +1249,17 @@ algorithm:
 2. **Resolve the retained path.** Starting at the established Package, resolve each
    retained Library, Type, and Member in ancestry order. Same-occurrence refresh
    uses exact availability; replacement movement uses typed correspondence. Each
-   resolved node must be an exact descendant of the preceding result.
+   retained node must be an exact descendant of the preceding retained result.
+   During replacement, a paired entry Library is provisional context: an exact
+   forwarded Type may require its actual defining Library instead, under
+   [Forwarded API ancestry](#forwarded-api-ancestry). This is not permission to
+   replace an active Library or retain a Type beneath its forwarding facade.
 3. **Apply one fallback.** At the first unresolved path node, apply the table's
    fallback for that level inside the established Package and truncate every lower
    node. Missing, ambiguous, refused, or failed correspondence follows the same
-   rule with its diagnostic. No fallback crosses the established Package or
-   Workspace.
+   rule with its diagnostic. A matched lower node excluded by active-Library
+   containment is truncated with that distinct reason, not reported as absent.
+   No fallback crosses the established Package or Workspace.
 4. **Derive the active subject.** Workspace remains active independently. A
    non-Workspace active subject uses its resolved path node when present;
    otherwise it becomes the single fallback result. Retained nodes below an
@@ -1134,8 +1276,11 @@ path with Workspace active produces the same retained result while Workspace
 remains active. The active subject no longer controls whether the path receives
 same-occurrence or replacement reconciliation.
 
-No arbitrary Member replaces a missing Member. Inventory refresh never promotes
-an explicitly selected Workspace, Package, or Library to Type. Navigation
+No sibling Type or Member replaces a missing selected Type or Member, even
+when it has the same display name or ranks first. This ancestor fallback
+applies to same-occurrence refresh and coordinate replacement; incomplete
+evaluation remains distinct from confirmed absence. Inventory refresh never
+promotes an explicitly selected Workspace, Package, or Library to Type. Navigation
 never chooses a sibling occurrence when the current occurrence is absent. It
 consumes only an exact replacement occurrence supplied by the evaluation input.
 Otherwise Workspace remains active with no active occurrence. This removes the
@@ -1144,14 +1289,17 @@ browser's package-key-based replacement choice tracked by #5510 and #5511.
 Lens reconciliation follows the retained evaluation basis:
 
 - a recommendation-basis outcome, effective or non-effective, reruns
-  recommendation for its retained exact subject against the refreshed complete
-  Registry options;
+  recommendation for the resolved subject against its refreshed complete
+  Registry options; a recommended fallback is not promoted to explicit intent;
 - an exact-request-basis outcome, effective or non-effective, re-resolves its
-  exact subject-bound lens identity and never applies recommendation fallback;
-  and
-- when subject reconciliation changes the exact subject, the prior basis no
-  longer matches and Navigation runs recommendation for the replacement
-  subject unless canonical restoration supplied an atomic exact pair.
+  exact subject-bound lens identity when the subject is unchanged;
+- when coordinate variation resolves the active subject in the replacement
+  occurrence without subject fallback, Navigation reissues the retained exact
+  inspector request as specified below; and
+- when the active subject changes by fallback, Navigation runs recommendation
+  for that fallback subject. An independent subject activation also retains
+  its existing recommendation rule unless it supplies an exact lens request.
+  Canonical restoration retains its separate atomic exact-pair contract.
 
 This lets a recommendation recover when refreshed facts make a facet available
 or replace a fallback with the now-available preferred role, without turning an
@@ -1167,9 +1315,13 @@ when the retained Package moves between exact occurrences inside one Workspace:
 | --- | --- |
 | Exact subject resolves and is available | Resolved subject |
 | Member missing, Type resolves | Resolved Type |
-| Type missing, defining Library resolves | Highest-ranked trustworthy Type in that Library, then the Library |
+| Type missing, defining Library resolves | Resolved defining Library, never a sibling Type |
 | Library missing | Available aggregate, then the new occurrence's exact Package |
 | Correspondence missing, ambiguous, refused, or failed | Apply the unresolved node's level fallback inside the already resolved ancestor, truncate lower nodes, and retain the diagnostic |
+
+For a forwarded Type, the resolved ancestor can change from entry Library A'
+to defining Library B' only under the policy below. Type resolution alone is
+not exact Type correspondence.
 
 Display text, package ID alone, portable coordinate equality, assembly name,
 token, and ordinal are not correspondence.
@@ -1188,6 +1340,115 @@ Workspace Scope and Expansion. #5584 owns their stale-work sequencing and
 protected Navigation consumption. This design accepts only the exact installed
 inventory and active-occurrence inputs. Non-invalidating realization-status
 refresh remains ordinary maintenance.
+
+#### Forwarded API ancestry
+
+Within the exact replacement Package, Library pairing can establish A -> A'
+while correspondence establishes that retained Type T has its exact available
+counterpart T' in B', reached through A'. Navigation keeps those relations
+distinct. A' remains entry evidence; B' is T's destination ancestry. There is
+one retained path, not competing facade and definition paths.
+
+The input is the Queries-issued correspondence result associated with the
+retained source and the exact source/destination observations admitted for this
+replacement. Consume its source, entry, terminal and native non-success
+evidence under the correspondence owner's contract. Scope-result correlation,
+generation/currentness and permission to install remain with #5584 and the
+existing Navigation state protocol. Portable coordinates, names, equal MVIDs,
+or a result from another replacement cannot supply that association.
+
+Resolve the retained structural Type before retaining a Member beneath it.
+Only an exact, available Type counterpart permits replacing the Library
+context with B'. A Member additionally needs exact correspondence whose
+destination declares that Member in the same exact T'. A successful Member
+declaration lookup alone does not establish the retained Type's correspondence.
+An inherited inventory row's display containment does not replace the
+structural Member's declaring-Type identity.
+
+| Active subject before replacement | Adoption when T' is exact and available in B' |
+| --- | --- |
+| Type T | Make T' active with B' as its defining-Library ancestry. Reconcile any lower Member beneath T'. |
+| Member M in T | Retain M' only when its exact result belongs to T'; otherwise use T' as the Member-level fallback. |
+| Package | Keep the exact replacement Package active and retain available lower context through B'. |
+| Workspace | Keep Workspace active and retain available lower context through B' in the exact replacement occurrence. |
+| One Library A | Keep available paired A' active. Retain lower context only if its exact destination belongs to A'; otherwise truncate Type/Member and explain the containment decision. |
+
+The last row does not turn an exact match in B' into `Absent`, `Refused`, or a
+new Library pair. Preserve the exact correspondence and route as evidence for
+why that lower context was not retained. Library or aggregate non-availability
+continues to use the existing Library-level fallback; a lower match does not
+rescue or change an active Library. Aggregate activation and containment retain
+their existing rules.
+
+When the retained Type is exact but Member correspondence is absent, ambiguous,
+refused, or failed, retain B'.T' and truncate the Member with its native result.
+An active Member falls back to T'; an active Type, Package, or Workspace
+remains active as above. This is not permission to select another Member.
+
+Without an exact, available retained Type counterpart, the route alone does not
+authorize retaining B' as a replacement Library or T' as a counterpart.
+Apply Type-level fallback at available paired entry A', then the existing
+aggregate/Package fallback if necessary. This includes a resolved terminal
+whose strict Type correspondence fails, unresolved forwarding, or destination
+availability that prevents adoption. An exact correspondence result remains
+exact when a separate availability failure prevents its retention.
+Preserve resolution, matching, and stage evidence: a dangling route, missing
+binding, ambiguity, refusal, or evaluation failure is not an API-removal
+verdict. No same-named Type elsewhere supplies the missing correspondence.
+
+The complete snapshot uses the adopted destination path and its current
+descriptors and inventories. Type-inventory context is B' for an active Type
+or Member, or for their retained context beneath Package/Workspace; it stays
+A' for the preserved active one-Library case. Inspector-request retention
+below applies to an exactly retained active Type/Member even when its Library
+changes. Member fallback to Type instead receives Type recommendation.
+Lower-context truncation never transfers that lower subject's inspector to an
+active ancestor or discards the ancestor's own exact request.
+
+This policy changes neither correspondence nor admission of a destination
+outside the producer's selected Package population. It does not authorize
+dependency traversal, cross-Workspace retention, broader acquisition, or a
+Browser ancestry repair. The stateless and retained Navigation consumers apply the
+same policy; #5584 integrates it with protected replacement, #5513 exposes the
+stateless completed result, and #5510/#5511 adopt descriptors and complete
+results in Browser/Wasm. Completed host boundaries retain the existing
+`InspectionEnvelope<TContent>` contract.
+
+#### Coordinate inspector-request retention
+
+Only a resolved active subject carries its retained exact inspector request
+into a replacement occurrence. This includes an active Package when the
+occurrence-first algorithm establishes its exact supplied replacement Package,
+and an active Library, Type, or Member when typed correspondence resolves its
+complete ancestor path, including the defining-Library adoption above. A
+failure below an active resolved ancestor truncates the lower context without
+discarding that ancestor's inspector request.
+An active Workspace keeps its own subject and lens independently.
+
+The transferable intent is the existing complete opaque `ViewFacetId`, not
+the old `NavigationLensIdentity`. Navigation binds that facet to the exact
+resolved destination and asks Registry for exact resolution using destination
+facts. It does not parse a facet prefix, choose an alias, compare inspector
+labels, or reuse the prior target's availability, execution binding, or query
+results. The new snapshot's exact-request basis is bound to the destination.
+
+An available result makes that destination-bound lens effective. For
+unavailable, retired, failed, unknown, or inapplicable resolution, the resolved
+subject stays selected with no effective lens; the exact-request basis and
+Registry evidence retain the original outcome distinction. Unknown and
+inapplicable remain rejected requests, and failure is not described as
+unavailability. No recommendation or neighboring inspector substitutes for
+the request. Registry continues to own these classifications and whether
+availability evaluation may perform work.
+
+When correspondence does not resolve the active subject, use its structural
+fallback and recommend for that fallback subject instead. Do not transfer a
+Member inspector to its containing Type, a Type inspector to a Library, or a
+request from an unrelated occurrence. No retained explicit request means
+ordinary recommendation, not retention of whichever fallback inspector happened
+to be effective. This policy does not alter direct exact-lens activation,
+atomic descendant activation, canonical restoration, or cross-Workspace
+selection.
 
 ## Retained navigation session
 
@@ -1388,12 +1649,17 @@ context permits initial recommendation inside that exact occurrence; no
 retained context selects Workspace. The lens identity's exact subject must
 equal the requested subject. A path/subject mismatch, subject-less lower path,
 internally inconsistent context, or subject/lens mismatch fails before Registry
-resolution and aborts initialization. Navigation then resolves its subject and
-lens halves and publishes one complete snapshot inside the new
-Workspace only when both halves succeed. Any half-failure closes the
-new Workspace through the Definitions coordinator, and supersession prevents
-an older attempt's Workspace from becoming active. The focused local state
-machine is
+resolution and aborts initialization. Navigation publishes one complete
+snapshot inside the new Workspace when structural preparation succeeds and the
+optional exact Registry request is `Available`, `Unavailable`, or `Failed`.
+The latter two retain the exact request basis and Registry evidence with no
+effective lens; they remain complete, installable Navigation snapshots.
+Registry `Unknown` or `Inapplicable`, incomplete structural evidence, invalid
+requested subjects, and absent requested subjects outside the Package-only
+recommendation form produce typed non-prepared results with no Navigation state
+or effect authority. Definitions closes that unpublished Workspace, and
+supersession prevents an older attempt's Workspace from becoming active. The
+focused local state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the new Workspace or coordinate its
@@ -1413,9 +1679,11 @@ through owner-issued actions and initialization inputs. This document does not
 define that Spotlight orchestration. Covered Platform Libraries remain outside
 this shared grammar because this version has no Platform structural subject.
 
-The current version-2 shape cannot yet represent an explicitly selected
-Workspace or carry an optional retained occurrence and descendant context
-independently from the active subject. #5525 owns that focused adoption.
+The [Workspace Definitions version-2
+shape](workspace-definitions.md#complete-committed-views) represents an
+explicitly selected Workspace and carries an optional retained occurrence and
+descendant context independently from the active subject. #5525 owns the
+record, JSON, composition, and portable-resolution implementation.
 Section, body, source-target, and other portable state remain outside this
 owner.
 
@@ -1444,8 +1712,9 @@ the migration historically tracked by
 The canonical-state owner consumes structured subject and lens identities.
 Definitions and plans remain detached. Navigation state, action IDs, receipts,
 work tickets, and retained-session authority are never serialized or reused in
-a new realization. The fresh-initialization contract above remains #6112's
-separate implementation scope.
+a new realization. The fresh-initialization contract above is implemented by
+`NavigationTransitions.PrepareRestoration`; complete Definitions and host
+adoption remain separate scope.
 
 ### Other hosts
 
@@ -1471,7 +1740,12 @@ classification, and the exact subject-plus-facet identity structure are
 intentionally absent from the models: subjects, snapshots, and lenses remain
 opaque values there. The pure recommendation, mapping, identity-binding, and
 Workspace-containment rules above are enforced by the implementation gates
-below rather than claimed as model-checked behavior.
+below rather than claimed as model-checked behavior. Ancestor fallback and
+coordinate inspector-request retention are likewise pure policy over those
+values, not changes to the modeled ordering protocol; their new gates remain
+unverified. Forwarded ancestry is another pure structural policy, not a new
+concurrency transition; the models do not establish its ancestry or
+correspondence properties.
 
 ### Required implementation gates
 
@@ -1548,6 +1822,15 @@ The eventual subject-navigation implementation must include named gates for:
 - `FailedResult_InstalledRevisionMatchesRecordedResultRevision`
 - `RetainedCoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
+- `Reconciliation_MissingTypeFallsBackToDefiningLibrary`
+- `CoordinateVariation_RebindsExactInspectorRequest`
+- `CoordinateVariation_NonSuccessInspectorKeepsResolvedSubject`
+- `CoordinateVariation_FallbackDoesNotTransferInspectorRequest`
+- `CoordinateVariation_RecommendationBasisRemainsRecommendation`
+- `CoordinateVariation_ForwardedApiAdoptsDefiningAncestry`
+- `CoordinateVariation_ForwardedContextPreservesActiveAncestor`
+- `CoordinateVariation_ForwardedMemberNonSuccessKeepsResolvedType`
+- `CoordinateVariation_ForwardedTypeNonSuccessKeepsEntryAncestor`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_BindsOneExactWorkspaceOccurrence`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
@@ -1587,14 +1870,24 @@ The eventual subject-navigation implementation must include named gates for:
 - `ConsumerSynchronization_MaintenanceOrderAndLivenessArePreserved`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
+- `CanonicalRestoration_ExactRegistryStatusRemainsPrepared`
+- `CanonicalRestoration_RejectsUnknownOrInapplicableExactLens`
 - `CanonicalRestoration_RejectsMismatchedSubjectBoundLens`
+- `CanonicalRestoration_RejectsExactLensWithoutSubject`
 - `CanonicalRestoration_RejectsSubjectFromAnotherOccurrence`
+- `CanonicalRestoration_RejectsForeignPreparedPackageFacts`
 - `CanonicalRestoration_RejectsInconsistentRetainedOccurrenceContext`
 - `CanonicalRestoration_RejectsSameOccurrenceSubjectOutsideRetainedPath`
 - `CanonicalRestoration_RejectsSubjectlessLowerRetainedPath`
+- `CanonicalRestoration_SubjectlessPackageContextRecommends`
+- `CanonicalRestoration_ExactPackageRootIsPrepared`
+- `CanonicalRestoration_NonReadyPackageFailsWithoutRegistryResolution`
 - `CanonicalRestoration_DerivesTypeInventoryContextFromRetainedPathAndFacts`
 - `CanonicalRestoration_WorkspaceSubjectPreservesDistinctDescendantContexts`
-- `CanonicalRestoration_FailedPreparationSettlesAsAbort`
+- `CanonicalRestoration_InventoryMissDistinguishesAbsentFromIncomplete`
+- `CanonicalRestoration_IncompleteFailureEvidenceIsDetached`
+- `CanonicalRestoration_TrustworthyRequestedRowSurvivesPeerFailure`
+- `CanonicalRestoration_EqualInputsIssueIndependentStateAndAuthority`
 
 The closed-kind, component-binding, and construction gates are updated in
 place. Initial recommendation and coordinate reconciliation receive the
@@ -1624,7 +1917,7 @@ the installed replacement basis and evidence to equal the independent request
 and Registry result before the refresh gate re-resolves that identity. The
 subject-reconciliation gate invalidates the bound subject during those same
 non-success cases and instead requires the installed snapshot to carry the
-replacement subject's independently computed recommendation basis while the
+fallback subject's independently computed recommendation basis while the
 operation result retains the original exact-request evidence.
 The preparation-failure retention gate starts with an installed snapshot,
 forces Navigation preparation to fail after Registry availability, and
@@ -1646,6 +1939,48 @@ synchronization gates cover supersession, complete-snapshot installation, and
 acknowledgement; this action introduces no second operation or partial
 publication protocol. The exact pair and descendant relationship remain
 **unverified** until these named Release gates land.
+
+The five ancestor-fallback and coordinate-inspector gates added for #7061 are
+also **unverified**. The missing-Type gate supplies another trustworthy Type
+in the same Library and requires Library fallback, for both ordinary refresh
+and replacement; active Package/Workspace cases retain that active ancestor
+while truncating the missing lower context. The rebind gate independently
+retains source and destination subject identities and the requested facet,
+then requires the destination-bound exact basis and fresh Registry result for
+Package, Library, Type, and Member. It includes a missing lower Member beneath
+a still-resolved active Package or Type, so lower-path loss cannot discard the
+active ancestor's request.
+
+The non-success gate covers every non-available Registry arm, including
+retirement, and requires the resolved subject, complete request evidence, and
+absence of an effective fallback lens. The fallback gate covers missing and
+ambiguous correspondence and requires a recommendation bound to the fallback
+subject, not the old request. The recommendation-basis neighbor makes a formerly
+unavailable preferred facet available and requires ordinary recommendation to
+recover it rather than pinning the previous recommended fallback. Both the
+stateless CLI producer and retained Browser producer consume these same policy
+outcomes; their host adoption gates must also preserve fresh content and the
+existing Package/Library experience.
+
+The four forwarded-ancestry gates are **unverified** until Navigation adoption
+lands. Reuse the pinned Avalonia pair and product correspondence producer, not
+hand-authored successful correspondence, for the exact Type/constructor and
+non-matching Member cases. Independently retain source and destination
+identities and assert the complete ancestry, active subject, Type-inventory
+context, inspector basis, and associated route/result evidence.
+
+The active-ancestor gate covers Workspace and Package retaining B'.T', and
+active A retaining A' while discarding that same exact lower match with a
+containment explanation. The Member non-success gate requires an independently
+exact Type result before falling back to B'.T'. The Type non-success gate
+covers a resolved route without strict Type correspondence and unresolved
+forwarding, unavailable destination evaluation despite an exact match, and an
+unrelated same-named Type that must not be substituted.
+Use proportional producer-backed boundary fixtures where the real pair does
+not supply a case. Existing exact-inspector gates cover Registry non-success;
+the #5584 correlation and supersession gates cover replacement installation,
+not a new forwarding-specific scheduling protocol. CLI and Browser adoption
+must preserve the same typed outcomes and fresh destination content.
 
 ## Acceptance cases
 
@@ -1673,6 +2008,17 @@ publication protocol. The exact pair and descendant relationship remain
 | Package coordinate or selection target changes so logical correspondence differs | Membership-changing replacement supplies a new occurrence and Package subject; correspondence and level-local fallback govern retained descendants |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
+| Active Type/Member moves from A through A' to exact B'.T' | Adopt actual B' ancestry and the exact Type/Member; reissue the active subject's inspector request against its destination |
+| Package/Workspace active with the same forwarded lower path | Preserve active ancestor and its lens policy; retain exact lower context through B' |
+| Library A active with an exact lower match in B', distinct from paired A' | Keep A' and its inspector active; truncate Type/Member, retaining exact-match evidence and the containment explanation |
+| Forwarding and Type correspondence succeed but Member correspondence does not | Retain B'.T'; active Member falls back to Type recommendation, with native Member non-success preserved |
+| Forwarding resolves but strict Type correspondence does not | Type-level fallback at paired entry A', not an inferred Library pair with B'; preserve route and strict non-success |
+| Forwarding is unresolved or a same-named Type exists without the required route | Entry-ancestor fallback with native resolution evidence; no replacement Type invented |
+| Coordinate variation resolves the active Package, Library, Type, or Member with a retained exact inspector request | Same opaque facet is resolved against the exact destination; the old subject-bound lens is not reused |
+| Resolved coordinate subject has an unavailable or failed requested inspector | Resolved subject remains active with no effective lens and the exact request/result evidence; no recommended substitute |
+| Resolved coordinate subject has an unknown or inapplicable requested inspector | Rejected inspector request remains visible on the resolved subject, with no effective lens or substituted inspector |
+| Coordinate variation begins with a recommendation basis | Recommendation runs for the resolved subject; a previously recommended fallback is not explicit intent |
+| Coordinate correspondence falls back from Member to Type | Type receives its own recommendation, never the Member's inspector request |
 | Ordinary package | Best available one-Library subject with Library Overview; aggregate only when no one-Library subject is available, then Package |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
@@ -1692,7 +2038,7 @@ publication protocol. The exact pair and descendant relationship remain
 | Failed recommendation becomes available on refresh | Recommendation reruns and installs the newly effective exact lens |
 | Recommended fallback then preferred role becomes available | Recommendation replaces the fallback with the preferred exact lens |
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
-| Exact non-success while its subject disappears | Result retains the exact request evidence; installed snapshot uses the replacement subject's recommendation basis |
+| Exact non-success while its subject disappears without correspondence | Result retains the exact request evidence; installed snapshot uses the fallback subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
 | Multi-library package | Primary one-Library subject, then first declaration-order one-Library subject; aggregate only when no one-Library subject is available |
 | Libraries with no Types | Library with References; Type is validly unavailable |
@@ -1700,7 +2046,7 @@ publication protocol. The exact pair and descendant relationship remain
 | Primary Library has no default-accessibility Type | Library remains the recommendation |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
-| Type disappears with Library retained | Recommended Type in that Library, then Library |
+| Type disappears with Library retained and other Types available | Defining Library, never another Type; missing lower context is truncated and its diagnostic retained |
 | Coordinate correspondence is ambiguous | Level-local fallback inside the resolved ancestor, lower-path truncation, and retained diagnostic |
 | Two lens requests complete out of order | Latest issued lens is final |
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |

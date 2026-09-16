@@ -72,6 +72,25 @@ public static class TypeMatcher
     }
 
     /// <summary>
+    /// Checks whether a candidate is an exact full-name or namespace-qualified
+    /// suffix match while preserving generic arity.
+    /// </summary>
+    public static bool MatchesExactTypeName(string candidate, string target)
+    {
+        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
+            return false;
+
+        string normalizedCandidate = NormalizeForLookup(candidate);
+        string normalizedTarget = NormalizeForLookup(target);
+        return normalizedCandidate.Equals(
+                normalizedTarget,
+                StringComparison.OrdinalIgnoreCase)
+            || EndsWithDottedSuffix(
+                normalizedCandidate,
+                normalizedTarget);
+    }
+
+    /// <summary>
     /// True when <paramref name="candidate"/> ends with ".<paramref name="suffix"/>" (case-insensitive)
     /// — i.e. a namespace-qualified name ending in the simple name. Avoids allocating "." + suffix
     /// on every call, since this runs in the inner loop of every type scanner.
@@ -309,6 +328,13 @@ public static class TypeMatcher
                        normalizedPattern);
         }
         return Matches(fullName, pattern);
+    }
+
+    /// <summary>Applies the type-filter grammar to an owner-issued declaration name.</summary>
+    public static bool MatchesTypeFilter(MetadataTypeDefinitionName name, string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return MatchesTypeFilter(name.ToMetadataFullName(), pattern);
     }
 
     /// <summary>

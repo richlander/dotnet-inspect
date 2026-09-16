@@ -1390,7 +1390,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
+    public async Task RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""
             using System.Collections.Generic;
@@ -1455,19 +1455,123 @@ public class FidelityCheckGeneratedFilterTests
 
             using var writer = new StringWriter();
             Console.SetOut(writer);
-            int exitCode = FidelityCheck.RunMethodDelta([assemblyPath], deltaPath, maxExamples: 5);
+            int exitCode = await FidelityCheck.RunMethodDelta([assemblyPath], deltaPath, maxExamples: 5);
             Console.SetOut(originalOut);
             var output = writer.ToString();
 
             Assert.Equal(0, exitCode);
+            Assert.Contains(
+                "Changed-method engine: product-artifact RTS (raised; compile-back-floor=false)",
+                output);
             Assert.Contains($"exact (contract v{FidelityCheck.CurrentContractVersion}): 1", output);
             Assert.DoesNotContain("CS1620", output);
+
+            using var loweredWriter = new StringWriter();
+            Console.SetOut(loweredWriter);
+            exitCode = await FidelityCheck.RunMethodDelta(
+                [assemblyPath],
+                deltaPath,
+                maxExamples: 5,
+                lowered: true);
+            Console.SetOut(originalOut);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains(
+                "Changed-method engine: legacy whole-module (lowered)",
+                loweredWriter.ToString());
         }
         finally
         {
             Console.SetOut(originalOut);
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public async Task EvaluateChangedMethodTargets_RejectsStaleSignatureWithoutDroppingRows()
+    {
+        var assemblyPath = CompileFixture("""
+            public class ChangedMethodIdentityFixture
+            {
+                public int Pick(int value) => value + 1;
+                public string Pick(string value) => value + "!";
+            }
+            """);
+        try
+        {
+            var candidates = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "ChangedMethodIdentityFixture"
+                    && result.Method == "Pick")
+                .OrderBy(result => result.Overload)
+                .ToArray();
+            Assert.Equal(2, candidates.Length);
+
+            var targets = new[]
+            {
+                new FidelityCheck.CompileBackTarget(
+                    assemblyPath,
+                    candidates[0].Type,
+                    candidates[0].Method,
+                    candidates[0].Overload,
+                    candidates[1].Signature),
+                new FidelityCheck.CompileBackTarget(
+                    assemblyPath,
+                    candidates[1].Type,
+                    candidates[1].Method,
+                    candidates[1].Overload,
+                    candidates[1].Signature),
+            };
+
+            var results = await FidelityCheck.EvaluateChangedMethodTargetsForTesting(
+                [assemblyPath],
+                targets);
+
+            Assert.Equal(2, results.Count);
+            Assert.Equal(targets[0].Signature, results[0].Signature);
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, results[0].Status);
+            Assert.Equal("target-method-not-found", results[0].Detail);
+            Assert.Equal(targets[1].Signature, results[1].Signature);
+            Assert.NotEqual("target-method-not-found", results[1].Detail);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CaptureMode.ProductArtifact,
+                    result.Capture));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task EvaluateChangedMethodTargets_PreservesProductNotFull()
+    {
+        string assemblyPath = typeof(CfgSampleClass).Assembly.Location;
+        var current = Assert.Single(
+            FidelityCheck.Evaluate(
+                assemblyPath,
+                type => type == typeof(CfgSampleClass).FullName,
+                method => method.Method == nameof(CfgSampleClass.CapturedParamReadInOuterBody)));
+        Assert.Equal(FidelityCheck.CompileBackStatus.NotFull, current.Status);
+
+        var result = Assert.Single(
+            await FidelityCheck.EvaluateChangedMethodTargetsForTesting(
+                [assemblyPath],
+                [
+                    new FidelityCheck.CompileBackTarget(
+                        assemblyPath,
+                        current.Type,
+                        current.Method,
+                        current.Overload,
+                        current.Signature),
+                ]));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.NotFull, result.Status);
+        Assert.Equal(FidelityCheck.CaptureMode.ProductArtifact, result.Capture);
+        Assert.Equal(
+            "product-artifact RTS; compile-back-floor=false",
+            result.CaptureDetail);
     }
 
     [Fact]

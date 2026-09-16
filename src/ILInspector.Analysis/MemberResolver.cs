@@ -95,8 +95,37 @@ internal static class MemberResolver
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)parent, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)parent, 0),
         HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, callerScope, (TypeSpecificationHandle)parent, 0),
+        HandleKind.MethodDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            reader.GetMethodDefinition((MethodDefinitionHandle)parent).GetDeclaringType(),
+            0),
         _ => TypeRef.Unsupported($"member parent kind {parent.Kind}"),
     };
+
+    internal static int DefinitionToken(
+        MetadataReader reader,
+        int operandToken)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(operandToken);
+        if (handle.Kind == HandleKind.MethodSpecification)
+        {
+            MethodSpecification spec =
+                reader.GetMethodSpecification(
+                    (MethodSpecificationHandle)handle);
+            return DefinitionToken(
+                reader,
+                MetadataTokens.GetToken(spec.Method));
+        }
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            MemberReference member =
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)handle);
+            if (member.Parent.Kind == HandleKind.MethodDefinition)
+                return MetadataTokens.GetToken(member.Parent);
+        }
+        return operandToken;
+    }
 
     static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
@@ -106,6 +135,26 @@ internal static class MemberResolver
         foreach (var handle in handles)
             names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
+    }
+
+    internal static bool HasExactGenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection parameters,
+        int signatureCount)
+    {
+        if (parameters.Count != signatureCount)
+            return false;
+
+        int expectedIndex = 0;
+        foreach (GenericParameterHandle handle in parameters)
+        {
+            if (reader.GetGenericParameter(handle).Index
+                != expectedIndex++)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     internal static ImmutableArray<ParameterDirection>

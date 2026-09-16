@@ -39,6 +39,23 @@ internal static class CSharpSpellability
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
+    public static bool CanSpellSzArrayStorageType(TypeRef type, IrFunction host)
+        // An array local and a by-value parameter use the same explicit type
+        // spelling. Reuse its constituent-shape and host-name checks.
+        => type.Kind == TypeRefKind.SzArray
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellNamedReferenceStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.Reference
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellNamedValueStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
+            && !IsByRefLikeType(type, host)
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
     public static bool CanSpellExplicitParameterType(
         TypeRef type,
         IrFunction host,

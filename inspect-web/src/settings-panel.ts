@@ -161,7 +161,7 @@ export function renderSettingsView(options: RenderSettingsViewOptions): string {
 
           <section class="settings-section">
             <div class="settings-section-head">
-              <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
+              <h2 id="settings-decompiler-title" tabindex="-1">Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
               <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
             </div>
             <div class="settings-taste">${styleBody}</div>

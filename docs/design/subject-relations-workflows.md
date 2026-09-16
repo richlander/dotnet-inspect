@@ -6,6 +6,16 @@ Proposed product workflow and composition contract, requested by the operator
 on 2026-09-12. Focused design: [#6760](https://github.com/richlander/dotnet-inspect/issues/6760).
 End-to-end adoption: [#6761](https://github.com/richlander/dotnet-inspect/issues/6761).
 Nothing in this document is a claim that the proposed commands or defaults ship.
+The local-throw refinement is tracked by
+[#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
+
+The Ecosystems construction prerequisite (step 3) is complete: #6786 landed in
+[#6787](https://github.com/richlander/dotnet-inspect/pull/6787), followed by
+issue #6791's resource-free plan factories in
+[#6800](https://github.com/richlander/dotnet-inspect/pull/6800). The
+[handoff owner](workspace-ecosystem-registration-handoff.md#boundary-shape)
+defines the implemented API and its Release gates. This does not complete
+finite population realization, CLI/browser activation, or retirement parity.
 
 **Subject Relations composition** is the single normative owner established
 here. Its exact claim is:
@@ -47,6 +57,7 @@ hierarchy or callers.
 | What integrates with Aspire resource management? | Locate its builder/resource contracts; find providers and separately identify actual callers. |
 | What could I use with `foreach`? | Discover enumerable interfaces and supported enumeration-pattern candidates, including candidates that implement no enumerable interface. |
 | Which APIs accept or return a particular type shape? | Locate members by typed signature evidence, distinguishing a parameter occurrence from the declared return type and from the declaring type's interfaces. |
+| Which members throw this exception type? | Locate members by typed throw-site evidence, or focus the exception type and look inward; distinguish a local throw from construction, documentation and propagation to callers. |
 | Who uses this registration API? | Locate one exact overload; find incoming static call sites, not merely APIs with a similar signature. |
 | What can I do with this package I already opened? | Select `@Relations` without re-entering its source, version, target, or binding context. |
 | Can another person explore this result? | Share the same resolved subject, population and relation view, or report why that state is not portable. |
@@ -483,9 +494,10 @@ shipping flags:
 | `find --implements Interface` | Types implementing the selected interface, including owner-established inherited implementation. |
 | `find --signature TypeShape` | Members whose parameter or return type structure contains that shape. |
 | `find --returns TypeShape` | Members whose declared return type matches that shape, rather than merely mentioning it elsewhere. |
+| `find --throws ExceptionType` | Members with owner-established local throw evidence for that exception type, not merely a construction or call to a throwing helper. |
 | `find --span` | Members with `System.Span<T>` or `System.ReadOnlySpan<T>` occurrences in their signatures, for any element type. |
 
-The signature predicates imply member results; an optional positional pattern
+The signature and throws predicates imply member results; an optional positional pattern
 still filters member names. An implementation predicate selects types, not
 all methods on those types. Cross-kind combinations must not silently change
 that result unit; any supported declaring-type/member join needs explicit
@@ -614,6 +626,68 @@ selected subject without locating it again. CLI and browser consume the same
 match sites, and sharing retains the predicate rather than expanding it into
 a name-only search.
 
+### Throws is body evidence, not a signature declaration
+
+`throws` complements `returns`, but consumes a different kind of evidence.
+The initial relation is **member throws exception type**, backed by
+Analysis-issued local throw-site evidence. Focusing the member gives the
+outgoing reading; focusing the exception type gives the incoming **thrown by**
+reading without reversing the stored endpoints. An ordinary CLR method
+signature does not declare a throws list.
+
+Proposed gestures, still **mockups**:
+
+```console
+dotnet-inspect find --throws System.ArgumentNullException
+
+dotnet-inspect find --members \
+  --where "throws=System.ArgumentNullException"
+
+dotnet-inspect type System.ArgumentNullException \
+  --platform System.Private.CoreLib -S Relations \
+  --throws System.ArgumentNullException --where "direction=incoming"
+
+dotnet-inspect member System.ArgumentNullException Throw:1 --all \
+  --platform System.Private.CoreLib -S Relations \
+  --where "form=exception" --where "direction=outgoing"
+```
+
+The Find spellings select members with matching throw evidence; they retain
+the ordinary visibility and population rules. A non-public throwing helper
+requires the same explicit inclusion as any other non-public member.
+The subject spellings select logical throw relations. All retain the exact
+member, bound exception type, original throw occurrence and evidence limits.
+Several sites supporting the same logical relation remain inspectable
+occurrences, not apparent overloads or duplicated logical edges.
+
+The first producer adoption establishes typed local throws, not an exhaustive
+exception surface. A throw may be caught in the same member; its presence
+does not establish escape or execution on every path. Conversely, a member
+with no local throw can propagate an exception from a callee, fault a returned
+task or trigger a runtime exception. Those are not inferred local throw
+relations. XML `<exception>` documentation is another evidence kind, not
+an IL observation. Propagated, escaping, deferred and documented exception
+relations need explicit producer adoption and distinct evidence disclosure
+before joining this view; they are not implied by this initial predicate.
+
+Construction alone is not throwing. Neither a catch type, a call to an
+exception constructor, a name ending in `Exception`, nor a throw count joined
+to all constructed types supplies the required association. Analysis owns
+the supported inference and bounds; composition consumes its typed evidence
+rather than performing its own IL analysis. Unknown thrown values, unresolved
+types and rethrows without an established type preserve the producer's
+incomplete/unsupported outcome, not a guessed `System.Exception` target or
+a complete negative match. Reference assemblies or unavailable bodies likewise
+do not establish absence. Complete coverage remains scoped to the advertised
+local-throw evidence and selected population, never a claim of exception safety.
+
+`throws=E` matches an owner-established exception type using bound identity,
+not display text or implicit base-type assignability. A throw of
+`ArgumentNullException` does not thereby match `throws=ArgumentException`.
+Type bounds or ambiguous type evidence must not be upgraded to exact targets.
+`--throws E` lowers to that same predicate; it does not launch another scanner
+or change `--signature` to include body facts.
+
 ### How shortcut flags and --where combine
 
 A flag can be a **compound shortcut: which results + where constraint**.
@@ -626,11 +700,12 @@ dotnet-inspect find --returns Foo
 dotnet-inspect find --members --where "returns=Foo"
 ```
 
-The same Find-result decomposition applies to the other signature shortcuts:
+The same Find-result decomposition applies to signature and throws shortcuts:
 
 | Shortcut | Which results | Where constraint |
 | --- | --- | --- |
 | `--returns Foo` | Members | `returns=Foo` |
+| `--throws E` | Members | `throws=E` |
 | `--signature Foo` | Members | `signature=Foo` |
 | `--span` | Members | `signature-family=span`, the Span/ReadOnlySpan union |
 
@@ -685,6 +760,8 @@ replacing it.
 | `--signature HttpContext --where "signature=RequestDelegate"` | Both shapes must occur in one member's signature; they may occupy different sites. Repeating a facet is not implicitly OR. |
 | `--returns Task --where "returns=Task"` | Redundant equivalent constraints; no extra rows or duplicated match evidence. |
 | `--returns Task --where "returns=IApplicationBuilder"` | Both constraints apply. These distinct exact returned types cannot both match, so the result is empty, not last-option-wins. Coverage still determines whether that empty result is complete. |
+| `--returns string --where "throws=FormatException"` | One exact member must both return string and have matching local throw evidence. Its return and throw may be different evidence sites; another overload or a throwing callee cannot supply the match. |
+| `--throws ArgumentNullException --where "throws=FormatException"` | One member needs both exception-type matches, possibly at different throw sites. Unlike incompatible exact return types, two thrown types are not a contradiction. |
 | A member-only predicate combined with a type implementation result | Unsupported without an explicit declaring-type/member join; report the incompatible result kind rather than quietly reinterpreting the request. |
 | A malformed shape or unsupported predicate/operator | A visible binding diagnostic, not a successful empty scan or an ignored option. |
 
@@ -692,7 +769,7 @@ An empty answer to a valid conjunction is different from invalid syntax.
 No new constraint solver is required to prove every contradiction before
 execution. OR is available only through an explicitly described family or
 an adopted query operator, not through argument order or choosing the short
-versus long spelling. These rules specify the proposed signature predicates;
+versus long spelling. These rules specify the proposed signature and throws predicates;
 other query families keep their owner-defined combination rules.
 
 Section shortcuts such as `--depends` select a section preset instead of
@@ -815,7 +892,7 @@ only the first 64 and call the ecosystem complete.
 ### Making ecosystem selection useful in find
 
 The target `find --ecosystem aspire` selects the pack's declared candidates;
-with a member/type pattern or an explicit contract/signature predicate it
+with a member/type pattern or an explicit contract/signature/throws predicate it
 locates those subjects. Without either, it discovers the available
 package/library roots rather than enumerating every API. A namespace hint is
 not a replacement for a declared population.
@@ -876,9 +953,10 @@ requires its explicit `--reachable` gesture; category selection does not
 enable it.
 
 `form` and `relation` are facets, not rules for creating a section per value.
-Signature uses and qualified pattern candidates remain available through
+Signature uses, throws and qualified pattern candidates remain available through
 `Relations` and its filters; a `--span` predicate does not introduce a `Span`
-section. The current member `Signature` view, Find `Results`, ecosystem
+section, and `--throws` does not introduce an `Exceptions` section.
+The current member `Signature` view, Find `Results`, ecosystem
 catalog sections and vocabulary sections do not become category members
 merely because these workflows use them.
 
@@ -947,8 +1025,8 @@ The conceptual axes are independent:
 
 | Axis | Meaning |
 | --- | --- |
-| Form | How the relation is expressed: interface, base type, extension declaration, signature, invocation, object creation, reference/dependency, or pattern. |
-| Relation | The precise producer-defined connection expressed in that form, such as implements, accepts, returns or calls. |
+| Form | How the relation is expressed: interface, base type, extension declaration, signature, exception, invocation, object creation, reference/dependency, or pattern. |
+| Relation | The precise producer-defined connection expressed in that form, such as implements, accepts, returns, throws or calls. |
 | Direction | Incoming/outgoing incidence at the focused subject; `both` selects their union. |
 | Evidence | Declaration, static IL observation, bounded pattern candidate, or inferred opportunity. |
 | Signature site/shape | Where a referenced type occurs in a member declaration, preserving parameter/return role and constructed shape; not proof of interface implementation or invocation. |
@@ -962,6 +1040,7 @@ Initial relation forms and readings (query spellings remain proposed):
 | `base-type` | Inherits: derived type to base type; indirect candidate matches retain their supporting hierarchy evidence. |
 | `extension` | Extends: extension member to receiver type. |
 | `signature` | Accepts or returns: member to the referenced type, retaining position and constructed shape. |
+| `exception` | Throws: throwing member to the exception type, retaining Analysis-issued local throw occurrences and qualifications, not implying escape to callers. |
 | `invocation` | Calls: caller member to statically selected callee. |
 | `object-creation` | Constructs: constructing member to constructor. |
 | `assembly-reference` | References: referencing library to referenced assembly, preserving unresolved declaration evidence. |
@@ -994,8 +1073,8 @@ unexamined candidates into a completed negative result.
 
 ### Query discovery for the sections
 
-**Yes: the proposed `-Q Relations` advertises `--returns`**, alongside its
-canonical `returns` predicate and its meaning for relation rows. Query
+**The proposed `-Q Relations` advertises `--returns` and `--throws`**, alongside
+their canonical predicates and their meanings for relation rows. Query
 discovery must answer both "what can I filter?" and "which convenient spelling
 can I use?" A shortcut is advertised for a particular command/section
 binding, not globally just because its option name exists.
@@ -1019,14 +1098,15 @@ Composition: AND on each relation; explicit family alternatives are OR.
 
 | Predicate | Operators | Meaning / values | Shortcut |
 | --- | --- | --- | --- |
-| `form` | `=` | Relation forms such as `interface`, `signature`, `invocation`; enumerate adopted values. | None |
-| `relation` | `=` | Producer-issued relation IDs and their readings, such as implements, accepts, returns or calls. | None |
+| `form` | `=` | Relation forms such as `interface`, `signature`, `exception`, `invocation`; enumerate adopted values. | None |
+| `relation` | `=` | Producer-issued relation IDs and their readings, such as implements, accepts, returns, throws or calls. | None |
 | `direction` | `=` | `incoming`, `outgoing`, `both`, relative to the subject closure. | None |
 | `evidence` | `=` | Adopted declaration, static IL, pattern-candidate or opportunity evidence kinds. | None |
 | `ecosystem` | `=` | Canonical ecosystem association IDs, such as `ecosystem.aspire`. | None; `--ecosystem` selects a population instead. |
 | `concept` | `=` | Producer-issued Integration concept IDs. | None |
 | `signature` | `=` | Keep signature relations whose referenced type occurrence matches the supplied shape. | `--signature Shape` |
 | `returns` | `=` | Keep return relations whose whole declared returned shape matches the supplied shape. | `--returns Shape` |
+| `throws` | `=` | Keep local throw relations whose owner-established exception type matches the supplied bound type; not an escaping-exception summary. | `--throws ExceptionType` |
 | `signature-family` | `=` | Keep signature relations matching an adopted type family; `span` means Span/ReadOnlySpan. | `--span` for `span` |
 
 The real descriptor must enumerate supported IDs or identify their owned
@@ -1072,6 +1152,21 @@ the same member to manufacture a match. A query for a callee that returns
 `Foo` is not automatically a return relation, either: signature filtering
 must not silently become a join over invocation targets.
 
+The corresponding `--throws E` expansion keeps matching members in Find,
+throw-relation rows in `Relations`, independently classified throw-relation
+rows in `Integration`, and extension-member candidates with matching throw
+evidence in `Extensions`. Extension receiver matching remains required.
+Integration classification must be producer-issued for that evidence; merely
+residing in an ecosystem package does not classify a throw.
+
+Find and extension-member candidates can combine `returns=Foo` with
+`throws=E` on the same member. In the logical-relation views that conjunction
+has no matching row: a return edge and a throw edge are different relations,
+even when their source member is the same. Likewise two distinct exact
+`throws` types can match one member through separate sites but cannot match
+one logical member-to-type edge. Coverage still qualifies an empty result.
+No implicit cross-edge or caller-propagation join is introduced.
+
 #### Initial discovery coverage by section
 
 The following table defines the initial predicate adoption for every section
@@ -1079,12 +1174,12 @@ in the proposed category. Existing owner-adopted capabilities are retained;
 "no new predicates" does not remove formatting, row selection or explicit
 traversal options.
 
-| Section | Query predicates introduced here | Signature shortcuts |
+| Section | Query predicates introduced here | Shortcuts |
 | --- | --- | --- |
-| `Relations` | The nine predicates in the mockup, with logical-relation semantics. | `--signature`, `--returns`, `--span` |
-| `Integration` | The same predicates, with the classified-evidence condition always retained. | `--signature`, `--returns`, `--span` |
-| `Extensions` | `signature`, `returns`, `signature-family` over extension-member candidates. | `--signature`, `--returns`, `--span` |
-| `Implementers`, `Derived Types` | No new predicates; describe any adopted type-candidate bindings, or explicitly report no query operators. | None; member signature predicates are not type-candidate predicates. |
+| `Relations` | The ten predicates in the mockup, with logical-relation semantics. | `--signature`, `--returns`, `--throws`, `--span` |
+| `Integration` | The same predicates, with the classified-evidence condition always retained. | `--signature`, `--returns`, `--throws`, `--span` |
+| `Extensions` | `signature`, `returns`, `throws`, `signature-family` over extension-member candidates. | `--signature`, `--returns`, `--throws`, `--span` |
+| `Implementers`, `Derived Types` | No new predicates; describe any adopted type-candidate bindings, or explicitly report no query operators. | None; member signature/throws predicates are not type-candidate predicates. |
 | `Dependencies`, `References` | No new predicates; describe the owning evidence view's adopted bindings, or explicitly report no query operators. | None |
 | `Calls`, `Callers` | No new predicates; describe the owning call view's adopted bindings, or explicitly report no query operators. | None; do not imply a callee-signature join. |
 
@@ -1105,6 +1200,9 @@ Consequently, a type request combining all of `@Relations` with `--returns`
 is incompatible with its type-candidate sections: ask for `Relations`,
 `Integration` or `Extensions` explicitly. Do not silently drop sections or
 leave some of their rows unfiltered.
+The same incompatibility applies to `--throws`; it is not a filter on
+`Implementers`, `Calls` or `Callers` merely because those sections share a
+category with `Relations`.
 
 The same descriptor supplies the shortcut spelling, canonical predicate and
 contextual expansion to help and `-Q`; a displayed shortcut must actually bind
@@ -1115,7 +1213,7 @@ this design must not make future flags appear in production discovery.
 
 `-Q` does not acquire a supplied target, expand candidate populations, decode
 signatures or run any relation producer. It cannot combine with `-S`, `-D`
-or execution options such as `--where` and `--returns`. Request discovery,
+or execution options such as `--where`, `--returns` and `--throws`. Request discovery,
 then run a separate inspection. Markout remains the common metadata lowering
 path; this is richer section capability disclosure, not another query engine.
 
@@ -1175,7 +1273,7 @@ map, not a specification of the participating components' internals.
 | Source Selection / search binding | [Source intent](search-scope-domain.md) and [search scope](search-scope-resolution.md) preserve explicit selection, authority and bounded prefix expansion; adopt the new default and ecosystem selector in their owners. |
 | Locator | [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) proposes the exact finite-population type-declaration query; its [adoption map](reverse-type-locator-adoption.md) tracks the source/context and host prerequisites. The current [Find service](find-search-service.md) remains CLI-local; member/signature locator adoption is separate. |
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
-| Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. |
+| Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. [Local-throw evidence](analysis-local-throw-evidence.md) owns member/type/site associations and visible evidence limits. Existing [throw counts and constructed-exception signals](graph-signal-annotations.md#exception-risk) are not that projection. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
 | Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the current root-set operation and section/traversal contract; adopt subject presets and a graph-host entry point before retiring `depends`. Existing package/restored-project evidence and traversal owners remain unchanged. |
 | Language patterns | A focused producer must own candidate identity, checked shape and applicability limits before pattern rows can enter the view. |
@@ -1240,6 +1338,25 @@ Here `ASP_NET_10_0_10` is the installed runtime directory reported by
 Retain those real API shapes as adoption fixtures; new signature discovery
 and its shortcut equivalence remain **unverified**.
 
+The 2026-09-14 throw probes used released `0.25.0+473d56a` against .NET
+10.0.10 `System.Private.CoreLib`. These executable baseline commands expose
+the real local-throw versus helper-call boundary:
+
+```console
+dotnet-inspect member System.ArgumentNullException Throw:1 --all \
+  --platform System.Private.CoreLib --framework runtime@10.0.10 -S IL
+dotnet-inspect member System.ArgumentNullException ThrowIfNull:1 --all \
+  --platform System.Private.CoreLib --framework runtime@10.0.10 -S IL
+```
+
+`Throw(string)` constructs `ArgumentNullException` at `IL_0001` and throws
+at `IL_0006`. The selected `ThrowIfNull` overload calls `Throw(string)` at
+`IL_0009` and has no local throw. The latter can propagate the exception but
+is not a match for the initial local-throw predicate. Preserve this real
+runtime boundary in the Analysis adoption, together with construction-only,
+locally caught and unknown-type controls. These IL probes are evidence about
+the input, not execution of the proposed `throws` query.
+
 The [LSP call-hierarchy workflow](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareCallHierarchy)
 first resolves an item, then asks for incoming or outgoing calls. It supports
 the locator/capability separation and preserved item identity, but not claims
@@ -1253,7 +1370,8 @@ to transfer code.
 ## Adoption and retirement
 
 The [overall tracker](https://github.com/richlander/dotnet-inspect/issues/6761)
-contains **15 steps**. Existing completed work may satisfy a step with evidence;
+contains **16 steps**, including the independently counted typed-throw
+producer prerequisite. Existing completed work may satisfy a step with evidence;
 each owner files its focused implementation issue before starting. An owner
 contract that needs further splitting must update the count, not hide several
 unreviewable changes inside a nominal slice.
@@ -1262,22 +1380,23 @@ unreviewable changes inside a nominal slice.
 | --- | --- |
 | 1 | This Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760). |
 | 2 | Workspace registration retention and finite population realization. |
-| 3 | Ecosystems-owned platform and all-known-pack factories/manifests, preserving empty raw Workspace construction. |
+| 3 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
 | 4 | Search Scope Resolution adopts broad versus explicit candidate intent using existing Source Selection declarations. |
 | 5 | Find's exact host-neutral locator/context handoff. |
 | 6 | Metadata-owned typed hierarchy, extension, reference and signature-shape projections, including return/parameter match sites. |
 | 7 | Analysis-owned invocation/correspondence joins. |
-| 8 | Integration-owned semantic annotations and opportunity distinctions. |
-| 9 | A focused language-pattern candidate contract and producer. |
-| 10 | Shared Subject Relations query composition over adopted producers. |
-| 11 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
-| 12 | Workspace Definitions adoption for portable relation views and locator context. |
-| 13 | CLI ecosystem-to-locator handoff, contract/signature Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. |
-| 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
-| 15 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 8 | Analysis-owned [typed local-throw evidence projection](https://github.com/richlander/dotnet-inspect/issues/6961), with exact member/type/site association and explicit incomplete outcomes; independent of invocation joins. |
+| 9 | Integration-owned semantic annotations and opportunity distinctions. |
+| 10 | A focused language-pattern candidate contract and producer. |
+| 11 | Shared Subject Relations query composition over adopted producers, including local-throw matching and member-versus-edge conjunction semantics. |
+| 12 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
+| 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
+| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. |
+| 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
+| 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
-CLI adoption is step 13 and website adoption step 14; neither is optional
-for this shared substrate. Step 15 is part of completion. Producers may ship
+CLI adoption is step 14 and website adoption step 15; neither is optional
+for this shared substrate. Step 16 is part of completion. Producers may ship
 through existing hosts earlier, but neither host advertises an unimplemented
 relation family or the broad-default workflow prematurely.
 Stages form a dependency map, not a requirement to wait serially where owners
@@ -1297,6 +1416,7 @@ the named adoption gates run in Release:
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
 | Signature discovery fidelity | ToHexString's byte-span input and AsSpan's char-span return differ correctly. Factory Create/Release differ by return versus parameter; Use retains its nested delegate sites without claiming to return Task. Combined predicates apply to one member, repeated sites do not duplicate it, and unavailable evidence stays visible. The flags and section predicates yield the same results in CLI and browser. |
+| Throw discovery fidelity | The real ArgumentNullException.Throw helper matches its exact exception type; ThrowIfNull's call alone does not. Construction-only and catch-only controls do not match; a locally caught throw does not claim escape. Unknown/rethrow type evidence and absent bodies stay visibly incomplete/unsupported. Member-return/throw conjunctions use one exact member; edge conjunctions never stitch its separate relations together. Incoming and outgoing views retain identical endpoints/sites; CLI and browser agree on matches, shortcut discovery, coverage and portable restoration. |
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |

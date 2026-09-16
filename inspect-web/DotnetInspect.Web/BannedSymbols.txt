@@ -39,6 +39,7 @@ T:ILInspector.Decompiler.CSharpFindings;Path-based decompiler Finding comparison
 T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
 T:ILInspector.Metadata.ApiMemberMetadataAnchor;Path-based API member identity reconstruction belongs to product queries or non-browser hosts.
 T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product query, never to the browser host.
+T:ILInspector.Metadata.ApiDeclarationCorrespondence;Raw-image declaration matching belongs to product queries; browser hosts consume the completed coordinate-matching operation.
 T:ILInspector.Metadata.AssemblyDetailScanner;Path-based assembly detail inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.AssemblyIdentityScanner;Path-based assembly identity inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.ExtensionMethodScanner;Extension-method inspection belongs to product queries, not raw package streams in the browser host.
@@ -103,3 +104,5 @@ M:DotnetInspector.Queries.AssemblyContextIntegrationOpportunitiesQuery.ExecutePa
 M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(DotnetInspector.Queries.AssemblyContextGroup,System.Boolean);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits; the unbounded projection is not a default package load.
 M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.ApiSurfaceScope);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits; the unbounded projection is not a default package load.
 M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteParticipant(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.AssemblyContextParticipant,DotnetInspector.Queries.ApiSurfaceScope);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits and a one-participant selection.
+M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken);Browser exact-Type inspection must supply BrowserApiSurfacePolicy.Limits.
+M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest);Browser exact-Type inspection must supply BrowserApiSurfacePolicy.Limits.

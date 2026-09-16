@@ -93,7 +93,7 @@ public class BoundedMethodBodyAccessTests
 
         // The sample has clauses, so the legacy whole-body path returns them...
         Assert.True(source.TryRead(token, out MethodBodyData? legacy, out string? error), error);
-        Assert.NotEmpty(legacy!.ExceptionRegions);
+        Assert.NotEmpty(legacy!.ExceptionRegionCatalog.Clauses);
 
         // ...while the bounded outcome carries IL and nothing else — the record has no
         // exception-region member to populate — which is what makes its working set a function of

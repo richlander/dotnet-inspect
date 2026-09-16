@@ -50,9 +50,33 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "CancelPackageActivity.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageActivity.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "CancelPackageQuery.271973316");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageQuery.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ClassifyPackageGraphIdentities.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316\u0027 is not callable.");
         }
     }
     {
@@ -110,9 +134,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "ListPackageAssemblyQueryPatterns.1310674786");
+        value = $ownDataProperty(value, "ListPackageActivityPackageSets.1310674786");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageAssemblyQueryPatterns.1310674786\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageActivityPackageSets.1310674786\u0027 is not callable.");
         }
     }
     {
@@ -122,9 +146,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "ListPackageQueryFacets.1310674786");
+        value = $ownDataProperty(value, "ListPackageQueryCatalog.1310674786");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageQueryFacets.1310674786\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageQueryCatalog.1310674786\u0027 is not callable.");
         }
     }
     {
@@ -170,18 +194,6 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "OpenPackageAssemblyQueryResult.976702342");
-        if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.OpenPackageAssemblyQueryResult.976702342\u0027 is not callable.");
-        }
-    }
-    {
-        let value = exports;
-        value = $ownDataProperty(value, "DotnetInspect");
-        value = $ownDataProperty(value, "Web");
-        value = $ownDataProperty(value, "Interop");
-        value = $ownDataProperty(value, "Package");
-        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "PackageCacheStats.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.PackageCacheStats.1310674786\u0027 is not callable.");
@@ -197,6 +209,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "QueryLibraryApi.1579276339");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryApi.1579276339\u0027 is not callable.");
         }
     }
     {
@@ -233,6 +257,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "QueryPackageDependencies.1579276339");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageDependencies.1579276339\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "QueryPackagePruning.1579276339");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339\u0027 is not callable.");
         }
     }
     {
@@ -290,9 +326,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageAssemblyQuery.990719355");
+        value = $ownDataProperty(value, "RunPackageActivity.1791926993");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageAssemblyQuery.990719355\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993\u0027 is not callable.");
         }
     }
     {
@@ -302,9 +338,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.52840355");
+        value = $ownDataProperty(value, "RunPackageQuery.1685943924");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924\u0027 is not callable.");
         }
     }
     {
@@ -349,8 +385,18 @@ export async function activateWorkspacePackageOccurrence(action) {
     const $parsed = JSON.parse($result);
     return $parsed;
 }
+export function cancelPackageActivity(operationId, reason) {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageActivity.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function cancelPackageQuery(operationId, reason) {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageQuery.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function classifyPackageGraphIdentities(inspectedPackageId, packageIdsJson) {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -372,13 +418,13 @@ export async function getPlatformVersions(targetFramework) {
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export function listPackageAssemblyQueryPatterns() {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageAssemblyQueryPatterns.1310674786"]();
+export function listPackageActivityPackageSets() {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageActivityPackageSets.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export function listPackageQueryFacets() {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageQueryFacets.1310674786"]();
+export function listPackageQueryCatalog() {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageQueryCatalog.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -393,11 +439,6 @@ export function matchPackageDependencyCoordinate(packageId, declaredRange, candi
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function openPackageAssemblyQueryResult(rootRequest) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["OpenPackageAssemblyQueryResult.976702342"](rootRequest);
-    const $parsed = JSON.parse($result);
-    return $parsed;
-}
 export function packageCacheStats() {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PackageCacheStats.1310674786"]();
     const $parsed = JSON.parse($result);
@@ -405,6 +446,11 @@ export function packageCacheStats() {
 }
 export async function prefetchPlatformPacks(targetFramework, platformVersion) {
     return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
+}
+export async function queryLibraryApi(packageId, version, targetFramework, assemblyId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryApi.1579276339"](packageId, version, targetFramework, assemblyId);
+    const $parsed = JSON.parse($result);
+    return $parsed;
 }
 export async function queryMemberDocumentation(packageId, version, framework, assemblyName, documentationId) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryMemberDocumentation.1330709314"](packageId, version, framework, assemblyName, documentationId);
@@ -418,6 +464,11 @@ export async function queryPackage(packageId, version, targetFramework) {
 }
 export async function queryPackageDependencies(packageId, version, targetFramework, assemblyId) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageDependencies.1579276339"](packageId, version, targetFramework, assemblyId);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryPackagePruning(packageId, version, targetFramework, requestJson) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, requestJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -439,13 +490,13 @@ export function requestPackageQueryMatches(operationId, additionalMatchCredit) {
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
     return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
-export async function runPackageAssemblyQuery(operationId, patternId, operand, packageCoordinatesJson, targetFramework, initialMatchCredit, eventSink) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageAssemblyQuery.990719355"](operationId, patternId, operand, packageCoordinatesJson, targetFramework, initialMatchCredit, eventSink);
+export async function runPackageActivity(operationId, requestJson, eventSink) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function runPackageQuery(operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.52840355"](operationId, prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+export async function runPackageQuery(operationId, prefix, facetIdsJson, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, facetIdsJson, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

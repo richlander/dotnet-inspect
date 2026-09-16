@@ -3022,6 +3022,36 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void BuildFullApiView_PreservesForwardersAlongsideResolvedTypes()
+    {
+        var surface = new ApiSurface
+        {
+            Types = [new ApiType { Name = "Resolved", Kind = "class" }],
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    TypeName = "Forwarded",
+                    TargetAssembly = "Target",
+                },
+            ],
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            surface,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Minimal,
+            });
+
+        Assert.NotEmpty(view.Classes!);
+        ForwarderSummaryRow forwarders =
+            Assert.Single(view.TypeForwarders!);
+        Assert.Equal("Target", forwarders.TargetLibrary);
+        Assert.Equal("1", forwarders.Types);
+    }
+
+    [Fact]
     public void ApiPresentationRows_CarryConcernProvenance()
     {
         const string Hostile = "value\u202E\nINJECTED";

@@ -20,6 +20,9 @@ query lease explicitly; an issued content child carries the same exact
 reference and remains usable while session retirement drains it. Replacing the
 remaining Artifact-owned hidden-reference gates and adopting the assembly-only
 fixture as a dedicated explicit-authority canary remains the next slice.
+Content-child callbacks accept caller-supplied scoped state, including ref-like
+state, so downstream aggregates can compose nested exact borrows without
+unsafe storage or content copies.
 
 ## Authority and exact claim
 
@@ -200,6 +203,14 @@ The content lease supplies a synchronous callback with an Artifact-owned
 Only Artifact constructs the view. The callback result is detached or
 independently owned. The view and span cannot be retained, returned, stored in
 a heap object, carried across `await`, or passed across Browser interop.
+
+The callback may also receive caller-supplied scoped state. That state may be
+ref-like, remains confined to the synchronous callback, and does not change the
+lease's exact-content authority. A downstream aggregate can therefore place an
+outer content view in ref-like state and pass it to a nested static callback
+over another exact content lease. Artifact still admits and settles one content
+borrow per callback; the downstream owner defines any combined membership,
+ordering, role policy, and result.
 
 The existing admission and query views remain phase-specific authorization
 borrows. The content-lease view is ownership-backed rather than
@@ -451,6 +462,8 @@ these exist:
 - `ArtifactContentLease_SurvivesQueryAuthorizationReplacement`
 - `ArtifactContentLease_BorrowsOnlyItsExactRetainedContent`
 - `ArtifactContentLease_BorrowCannotEscapeCallback`
+- `ArtifactContentLease_StatefulBorrowSupportsRefLikeState`
+- `ArtifactContentLease_StatefulBorrowComposesNestedExactBorrows`
 - `ArtifactContentLease_ReleaseRejectsLaterBorrow`
 - `ArtifactContentLease_ActiveBorrowPinsBackingRelease`
 - `ArtifactSetSession_RetirementRejectsNewContentLeases`

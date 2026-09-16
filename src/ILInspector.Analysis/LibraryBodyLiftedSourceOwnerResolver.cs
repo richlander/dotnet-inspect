@@ -951,9 +951,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in LibraryMethodAnalysisRunner.DecodeBody(
-            body.GetILBytes() ?? [],
-            body.ExceptionRegions).Instructions)
+        foreach (var instruction in InstructionDecoder.Decode(
+            body.GetILBytes() ?? []))
         {
             bool call = instruction.OpCode
                 is ILOpCode.Call or ILOpCode.Callvirt;
@@ -1041,17 +1040,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     }
 
     int PeelToDefinitionToken(int token)
-    {
-        var handle = MetadataTokens.EntityHandle(token);
-        if (handle.Kind == HandleKind.MethodSpecification)
-        {
-            var spec = _reader.GetMethodSpecification(
-                (MethodSpecificationHandle)handle);
-            if (spec.Method.Kind == HandleKind.MethodDefinition)
-                return MetadataTokens.GetToken(spec.Method);
-        }
-        return token;
-    }
+        => MemberResolver.DefinitionToken(_reader, token);
 
     readonly record struct LiftedOwnerGroupKey(
         TypeDefinitionHandle OwnerType,

@@ -106,7 +106,6 @@ public sealed class MethodSafetyAnalysisTests
             method,
             instructions,
             [],
-            [],
             [.. locals]);
     }
 }

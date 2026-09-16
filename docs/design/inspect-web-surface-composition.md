@@ -17,10 +17,18 @@ This owner defines:
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
 - which working surfaces exist (Type API, Member API, Type Metadata, Compare,
-  Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
-  page-level placement relative to Type/Member navigation;
+  Source, Annotated Source, Member Diff, Package query, Package activity,
+  Diagnostics) and their page-level placement relative to Type/Member
+  navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
+- the `/activity` route's placement beside `/query`. The two are sibling
+  routes rather than modes of one: Package query answers what is true of a
+  package now, and Package activity reports what happened across an interval,
+  which is a different grain and a different cadence. Their interaction
+  contracts are
+  [`package-query-experience.md`](package-query-experience.md) and
+  [`package-activity-experience.md`](package-activity-experience.md);
 - Source, Annotated Source, and Member Diff pane placement and independent
   scrolling;
 - Unified Settings' section composition (Appearance, Decompiler style,
@@ -89,6 +97,11 @@ This document consumes, without redefining:
   whose canonical lines, relations, statistics, mapped changes, and provenance
   remain owned by
   [Member source diff presentation](member-source-diff-presentation.md);
+- normalized package dependency evidence and PackageHouse pruning results
+  supplied by
+  [Package input and dependency evidence](package-dependency-evidence.md),
+  whose selection, candidate, platform inventory, policy, and completion
+  semantics remain outside this placement owner;
 - registration, enablement, multi-selection, capability, authentication, and
   cache-action descriptors owned by
   [Browser package sources](browser-package-sources.md);
@@ -106,7 +119,8 @@ This document consumes, without redefining:
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
   and
-- the Query/Workspace application-scope inventory, selection, and interaction
+- the Query/Activity/Workspace application-scope inventory, selection, and
+  interaction
   owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
@@ -128,9 +142,33 @@ elides the Demos description while retaining its label, action, and catalog
 state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
 content viewport; artwork never precedes them.
 
-Home does not repeat links already owned by the data bar. The data bar is the
-shared entry for the CLI tool, agent skill, and Credits. The current Home-bar
-action inventory remains unchanged by this composition.
+Home's Demos entry opens the dedicated `/demos` catalog page. That page lists
+only product demos, not the active Workspace's packages or saved definitions.
+This follows the conventional separation of a sample gallery from a user's
+working document. The motivating flow is a shared System.Text.Json
+`11.0.0-preview.7.26381.103` / `netstandard2.0` Library, then Package, then
+Workspace: Workspace remains about that inspection, while Demos is a separate
+destination. The catalog's activation and failure semantics remain owned by
+[Navigation Presentation](inspect-web-navigation-presentation.md#workspace-surface).
+
+Home does not repeat links already owned by the data bar, except Demos: its
+primary-column entry orients new users while the shared link makes the catalog
+reachable from an inspection. The data bar is the shared entry for the CLI
+tool, agent skill, Demos, Diagnostics, and Credits. The
+current Home-bar action inventory remains unchanged by this composition.
+
+`Demos is a dedicated page reached from Home and the data bar` and
+`Package navigation retains the shared System.Text.Json packet and Workspace
+stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
+page composition and motivating navigation flow using the existing typed
+facade fixtures. Product demo execution remains covered by the neighboring
+package and Platform Methods and Call Graph cases.
+
+This composition gate begins from a settled canonical inspection and ordinary
+successful browser-history writes. Atomicity while a URL projection is pending,
+browser-history rejection recovery, and cross-surface modal focus are separate
+Navigation Consumer and Shell Interaction concerns; this page-composition
+adoption does not broaden or re-gate those contracts.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
@@ -142,7 +180,7 @@ contain its own horizontal scope-control pressure.
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [Query | Workspace] [subject and inspector region]
+row one: [product] [Query | Activity | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
@@ -159,10 +197,11 @@ a narrower width. History then disappears before the subject and inspector
 groups adapt from complete tablists to their current-label choosers.
 
 The application-scope strip uses a distinct quiet treatment and may be removed
-at constrained widths only after focus has left it. Query remains reachable
-through Spotlight's global keyboard entry and Workspace through hierarchical
-drill-out or a return action. The standalone `/query` surface does not render
-this strip; its visible heading and route-specific Back action orient it.
+at constrained widths only after focus has left it. Query and Activity remain
+reachable through Spotlight's global keyboard entry, and Workspace through
+hierarchical drill-out or a return action. The standalone `/query` and
+`/activity` surfaces do not render this strip; their visible headings and
+route-specific Back actions orient them.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -187,10 +226,10 @@ elision inside its allocation.
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either navigation
 group and does not add items to the Application menu. Source supplies Copy and
-optional Open there; Annotated Source supplies Copy and Explore there; Member
-Diff supplies its mode, change navigation and position, and any authorized
-Before or After Open actions there. The target yields space while the complete
-action group remains visible.
+optional Open plus Explore there; Annotated Source supplies Copy and Explore
+there; Member Diff supplies its mode, change navigation and position, and any
+authorized Before or After Open actions there. The target yields space while
+the complete action group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -220,9 +259,11 @@ never enter the Application menu. Full-area source surfaces use the dedicated
 page-level working-surface action region; result-local surfaces retain their
 actions in the result:
 
-- Source places `Copy` and optional `Open` in the working-surface action region
-  while source content starts at the top of its pane and compact provenance
-  stays attached to the bottom.
+- Source places `Copy`, optional `Open`, and `Explore` in the working-surface
+  action region while source content starts at the top of its pane and compact
+  provenance stays attached to the bottom. `Explore` opens Settings at
+  **Decompiler style** so the complete source presentation options are
+  available; dismissal returns focus to the same Source action.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -565,7 +606,7 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+same-prefix, and external packages. Legend rows wrap at narrow widths and form
 the final interpretation row. Browser-specific Mermaid source remains internal
 to rendering rather than appearing as Call-graph-only inspection evidence. Any
 future source copy or graph export experience requires one deliberate contract
@@ -603,8 +644,26 @@ underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
 framework as context, and the existing graph-reading guidance as its summary.
-Its bottom legend distinguishes the inspected package, packages already open in
-the Workspace, and packages that load on selection.
+Its bottom legend distinguishes the inspected package, packages with the same
+package-family prefix, and external packages. The inspected package uses the
+shared purple graph-target role, same-prefix packages use blue, and external
+packages use neutral graph roles in both themes.
+
+The package-family prefix is the first two dot-delimited segments of the
+inspected package ID, or the complete ID when it has fewer than two segments.
+A different package is same-prefix when its ID equals that prefix or begins
+with the prefix followed by a dot, using ordinal case-insensitive comparison.
+The rule operates on typed package IDs, so `Microsoft.Extensions`,
+`Microsoft.Extensions.Hosting`, and `Microsoft.Extensions.Logging` share the
+`Microsoft.Extensions` frame while `Microsoft.ExtensionsX` does not.
+The package facade classifies the graph's complete package-ID batch with
+`StringComparison.OrdinalIgnoreCase` before Mermaid lowering; browser Unicode
+casing tables do not reinterpret that .NET-owned comparison contract.
+
+Structural identity is independent from Workspace state. Whether a node
+switches to an existing Workspace package or loads on selection remains in its
+typed navigation metadata, accessible action label, and existing selection
+path; it does not alter the Mermaid class or legend role.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -784,19 +843,29 @@ Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM keeps
-the package shell, inspected target, navigation, and data bar visible. Only the
+Overview presents the already-loaded package. Changing its selected TFM or
+version keeps the package shell, inspected target, navigation, and data bar
+visible, whether the target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
-or expose the previous framework's results as the requested framework. Failure
-restores the previous content and TFM with the existing visible retry notice.
-Opening a new package or version retains the acquisition interstitial.
-`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, motivates this
-ordinary same-package interaction; the production-composition browser gate in
+or expose the previous coordinate's results as the requested coordinate.
+Completion refreshes the content and library navigation from the returned
+package; keyboard focus returns to the initiating coordinate selector. Failure
+restores the previous content and coordinate with the existing visible retry
+notice. Opening a new package retains the acquisition interstitial.
+`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
+`10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
+The production-composition browser gate in
 `library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
-away, and neighboring new-version loading. Acquisition and partial-package
-notices otherwise retain their host presentation; this introduces no
-independent Overview query or acquisition state machine.
+away, immediate return to an inspected version, and neighboring initial-package
+loading. No cache-residency preflight is required to choose this presentation.
+Acquisition and partial-package notices otherwise retain their host
+presentation; this introduces no independent Overview query or acquisition
+state machine.
+Package inspector and interim Library-selection preference retention follow the
+current
+[Navigation Browser migration behavior](inspection-subject-navigation.md#status);
+this surface does not define cross-coordinate subject correspondence.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
@@ -829,7 +898,9 @@ The surface contains:
 ```text
 Dependencies                         package and reference count or state
 Version · Framework
-target-framework groups, graph, package dependencies, assembly references
+target-framework groups and graph
+explicit platform pruning evaluation
+package dependencies and assembly references
 package@version                                             active framework
 ```
 
@@ -844,6 +915,27 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
+
+Between the graph and package dependency list, an eligible package exposes a
+**Platform pruning** section. The section contains a runtime or ASP.NET Core
+family selector and an explicit **Evaluate** action. Opening Package
+Dependencies does not start candidate discovery or platform pruning. Evaluation
+may perform source-authorized version discovery for non-exact ranges, so its
+loading, failure, and retry state remain local to this section. Every explicit
+evaluation after settlement starts a new request. Loading and settled states
+name the normalized active dependency group; settled results also name the
+exact platform framework, family, and version used for comparison. Selecting a
+different display group does not change that evaluated identity.
+
+Pruning always evaluates the normalized owner-selected active dependency group,
+not a manually displayed alternate group. It is absent for Platform packages,
+non-exact platform target frameworks, and active groups with no dependencies.
+Its result table keeps the declared range, selected candidate, platform-supplied
+version, and disposition distinct. A supplied older version remains visible
+beside a retained newer candidate; candidate failures and non-evaluated rows do
+not disappear. The section states that evaluation does not change the graph.
+It acquires no dependency payload and does not turn the selected family into a
+Workspace participant.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
@@ -873,9 +965,8 @@ empty results.
 At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header and footer values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
-does not change dependency selection, graph construction or navigation,
-Package Overview, Integrations, Analysis, Package Metadata, or
-the Metadata Explorer.
+does not change graph construction or navigation, Package Overview,
+Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 ### Library References
 
@@ -1172,6 +1263,20 @@ result is committed by
 success leaves `/query` for the inspection destination, and failure keeps the
 query route, rows, and request intact.
 
+### Package Activity
+
+Package Activity is the routed `/activity` working surface beside `/query`. It
+has no package tab, peer-mode selector, or active inspection coordinate.
+[The Package Activity experience](package-activity-experience.md) owns its
+product-issued package-set scope, interval, progressive rows, cancellation,
+typed completion, bounded DOM, and session-local state.
+
+The page header contains the product home link and `Back`, not the
+`Query`/`Activity`/`Workspace` application-scope buttons. Its level-one heading
+is `Package Activity`; direct load and refresh start from the session-local
+initial state. In-app entry, Back, and Forward use the same route-history and
+focus pattern as Package Query without merging the two surfaces.
+
 ### Compare
 
 Compare uses one full-area working surface at Library, Type, and Member. The
@@ -1329,8 +1434,8 @@ closed. Changes may apply live, but one Settings component renders each
 owner-issued setting descriptor and dispatches its typed action. Domain owners
 retain validation and state semantics.
 
-Diagnostics is a separate full-bleed experience launched from Settings or
-Spotlight. It is not another settings implementation.
+Diagnostics is a separate full-bleed experience launched from the data bar or
+Settings. It is not another settings implementation or a Spotlight command.
 
 ## Package-source presentation
 
@@ -1431,7 +1536,7 @@ expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Credits
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Demos · Diagnostics · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1442,7 +1547,9 @@ The data bar includes:
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
 - `CLI tool`;
-- `Agent skill`; and
+- `Agent skill`;
+- `Demos`;
+- `Diagnostics`; and
 - `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
@@ -1461,11 +1568,11 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens at `/diagnostics` as a routed full-bleed surface. Settings
-and Spotlight Commands expose the route; the Application menu does not. The
-destination receives focus on its single `Diagnostics` level-one heading, and
-Back restores the preceding routed surface without discarding its retained
-Workspace. A direct entry falls back to Home.
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. The data
+bar and Settings expose the route; Spotlight Commands and the Application menu
+do not. The destination receives focus on its single `Diagnostics` level-one
+heading. Its prominent `Back` control restores the preceding routed surface
+without discarding its retained Workspace. A direct entry falls back to Home.
 
 The first implemented Diagnostics snapshot contains only evidence already
 issued for the current browser session:
@@ -1474,14 +1581,17 @@ issued for the current browser session:
 - download, startup, precompute, and total startup measurements;
 - framework asset count, transferred bytes, and decoded bytes;
 - exact product version, full linked commit, UTC build timestamp, and
-  Browser/Wasm host; and
-- aggregate package, resident-payload, Workspace, and resident-byte cache
-  statistics.
+  Browser/Wasm host;
+- aggregate acquired-package, resident-payload, Workspace, and resident-byte
+  cache statistics; and
+- acquisition-owner limits for package entries, Workspace slots, aggregate
+  resident bytes, selected assemblies per Workspace role, and retained
+  assembly-image bytes per Workspace.
 
 Runtime, build, and package-cache absence or failure remain visible in the same
 route geometry. A cache-statistics failure does not preserve prior counts as an
 undisclosed successful snapshot. Runtime spans the wide layout, with Build and
-Package cache in equal columns below it. The same content becomes one vertical
+Isolated storage in equal columns below it. The same content becomes one vertical
 scroller on a narrow viewport without page-level horizontal overflow. The
 full-bleed route does not repeat the persistent data bar.
 
@@ -1491,7 +1601,7 @@ Later owner-adoption work may add:
 - package-source health;
 - candidate and payload cache-entry inventory;
 - coordinate, producer, size, and persistence for each cache entry;
-- cache limits and eviction state;
+- cache eviction state;
 - a support-report copy action; and
 - owner-authorized cache-management actions.
 
@@ -1642,7 +1752,11 @@ with the absence of a synthesized `Default feed` control.
    section.
 2. Switch manifest target-framework groups and confirm that the dependency
    list and graph update in place while the surface frame, package coordinate,
-   and scroll ownership remain stable. Open or load a dependency from both the
+   and scroll ownership remain stable. With
+   `Microsoft.Extensions.Hosting@10.0.0`, confirm that the graph and legend
+   distinguish the inspected package, case-insensitive `Microsoft.Extensions`
+   same-prefix packages, and external packages. Include loaded and unloaded
+   nodes in the latter two roles, then open or load a dependency from both the
    list and graph and confirm that existing navigation behavior is preserved.
 3. Exercise loading, query failure, no declared dependencies, no exact group,
    graph rendering failure, and partial workspace failure. Confirm that each
@@ -1657,9 +1771,11 @@ with the absence of a synthesized `Default feed` control.
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width, Copy and optional
-   Open appear in the working-surface action region, source content begins at
-   the top of the pane, and compact provenance remains attached to its bottom.
+2. Confirm that the source pane uses all remaining width, Copy, optional Open,
+   and Explore appear in the working-surface action region, source content
+   begins at the top of the pane, and compact provenance remains attached to
+   its bottom. Open Explore and confirm that Settings focuses Decompiler style
+   and dismissal returns focus to Explore.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.
@@ -1758,13 +1874,30 @@ with the absence of a synthesized `Default feed` control.
    post-transition focus per
    [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
 
+### Package Activity route
+
+1. Open Package Activity and confirm that `/activity` renders one level-one
+   `Package Activity` heading, the product-issued package-set selector, the
+   interval and result-bound controls, and `Run report`.
+2. Confirm that neither `/activity` nor `/query` renders the retired
+   `Packages | Activity` peer selector.
+3. Direct-load and refresh `/activity`, then enter it from the application
+   scope and Spotlight. Confirm Browser Back and Forward restore the routed
+   destination and proportional focus.
+4. Start a report, leave the route, and confirm active Worker work is canceled
+   while admitted rows and failures remain available when the route is reopened.
+5. At desktop and narrow widths, confirm the form, Cancel, Back, progress,
+   coverage, failures, and bounded row window remain visible and keyboard
+   reachable without page-level horizontal overflow.
+
 ### Data and diagnostics
 
 1. Confirm that version, commit, UTC date, the complete owner-issued compact
-   producer label, CLI tool, and agent skill occupy one non-expanding data-bar
-   line.
+   producer label, CLI tool, agent skill, Diagnostics, and Credits occupy one
+   non-expanding data-bar line.
 2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
-3. Open Diagnostics and confirm that detailed runtime, source, and cache
-   evidence and owner-authorized cache actions appear in the full-bleed
-   surface.
+3. Open Diagnostics from the data bar and Settings, confirm that it is absent
+   from Spotlight Commands and the Application menu, and confirm that detailed
+   runtime, source, and cache evidence and owner-authorized cache actions appear
+   in the full-bleed surface with a visible Back control.

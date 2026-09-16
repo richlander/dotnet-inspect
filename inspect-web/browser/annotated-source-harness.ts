@@ -41,6 +41,7 @@ import {
 import {
   prismCSharp,
 } from "../src/prism-csharp.ts";
+import type { InertString } from "../src/facades/inspect-web-source.d.ts";
 import {
   validateDocument,
 } from "../src/document-model.ts";
@@ -49,6 +50,13 @@ import { sampleDocument as sampleDocumentFixture } from "../../prototypes/annota
 const fixture: unknown = sampleDocumentFixture;
 validateDocument(fixture);
 const sampleDocument: AnnotatedSourceDocument = fixture;
+
+function inertString(value: string): InertString {
+  // Browser fixtures model values after the generated JSON boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as InertString;
+}
+
 const objectStart = sampleDocument.text.indexOf("new object()");
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
@@ -66,6 +74,42 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
         length: "object".length,
       }],
     },
+  ],
+  facts: [
+    ...sampleDocument.facts,
+    {
+      id: 3,
+      descriptor: "unsafe.cast",
+      category: "Unsafety",
+      conditionality: "Always",
+      detail: "runtime cast",
+      source_offset: 1,
+      origin: "Body",
+    },
+    {
+      id: 4,
+      descriptor: "semantics.dispatch",
+      category: "Semantics",
+      conditionality: "Always",
+      detail: "virtual dispatch",
+      source_offset: 1,
+      origin: "Body",
+    },
+    {
+      id: 5,
+      descriptor: "lifetime.escape",
+      category: "Lifetime",
+      conditionality: "Always",
+      detail: "object escapes",
+      source_offset: 1,
+      origin: "Body",
+    },
+  ],
+  targets: [
+    ...sampleDocument.targets,
+    { fact_id: 3, node_id: 1 },
+    { fact_id: 4, node_id: 1 },
+    { fact_id: 5, node_id: 1 },
   ],
 };
 const result: AnnotatedSourceResult = {
@@ -105,7 +149,7 @@ const result: AnnotatedSourceResult = {
       unavailableReason: null,
     },
   },
-  provenance: "browser-gate product fixture",
+  provenance: inertString("browser-gate product fixture"),
   contextLimitation: null,
 };
 const model = createAnnotatedSourceViewerModel(result);

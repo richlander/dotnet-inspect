@@ -45,19 +45,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
-        JsonElement[] edges = [.. document.RootElement.GetProperty("edges").EnumerateArray()];
+        JsonElement[] edges =
+            [.. document.RootElement.GetProperty("rowSelection").GetProperty("relationships").EnumerateArray()];
         Assert.Equal(
             AuthenticRelationships(includeRelational),
             edges.Select(edge => (
-                Assert.IsType<string>(edge.GetProperty("source_identity").GetProperty("type").GetString()),
-                Assert.IsType<string>(edge.GetProperty("target_identity").GetProperty("type").GetString()),
-                Assert.IsType<string>(edge.GetProperty("relationship").GetString()))));
-        Assert.All(edges, edge =>
-            Assert.Equal("declared", edge.GetProperty("resolution").GetString()));
-        JsonElement root = Assert.Single(
-            document.RootElement.GetProperty("nodes").EnumerateArray(),
-            node => node.GetProperty("root_occurrences").GetArrayLength() > 0);
-        Assert.Equal(NpgsqlOptions, root.GetProperty("identity").GetProperty("type").GetString());
+                Assert.IsType<string>(edge.GetProperty("sourceTypeName").GetString()),
+                Assert.IsType<string>(edge.GetProperty("targetTypeName").GetString()),
+                edge.GetProperty("kind").GetInt32() == (int)TypeDependencyRelationshipKind.BaseType
+                    ? "base-type"
+                    : "interface")));
+        Assert.Equal(NpgsqlOptions,
+            document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+                .GetProperty("matchedType").GetString());
         Assert.Empty(result.Error);
     }
 
@@ -71,12 +71,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement edge = Assert.Single(
-            document.RootElement.GetProperty("edges").EnumerateArray());
+            document.RootElement.GetProperty("rowSelection").GetProperty("relationships").EnumerateArray());
         Assert.Equal(RelationalOptions,
-            edge.GetProperty("source_identity").GetProperty("type").GetString());
+            edge.GetProperty("sourceTypeName").GetString());
         Assert.Equal(OptionsInterface,
-            edge.GetProperty("target_identity").GetProperty("type").GetString());
-        Assert.Equal("interface", edge.GetProperty("relationship").GetString());
+            edge.GetProperty("targetTypeName").GetString());
+        Assert.Equal((int)TypeDependencyRelationshipKind.Interface, edge.GetProperty("kind").GetInt32());
         Assert.Empty(result.Error);
     }
 
@@ -155,7 +155,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                                         new RowQueryValueToken(
                                             "Interface")),
                                 ],
-                                RowQueryOrderIntent.Fields(
+                                RowQueryOrderIntent.Keys(
                                     [
                                         new RowQueryOrderTermIntent(
                                             "Target",
@@ -182,7 +182,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         ResolveAuthenticTypeDependencyQuery(RowQueryIntent intent)
     {
         RowQueryResolutionResult<TypeDependencyRelationship> result =
-            TypeDependencyRowQuery.Resolve(intent);
+            TypeDependencyVocabulary.Resolve(intent);
         return result.Plan
             ?? throw new Xunit.Sdk.XunitException(
                 $"Expected Type Dependency query to resolve: "
@@ -200,7 +200,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ]
             : [(NpgsqlOptions, RelationalOptions, "base-type")];
 
-    private static string[] AuthenticDependencyArguments(bool includeRelational) =>
+    private static string[] AuthenticDependencyArguments(
+        bool includeRelational,
+        bool envelope = false,
+        string source = FirstFeed) =>
     [
         "depends", NpgsqlOptions,
         "--package", $"{NpgsqlPackage}@{AuthenticDependencyVersion}",
@@ -208,14 +211,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ? new[] { "--package", $"{RelationalPackage}@{AuthenticDependencyVersion}" }
             : [],
         "--tfm", "net8.0",
-        "--source", FirstFeed,
-        "--json",
+        "--source", source,
+        envelope ? "--envelope" : "--json",
         "--tips", "q",
     ];
 
-    private static void ConfigureAuthenticDependencyFeed()
+    private static void ConfigureAuthenticDependencyFeed(
+        Action? requestObserved = null,
+        string source = FirstFeed)
     {
-        CoreHttpClientFactory.SetAuthenticationDecorator(_ => new AuthenticDependencyFeedHandler());
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            _ => new AuthenticDependencyFeedHandler(requestObserved, source));
         CoreHttpClientFactory.ResetSharedForTesting();
     }
 
@@ -233,23 +239,37 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     private sealed class AuthenticDependencyFeedHandler : HttpMessageHandler
     {
-        private static readonly string Flat = new Uri(new Uri(FirstFeed), "flat2/").AbsoluteUri;
-        private readonly Dictionary<string, byte[]> _archives = AuthenticDependencyPackages
-            .ToDictionary(
-                package => $"{Flat}{package.Id.ToLowerInvariant()}/{AuthenticDependencyVersion}/"
+        private readonly string _feed;
+        private readonly string _flat;
+        private readonly Action? _requestObserved;
+        private readonly Dictionary<string, byte[]> _archives;
+
+        internal AuthenticDependencyFeedHandler(
+            Action? requestObserved = null,
+            string source = FirstFeed)
+        {
+            _feed = source;
+            _flat = source == PublicDependencyFeed
+                ? "https://api.nuget.org/v3-flatcontainer/"
+                : new Uri(new Uri(source), "flat2/").AbsoluteUri;
+            _requestObserved = requestObserved;
+            _archives = AuthenticDependencyPackages.ToDictionary(
+                package => $"{_flat}{package.Id.ToLowerInvariant()}/{AuthenticDependencyVersion}/"
                     + $"{package.Id.ToLowerInvariant()}.{AuthenticDependencyVersion}.nupkg",
                 package => package.ReadArchive(),
                 StringComparer.Ordinal);
+        }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _requestObserved?.Invoke();
             string url = request.RequestUri!.AbsoluteUri;
-            HttpContent content = url == FirstFeed
+            HttpContent content = url == _feed
                 ? new StringContent($$"""
                     {"version":"3.0.0","resources":[
-                      {"@id":"{{Flat}}","@type":"PackageBaseAddress/3.0.0"}
+                      {"@id":"{{_flat}}","@type":"PackageBaseAddress/3.0.0"}
                     ]}
                     """)
                 : _archives.TryGetValue(url, out byte[]? archive)

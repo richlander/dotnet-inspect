@@ -141,7 +141,7 @@ internal static class DependsShareProjection
                 normalizedVersion,
                 framework);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -150,7 +150,7 @@ internal static class DependsShareProjection
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.NavigationId,
             [
                 new NavigationTabDefinition(
@@ -159,11 +159,11 @@ internal static class DependsShareProjection
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "dependencies");
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: "g0",
@@ -194,10 +194,19 @@ internal static class DependsShareProjection
         DependsOptions options,
         string typeName)
     {
-        if (options.Packages.Length != 1)
+        if (options.Packages.Length != 1
+            || options.Assemblies.Length > 0
+            || options.Projects.Length > 0
+            || options.PlatformAssemblies.Length > 0
+            || options.PlatformFrameworks.Length > 0)
         {
             return NonProjectableShare(
-                "type dependency Share requires exactly one package root.");
+                "type dependency Share requires exactly one package root and no other dependency source.");
+        }
+        if (options.Depth is not null)
+        {
+            return NonProjectableShare(
+                "the published Browser cannot preserve --depth for type dependencies.");
         }
 
         string packageReference = options.Packages[0];
@@ -259,7 +268,7 @@ internal static class DependsShareProjection
                 version.ToNormalizedString(),
                 framework);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -268,7 +277,7 @@ internal static class DependsShareProjection
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.NavigationId,
             [
                 new NavigationTabDefinition(
@@ -277,12 +286,12 @@ internal static class DependsShareProjection
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "dependencies",
             type: typeName);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: "g0",

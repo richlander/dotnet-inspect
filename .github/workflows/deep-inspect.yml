@@ -146,6 +146,9 @@ jobs:
       - name: Run analysis tests (including slow)
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
+      - name: Run package-backed Platform tests (including real reference packs)
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release
+
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
 
@@ -190,9 +193,9 @@ jobs:
           - os: ubuntu-26.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
-    # Windows has measured as high as 57 minutes (#4350). The initial macOS
-    # lane gets the same larger budget until its runtime variance is known.
-    timeout-minutes: 90
+    # Windows has measured as high as 57 minutes (#4350). macOS now needs more
+    # than 90 minutes after suite growth; retain a 30-minute variance margin.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -599,6 +602,9 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          nightly_sdk="$("$DOTNET_ROOT/dotnet" --list-sdks | awk 'END { print $1 }')"
+          test -n "$nightly_sdk"
+
           pinned_sdk="$(bash eng/prepare-decompiler-opt-in-corpus.sh print-pinned-sdk)"
           "$dotnetup_dir/dotnetup" sdk install "$pinned_sdk" \
             --install-path "$DOTNET_ROOT" \
@@ -606,8 +612,19 @@ jobs:
             --set-default-install false \
             --interactive false
 
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$nightly_sdk",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
+
           echo "$dotnetup_dir" >> "$GITHUB_PATH"
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$nightly_sdk"
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages

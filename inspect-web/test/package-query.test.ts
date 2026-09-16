@@ -6,24 +6,27 @@ import {
   appendFailure,
   appendProgress,
   appendRows,
-  createAssemblyQueryRequest,
   createPackageQueryController,
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
   shouldExecuteQuery,
   toggleFacet,
+  replaceTerm,
   withCompletion,
   withEditorDraft,
   withFacet,
+  withTerm,
   withSourceSelection,
   withScopeQuery,
   withoutFacet,
+  withoutTerm,
   type PackageQueryDataSource,
   type QueryAssemblyAssessment,
   type QueryCompletion,
   type QueryFacetTerm,
   type QueryResultRow,
+  type QueryTermDescriptor,
   type TerminalQueryCompletion,
 } from "../src/package-query.ts";
 
@@ -76,6 +79,24 @@ const TOOL_V2_FACET: QueryFacetTerm = {
   combinesWithinSelectionGroup: true,
 };
 
+const DEPENDS_TERM: QueryTermDescriptor = {
+  key: "depends",
+  label: "Direct dependency",
+  summary: "Matches a direct dependency in any group.",
+  weight: 10,
+  tier: "nuspec",
+  operators: ["eq"],
+  valueKind: "package-id",
+  example: "Microsoft.Extensions.Hosting",
+};
+
+const CONTENT_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "contains-file",
+  label: "Contains file",
+  tier: "package-content",
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -117,54 +138,57 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.equal(defaults.requestedMatchLimit, 100);
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
+  assert.deepEqual(defaults.terms, []);
+});
+
+test("operand-bearing terms retain exact repeated triples and edit by position", () => {
+  const base = createQueryRequest("Microsoft.");
+  const first = withTerm(base, DEPENDS_TERM, "eq", "Microsoft.Extensions.Hosting");
+  const repeated = withTerm(
+    first,
+    DEPENDS_TERM,
+    "eq",
+    "Microsoft.Extensions.DependencyInjection");
+  const edited = replaceTerm(
+    repeated,
+    0,
+    "eq",
+    "  Microsoft.Extensions.Hosting  ");
+
+  assert.deepEqual(edited.terms.map(term => ({
+    key: term.descriptor.key,
+    operator: term.operator,
+    value: term.value,
+  })), [
+    {
+      key: "depends",
+      operator: "eq",
+      value: "  Microsoft.Extensions.Hosting  ",
+    },
+    {
+      key: "depends",
+      operator: "eq",
+      value: "Microsoft.Extensions.DependencyInjection",
+    },
+  ]);
+  assert.deepEqual(withoutTerm(edited, 0).terms.map(term => term.value), [
+    "Microsoft.Extensions.DependencyInjection",
+  ]);
+});
+
+test("operand-bearing terms participate in candidate bounds", () => {
+  const content = withTerm(
+    createQueryRequest("Contoso."),
+    CONTENT_TERM,
+    "eq",
+    "tools/");
+  assert.equal(content.requestedLimit, 20);
+  assert.equal(withoutTerm(content, 0).requestedLimit, 200);
 });
 
 test("package requests preserve editor spelling without resolving source defaults", () => {
   for (const text of ["", "  hosting dependency injection  ", "System.*"]) {
     assert.equal(createQueryRequest(text).scopeQuery, text);
-  }
-});
-
-test("assembly requests preserve the literal operand and exclude package-search semantics", () => {
-  const operand = "  Exact Literal * [value]  ";
-  const coordinates = ["Contoso.One@1.2.3", "Contoso.Two@4.5.6"];
-  const request = createAssemblyQueryRequest(
-    "package.query.assembly.ldstr-contains",
-    operand,
-    coordinates,
-    "net10.0");
-
-  assert.equal(request.scopeQuery, "");
-  assert.equal(request.includePrerelease, false);
-  assert.deepEqual(request.facets, []);
-  assert.deepEqual(request.assemblyPattern, {
-    patternId: "package.query.assembly.ldstr-contains",
-    operand,
-    packageCoordinates: coordinates,
-    targetFramework: "net10.0",
-  });
-  coordinates.push("Mutated@9.9.9");
-  assert.deepEqual(request.assemblyPattern.packageCoordinates, [
-    "Contoso.One@1.2.3",
-    "Contoso.Two@4.5.6",
-  ]);
-});
-
-test("package query transformations clear assembly mode instead of mixing semantics", () => {
-  const assembly = createAssemblyQueryRequest(
-    "package.query.assembly.ldstr-contains",
-    "literal",
-    ["Contoso.Library@1.2.3"],
-    "net10.0");
-
-  for (const query of [
-    withScopeQuery(assembly, "Contoso"),
-    withFacet(assembly, TFM_FACET),
-    withFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET),
-    toggleFacet(assembly, TFM_FACET),
-    withoutFacet({ ...assembly, facets: [TFM_FACET] }, TFM_FACET.key),
-  ]) {
-    assert.equal(query.assemblyPattern, undefined);
   }
 });
 
@@ -468,39 +492,6 @@ test("controller publishes progress without clearing streamed rows", async () =>
   ]);
 });
 
-test("controller retains assembly assessments without spending row credit", async () => {
-  const state = initialQueryState();
-  const source: PackageQueryDataSource = {
-    initialMatchCredit: 1,
-    requestMore: () => assert.fail("an assessment must not request match credit"),
-    async run(
-      _request,
-      _onPage,
-      _onFailure,
-      _onProgress,
-      _abortSignal,
-      onAssessment,
-    ) {
-      onAssessment?.(NO_MATCH_ASSESSMENT);
-      return {
-        kind: "bounded",
-        reason: "1 explicitly selected package; primary implementation assembly",
-      };
-    },
-  };
-  const controller = createPackageQueryController(state, source, () => {});
-
-  await controller.run(createAssemblyQueryRequest(
-    "package.query.assembly.ldstr-contains",
-    "literal",
-    ["Contoso.Library@1.2.3"],
-    "net10.0"));
-  controller.requestMore();
-
-  assert.deepEqual(state.outcome.assessments, [NO_MATCH_ASSESSMENT]);
-  assert.deepEqual(state.outcome.rows, []);
-});
-
 test("a data source that rejects transitions to a visible 'failed' completion, not a stuck 'streaming' one", async () => {
   const state = initialQueryState();
   const rejectingSource: PackageQueryDataSource = {
@@ -753,43 +744,6 @@ test("a superseded run's late progress never lands in the newer outcome", async 
   assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["fresh"]);
   assert.deepEqual(state.outcome.progress, []);
   assert.equal(state.outcome.completion.kind, "exhausted");
-});
-
-test("a superseded run's late assessment never lands in the newer outcome", async () => {
-  const state = initialQueryState();
-  let releaseFirst!: () => void;
-  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
-  const source: PackageQueryDataSource = {
-    async run(
-      request,
-      onPage,
-      _onFailure,
-      _onProgress,
-      _abortSignal,
-      onAssessment,
-    ) {
-      if (request.assemblyPattern) {
-        await firstGate;
-        onAssessment?.(NO_MATCH_ASSESSMENT);
-        return { kind: "cancelled" };
-      }
-      onPage([row("fresh")]);
-      return { kind: "exhausted" };
-    },
-  };
-  const controller = createPackageQueryController(state, source, () => {});
-  const firstRun = controller.run(createAssemblyQueryRequest(
-    "package.query.assembly.ldstr-contains",
-    "literal",
-    ["Contoso.Library@1.2.3"],
-    "net10.0"));
-
-  await controller.run(createQueryRequest("fresh"));
-  releaseFirst();
-  await firstRun;
-
-  assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["fresh"]);
-  assert.deepEqual(state.outcome.assessments, []);
 });
 
 test("cancel() marks a streaming completion cancelled without clearing already-streamed rows", async () => {

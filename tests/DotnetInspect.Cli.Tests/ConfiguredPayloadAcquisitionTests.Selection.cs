@@ -170,6 +170,51 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task AcquireSelected_TransportFallbackRetainsOriginalSourceSelection()
+    {
+        const string Id = "Selected.TransportFallback";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition((source, _) =>
+            new SelectionFeedHandler(
+                source.Url,
+                Id,
+                [Version],
+                version => CreatePackage(
+                    Id,
+                    source.Url,
+                    version: version),
+                requests,
+                payloadStatus:
+                    source.Url == FirstFeed
+                        ? HttpStatusCode.BadGateway
+                        : null));
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                null,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions
+                {
+                    Sources = [FirstFeed, SecondFeed],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Payload);
+        Assert.Equal(SecondFeed, result.Authority!.Source.Url);
+        Assert.Contains(
+            result.Failures,
+            failure =>
+                failure.Kind
+                    == PackageAuthorityFailureKind.Transport
+                && failure.Authority.ToString().Contains(
+                    FirstFeed,
+                    StringComparison.Ordinal));
+        Assert.True(result.SelectionUsesOriginalSources);
+    }
+
+    [Fact]
     public async Task AcquireSelected_QueryDistinctAuthoritiesDoNotShareReportingEvidence()
     {
         const string Id = "Selected.QueryAuthority";
@@ -289,9 +334,115 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(result.Failures);
     }
 
+    [Fact]
+    public async Task AcquireSelected_OutOfRangeAddressRetainsInputFailure()
+    {
+        const string Id = "Selected.RangeAddress";
+        string source = Path.Combine(_root, "range-address");
+        foreach (string version in
+                 new[] { "1.0.0", "2.0.0", "3.0.0" })
+        {
+            WriteLocalPackage(
+                source,
+                Id,
+                $"range {version}",
+                version: version);
+        }
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..3.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "#4",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "outside #1..#3",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AcquireSelected_RangeAddressBuildMetadataRetainsInputFailure()
+    {
+        const string Id = "Selected.RangeBuildMetadata";
+        string source = Path.Combine(_root, "range-build-metadata");
+        WriteLocalPackage(
+            source,
+            Id,
+            "range version",
+            version: "1.0.0");
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..2.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "1.0.0+build",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "without build metadata",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AcquireSelected_EmptyRangeRetainsEndpointInputFailure()
+    {
+        const string Id = "Selected.EmptyRange";
+        string source = Path.Combine(_root, "empty-range");
+        Directory.CreateDirectory(source);
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..2.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "first",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "does not contain range endpoint 1.0.0",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("1.0.0..bad", "first")]
     [InlineData("1.0.0..2.0.0", null)]
+    [InlineData("1_.*", null)]
     [InlineData(null, "first")]
     public async Task AcquireSelected_InvalidSelectorFailsBeforeTransport(string? selector, string? address)
     {
@@ -463,7 +614,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     private sealed class SelectionFeedHandler(
         string source, string id, IReadOnlyList<string> versions,
         Func<string, byte[]> payload, ConcurrentQueue<string> requests,
-        bool missingPayload = false, bool listed = true, bool missingListingState = false,
+        bool missingPayload = false, bool listed = true,
+        bool missingListingState = false,
+        HttpStatusCode? payloadStatus = null,
         Func<string, CancellationToken, Task>? beforeResponse = null) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -504,9 +657,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             else if (url.StartsWith($"{flat}{id.ToLowerInvariant()}/", StringComparison.Ordinal)
                 && url.EndsWith(".nupkg", StringComparison.Ordinal))
             {
-                status = missingPayload ? HttpStatusCode.NotFound : HttpStatusCode.OK;
+                status = payloadStatus
+                    ?? (missingPayload
+                        ? HttpStatusCode.NotFound
+                        : HttpStatusCode.OK);
                 string version = request.RequestUri.Segments[^2].TrimEnd('/');
-                content = new ByteArrayContent(missingPayload ? [] : payload(version));
+                content = new ByteArrayContent(
+                    status == HttpStatusCode.OK
+                        ? payload(version)
+                        : []);
             }
             else
             {

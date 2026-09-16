@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
@@ -14,7 +15,7 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static class BrowserPackageQueryOperations
     {
-        internal static BrowserPackageQueryFacetCatalog Facets() =>
+        internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
                     .. PackageQuery.Facets.Select(facet =>
@@ -36,20 +37,68 @@ namespace DotnetInspect.Web.Interop.Package
                             facet.CombinesWithinSelectionGroup,
                             facet.DisplayGroupId,
                             facet.DisplayGroupLabel)),
+                ],
+                [
+                    .. PackageQuery.Terms.Select(term =>
+                        new BrowserPackageQueryTermDescriptor(
+                            term.Key,
+                            term.Label,
+                            term.Summary,
+                            term.Weight,
+                            term.Tier switch
+                            {
+                                PackageQueryFacetTier.Nuspec =>
+                                    BrowserPackageQueryFacetTier.Nuspec,
+                                PackageQueryFacetTier.PackageContent =>
+                                    BrowserPackageQueryFacetTier.PackageContent,
+                                _ => throw new InvalidOperationException(
+                                    "Unknown package-query term tier."),
+                            },
+                            [.. term.Operators],
+                            term.ValueKind,
+                            term.ExampleValue)),
                 ]);
 
         internal static PackageQueryPlanResult Plan(
             string text,
             string[] facetIds,
+            IReadOnlyCollection<PortableQueryTerm>? terms,
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
                 facetIds,
+                terms,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease);
+
+        internal static bool TryCreateTerms(
+            BrowserPackageQueryTerm[] wireTerms,
+            out PortableQueryTerm[] terms,
+            out string error)
+        {
+            ArgumentNullException.ThrowIfNull(wireTerms);
+            terms = new PortableQueryTerm[wireTerms.Length];
+            for (int index = 0; index < wireTerms.Length; index++)
+            {
+                BrowserPackageQueryTerm term = wireTerms[index];
+                if (!PortableQueryModel.TryParseOperator(
+                        term.Operator,
+                        out PortableQueryOperator @operator))
+                {
+                    terms = [];
+                    error =
+                        $"Unknown package-query operator '{term.Operator}'.";
+                    return false;
+                }
+                terms[index] =
+                    new PortableQueryTerm(term.Key, @operator, term.Value);
+            }
+            error = "";
+            return true;
+        }
 
         internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
@@ -91,14 +140,33 @@ namespace DotnetInspect.Web.Interop.Package
             PackageQueryPlanResult planResult = Plan(
                 prefix,
                 facetIds,
+                terms: null,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
-            PackageQueryPlan plan =
-                ((PackageQueryPlanResult.Accepted)planResult).Plan;
+            return await ExecuteAsync(
+                ((PackageQueryPlanResult.Accepted)planResult).Plan,
+                contentProvider,
+                matchCredit,
+                emit,
+                cancellationToken,
+                deadline).ConfigureAwait(false);
+        }
+
+        internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
+            PackageQueryPlan plan,
+            IPackageQueryContentProvider? contentProvider,
+            BrowserPackageQueryMatchCredit? matchCredit,
+            Action<BrowserPackageQueryEvent> emit,
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            ArgumentNullException.ThrowIfNull(emit);
+
             var observer = new EventObserver(
                 matchCredit,
                 emit,
@@ -110,7 +178,7 @@ namespace DotnetInspect.Web.Interop.Package
                     observer,
                     cancellationToken)
                 .ConfigureAwait(false);
-            return observer.Complete(envelope);
+            return Complete(envelope);
         }
 
         internal static Task<BrowserPackageQueryEvent> PumpAsync(
@@ -317,26 +385,13 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline)
-            : IPackageQueryEventObserver
+            : IPackageQueryNonterminalSink
         {
-            private BrowserPackageQueryEvent? _completed;
-
-            public async ValueTask ObserveAsync(
-                PackageQueryEvent queryEvent,
+            public async ValueTask ReportAsync(
+                PackageQueryEvent.Nonterminal queryEvent,
                 CancellationToken cancellationToken)
             {
                 BrowserPackageQueryEvent projected = Project(queryEvent);
-                if (_completed is not null)
-                {
-                    throw new InvalidOperationException(
-                        "The package-query stream produced an event after completion.");
-                }
-
-                if (projected.Kind == BrowserPackageQueryEventKind.Completed)
-                {
-                    _completed = projected;
-                    return;
-                }
 
                 if (projected.Kind == BrowserPackageQueryEventKind.Match
                     && matchCredit is not null)
@@ -368,33 +423,22 @@ namespace DotnetInspect.Web.Interop.Package
 
                 emit(projected);
             }
+        }
 
-            internal BrowserPackageQueryInspection Complete(
-                InspectionEnvelope<
-                    System.Collections.Immutable.ImmutableArray<
-                        PackageQueryEvent>> envelope)
-            {
-                BrowserPackageQueryEvent[] content =
-                    [.. envelope.Content.Select(Project)];
-                BrowserPackageQueryEvent completed = content
-                    .Single(queryEvent =>
-                        queryEvent.Kind == BrowserPackageQueryEventKind.Completed);
-                if (_completed != completed)
-                {
-                    throw new InvalidOperationException(
-                        "The Package Query envelope does not match the observed completion.");
-                }
+        internal static BrowserPackageQueryInspection Complete(
+            InspectionEnvelope<PackageQueryDocument> envelope)
+        {
+            ArgumentNullException.ThrowIfNull(envelope);
 
-                return new BrowserPackageQueryInspection(
-                    content,
-                    Project(envelope.Share),
-                    [.. envelope.Diagnostics.Select(diagnostic =>
-                        new BrowserInspectionDiagnostic(
-                            diagnostic.Code,
-                            diagnostic.Severity.ToString(),
-                            diagnostic.Summary.ToString(),
-                            diagnostic.Correspondence?.ToString()))]);
-            }
+            return new BrowserPackageQueryInspection(
+                Project(envelope.Content),
+                Project(envelope.Share),
+                [.. envelope.Diagnostics.Select(diagnostic =>
+                    new BrowserInspectionDiagnostic(
+                        diagnostic.Code,
+                        diagnostic.Severity.ToString(),
+                        diagnostic.Summary.ToString(),
+                        diagnostic.Correspondence?.ToString()))]);
         }
 
         static BrowserInspectionShare Project(InspectionShare share) =>
@@ -480,6 +524,13 @@ namespace DotnetInspect.Web.Interop.Package
                                                 .. summary.Preview.Select(
                                                     value => value.ToString()),
                                             ])
+                                        : null,
+                                    evidence.Term is { } term
+                                        ? new BrowserPackageQueryTerm(
+                                            term.Key,
+                                            PortableQueryModel.TextOf(
+                                                term.Operator),
+                                            term.Value)
                                         : null)),
                         ],
                         match.Value.Package.TotalDownloads,
@@ -583,6 +634,23 @@ namespace DotnetInspect.Web.Interop.Package
                     "Unknown package-query event."),
             };
 
+        internal static BrowserPackageQueryDocument Project(
+            PackageQueryDocument document)
+        {
+            ArgumentNullException.ThrowIfNull(document);
+            return new(
+                [
+                    .. document.Results.Select(result =>
+                        Project(new PackageQueryEvent.Match(result)).Row!),
+                ],
+                [
+                    .. document.Failures.Select(failure =>
+                        Project(new PackageQueryEvent.Failure(failure)).Failure!),
+                ],
+                Project(new PackageQueryEvent.Completed(document.Summary))
+                    .Completion!);
+        }
+
         private static BrowserPackageQueryManifest Project(
             PackageManifestFacts manifest) =>
             new(
@@ -679,23 +747,11 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static string ListPackageAssemblyQueryPatterns() =>
-        JsonSerializer.Serialize(
-            PackageAssemblyPatterns.Descriptors.Select(pattern =>
-                new BrowserPackageAssemblyQueryPattern(
-                    pattern.Id,
-                    pattern.Label,
-                    pattern.Summary,
-                    pattern.MaximumOperandLength,
-                    PackageAssemblyQuery.MaximumPackages)).ToArray(),
-            BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
-
-    [JSExport]
-    public static string ListPackageQueryFacets()
+    public static string ListPackageQueryCatalog()
     {
         string result = JsonSerializer.Serialize(
-            BrowserPackageQueryOperations.Facets(),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
+            BrowserPackageQueryOperations.Catalog(),
+            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
         BrowserPackageQueryOperations.StartSerializationPreparation();
         return result;
     }
@@ -732,80 +788,11 @@ public static partial class PackageExports
     }
 
     [JSExport]
-    public static async Task<string> RunPackageAssemblyQuery(
-        string operationId,
-        string patternId,
-        string operand,
-        string packageCoordinatesJson,
-        string targetFramework,
-        int initialMatchCredit,
-        JSObject eventSink)
-    {
-        ArgumentNullException.ThrowIfNull(eventSink);
-        string[] coordinates = JsonSerializer.Deserialize(
-            packageCoordinatesJson, BrowserPackageJsonContext.Default.StringArray)
-            ?? throw new ArgumentException("Exact package coordinates are required.", nameof(packageCoordinatesJson));
-        PackageAssemblyQueryPlan plan = PackageAssemblyQuery.Plan(
-            patternId, operand, coordinates, targetFramework);
-        BrowserManagedOperationResult<
-            BrowserPackageQueryEvent,
-            string,
-            string> result =
-            await BrowserPackageQueryOperationCoordinator.RunAsync<
-                BrowserPackageQueryEvent,
-                BrowserPackageQueryEvent>(
-                BrowserManagedOperationId.From(operationId),
-                initialMatchCredit,
-                queryEvent => eventSink.SetProperty(
-                    "event",
-                    BrowserPackageQueryOperations.Serialize(queryEvent)),
-                async (matchCredit, events, token) =>
-                {
-                    await BrowserPackageQueryOperations
-                        .WaitForSerializationPreparationAsync()
-                        .WaitAsync(token)
-                        .ConfigureAwait(false);
-                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
-                        deadline =>
-                            BrowserPackageQueryOperations.ExecuteAssemblyAsync(
-                                plan,
-                                matchCredit,
-                                events.Report,
-                                deadline.Token,
-                                deadline),
-                        BrowserPackageWorkspace.PackageOperationTimeout,
-                        token).ConfigureAwait(false);
-                });
-        return JsonSerializer.Serialize(
-            BrowserPackageQueryResult.From(result),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
-    }
-
-    [JSExport]
-    public static async Task<string> OpenPackageAssemblyQueryResult(string rootRequest)
-    {
-        if (!PackageRootReacquisitionRequest.TryDecode(rootRequest, out var request))
-            throw new ArgumentException("Invalid package Root reopening request.", nameof(rootRequest));
-
-        BrowserPackageSurface surface = await BrowserPackageWorkspace.RunPackageOperationAsync(
-            async deadline =>
-            {
-                BrowserPackageCoordinate coordinate =
-                    await BrowserPackageWorkspace.ReacquireAsync(request, deadline.Token);
-                await using BrowserScopeLease<BrowserInspectionScope> lease =
-                    await BrowserPackageWorkspace.OpenScopeAsync([coordinate], deadline.Token);
-                return BrowserPackageWireProjection.Project(
-                    BrowserPackageSurfaceProjection.ProjectSurface(lease.Scope, coordinate));
-            },
-            BrowserPackageWorkspace.PackageOperationTimeout);
-        return JsonSerializer.Serialize(surface, BrowserPackageJsonContext.Default.BrowserPackageSurface);
-    }
-
-    [JSExport]
     public static async Task<string> RunPackageQuery(
         string operationId,
         string prefix,
         string facetIdsJson,
+        string termsJson,
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
@@ -816,6 +803,36 @@ public static partial class PackageExports
         string[] facetIds = JsonSerializer.Deserialize(
             facetIdsJson,
             BrowserPackageJsonContext.Default.StringArray) ?? [];
+        BrowserPackageQueryTerm[] wireTerms = JsonSerializer.Deserialize(
+            termsJson,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryTermArray) ?? [];
+        if (!BrowserPackageQueryOperations.TryCreateTerms(
+                wireTerms,
+                out PortableQueryTerm[] terms,
+                out string termError))
+        {
+            return JsonSerializer.Serialize(
+                BrowserPackageQueryResult.ExpectedFailure(termError),
+                BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        }
+
+        PackageQueryPlanResult planResult =
+            BrowserPackageQueryOperations.Plan(
+                prefix,
+                facetIds,
+                terms,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease);
+        if (planResult is PackageQueryPlanResult.Rejected rejected)
+        {
+            return JsonSerializer.Serialize(
+                BrowserPackageQueryResult.ExpectedFailure(
+                    rejected.Failure.Message),
+                BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        }
+        PackageQueryPlan plan =
+            ((PackageQueryPlanResult.Accepted)planResult).Plan;
 
         BrowserManagedOperationResult<
             BrowserPackageQueryInspection,
@@ -841,11 +858,7 @@ public static partial class PackageExports
                             var contentProvider =
                                 new BrowserPackageQueryContentProvider(deadline);
                             return await BrowserPackageQueryOperations.ExecuteAsync(
-                                prefix,
-                                facetIds,
-                                maximumCandidates,
-                                maximumMatches,
-                                includePrerelease,
+                                plan,
                                 contentProvider,
                                 matchCredit,
                                 events.Report,

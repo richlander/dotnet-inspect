@@ -1025,12 +1025,16 @@ sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
 public abstract class InspectionWorkspaceGroupCloseResult
 {
     internal InspectionWorkspaceGroupCloseResult(
-        int registrationIndex)
+        int registrationIndex,
+        bool succeeded)
     {
         RegistrationIndex = registrationIndex;
+        Succeeded = succeeded;
     }
 
     public int RegistrationIndex { get; }
+
+    public bool Succeeded { get; }
 }
 
 /// <summary>
@@ -1042,12 +1046,10 @@ public sealed class InspectionWorkspaceDirectGroupCloseResult
     internal InspectionWorkspaceDirectGroupCloseResult(
         int registrationIndex,
         Exception? failure)
-        : base(registrationIndex)
+        : base(registrationIndex, failure is null)
     {
         Failure = failure;
     }
-
-    public bool Succeeded => Failure is null;
 
     public Exception? Failure { get; }
 }
@@ -1060,8 +1062,9 @@ public sealed class InspectionWorkspaceCoordinatedGroupCloseResult<TResult>
 {
     internal InspectionWorkspaceCoordinatedGroupCloseResult(
         int registrationIndex,
-        TResult result)
-        : base(registrationIndex)
+        TResult result,
+        bool succeeded)
+        : base(registrationIndex, succeeded)
     {
         Result = result;
     }
@@ -1129,6 +1132,10 @@ public sealed class InspectionWorkspaceCloseReport
     {
         get;
     }
+
+    public bool Succeeded =>
+        ArtifactSessionCleanupFailures.IsEmpty
+        && Groups.All(group => group.Succeeded);
 }
 
 /// <summary>
@@ -1407,8 +1414,13 @@ public sealed partial class InspectionWorkspace :
                     admission.CloseWorkspaceAdmission();
                 plan = new WorkspaceClosePlan(
                     admissions,
-                    [.. _artifactSessions]);
+                    [.. _artifactSessions],
+                    _declarationLocator,
+                    DetachPackageDeclarationLeases());
                 _state = InspectionWorkspaceState.Closing;
+                _declarationObserver = null;
+                _declarationPopulation = null;
+                _declarationContexts.Clear();
                 foreach (AssemblyContextGroup group in _groups)
                 {
                     group.CloseAdmissionFromWorkspace(
@@ -1543,6 +1555,8 @@ public sealed partial class InspectionWorkspace :
     {
         WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
+        Task<Exception?> locatorClose = plan.DeclarationLocator?.CloseAsync()
+            ?? Task.FromResult<Exception?>(null);
         Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
@@ -1587,6 +1601,19 @@ public sealed partial class InspectionWorkspace :
         }
         ImmutableArray<Exception>.Builder artifactCleanupFailures =
             ImmutableArray.CreateBuilder<Exception>();
+        Exception? locatorFailure = await locatorClose.ConfigureAwait(false);
+        foreach (ArtifactRootQueryLease lease
+            in plan.PackageDeclarationLeases)
+        {
+            try
+            {
+                lease.Dispose();
+            }
+            catch (Exception exception)
+            {
+                artifactCleanupFailures.Add(exception);
+            }
+        }
         artifactCleanupFailures.AddRange(await rootClose.ConfigureAwait(false));
         foreach (WorkspaceArtifactSessionRegistration registration
             in plan.ArtifactSessions)
@@ -1603,6 +1630,12 @@ public sealed partial class InspectionWorkspace :
                 reportGroups.Add(result);
         }
 
+        if (locatorFailure is not null)
+        {
+            groupCloseFailure = groupCloseFailure is null
+                ? locatorFailure
+                : new AggregateException(groupCloseFailure, locatorFailure);
+        }
         var report = new InspectionWorkspaceCloseReport(
             reportGroups.ToImmutable(),
             artifactCleanupFailures.ToImmutable());
@@ -1689,7 +1722,10 @@ public sealed partial class InspectionWorkspace :
     readonly record struct WorkspaceClosePlan(
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
-            ArtifactSessions);
+            ArtifactSessions,
+        WorkspaceDeclarationLocator? DeclarationLocator,
+        ImmutableArray<ArtifactRootQueryLease>
+            PackageDeclarationLeases);
 
     internal sealed class WorkspaceCoordinatedGroupAdmission
     {

@@ -128,7 +128,7 @@ public static class SourceIntegrityService
                     }
 
                     SourceChecksumVerification verification =
-                        PdbSourceHouse.VerifyChecksum(document, body);
+                        SourceLinkService.VerifyChecksum(document, body);
                     ct.ThrowIfCancellationRequested();
                     if (verification == SourceChecksumVerification.Exact)
                     {

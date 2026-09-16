@@ -133,9 +133,11 @@ The final host-neutral operation returns
 minimum. Inspect Web consumes the same envelope and may compose additional
 owner-issued results and Browser-owned experience state around it.
 
-`TContent` remains the semantic result owned by the query, section, or focused
-inspection. The envelope does not replace its facts, rows, provenance,
-completion, or typed success and failure variants. The complete baseline is:
+`TContent` remains the owner-issued Result, Document, or owner-specific Outcome
+classified by
+[Host-observable content kinds](design/host-observable-content-kinds.md). The
+envelope does not replace its facts, rows, provenance, completion, or typed
+success and failure variants. The complete baseline is:
 
 ```text
 InspectionEnvelope<TContent>
@@ -144,8 +146,8 @@ InspectionEnvelope<TContent>
   Diagnostics
 ```
 
-`Content` carries one non-null owner-issued result. `TContent` remains the
-command's ordinary result type and continues to own success, partial,
+`Content` carries one non-null owner-issued value. `TContent` remains the
+operation's ordinary content type and continues to own success, partial,
 unavailable, failure, completion, and empty-result semantics.
 
 Every envelope carries Share for the same semantic plan. The available arm
@@ -420,7 +422,7 @@ The word "limit" is not enough to identify a contract.
 
 | Limit | Meaning | Owner |
 | --- | --- | --- |
-| Semantic row selection | Selects final logical rows in an owner-declared order | L2 plus `DotnetInspector.RowSelection` |
+| Semantic row selection | Selects final logical rows in an owner-declared order | L2 plus the contract carried by `DotnetInspector.QueryEngine` |
 | Work bound | Authorizes incomplete upstream work in one named dimension and returns completion evidence | The executing query or source owner |
 | Semantic traversal bound | Changes the requested graph or hierarchy extent and reports its boundary | The graph or traversal owner |
 | Presentation limit | Narrows rendered lines, chrome, or viewport state after the typed result exists | Host |

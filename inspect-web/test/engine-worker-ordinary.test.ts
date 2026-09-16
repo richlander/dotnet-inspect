@@ -42,10 +42,10 @@ function contractViolation<T>(value: unknown): T {
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   package: {
+    classifyPackageGraphIdentities: () =>
+      unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
-    listPackageAssemblyQueryPatterns: () =>
-      unexpected("listPackageAssemblyQueryPatterns"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchTypes: () => unexpected("searchTypes"),
@@ -56,16 +56,17 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     packageCacheStats: () => unexpected("packageCacheStats"),
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
-    openPackageAssemblyQueryResult: () =>
-      unexpected("openPackageAssemblyQueryResult"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackagePruning: () =>
+      unexpected("queryPackagePruning"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
     queryWorkspacePackageOccurrences: () =>
       unexpected("queryWorkspacePackageOccurrences"),
@@ -73,6 +74,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("resolvePackageDependencyVersion"),
   },
   metadata: {
+    cancelLibraryApiDiff: () =>
+      unexpected("cancelLibraryApiDiff"),
+    queryLibraryApiDiff: () =>
+      unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryPlatformMemberDeclaration: () =>
@@ -233,9 +238,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     future: { message: "preserved" },
   };
   let cleared = 0;
+  let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
+  let pruningArguments: readonly unknown[] = [];
+  let libraryDiffArguments: readonly unknown[] = [];
+  let libraryDiffCancelArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
+      classifyPackageGraphIdentities: (...args) => {
+        classificationArguments = args;
+        return ["Inspected", "External"];
+      },
       searchTypes: () => searchResult,
       activateWorkspacePackageOccurrence: async () => activation,
       clearWorkspacePackageOccurrences: async () => {
@@ -246,6 +259,45 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
+      },
+      queryPackagePruning: (...args) => {
+        pruningArguments = args;
+        return Promise.resolve({
+          schemaVersion: 1,
+          package: "Example",
+          version: "1.0.0",
+          targetFramework: "net10.0",
+          selectedFramework: "net10.0",
+          family: "Microsoft.NETCore.App",
+          platformVersion: "10.0.0",
+          completion: "Complete",
+          rows: [],
+          declarationFailures: [],
+          summary: {
+            declarations: 0,
+            evaluated: 0,
+            delegated: 0,
+            retained: 0,
+            notEvaluated: 0,
+            failed: 0,
+            declarationFailures: 0,
+          },
+          message: null,
+        });
+      },
+    },
+    metadata: {
+      queryLibraryApiDiff: (...args) => {
+        libraryDiffArguments = args;
+        return contractViolation({
+          schemaVersion: 1,
+          kind: "Canceled",
+          reason: "test",
+        });
+      },
+      cancelLibraryApiDiff: (...args) => {
+        libraryDiffCancelArguments = args;
+        return { kind: "Requested", reason: "superseded" };
       },
     },
   });
@@ -262,17 +314,41 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const classified = state.client.package.classifyPackageGraphIdentities(
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
     "[{\"key\":\"candidate\"}]",
   );
+  const pruning = state.client.package.queryPackagePruning(
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
+  );
+  const libraryDiff = state.client.metadata.queryLibraryApiDiff(
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  );
+  const libraryDiffCancellation =
+    state.client.metadata.cancelLibraryApiDiff(
+      "operation-1",
+      "superseded",
+    );
   await state.environment.flushAsync();
 
   assert.deepEqual(await sync, searchResult);
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual(await classified, ["Inspected", "External"]);
+  assert.deepEqual(classificationArguments, [
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
     candidateKey: "candidate",
@@ -281,6 +357,30 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Dependency",
     null,
     "[{\"key\":\"candidate\"}]",
+  ]);
+  assert.equal((await pruning).completion, "Complete");
+  assert.deepEqual(pruningArguments, [
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
+  ]);
+  assert.deepEqual(await libraryDiff, {
+    schemaVersion: 1,
+    kind: "Canceled",
+    reason: "test",
+  });
+  assert.deepEqual(await libraryDiffCancellation, {
+    kind: "Requested",
+    reason: "superseded",
+  });
+  assert.deepEqual(libraryDiffArguments, [
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  ]);
+  assert.deepEqual(libraryDiffCancelArguments, [
+    "operation-1",
+    "superseded",
   ]);
   assert.equal(cleared, 1);
   assert.deepEqual(state.diagnostics, []);
@@ -370,8 +470,13 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
       packageCacheStats: () => ({
         packages: 4,
         resident: 2,
+        maxPackageEntries: 256,
         workspaces: 1,
+        maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 1024,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -385,8 +490,13 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
   assert.deepEqual(await neighbor, {
     packages: 4,
     resident: 2,
+    maxPackageEntries: 256,
     workspaces: 1,
+    maxWorkspaces: 4,
+    maxWorkspaceAssembliesPerRole: 256,
     residentBytes: 1024,
+    maxResidentBytes: 134_217_728,
+    maxWorkspaceRetainedImageBytes: 67_108_864,
   });
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
@@ -403,8 +513,13 @@ test("malformed and oversized generated results reject only their calls", async 
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
+        maxPackageEntries: 256,
         workspaces: 0,
+        maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 64,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -414,7 +529,9 @@ test("malformed and oversized generated results reject only their calls", async 
   );
   const oversized = assert.rejects(
     state.client.package.loadRuntimePack("net10.0", "10.0.0"),
-    /exceeds 8388608 characters/,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
   );
   const neighbor = state.client.package.packageCacheStats();
   await state.environment.flushAsync();
@@ -450,7 +567,9 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
     state.client.package.queryWorkspacePackageOccurrences(
       "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
     ),
-    /exceeds 8388608 characters/,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
   );
   assert.equal(calls, 0);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -458,8 +577,8 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
 });
 
 test("large generated results cross the former ordinary transport bounds", async () => {
-  const formerMaximumJsonCharacters = 1_048_576;
-  const formerMaximumCollectionEntries = 65_536;
+  const formerMaximumJsonCharacters = 8_388_608;
+  const formerMaximumCollectionEntries = 262_144;
   const versions = Array.from(
     { length: formerMaximumCollectionEntries },
     (_unused, index) => index === 0
@@ -548,8 +667,13 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
         return {
           packages: 0,
           resident: 0,
+          maxPackageEntries: 256,
           workspaces: 0,
+          maxWorkspaces: 4,
+          maxWorkspaceAssembliesPerRole: 256,
           residentBytes: 0,
+          maxResidentBytes: 134_217_728,
+          maxWorkspaceRetainedImageBytes: 67_108_864,
         };
       },
     },
@@ -577,26 +701,29 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   const expected = {
     package: [
       "activateWorkspacePackageOccurrence",
+      "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
-      "listPackageAssemblyQueryPatterns",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
-      "openPackageAssemblyQueryResult",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackagePruning",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchTypes",
     ],
     metadata: [
+      "cancelLibraryApiDiff",
+      "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryPlatformMemberDeclaration",
@@ -651,7 +778,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 51);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
 
   const state = fixture();
   const groups = [

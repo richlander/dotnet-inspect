@@ -116,19 +116,19 @@ internal static class QueryDiscoverOutput
             foreach (SectionQueryDescriptor section in selected)
             {
                 if (!TryApplyRows(
-                        section.Facets,
+                        section.Keys,
                         window,
                         semanticRowSelection,
                         semanticSelectionName,
                         "query facet",
-                        out IReadOnlyList<SectionQueryFacet> selectedFacets))
+                        out IReadOnlyList<SectionQueryKey> selectedKeys))
                 {
                     return 1;
                 }
                 selectedSections.Add(
                     section with
                     {
-                        Facets = [.. selectedFacets],
+                        Keys = [.. selectedKeys],
                     });
             }
             selected = [.. selectedSections];
@@ -137,12 +137,12 @@ internal static class QueryDiscoverOutput
         if (projection.Count)
         {
             if (bare || selected.Length == 1)
-                CountOutput.WriteCount(bare ? selected.Length : selected[0].Facets.Length);
+                CountOutput.WriteCount(bare ? selected.Length : selected[0].Keys.Length);
             else
             {
                 var counts = new CountProjection();
                 foreach (SectionQueryDescriptor section in selected)
-                    counts.SetRows(section.QuerySection, section.Facets.Length);
+                    counts.SetRows(section.QuerySection, section.Keys.Length);
                 CountOutput.Write(counts, [.. selected.Select(section => section.QuerySection)], format,
                     result.GetValue(options.NoHeaders));
             }
@@ -177,9 +177,9 @@ internal static class QueryDiscoverOutput
                         section.Section,
                         section.QuerySection,
                         section.Summary,
-                        section.Facets.Length,
+                        section.Keys.Length,
                         Operators(section),
-                        bare ? null : section.Facets))]);
+                        bare ? null : section.Keys))]);
                 Console.WriteLine(JsonSerializer.Serialize(
                     document, QueryDiscoveryJsonContext.Default.QueryDiscoveryDocument));
             }
@@ -190,7 +190,7 @@ internal static class QueryDiscoverOutput
         {
             if (message is not null)
                 CommandError.WriteNote(message);
-            else if (!bare && selected[0].Facets.IsEmpty)
+            else if (!bare && selected[0].Keys.IsEmpty)
                 CommandError.WriteNote(NoOperators);
             OutputFormatter.WriteProjectedTable(
                 Console.Out, !result.GetValue(options.NoHeaders),
@@ -235,7 +235,7 @@ internal static class QueryDiscoverOutput
             out selectedRows);
 
     private static ImmutableArray<string> Operators(SectionQueryDescriptor section)
-        => [.. section.Facets.SelectMany(facet => facet.Operators).Distinct(StringComparer.Ordinal)];
+        => [.. section.Keys.SelectMany(key => key.Operators).Distinct(StringComparer.Ordinal)];
 
     private static void Write(
         MarkoutWriter writer,
@@ -255,7 +255,7 @@ internal static class QueryDiscoverOutput
                 {
                     section.Section,
                     MarkoutInline.Code(string.Join(", ", Operators(section))),
-                    section.Facets.Length.ToString(CultureInfo.InvariantCulture),
+                    section.Keys.Length.ToString(CultureInfo.InvariantCulture),
                 })]);
         }
         else
@@ -268,19 +268,19 @@ internal static class QueryDiscoverOutput
                     writer.WriteParagraph(section.Summary);
                 }
                 writer.WriteTable(FacetColumns, ["facet", "operators", "comparisons", "values", "example"],
-                    [.. section.Facets.Select(facet => new[]
+                    [.. section.Keys.Select(key => new[]
                     {
-                        facet.Name,
-                        MarkoutInline.Code(string.Join(", ", facet.Operators)),
-                        facet.Comparisons.IsEmpty
+                        key.Name,
+                        MarkoutInline.Code(string.Join(", ", key.Operators)),
+                        key.Comparisons.IsEmpty
                             ? ""
-                            : MarkoutInline.Code(string.Join(", ", facet.Comparisons)),
-                        facet.Values.IsEmpty
-                            ? facet.ValueKind
-                            : facet.Name == "Kind"
+                            : MarkoutInline.Code(string.Join(", ", key.Comparisons)),
+                        key.Values.IsEmpty
+                            ? key.ValueKind
+                            : key.Name == "Kind"
                                 ? "C# Body Kinds: " + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
-                                : string.Join(", ", facet.Values),
-                        MarkoutInline.Code(facet.Example),
+                                : string.Join(", ", key.Values),
+                        MarkoutInline.Code(key.Example),
                     })]);
             }
         }
@@ -297,9 +297,11 @@ internal sealed record QueryDiscoverySection(
     string Section,
     string QuerySection,
     string Summary,
-    int FacetCount,
+    [property: JsonPropertyName("facet_count")]
+    int KeyCount,
     ImmutableArray<string> Operators,
-    ImmutableArray<SectionQueryFacet>? Facets);
+    [property: JsonPropertyName("facets")]
+    ImmutableArray<SectionQueryKey>? Keys);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,

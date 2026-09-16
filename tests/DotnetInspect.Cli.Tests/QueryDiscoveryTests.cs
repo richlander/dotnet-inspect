@@ -1,7 +1,9 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -74,7 +76,7 @@ public class QueryDiscoveryTests
         JsonElement kind = facets[0];
         Assert.Equal("Kind", kind.GetProperty("name").GetString());
         Assert.Equal(["="], kind.GetProperty("comparisons").EnumerateArray().Select(value => value.GetString()));
-        Assert.Equal(BodyKindQueryOptions.QueryFacet.Values,
+        Assert.Equal(BodyKindQueryOptions.QueryKey.Values,
             kind.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
         Assert.Equal(composed, facets.GetArrayLength() > 1);
         Assert.All(facets.EnumerateArray(), facet =>
@@ -266,7 +268,7 @@ public class QueryDiscoveryTests
             .Select(value => value.GetString()));
         Assert.Equal(["ecosystem.aspire"], facet.GetProperty("values").EnumerateArray()
             .Select(value => value.GetString()));
-        foreach (string value in IntegrationQueryOptions.QueryFacet.Values)
+        foreach (string value in IntegrationQueryOptions.QueryKey.Values)
             Assert.True(IntegrationQueryOptions.TryExtract(
                 [$"ecosystem={value}"], out _, out _, out var error), error.ToString());
     }
@@ -286,11 +288,20 @@ public class QueryDiscoveryTests
         Assert.Equal(
             "package query",
             json.RootElement.GetProperty("command").GetString());
-        var facet = Assert.Single(json.RootElement.GetProperty("sections")[0]
-            .GetProperty("facets").EnumerateArray());
-        Assert.Equal("facet", facet.GetProperty("name").GetString());
-        Assert.Equal(PackageQueryOptions.QueryFacet.Values,
+        JsonElement[] facets =
+        [
+            .. json.RootElement.GetProperty("sections")[0]
+                .GetProperty("facets").EnumerateArray(),
+        ];
+        Assert.Equal(
+            [PackageQuery.DependsTermKey, "facet"],
+            facets.Select(facet => facet.GetProperty("name").GetString()));
+        JsonElement facet = facets[1];
+        Assert.Equal(PackageQueryOptions.QueryKey.Values,
             facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal(
+            "NuGet package ID",
+            facets[0].GetProperty("value_kind").GetString());
     }
 
     [Fact]
@@ -551,26 +562,140 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public void DiscoveredPerformanceBindings_AreAcceptedByTheirOwner()
+    public void ExecutableRowVocabularyCapabilitiesDriveQueryDiscovery()
     {
-        foreach (SectionQueryFacet facet in PerformanceTriageOptions.QueryFacets)
+        RowQueryVocabulary<QueryProjectionRow> whereOnly =
+            QueryProjectionVocabulary(
+                [RowQueryOperator.Equals],
+                ordered: false);
+        RowQueryVocabulary<QueryProjectionRow> asymmetric =
+            QueryProjectionVocabulary(
+                [
+                    RowQueryOperator.Equals,
+                    RowQueryOperator.LessOrEqual,
+                ],
+                ordered: true);
+
+        SectionQueryKey initial = Assert.Single(
+            RowQueryKeyProjection.Create(
+                whereOnly,
+                _ => new("integer", [], "10"),
+                []));
+        SectionQueryKey changed = Assert.Single(
+            RowQueryKeyProjection.Create(
+                asymmetric,
+                _ => new("integer", [], "10"),
+                []));
+
+        Assert.Equal(["--where"], initial.Operators);
+        Assert.Equal(["="], initial.Comparisons);
+        Assert.Equal(
+            ["--where", "--order-by", "--top"],
+            changed.Operators);
+        Assert.Equal(["=", "<="], changed.Comparisons);
+
+        RowQueryKey<QueryProjectionRow> key =
+            Assert.Single(asymmetric.Keys);
+        Assert.True(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                key,
+                RowPredicateOperator.LessOrEqual,
+                out RowQueryOperator accepted));
+        Assert.Equal(RowQueryOperator.LessOrEqual, accepted);
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                key,
+                RowPredicateOperator.GreaterOrEqual,
+                out _));
+    }
+
+    [Fact]
+    public void PerformanceDiscoveryProjectsItsExecutableVocabulary()
+    {
+        RowQueryVocabulary<ILInspector.Analysis.OptimizationOpportunity> vocabulary =
+            PerformanceTriageRowQuery.ExecutableVocabulary;
+        ImmutableArray<SectionQueryKey> keys =
+            PerformanceTriageRowQuery.QueryKeys;
+
+        Assert.Equal(
+            [.. vocabulary.Keys.Select(key => key.Key), "Triage"],
+            keys.Select(key => key.Name));
+        Assert.Contains(
+            vocabulary.NamedOrders,
+            order => order.Key == "AllocationFanout");
+        Assert.DoesNotContain(
+            keys,
+            key => key.Name == "AllocationFanout");
+
+        foreach (RowQueryKey<ILInspector.Analysis.OptimizationOpportunity>
+            key in vocabulary.Keys)
         {
-            Assert.Equal(PerformanceTriageOptions.FilterableFields.Contains(facet.Name),
-                facet.Operators.Contains("--where"));
-            Assert.Equal(PerformanceTriageOptions.SortableFields.Contains(facet.Name),
-                facet.Operators.Contains("--order-by"));
-            Assert.Equal(facet.Operators.Contains("--order-by"), facet.Operators.Contains("--top"));
-            foreach (string comparison in facet.Comparisons)
+            SectionQueryKey projection = Assert.Single(
+                keys,
+                candidate => candidate.Name == key.Key);
+            Assert.Equal(
+                key.Operators.Count > 0,
+                projection.Operators.Contains("--where"));
+            Assert.Equal(
+                key.SupportsOrdering,
+                projection.Operators.Contains("--order-by"));
+            Assert.Equal(
+                key.SupportsOrdering,
+                projection.Operators.Contains("--top"));
+        }
+
+        foreach (SectionQueryKey key in keys)
+        {
+            Assert.Equal(PerformanceTriageOptions.FilterableFields.Contains(key.Name),
+                key.Operators.Contains("--where"));
+            Assert.Equal(PerformanceTriageOptions.SortableFields.Contains(key.Name),
+                key.Operators.Contains("--order-by"));
+            Assert.Equal(key.Operators.Contains("--order-by"), key.Operators.Contains("--top"));
+            foreach (string comparison in key.Comparisons)
             {
-                string value = facet.ValueKind switch { "integer" => "10", "rank" => "high", _ => "*" };
-                var options = new PerformanceTriageOptions { Where = [$"{facet.Name}{comparison}{value}"] };
+                string value = key.ValueKind switch { "integer" => "10", "rank" => "high", _ => "*" };
+                var options = new PerformanceTriageOptions { Where = [$"{key.Name}{comparison}{value}"] };
                 Assert.True(options.TryGetPredicates(out _, out var error), error.ToString());
             }
-            if (facet.Operators.Contains("--order-by"))
+            foreach (string value in key.Values)
             {
-                var options = new PerformanceTriageOptions { OrderBy = $"{facet.Name} desc", Top = 10 };
+                var options = new PerformanceTriageOptions { Where = [$"{key.Name}={value}"] };
+                Assert.True(options.TryGetPredicates(out _, out var error), error.ToString());
+            }
+            if (key.Operators.Contains("--order-by"))
+            {
+                var options = new PerformanceTriageOptions { OrderBy = $"{key.Name} desc", Top = 10 };
                 Assert.True(options.TryGetOrderTerms(out _, out var error), error.ToString());
             }
         }
     }
+
+    private static RowQueryVocabulary<QueryProjectionRow> QueryProjectionVocabulary(
+        IReadOnlyList<RowQueryOperator> operators,
+        bool ordered)
+    {
+        Func<
+            RowQueryOrderDirection,
+            IComparer<RowQueryValue<int>>>? comparerFactory =
+            ordered
+                ? direction => RowQueryValueOrder.Create(
+                    Comparer<int>.Default,
+                    direction,
+                    missingLast: false)
+                : null;
+        RowQueryKey<QueryProjectionRow> field =
+            RowQueryKey<QueryProjectionRow>.Create(
+                RowQueryKeyIdentity.Create(),
+                "Score",
+                operators,
+                row => RowQueryValue<int>.Present(row.Score),
+                (_, _) => _ => true,
+                comparerFactory);
+        return RowQueryVocabulary<QueryProjectionRow>.Create(
+            RowQueryVocabularyIdentity.Create(),
+            [field],
+            []);
+    }
+
+    private sealed record QueryProjectionRow(int Score);
 }

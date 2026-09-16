@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -46,7 +47,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSiblingCandidateResolver;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
-    readonly object _externalAsyncSiblingResolutionGate = new();
+    readonly object _externalTypeResolutionGate = new();
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>? _localTypeDefinitions;
@@ -152,7 +153,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSiblingDispatchAnalyzer =
             new LibraryBodyAsyncSiblingDispatchAnalyzer(
                 reader,
-                ResolveExternalAsyncSiblingTypeDefinition,
+                ResolveExternalTypeDefinition,
                 _asyncSiblingMethodIndex,
                 _genericConstraintClassifier
                     .HasGenericConstraints);
@@ -164,7 +165,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSiblingCandidateResolver =
             new LibraryBodyAsyncSiblingCandidateResolver(
                 reader,
-                ResolveExternalAsyncSiblingTypeDefinition,
+                ResolveExternalTypeDefinition,
                 LocalTypeDefinitions,
                 _asyncSiblingMethodIndex,
                 _asyncSiblingDispatchAnalyzer,
@@ -211,13 +212,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ILibraryMethodAnalysisInfrastructure.CreateMethodAnalysisResolver(
             GenericScope scope,
             MethodIdentity caller,
-            byte[] il,
-            IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+            MethodInstructions instructions) =>
         _primaryMetadataResolver.CreateMethodAnalysisResolver(
             scope,
             caller,
-            il,
-            exceptionRegions);
+            instructions);
 
     IMethodCallResolver
         ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
@@ -415,12 +414,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             type);
 
     (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
-        ResolveExternalAsyncSiblingTypeDefinition(
+        ResolveExternalTypeDefinition(
             AssemblyReferenceIdentity identity,
             AssemblyResolutionScope scope,
             MetadataTypeDefinitionName type)
     {
-        lock (_externalAsyncSiblingResolutionGate)
+        lock (_externalTypeResolutionGate)
         {
             return TryResolveExternalTypeDefinition(
                 identity,
@@ -448,7 +447,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         var methodRunner =
-            new LibraryMethodAnalysisRunner(this);
+            new LibraryMethodAnalysisRunner(
+                this,
+                plan.Includes(LibraryBodyAnalysisFeatures.LocalThrows)
+                    ? new LibraryBodyExceptionTypeClassifier(
+                        _reader, ResolveExternalTypeDefinition)
+                    : null);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,

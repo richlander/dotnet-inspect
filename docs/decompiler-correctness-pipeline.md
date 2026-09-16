@@ -146,16 +146,123 @@ contract.
 The real-world Corpus boss uses independently selected native ReturnToSender
 results as its baseline-gated fidelity evidence. Legacy compile-back remains
 per-row reference evidence for that sensor and cannot replace an unavailable or
-failed native result. Native `rts-cutover` is also the general corpus fidelity
-default. Baselines that have not yet migrated must explicitly select
-`compile-back`; the PR quick, classic state-machine, and net11 opt-in consumers
-do so until their own #6199 adoption slices land. Standalone fidelity and
-changed-method consumers retain their existing contracts.
+failed native result. Routine corpus runs default to `rts-native`, which uses
+the same independent selection and native RTS evaluation without executing the
+legacy reference pass. The daily real-world Deep Inspect census explicitly
+selects `rts-cutover` to retain the paired comparison ledger. Baselines that
+have not yet migrated must explicitly select `compile-back`; the PR quick,
+classic state-machine, and net11 opt-in consumers do so until their own #6199
+adoption slices land. Standalone fidelity and changed-method consumers retain
+their existing contracts.
 
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
+
+### Shared EH evidence adoption
+
+Decompiler physical import consumes Metadata's closed method-body result and
+complete exception-clause catalog. For a body that declares EH, it decodes that
+same body observation once through Instructions and preserves exact clause and
+region associations while raising flat EH into structured IR. Production
+membership and supported explicit normal edges come from Instructions
+`LocationAt` and `NormalTransferAt`; Decompiler continues to own C#
+raisability, IR construction, correspondence, fidelity, and diagnostics.
+
+A metadata-backed method never falls back to independent range reconstruction.
+Missing, unavailable, ambiguous, or rejected correlated Instructions/catch
+evidence retains the flat representation and reports `DEC0017`; an unavailable
+Metadata body reports the closed import failure as `ContextUnavailable`.
+Synthetic Layer 0 test inputs without Metadata identity retain the explicit
+raw-range compatibility path. Body-replacement transforms clear stale root
+correlation rather than attaching evidence from one body observation to
+another.
+
+`DecompilerExceptionFactAdoptionTests` is the Release gate for exact body and
+clause association, Metadata catch order, runtime cleanup identity, closed
+failure handling, visible refusal, and raw compatibility.
+`ProtectedRegionControlFlowTests` gates the next consumer: production
+try/catch `Leave` transfers use regions actually left by `NormalTransferAt`;
+the current projection requires exact structured associations, with the
+bounded predicate limited to associations below the candidate boundary.
+Missing correlation and same-range foreign-body identity decline visibly. Its
+synthetic cases preserve the explicit Layer 0 compatibility path, while its
+detached-clone case proves that production structuring candidates retain their
+function evidence owner.
+`ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
+outcome.
+`ClassicInverseCoreExceptionTests` gates the classic-async consumer: production
+raw membership comes from `LocationAt`, structured catch/finally projections
+retain exact clause and region associations, raw and planning views share one
+fact observation, missing correlation declines visibly, and same-range foreign
+identity cannot license reconstruction. The same gate requires the
+relationship-selected `MoveNext` MethodDef to equal the available Instructions
+exception-flow body's MethodDef, rejects a foreign method observation, and
+retains the neighboring user-`finally` reconstruction. Decompiler consumers
+resolve owner-issued clause and region identities through Instructions lookup
+rather than collection scans or object-reference correspondence. The full
+`ClassicInverseCoreTests` population gates unchanged recipe and accounting
+behavior. These gates do not verify the later return-timing consumer migration.
+
+### EH normal-continuation return timing
+
+This section owns one semantic-fidelity rule for exception-handling
+structuring. When original control flow exits a protected region and evaluates
+a return expression at its normal continuation, a rewrite may evaluate that
+expression inside the protected region only when evaluation is observationally
+equivalent relative to every exited `finally`. Preserving the same handler
+count is necessary but insufficient: if the expression reads a place, the
+rewrite must prove that no exited handler can change that place directly or
+through a managed-reference alias.
+
+The alias proof is closed over storage-transfer semantics, not a list of source
+syntaxes or selected IR node kinds:
+
+- the returned place seeds the alias relation, and addresses or ref-containing
+  values that can denote it remain related;
+- any operation that copies or stores a related value into a writable
+  destination transfers the relation, whether the destination is named
+  directly or reached indirectly;
+- copying a ref-containing carrier transfers its contained relation rather than
+  only the identity of a field previously observed;
+- conditional values, construction, ref returns, and invocation participate
+  when their type and signature facts permit the relation to flow; invocation
+  transfer remains limited to a known related value and writable
+  ref-containing storage rather than assuming arbitrary call side effects; and
+- if a relation-bearing transfer can reach storage used by an exited handler
+  but its writable destination cannot be resolved, the rewrite declines and
+  retains post-handler evaluation.
+
+This is an intraprocedural proof over the current function's supported IR and
+imported type facts. It is not whole-program alias analysis and does not promise
+to infer arbitrary callee behavior. Constants, values whose storage has no
+relation to a handler write, and dedicated return blocks proven outside this
+relation retain the existing inlining path.
+
+This rule is **unverified on `main`**.
+PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907) is intended
+to establish `FinallyReturnTimingTests` as its Release gate. The pending
+compiler-produced family covers direct and nested writes plus local, argument,
+stack-join, field, ref-return, ref-parameter, constructor, helper-bound,
+copied-carrier, and indirect-destination transfer; supported methods must also
+compile back `Exact`. The pending dedicated-return control and the existing
+`IrImporterTests.TryFinallyTwoReturns_SinksBothReturnsIntoTry` plus
+`FidelityGateTests` gate the neighboring safe-inlining boundary. Corpus cards
+remain population evidence; they do not replace these method-level semantic
+and fidelity gates.
+
+Issue [#4178](https://github.com/richlander/dotnet-inspect/issues/4178)
+supplies the compiler-produced motivating witness. No qualifying package or
+repository witness is known. At the PR #6907 Round 6 boundary, the operator
+[chose a docs-only design
+slice](https://github.com/richlander/dotnet-inspect/pull/6907#issuecomment-5668866428)
+instead of abandoning the synthetic-only defect; that approval is limited to
+this focused design evidence and does not authorize Round 7 implementation.
+The existing decompiler path already serves CLI and browser/Wasm consumers
+under tracker [#5876](https://github.com/richlander/dotnet-inspect/issues/5876);
+this rule adds no architecture, host path, rendering strategy, or adoption
+step.
 
 ## Entry gate checklist (stage 0)
 
@@ -184,8 +291,11 @@ entry gate invalidates every later result, so run it first and report it.
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
-   Filter to a class while iterating, e.g.
-   `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
+   `DecompilerHarness.Tests`, `ILInspector.Analysis.Tests`, and
+   `ILInspector.Metadata.Tests` use MTP's `--filter-class` and
+   `--filter-method` options while iterating. `ILInspector.Decompiler.Tests`
+   remains on its transitional native host and uses its existing `-filter` and
+   trait options.
    [The repository xUnit test host](design/xunit-test-host.md) selects
    Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
    The decompiler host owns `--gate` preset expansion and the stronger
@@ -584,9 +694,10 @@ truncated report.
 `pre-merge` deliberately selects the workload classes named by its fail-closed
 inventory rather than the whole `Fidelity` area. The bounded receipt covers
 byte-neutral and byte-divergent behavior, whole-module skeleton hazards around
-selected bodies, typed diff fixtures, nested target identity, authored rebuild
-and typed failure paths, plus `GateExpectedClassesTests`, the plumbing guard
-that rides along in the preset it guards.
+selected bodies, product-artifact RTS over typed diff fixtures, nested target
+identity, authored rebuild and typed failure paths, plus
+`GateExpectedClassesTests`, the plumbing guard that rides along in the preset it
+guards.
 
 `FidelityGateTests`, `LoweredFidelityGateTests`, `ClusterCaptureTests`, and
 `PrinterPrecedenceTests` are daily-only whole-pipeline evidence. On #6835 they
@@ -630,6 +741,14 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 `TheoryData<IrExpression, Precedence>` discovers two case IDs but executes
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
+
+`DiffFixtureFidelityTests` requests the seven named raised-view methods from
+each paired fixture through product-artifact RTS with the legacy compile-back
+floor disabled. The gate requires exactly one native result per requested
+target and accepts the same checkable status set as before: `Exact`,
+`OpcodeDiff`, or `OperandDiff`. It therefore proves native product-artifact
+compile-back for this bounded fixture surface without allowing the retiring
+whole-module path to rescue missing or failed evidence.
 
 `SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
@@ -951,6 +1070,15 @@ align the population: the methods a risky PR actually changed, not a friendlier
 global sample. Its second job is to separate rows that are checkable today from
 rows that need a named uncheckability reason.
 
+The raised rail resolves every current source-spellable row against the live
+module, validates its persisted signature, and passes the resulting typed
+method address to floor-disabled ReturnToSender. Product-artifact RTS must
+return one aligned row per requested target. Missing native output, stale
+identity, and assembly-context failure remain explicit failures, and the
+product decompiler fidelity grade controls whether a changed body can form an
+opcode or operand verdict. The lowered rail remains the labelled legacy
+whole-module evaluator because no product-owned lowered artifact request exists.
+
 Report changed-method runs in three bands:
 
 1. **Attempted population** — total changed methods attempted, plus exact,
@@ -958,23 +1086,21 @@ Report changed-method runs in three bands:
    and context-fail counts.
 2. **Checkable population** — `Exact` rows that pin a green set and
    `OpcodeDiff` / `OperandDiff` rows that become the semantic docket. These are
-   the rows a PR may cite as
-   compile-back evidence. Under cluster mode (`CB_CLUSTER=1`) this band is
-   reported by **capture provenance** — *checkable whole-module* (bound under the
-   whole-module skeleton) and *checkable cluster-rescued* (bound only after the
-   target's transitive closure was reconstructed in isolation, i.e. a row a single
-   unrelated sibling gap had been poisoning). Both are equally citable; the split
-   only shows how much of the checkable population depended on closure isolation.
+   the rows a PR may cite as compile-back evidence. Raised runs identify this as
+   product-artifact RTS evidence. On the retained lowered legacy rail, cluster
+   mode (`CB_CLUSTER=1`) continues to report **capture provenance** —
+   *checkable whole-module* and *checkable cluster-rescued*.
 3. **Uncheckable population** — rows classified by reason, such as
    generated/synthesized member, stale delta target, missing reference, or
    `not-safely-capturable` (failed the whole-module attempt *and* the closure
    escalation — typically a Roslyn-class internal cross-assembly graph). Do not
    count them as passing.
 
-The shipping operational order remains **escalate, do not cluster-first**: run
-the cheap whole-module grouped compile, then escalate only rows it could not
-check to the per-method iterative closure path. Existing `Exact` corpus labels
-record the current comparison contract; they are not compile-context receipts.
+The lowered legacy operational order remains **escalate, do not
+cluster-first**: run the cheap whole-module grouped compile, then escalate only
+rows it could not check to the per-method iterative closure path. Raised RTS
+does not use that legacy capture engine. Existing `Exact` labels record the
+current comparison contract; they are not compile-context receipts.
 
 Under issue #4810's target contract, a whole-module body comparison is reusable
 as `Exact` only when its artifact and member compile-context receipt is complete;

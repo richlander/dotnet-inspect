@@ -2,6 +2,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using Inspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Queries.Tests;
 

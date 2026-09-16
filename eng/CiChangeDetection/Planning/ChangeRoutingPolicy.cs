@@ -10,7 +10,7 @@ namespace CiChangeDetection.Planning;
 internal sealed class ChangeRoutingPolicy
 {
     private const string TlaExpectedExitCodes =
-        "eng/tla-expected-exit-codes.txt";
+        TlaManifestChanges.ManifestPath;
 
     private readonly ProjectInventory? webProjects;
     private readonly ProjectInventory? decompilerSkipProjects;
@@ -371,6 +371,7 @@ internal sealed class ChangeRoutingPolicy
             path,
             ".github/workflows/deploy-inspect-web.yml",
             ".github/workflows/deploy-inspect-web-coreclr.yml",
+            ".github/workflows/deploy-inspect-web-runtime-sites.yml",
             ".github/workflows/promote-inspect-web.yml"))
         {
             state.Web = true;

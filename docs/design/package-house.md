@@ -35,10 +35,34 @@ relationship evidence without copying its authorship or processing semantics.
 `PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
 or creates one PackageHouse-issued policy receipt, and candidate-bound House
 execution applies that receipt before payload acquisition.
-`DesktopPackageSourceComposition` still constructs desktop capabilities and
-exposes the shipping compatibility surface. Target-aware dependency-edge
-realization, Workspace admission, live Library construction, and host adoption
-remain later steps.
+`PackageDependencyPruningInspection` in `DotnetInspector.Sections` now owns the
+bounded host-neutral operation that resolves authorized declaration candidates,
+applies that pruning query, and returns the ordered outcomes through
+`InspectionEnvelope<PackageDependencyPruningInspectionResult>`. CLI `depends`
+and Inspect Web package pruning both consume that operation while retaining
+their own input scope, source and inventory authorization, completion policy,
+and presentation.
+`DesktopPackageSourceComposition` still owns desktop configuration,
+credentials, transports, clients, stores, and disposal, but its
+composition-owned exact and selecting payload operations, asynchronous pinned
+candidate path, and candidate-manifest path now settle through PackageHouse.
+The CLI's online `package --latest-version` and equivalent `@latest` version
+queries also consume House selecting `Settle` through
+`DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
+version from its resolution receipt and preserve source listing evidence for
+feed projections; the command no longer chooses the latest row itself.
+Requested `--verbose` source-fetch progress still flows to stderr through the
+settlement's optional discovery callback.
+`System.Text.Json` is the motivating production package. The
+`SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
+receipt, requested progress, and explicit prerelease boundary, while the
+existing latest-version, source-failure, listing, and rendering cases preserve
+neighboring behavior.
+This is payload-free adoption: ordinary version listings, pinned and range
+queries, offline behavior, Browser settlement, and package-content/Workspace
+adoption remain separate slices.
+`Realize`, target-aware dependency-edge realization, Workspace admission, live
+Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
 design and implementation evidence; it is not the branch this architecture
 extends. Its remaining intent is retired through the focused adoption steps in
@@ -186,6 +210,24 @@ Workspace participants.
 
 `DesktopPackageSourceComposition` owns its desktop capabilities and supplies
 them to one Package Source Model-issued settlement lease for its lifetime.
+For an operation whose lifetime the composition owns, it observes the exact
+registered authorities and partial configuration failures, issues one
+request-matched operation lease, and transfers that lease to a short-lived
+PackageHouse executor. The executor is stateless between calls. Its desktop
+projection preserves the exact lower-owner payload attempt details required by
+the compatibility result, including not-found and reporting authorities,
+without publishing those details as a second House receipt or retaining live
+source authority.
+
+An overload supplied with a caller-owned `NuGetOperationContext` remains an
+explicit direct compatibility branch. The composition cannot transfer a
+borrowed context into PackageHouse's consumed operation lease. The synchronous
+`ResolvePinnedCandidate` compatibility method also remains direct. Its
+asynchronous replacement uses House when no borrowed context is supplied and
+preserves the direct branch for query operations that still share one external
+context. Those branches retire with their callers rather than disguising
+borrowed operation authority as House ownership.
+
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
 
@@ -236,6 +278,94 @@ incompleteness, or authorship. This adoption is not the target-aware resolved-
 edge realization owned by #6424: the supplied target remains the operation
 target, and no traversal occurrence or originating target correspondence is
 inferred.
+
+## Version-population settlement
+
+[#7115](https://github.com/richlander/dotnet-inspect/issues/7115) adds one
+separate PackageHouse operation for settling a configured package-version
+population. This is not a `PackageHouseDemand`: demands settle one exact
+coordinate, while a population settles an immutable vector whose cells may
+later become exact candidate-bound demands.
+
+`PackageHouseVersionPopulationRequest` retains:
+
+- one canonical `PackageVersionRange`;
+- one `Settle`-profile `PackageHouseOperation`;
+- the explicit prerelease-inclusion policy; and
+- an optional opaque caller association.
+
+PackageHouse consumes one request-deadline-matched
+`PackageSourceOperationLease`, obtains the current source authorization for the
+range package ID, and requests one
+`CompleteVersionEnumeration` from Package Source. Settlement acquires no
+package manifest, payload, store, composition, library, or Workspace
+participant.
+
+Every terminal result retains the exact request, the completed discovery when
+one exists, and operation-corresponding House failures. The closed result
+family is:
+
+- `Available` for complete authoritative discovery whose listed population
+  contains both range endpoints;
+- `NotFound` when every required authority settles and no authority reports
+  the package;
+- `NoMatch` when the package exists but the population omits an endpoint;
+- `Incomplete` when a required authority or listing result does not settle;
+- `Rejected` when the request or returned evidence is unusable;
+- `Unavailable` when a required configured-source capability cannot answer;
+  and
+- `Failed` for operation, timeout, transport, or other execution failure.
+
+Caller cancellation remains cancellation. The operation ceiling has terminal
+precedence and is retained as a House operation-timeout failure, together with
+any lower-owner authority timeout that established it. A failure before
+discovery does not manufacture an empty discovery result.
+
+`Available` carries the direction-preserving `PackageVersionVector` produced
+under [Package Version Selection](version-resolution.md). It also retains the
+exact authoritative discovery that admitted the vector. `SelectCell` accepts
+only the exact `PackageVersionAddress` object held by that vector; a
+structurally equivalent address from another population is foreign. The cell's
+candidate is issued by calling `SelectCandidate` on the retained discovery, so
+its reporting-authority set and Package Source root-generation identity are
+preserved.
+
+A cell is resource-free and carries a fresh
+`PackageHouseRequestAssociation`. Later realization creates an ordinary
+candidate-bound House request and consumes a fresh operation lease from the
+same still-live Package Source settlement root. Candidate-generation
+validation rejects execution through another root. Current source
+authorization is applied again at cell execution, so a source that is no
+longer authorized cannot be recovered from retained population evidence.
+Population discovery and every cell execution have independent request and
+operation deadlines; an overall History budget belongs to the History
+coordinator.
+
+A cell may issue one prepared execution that freezes its exact candidate,
+operation, target context, asset-selection kind, library-handoff mode, and
+association into one `PackageHouseRequest`. A host executes that request
+without rebuilding its demand. The preparation accepts a terminal settlement
+only when House evidence retains the exact prepared request object, so reusing
+the public association cannot substitute a neighboring demand. The
+PackageQueries
+[version-cell Metadata operation](package-version-cell-metadata-inspection.md)
+is the first consumer.
+
+`DesktopPackageSourceComposition` is the first production bridge. It resolves
+the configured online source policy, transfers one operation lease into
+population settlement, and later transfers a fresh lease into ordinary
+candidate-bound cell execution. Neither the result nor a cell retains the
+composition, lease, operation context, or an execution callback. Browser/Wasm
+adoption uses the same host-neutral contract in a later slice.
+
+This slice does not migrate current API-range or top-level `timeline`
+consumers, remove a command, add History coordination, or inspect
+process-global offline state. Offline range discovery and extraction remain on
+their documented legacy path until a host explicitly adopts an offline
+capability. The target production consumer is subject-owned Diff History and
+metadata-only package version Count under
+[Diff History inspection](diff-history.md), not continued standalone
+`timeline` behavior.
 
 ## Package target context
 
@@ -636,6 +766,36 @@ with the retained lifetime needed for a Workspace transaction to admit it.
 Rejected admission disposes House-owned resources under the artifact owner
 contract; an existing Workspace remains unchanged.
 
+`DotnetInspector.PackageQueries` owns the narrow House-to-Root adapter.
+`PackageHouseRootContributionAdapter` accepts the complete closed House
+settlement rather than host-reconstructed payload and receipt parameters. An
+acquired compile realization ending in `Settled`, `NoMatch`, or selection
+`Rejected` whose complete package Root coordinate is representable produces
+one `PackageHouseRootContribution` that pairs:
+
+- the exact `PackageHouseResult`;
+- the exact `PackageHouseRealizationReceipt.Compile`; and
+- one Artifact Acquisition-issued `PackageRootBinding`.
+
+The Queries-owned binding primitive validates the acquired package id and
+content generation against the exact
+`PackageCompileAssetSelectionReceipt`, then freezes
+`receipt.Selection` directly. It does not call either package asset selector.
+The `PackageRootBinding` remains House-agnostic and retains no House receipt;
+the transient contribution is the cross-owner correspondence.
+
+Resource-free settlements, runtime realizations, early acquisition or
+selection failures, operation-timeout failures, and acquired coordinates
+outside the existing package Root grammar return a typed no-contribution
+outcome preserving the original House result. The package Root coordinate
+records the Package Source-issued portable producer token, so configured HTTP
+and local producers contribute without exposing their complete producer key.
+The coordinate still cannot represent the broader Unicode package-id grammar
+accepted by Package Source. Until
+[#6967](https://github.com/richlander/dotnet-inspect/issues/6967) reconciles
+the package-id grammars, the adapter reports `CoordinateNotRepresentable`
+rather than throwing, guessing another identity, or weakening correspondence.
+
 An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
 same House realization path. It retains the original selection request while
@@ -893,7 +1053,8 @@ every supported host that uses it.
 | Source result independence | House results, decisions, candidates, evidence, receipts, and acquired payloads retain no operation lease or live source authority. |
 | Source capability ownership | Releasing an operation or settling its root does not dispose caller-owned clients, stores, or retained payload content. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
-| Pruning order | `CandidateAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
+| Version population | One complete metadata-only discovery serves multiple exact population cells without rediscovery; cells preserve reporting authorities, require their exact vector address, use fresh operations, and reject another Package Source root generation. |
+| Pruning order | `KnownPlatformPackageAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
@@ -910,6 +1071,30 @@ every supported host that uses it.
 Focused owner suites enforce their own algorithms. House tests compose public
 owner outcomes; they do not manufacture package evidence or inspect private
 test seams.
+
+The Release gates for the desktop adoption are:
+
+- `ConfiguredPayloadAcquisitionTests`, covering exact and selected acquisition,
+  partial authorization, required-producer filtering, reporting-authority
+  fallback, invalid selection, timeouts, cancellation, and composition
+  settlement; `DesktopSettlementWaitsForPayloadBeforeReleasingClients`
+  preserves synchronous post-disposal rejection for valid and invalid
+  requests, and
+  `AcquireSelected_TransportFallbackRetainsOriginalSourceSelection` keeps
+  pre-acquisition source-set correspondence independent of payload-attempt
+  failures, with
+  `CandidateManifest_UsesHouseOwnedDesktopOperation` as the positive
+  composition-owned candidate and manifest canary;
+- `PackageHouseExecutionTests.ExactAcquireBindsLivePayloadToResourceFreeReceipt`
+  and
+  `PackageHouseExecutionTests.SelectingAcquireUsesOnlyAuthoritiesThatReportedSelection`,
+  covering the compatibility details projected from exact House settlement;
+  and
+- `PackageHouseExecutionTests.CandidateManifestReleasesTransferredOperationWhenSourceThrows`
+  and
+  `PackageHouseExecutionTests.CandidateManifestRejectsForeignGenerationAndReleasesOperation`,
+  covering candidate-manifest generation correspondence and terminal lease
+  release.
 
 ## Demo
 

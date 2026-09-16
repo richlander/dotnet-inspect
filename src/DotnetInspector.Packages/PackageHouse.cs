@@ -9,18 +9,49 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public abstract class PackageHouseSettlement
 {
-    private PackageHouseSettlement(PackageHouseResult result)
+    private PackageHouseSettlement(
+        PackageHouseResult result,
+        ConfiguredPackagePayloadResult? sourcePayloadResult,
+        bool selectionUsesOriginalSources)
     {
         ArgumentNullException.ThrowIfNull(result);
+        if (sourcePayloadResult?.Payload is not null
+            && result.Evidence.Acquisition is null)
+        {
+            throw new ArgumentException(
+                "A source payload result requires matching House acquisition evidence.",
+                nameof(sourcePayloadResult));
+        }
+
         Result = result;
+        SourcePayloadResult = sourcePayloadResult;
+        SelectionUsesOriginalSources = selectionUsesOriginalSources;
     }
 
     public PackageHouseResult Result { get; }
 
+    internal ConfiguredPackagePayloadResult? SourcePayloadResult { get; }
+
+    internal bool SelectionUsesOriginalSources { get; }
+
     public sealed class ResourceFree : PackageHouseSettlement
     {
         internal ResourceFree(PackageHouseResult result)
-            : base(result)
+            : base(
+                result,
+                sourcePayloadResult: null,
+                selectionUsesOriginalSources: false)
+        {
+        }
+
+        internal ResourceFree(
+            PackageHouseResult result,
+            ConfiguredPackagePayloadResult sourcePayloadResult,
+            bool selectionUsesOriginalSources)
+            : base(
+                result,
+                sourcePayloadResult,
+                selectionUsesOriginalSources)
         {
         }
     }
@@ -29,10 +60,21 @@ public abstract class PackageHouseSettlement
     {
         internal Acquired(
             PackageHouseResult result,
-            AcquiredPackageSourcePayload payload)
-            : base(result)
+            AcquiredPackageSourcePayload payload,
+            ConfiguredPackagePayloadResult sourcePayloadResult,
+            bool selectionUsesOriginalSources)
+            : base(
+                result,
+                sourcePayloadResult,
+                selectionUsesOriginalSources)
         {
             ArgumentNullException.ThrowIfNull(payload);
+            if (!ReferenceEquals(sourcePayloadResult.Payload, payload))
+            {
+                throw new ArgumentException(
+                    "The source payload result must retain the live House payload.",
+                    nameof(sourcePayloadResult));
+            }
             PackageHouseAcquisitionReceipt acquisition =
                 result.Evidence.Acquisition
                 ?? throw new ArgumentException(
@@ -42,6 +84,7 @@ public abstract class PackageHouseSettlement
                 || !payload.ProducerKey.Equals(
                     acquisition.Producer.Key,
                     StringComparison.Ordinal)
+                || payload.Producer != acquisition.Producer
                 || payload.Origin != acquisition.Origin
                 || !ReferenceEquals(
                     payload.Content.GenerationIdentity,
@@ -66,14 +109,17 @@ public sealed class PackageHouse
 {
     private readonly IPackageSourceAuthorization _sourceAuthorization;
     private readonly PackagePayloadAcquisitionPlan? _payloadAcquisition;
+    private readonly Action<string>? _log;
 
     public PackageHouse(
         IPackageSourceAuthorization sourceAuthorization,
-        PackagePayloadAcquisitionPlan? payloadAcquisition = null)
+        PackagePayloadAcquisitionPlan? payloadAcquisition = null,
+        Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
         _sourceAuthorization = sourceAuthorization;
         _payloadAcquisition = payloadAcquisition;
+        _log = log;
     }
 
     /// <summary>
@@ -89,6 +135,21 @@ public sealed class PackageHouse
     }
 
     /// <summary>
+    /// Consumes one source operation lease to settle a complete, resource-free
+    /// package version population.
+    /// </summary>
+    public Task<PackageHouseVersionPopulationResult>
+        SettleVersionPopulationAsync(
+            PackageHouseVersionPopulationRequest request,
+            PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return SettleVersionPopulationCoreAsync(
+            request,
+            sourceOperation);
+    }
+
+    /// <summary>
     /// Consumes one source operation lease to settle a candidate-bound
     /// dependency request with its PackageHouse-issued pruning receipt.
     /// </summary>
@@ -99,6 +160,41 @@ public sealed class PackageHouse
     {
         ArgumentNullException.ThrowIfNull(sourceOperation);
         return ExecuteCoreAsync(request, sourceOperation, pruning);
+    }
+
+    /// <summary>
+    /// Consumes one source operation lease to acquire the exact manifest for a
+    /// candidate issued by the same Package Source root generation.
+    /// </summary>
+    public static Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestAsync(
+            PackageAcquisitionCandidate candidate,
+            PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return AcquireCandidateManifestCoreAsync(
+            candidate,
+            sourceOperation);
+    }
+
+    private static async Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestCoreAsync(
+            PackageAcquisitionCandidate candidate,
+            PackageSourceOperationLease sourceOperation)
+    {
+        using (sourceOperation)
+        {
+            ArgumentNullException.ThrowIfNull(candidate);
+            if (!sourceOperation.OwnsCandidate(candidate))
+            {
+                throw new InvalidOperationException(
+                    "The package acquisition candidate belongs to another Package Source root generation.");
+            }
+
+            return await sourceOperation
+                .AcquireCandidateManifestAsync(candidate)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task<PackageHouseSettlement> ExecuteCoreAsync(
@@ -246,7 +342,8 @@ public sealed class PackageHouse
                                 .DiscoverVersionsAsync(
                                     selection.PackageId,
                                     authorization,
-                                    discoveryContract)
+                                    discoveryContract,
+                                    _log)
                                 .ConfigureAwait(false);
                         failures = AdaptFailures(
                             request,
@@ -362,6 +459,12 @@ public sealed class PackageHouse
                     _payloadAcquisition
                     ?? throw new InvalidOperationException(
                         "An Acquire or Realize operation requires an authority-scoped package store capability.");
+                bool selectionUsesOriginalSources =
+                    request.Demand is not PackageHouseDemand.Selecting
+                    || failures.Count == 0
+                        && AuthoritiesMatch(
+                            candidate,
+                            authorization);
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
                         .AcquireCandidatePayloadAsync(
@@ -384,7 +487,9 @@ public sealed class PackageHouse
                         CreatePayloadTerminalResult(
                             candidate,
                             payloadResult,
-                            evidence));
+                            evidence),
+                        payloadResult,
+                        selectionUsesOriginalSources);
                 }
 
                 PackageHouseAcquisitionReceipt acquisition = new(
@@ -404,7 +509,9 @@ public sealed class PackageHouse
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
-                        payload);
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
                 }
 
                 if (failures.Any(IsOperationTimeout))
@@ -412,6 +519,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization: null,
@@ -427,6 +536,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization: null,
@@ -452,7 +563,9 @@ public sealed class PackageHouse
                             rejectedEvidence,
                             Reason(
                                 "Runtime package realization requires an exact target framework.")),
-                        payload);
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
                 }
 
                 PackageHouseRealizationReceipt realization =
@@ -476,6 +589,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization,
@@ -486,7 +601,9 @@ public sealed class PackageHouse
                     CreateRealizationTerminalResult(
                         realization,
                         settledEvidence),
-                    payload);
+                    payload,
+                    payloadResult,
+                    selectionUsesOriginalSources);
             }
             catch (NuGetOperationTimeoutException)
             {
@@ -508,6 +625,183 @@ public sealed class PackageHouse
         }
     }
 
+    private async Task<PackageHouseVersionPopulationResult>
+        SettleVersionPopulationCoreAsync(
+            PackageHouseVersionPopulationRequest request,
+            PackageSourceOperationLease sourceOperation)
+    {
+        using (sourceOperation)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (sourceOperation.RequestTimeout
+                    != request.Operation.RequestTimeout
+                || sourceOperation.OperationTimeout
+                    != request.Operation.OperationTimeout)
+            {
+                throw new ArgumentException(
+                    "The Package Source operation deadlines must match the PackageHouse version-population request.",
+                    nameof(sourceOperation));
+            }
+
+            try
+            {
+                sourceOperation.ThrowIfExpired();
+                PackageSourceAuthorization authorization =
+                    _sourceAuthorization.AuthorizeSourcesFor(
+                        request.Range.PackageId);
+                sourceOperation.ThrowIfExpired();
+                PackageVersionDiscoveryResult discovery =
+                    await sourceOperation.DiscoverVersionsAsync(
+                        request.Range.PackageId,
+                        authorization,
+                        PackageVersionDiscoveryContract
+                            .CompleteVersionEnumeration,
+                        _log)
+                    .ConfigureAwait(false);
+                List<PackageHouseFailure> failures =
+                    AdaptFailures(
+                        request.Operation,
+                        discovery.Failures);
+                if (failures.Any(IsOperationTimeout))
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+
+                PackageHouseVersionPopulationEvidence evidence =
+                    new(request, discovery, failures);
+                PackageHouseVersionPopulationResult result;
+                if (!discovery.Contract
+                        .SupportsCompleteVersionEnumeration)
+                {
+                    result = new PackageHouseVersionPopulationResult
+                        .Rejected(
+                            evidence,
+                            Reason(
+                                "Configured-authority evidence does not contain a complete package version enumeration."));
+                }
+                else if (discovery.State
+                    == PackageVersionDiscoveryState.Authoritative)
+                {
+                    if (!discovery.HasAnyCandidate)
+                    {
+                        result = new PackageHouseVersionPopulationResult
+                            .NotFound(
+                                evidence,
+                                Reason(
+                                    "No configured authority reported the package."));
+                    }
+                    else if (!PackageVersionVector.ContainsVersion(
+                            discovery.Versions,
+                            request.Range.Start)
+                        || !PackageVersionVector.ContainsVersion(
+                            discovery.Versions,
+                            request.Range.End))
+                    {
+                        result = new PackageHouseVersionPopulationResult
+                            .NoMatch(
+                                evidence,
+                                Reason(
+                                    "The configured package version population does not contain both requested range endpoints."));
+                    }
+                    else
+                    {
+                        try
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Available(evidence);
+                        }
+                        catch (ArgumentException)
+                        {
+                            result = new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority version evidence is unusable for population settlement."));
+                        }
+                    }
+                }
+                else
+                {
+                    result = PackageVersionSelectionResolver
+                        .ClassifyNonAuthoritativeDiscovery(discovery) switch
+                    {
+                        PackageVersionDiscoveryTerminalKind.Incomplete =>
+                            new PackageHouseVersionPopulationResult
+                                .Incomplete(
+                                    evidence,
+                                    Reason(
+                                        "Required configured-authority discovery is incomplete.")),
+                        PackageVersionDiscoveryTerminalKind.Failed =>
+                            new PackageHouseVersionPopulationResult
+                                .Failed(
+                                    evidence,
+                                    Reason(
+                                        "Version discovery failed before the package population could be settled.")),
+                        PackageVersionDiscoveryTerminalKind.Rejected =>
+                            new PackageHouseVersionPopulationResult
+                                .Rejected(
+                                    evidence,
+                                    Reason(
+                                        "Configured-authority evidence is unusable for package population settlement.")),
+                        PackageVersionDiscoveryTerminalKind.Unavailable =>
+                            new PackageHouseVersionPopulationResult
+                                .Unavailable(
+                                    evidence,
+                                    Reason(
+                                        "Required package version population capability is unavailable.")),
+                        _ => throw new InvalidOperationException(
+                            "Version discovery returned an unknown terminal classification."),
+                    };
+                }
+
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(
+                        request,
+                        discovery,
+                        failures);
+                }
+
+                return result;
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                return PopulationOperationTimedOut(request);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return PopulationOperationTimedOut(request);
+                }
+
+                throw;
+            }
+        }
+    }
+
     private static bool CandidateRemainsAuthorized(
         PackageAcquisitionCandidate candidate,
         PackageSourceAuthorization authorization) =>
@@ -516,6 +810,19 @@ public sealed class PackageHouse
                 authorization.TryGetAuthority(
                     evidence.Authority.Association,
                     out _));
+
+    private static bool AuthoritiesMatch(
+        PackageAcquisitionCandidate candidate,
+        PackageSourceAuthorization authorization)
+    {
+        var candidateAuthorities =
+            new HashSet<ConfiguredPackageAuthority>(
+                candidate.Authorities.Select(
+                    evidence => evidence.Authority),
+                ReferenceEqualityComparer.Instance);
+        return candidateAuthorities.SetEquals(
+            authorization.Authorities);
+    }
 
     private static PackageHouseResult CreateCandidateTerminalResult(
         PackageAcquisitionCandidateResult candidate,
@@ -637,10 +944,15 @@ public sealed class PackageHouse
     private static List<PackageHouseFailure> AdaptFailures(
         PackageHouseRequest request,
         IEnumerable<PackageAuthorityFailure> failures) =>
+        AdaptFailures(request.Operation, failures);
+
+    private static List<PackageHouseFailure> AdaptFailures(
+        PackageHouseOperation operation,
+        IEnumerable<PackageAuthorityFailure> failures) =>
         [
             .. failures.Select(failure =>
                 new PackageHouseFailure.Authority(
-                    request.Operation.Identity,
+                    operation.Identity,
                     failure)),
         ];
 
@@ -766,9 +1078,34 @@ public sealed class PackageHouse
                 Reason("The PackageHouse operation deadline expired.")));
     }
 
+    private static PackageHouseVersionPopulationResult
+        PopulationOperationTimedOut(
+            PackageHouseVersionPopulationRequest request,
+            PackageVersionDiscoveryResult? discovery = null,
+            IEnumerable<PackageHouseFailure>? existingFailures = null)
+    {
+        var failures = existingFailures is null
+            ? new List<PackageHouseFailure>()
+            : [.. existingFailures];
+        failures.Add(
+            new PackageHouseFailure.Timeout(
+                request.Operation.Identity,
+                PackageHouseTimeoutKind.Operation,
+                request.Operation.OperationTimeout));
+        return new PackageHouseVersionPopulationResult.Failed(
+            new PackageHouseVersionPopulationEvidence(
+                request,
+                discovery,
+                failures),
+            Reason(
+                "The PackageHouse version-population operation deadline expired."));
+    }
+
     private static PackageHouseSettlement OperationTimedOut(
         PackageHouseRequest request,
         AcquiredPackageSourcePayload payload,
+        ConfiguredPackagePayloadResult sourcePayloadResult,
+        bool selectionUsesOriginalSources,
         PackageHouseDecisionReceipt decision,
         PackageHouseAcquisitionReceipt acquisition,
         PackageHouseRealizationReceipt? realization,
@@ -795,10 +1132,21 @@ public sealed class PackageHouse
             new PackageHouseResult.Failed(
                 evidence,
                 Reason("The PackageHouse operation deadline expired.")),
-            payload);
+            payload,
+            sourcePayloadResult,
+            selectionUsesOriginalSources);
     }
 
     private static PackageHouseSettlement.ResourceFree ResourceFree(
         PackageHouseResult result) =>
         new(result);
+
+    private static PackageHouseSettlement.ResourceFree ResourceFree(
+        PackageHouseResult result,
+        ConfiguredPackagePayloadResult sourcePayloadResult,
+        bool selectionUsesOriginalSources) =>
+        new(
+            result,
+            sourcePayloadResult,
+            selectionUsesOriginalSources);
 }

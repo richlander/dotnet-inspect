@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using ILInspector.Metadata;
 
@@ -17,6 +18,7 @@ public sealed class AssemblyContextSubject
         Provenance = assembly.Provenance;
     }
 
+    [JsonIgnore]
     public AssemblyAcquisitionRegistration Registration { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public AssemblyResolutionProvenance Provenance { get; }

@@ -330,11 +330,32 @@ public static class ApiSurfaceExtractor
         bool includeAll = false,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
@@ -343,39 +364,45 @@ public static class ApiSurfaceExtractor
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
             peReader,
-            includeAll
-                ? ApiSurfaceExtractionScope.IncludeAll
-                : ApiSurfaceExtractionScope.Public,
+            scope,
             typesOnly,
             includeCompilerGenerated,
             budget: null,
             constraintResolution);
-        if (constraintResolution.Requests.Count == 0)
-        {
-            AddConstraintResolutionFailure(
-                surface,
-                constraintResolution,
-                source.Identity);
-            return surface;
-        }
+        CompleteConstraintResolution(
+            surface, constraintResolution, source, catalog, bindingPolicy);
+        return surface;
+    }
 
-        using TypeResolutionContext context =
-            catalog.CreateApiSurfaceContext(
-                bindingPolicy,
-                [source],
-                constraintResolution.Requests);
-        constraintResolution.Apply(context);
+    static void CompleteConstraintResolution(
+        ApiSurface surface,
+        TypeParameterConstraintResolution constraintResolution,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ExtractionBudget? budget = null)
+    {
+        if (constraintResolution.Requests.Count > 0)
+        {
+            using TypeResolutionContext context =
+                catalog.CreateApiSurfaceContext(
+                    bindingPolicy,
+                    [source],
+                    constraintResolution.Requests);
+            constraintResolution.Apply(context);
+        }
         AddConstraintResolutionFailure(
             surface,
             constraintResolution,
-            source.Identity);
-        return surface;
+            source.Identity,
+            budget);
     }
 
     static void AddConstraintResolutionFailure(
         ApiSurface surface,
         TypeParameterConstraintResolution constraintResolution,
-        AssemblyReferenceIdentity subjectAssembly)
+        AssemblyReferenceIdentity subjectAssembly,
+        ExtractionBudget? budget = null)
     {
         foreach (MetadataTypeNameFailure budgetFailure
             in constraintResolution.Plan.RequestBudgetFailures)
@@ -383,7 +410,8 @@ public static class ApiSurfaceExtractor
             TrackConstraintResolutionFailure(
                 surface,
                 budgetFailure,
-                subjectAssembly);
+                subjectAssembly,
+                budget: budget);
         }
 
         foreach (TypeParameterKindClassifier.ResolutionPlan
@@ -394,7 +422,8 @@ public static class ApiSurfaceExtractor
                 surface,
                 resolutionFailure.Failure,
                 subjectAssembly,
-                resolutionFailure.DependencyAssembly);
+                resolutionFailure.DependencyAssembly,
+                budget);
         }
     }
 
@@ -402,7 +431,8 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         MetadataTypeNameFailure failure,
         AssemblyReferenceIdentity subjectAssembly,
-        AssemblyReferenceIdentity? dependencyAssembly = null)
+        AssemblyReferenceIdentity? dependencyAssembly = null,
+        ExtractionBudget? budget = null)
     {
         var projected = new ApiSurfaceInspectionFailure(
             ApiSurface.ConstraintResolutionOperation,
@@ -412,6 +442,7 @@ public static class ApiSurfaceExtractor
             failure.Detail,
             subjectAssembly,
             dependencyAssembly);
+        budget?.RetainInspectionFailure(projected);
         var subject = new ApiSurfaceInspectionSubject(
             SourceAssemblyPath: null,
             projected.SubjectToken);
@@ -439,6 +470,36 @@ public static class ApiSurfaceExtractor
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => ExtractBoundedCore(
+            peReader, scope, bounds, typesOnly, includeCompilerGenerated,
+            source: null, catalog: null, bindingPolicy: null);
+
+    internal static ApiSurfaceExtractionResult ExtractBounded(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        return ExtractBoundedCore(
+            peReader, scope, bounds,
+            typesOnly: false, includeCompilerGenerated: false,
+            source, catalog, bindingPolicy);
+    }
+
+    static ApiSurfaceExtractionResult ExtractBoundedCore(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        ResolvedAssemblyReference? source,
+        TypeResolutionCatalog? catalog,
+        IAssemblyBindingPolicy? bindingPolicy)
     {
         ArgumentNullException.ThrowIfNull(bounds);
         if (!Enum.IsDefined(scope))
@@ -447,13 +508,24 @@ public static class ApiSurfaceExtractor
         try
         {
             var budget = new ExtractionBudget(bounds);
+            TypeParameterConstraintResolution? constraintResolution =
+                source is null ? null : new(
+                    MetadataFormatAdmission.GetMetadataReader(peReader),
+                    source,
+                    catalog!.MaxTypeResolutionRequests);
             ApiSurface surface = Extract(
                 peReader,
                 scope,
                 typesOnly,
                 includeCompilerGenerated,
                 budget,
-                constraintResolution: null);
+                constraintResolution);
+            if (constraintResolution is not null)
+            {
+                CompleteConstraintResolution(
+                    surface, constraintResolution, source!, catalog!,
+                    bindingPolicy!, budget);
+            }
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
                 budget.MetadataRows,
@@ -936,6 +1008,17 @@ public static class ApiSurfaceExtractor
                         observeText,
                         observeDecodeWork);
                     apiType.Interfaces.Add(ifaceName);
+                    if (DecodeTypeDefinitionReference(
+                            reader,
+                            iface.Interface,
+                            typeContext,
+                            observeText,
+                            observeDecodeWork)
+                        is { } interfaceReference)
+                    {
+                        apiType.InterfaceReferences.Add(
+                            interfaceReference);
+                    }
                 }
             }
 
@@ -1117,20 +1200,10 @@ public static class ApiSurfaceExtractor
                 var member = new ApiMember
                 {
                     Name = methodName,
-                    Kind = methodName switch
-                    {
-                        ".ctor" => "constructor",
-                        _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
-                        _ when isFinalizer => "finalizer",
-                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
-                        _ => "method"
-                    },
+                    Kind = ClassifyMethodKind(
+                        methodName,
+                        isFinalizer,
+                        isExplicitInterfaceImplementation),
                     MethodSemantics = accessorAssociationsAvailable
                         ? accessorMethods.GetValueOrDefault(
                             methodHandle,
@@ -1469,6 +1542,21 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
+
+                // The enum storage slot supplies a type fact rather than a
+                // declarable member, so presentation filters do not apply to it.
+                if (isEnum && fieldName == "value__")
+                {
+                    apiType.EnumUnderlyingType = DecodeFieldType(
+                        reader,
+                        typeContext,
+                        field,
+                        typeNullableContext,
+                        observeText,
+                        observeDecodeWork).Text;
+                    continue;
+                }
+
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
                         reader,
@@ -1547,24 +1635,12 @@ public static class ApiSurfaceExtractor
                         field.GetCustomAttributes(),
                         observeDecodeWork);
 
-                // Decode field type. For enums the special value__ field carries
-                // the underlying type; literal fields are constants, not fields in
-                // source, so they do not need a field declaration type.
+                // Enum literal fields are constants, not fields in source, so they
+                // do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
                 List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
-                if (isEnum)
-                {
-                    if (fieldName == "value__")
-                        apiType.EnumUnderlyingType = DecodeFieldType(
-                            reader,
-                            typeContext,
-                            field,
-                            typeNullableContext,
-                            observeText,
-                            observeDecodeWork).Text;
-                }
-                else
+                if (!isEnum)
                 {
                     (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
                         DecodeFieldType(
@@ -1950,6 +2026,7 @@ public static class ApiSurfaceExtractor
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        bool isEnum = IsEnum(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -2045,7 +2122,8 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string fieldName = reader.GetString(field.Name);
-            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+            if ((isEnum && fieldName == "value__")
+                || !IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
                 || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
             {
                 continue;
@@ -2128,10 +2206,18 @@ public static class ApiSurfaceExtractor
                     definitionName =
                         MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null;
+                            exportedTypeHandle) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read =>
+                                read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    ApiSurfaceInspectionFailure
+                                        .TypeForwarderIdentityOperation,
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
                 }
                 else
                 {
@@ -2507,12 +2593,16 @@ public static class ApiSurfaceExtractor
                 | ApiMethodSemanticsKind.EventAdder
                 | ApiMethodSemanticsKind.EventRemover)) != 0;
 
-    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
+    internal static HashSet<MethodDefinitionHandle>
+        GetExplicitImplementationBodies(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Action<int>? beforeDecodeWork = null)
     {
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
+            beforeDecodeWork?.Invoke(16);
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
@@ -2562,10 +2652,19 @@ public static class ApiSurfaceExtractor
     /// text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off the hot path for
     /// every other method.
     /// </summary>
-    internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
+    internal static bool IsFinalizerMethod(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        Action<int>? beforeDecodeWork = null)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+        if (!string.Equals(
+                DecodeString(
+                    reader,
+                    method.Name,
+                    beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
             return false;
         if (method.GetGenericParameters().Count != 0)
             return false;
@@ -2577,14 +2676,21 @@ public static class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
                 && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+                && ReferencesObjectFinalize(
+                    reader,
+                    implementation.MethodDeclaration,
+                    beforeDecodeWork))
             {
                 return true;
             }
         }
 
         // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-        return IsImplicitObjectFinalizeOverride(reader, typeHandle, method);
+        return IsImplicitObjectFinalizeOverride(
+            reader,
+            typeHandle,
+            method,
+            beforeDecodeWork);
     }
 
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
@@ -2955,6 +3061,22 @@ public static class ApiSurfaceExtractor
 
         return false;
     }
+
+    internal static string ClassifyMethodKind(
+        string methodName,
+        bool isFinalizer,
+        bool isExplicitInterfaceImplementation)
+        => methodName switch
+        {
+            ".ctor" => "constructor",
+            _ when IsOperatorMethodName(methodName) => "operator",
+            // A finalizer's MethodImpl also makes it look explicit. Preserve
+            // production precedence so its ordinary selector remains stable.
+            _ when isFinalizer => "finalizer",
+            _ when isExplicitInterfaceImplementation =>
+                "explicit-interface-implementation",
+            _ => "method",
+        };
 
     private static bool IsOperatorMethodName(string methodName) =>
         methodName.StartsWith(
@@ -3567,6 +3689,10 @@ public static class ApiSurfaceExtractor
         var fullName = string.IsNullOrEmpty(targetType.Namespace)
             ? targetType.Name
             : $"{targetType.Namespace}.{targetType.Name}";
+        MetadataTypeDefinitionName? definitionName =
+            targetType.DefinitionName;
+        ApiAssemblyIdentity? assemblyIdentity =
+            surface.AssemblyIdentity;
 
         List<string> derivedTypes = [];
 
@@ -3575,8 +3701,17 @@ public static class ApiSurfaceExtractor
             if (type == targetType)
                 continue;
 
-            // Check if this type's base is our target
-            if (type.BaseType == fullName)
+            bool isDerived = definitionName is not null
+                && assemblyIdentity is not null
+                    ? type.BaseTypeReference is
+                        {
+                            DefinitionName: { } baseDefinition,
+                            Assembly: { } baseAssembly,
+                        }
+                        && baseDefinition.Equals(definitionName)
+                        && baseAssembly.Equals(assemblyIdentity)
+                    : type.BaseType == fullName;
+            if (isDerived)
             {
                 var derivedFullName = string.IsNullOrEmpty(type.Namespace)
                     ? type.Name
@@ -3584,10 +3719,17 @@ public static class ApiSurfaceExtractor
                 derivedTypes.Add(derivedFullName);
             }
 
-            // Check if this type implements our target (if target is an interface)
-            if (targetType.Kind == "interface" && type.Interfaces != null)
+            if (targetType.Kind == "interface")
             {
-                if (type.Interfaces.Contains(fullName))
+                bool implements = definitionName is not null
+                    && assemblyIdentity is not null
+                        ? type.InterfaceReferences.Any(reference =>
+                            reference.DefinitionName?.Equals(
+                                definitionName) == true
+                            && reference.Assembly.Equals(
+                                assemblyIdentity))
+                        : type.Interfaces.Contains(fullName);
+                if (implements)
                 {
                     var derivedFullName = string.IsNullOrEmpty(type.Namespace)
                         ? type.Name
@@ -3604,6 +3746,25 @@ public static class ApiSurfaceExtractor
             targetType.DerivedTypes = derivedTypes;
         }
     }
+
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetMethodSignatureForIdentity(
+            MetadataReader reader,
+            GenericContext typeContext,
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method,
+            byte typeNullableContext,
+            Action<string>? beforeRetainText = null,
+            Action<int>? beforeDecodeWork = null)
+        => GetMethodSignature(
+            reader,
+            typeContext,
+            methodHandle,
+            method,
+            typeNullableContext,
+            beforeRetainText: beforeRetainText,
+            beforeDecodeWork: beforeDecodeWork,
+            beforeAttributeMaterialize: beforeDecodeWork);
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
@@ -5565,6 +5726,13 @@ public static class ApiSurfaceExtractor
             AddText(ref count, root.TypeInfoPropertyName);
         }
         AddText(ref count, type.Interfaces);
+        foreach (ApiTypeReferenceIdentity reference
+            in type.InterfaceReferences)
+        {
+            AddText(ref count, reference.Assembly);
+            AddText(ref count, reference.FullName);
+            AddText(ref count, reference.DefinitionName);
+        }
         foreach (FilteredJsonPropertyNameFact fact
             in type.FilteredJsonPropertyNameFacts)
         {

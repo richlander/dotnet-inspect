@@ -78,6 +78,18 @@ public static class EcosystemPackIds
 
     public static EcosystemPackId Aspire { get; } =
         EcosystemPackId.Create("ecosystem.aspire");
+
+    public static EcosystemPackId AI { get; } =
+        EcosystemPackId.Create("ecosystem.ai");
+
+    public static EcosystemPackId Azure { get; } =
+        EcosystemPackId.Create("ecosystem.azure");
+
+    public static EcosystemPackId Blazor { get; } =
+        EcosystemPackId.Create("ecosystem.blazor");
+
+    public static EcosystemPackId Maui { get; } =
+        EcosystemPackId.Create("ecosystem.maui");
 }
 
 /// <summary>Stable scenario IDs for shipped product demos.</summary>

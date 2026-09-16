@@ -1,6 +1,10 @@
-# MSDL managed API
+# Inspect Web managed API
 
-## Why this exists
+This Azure Static Web Apps managed Function app hosts narrowly bounded
+same-origin bridges for public providers that Inspect Web cannot read directly
+because of browser CORS.
+
+## MSDL symbol bridge
 
 Browser-hosted `dotnet-inspect` decompiles Microsoft-authored packages that
 ship no embedded PDB and no `.snupkg` on nuget.org. The remaining PDB source is
@@ -21,7 +25,7 @@ The function performs the MSDL request server-side and returns the PDB bytes.
 `BrowserEngineBoundaryTests.MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi`
 gates the host rewrite from MSDL's URL shape to this route.
 
-## Security model
+### MSDL security model
 
 The endpoint is anonymous and serves only public symbol content. Its authority
 is deliberately narrow:
@@ -44,11 +48,37 @@ independent implementation rather than referencing `DotnetInspector.Packages`,
 so the externally facing function does not acquire the product library's wider
 surface.
 
-### Response security
+## Package-change evidence bridge
+
+The package-change report needs NuGet.org Catalog documents and GitHub-reviewed
+NuGet advisory documents. Neither provider exposes those responses to Browser
+CORS, so the Browser transport rewrites admitted provider requests to:
+
+```text
+GET /api/package-changes/nuget?path=<admitted NuGet v3 path>
+GET /api/package-changes/advisories?<reviewed NuGet advisory query>
+```
+
+The [Inspect Web public-evidence
+bridge](../../docs/design/inspect-web-public-evidence-bridge.md) owns the
+boundary. The routes accept no caller-selected URL or host. They construct
+credential-free requests to compile-time NuGet.org and GitHub origins from
+closed path and query grammars, disable redirects, require JSON, and bound
+decoded responses to the existing consumer limits. Invalid input is rejected
+before outbound traffic; provider status, timeout, transport failure, and
+oversize remain distinct non-success outcomes.
+
+`PackageChangeProxyRequestValidatorTests`,
+`PackageChangeProxyClientTests`, `PackageChangeProxyFunctionTests`, and
+`BrowserEngineBoundaryTests` gate request admission, fixed authority, response
+bounds, failure mapping, routing, and Browser request rewriting.
+
+## Response security
 
 Responses produced by the symbol and health functions carry these headers,
-including validation failures, missing symbols, oversized declarations, and
-handled upstream failures:
+and package-change responses carry the same policy plus
+`Cache-Control: no-store`. The policy covers validation failures, missing
+content, oversized declarations, and handled upstream failures:
 
 | Header | Value |
 | --- | --- |
@@ -57,12 +87,12 @@ handled upstream failures:
 | `X-Frame-Options` | `DENY` |
 | `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` |
 
-This function-owned policy covers public symbol bytes returned from our origin.
-The values match the static site's baseline, but Azure Static Web Apps does not
-apply `globalHeaders` to managed API responses. `MsdlProxyFunctionTests` executes
-the MVC results and checks the headers, status codes, and successful bodies in
-Release. Responses generated outside these functions, such as platform routing
-errors or unhandled host failures, are outside this gate.
+This function-owned policy covers public content returned from our origin. The
+values match the static site's baseline, but Azure Static Web Apps does not
+apply `globalHeaders` to managed API responses. The focused Function tests
+check the headers, status codes, and successful bodies in Release. Responses
+generated outside these functions, such as platform routing errors or
+unhandled host failures, are outside this gate.
 
 ## Development
 
@@ -71,6 +101,9 @@ Run the executable xUnit project:
 ```bash
 dotnet run --project inspect-web/msdl-proxy.Tests -c Release
 ```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections.
 
 Produce the prebuilt managed-API artifact used by deployment:
 

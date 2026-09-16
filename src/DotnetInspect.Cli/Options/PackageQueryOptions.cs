@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
@@ -34,7 +35,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             or PackageQuery.ToolV2FacetId),
     ];
 
-    public static SectionQueryFacet QueryFacet { get; } = new(
+    public static SectionQueryKey QueryKey { get; } = new(
         "facet",
         ["--where"],
         ["="],
@@ -42,9 +43,23 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [.. CliFacets.Select(facet => facet.Id)],
         "--where \"facet=package.query.dotnet-tool\"");
 
+    public static SectionQueryKey DependsTerm { get; } = new(
+        PackageQuery.DependsTermKey,
+        ["--where"],
+        ["="],
+        "NuGet package ID",
+        [],
+        "--where \"depends=Microsoft.Extensions.DependencyInjection\"");
+
+    public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
+        [DependsTerm, QueryKey];
+
     public static string DiscoverySummary =>
-        "Use package query with repeated --where facet=... selections. "
-        + "Independent selections are ANDed; compatible tool-format alternatives are ORed. "
+        "Use package query with repeated --where terms. "
+        + "depends=<package ID> matches a direct declared dependency; repeated "
+        + "depends terms are ANDed. Existing facet=<product facet ID> selections "
+        + "remain available while the Browser adopts the shared term vocabulary. "
+        + "Independent facet selections are ANDed; compatible tool-format alternatives are ORed. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
         + "Selecting an initial CLI facet authorizes package content and at most "
@@ -64,6 +79,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     {
         options = null;
         var ids = ImmutableArray.CreateBuilder<string>();
+        var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
         {
             if (!RowPredicateSyntaxParser.TryParse(
@@ -74,26 +90,45 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            if (!syntax.Field.Equals("facet", StringComparison.OrdinalIgnoreCase)
-                || syntax.Operator != RowPredicateOperator.Equals)
+            if (syntax.Operator != RowPredicateOperator.Equals)
             {
                 error =
-                    "Package Query supports --where "
-                    + "\"facet=<product facet ID>\"; run 'package query -Q Packages' "
-                    + "for values.";
+                    "Package Query terms currently support equality; run "
+                    + "'package query -Q Packages' for keys and values.";
                 return false;
             }
 
-            if (!CliFacets.Any(facet =>
-                    facet.Id.Equals(syntax.Value, StringComparison.Ordinal)))
+            if (syntax.Field.Equals("facet", StringComparison.OrdinalIgnoreCase))
             {
-                error =
-                    $"Package Query facet '{syntax.Value}' is not available in the CLI; "
-                    + "run 'package query -Q Packages' for values.";
-                return false;
+                if (!CliFacets.Any(facet =>
+                        facet.Id.Equals(syntax.Value, StringComparison.Ordinal)))
+                {
+                    error =
+                        $"Package Query facet '{syntax.Value}' is not available in the CLI; "
+                        + "run 'package query -Q Packages' for values.";
+                    return false;
+                }
+
+                ids.Add(syntax.Value);
+                continue;
             }
 
-            ids.Add(syntax.Value);
+            if (syntax.Field.Equals(
+                    PackageQuery.DependsTermKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                terms.Add(new PortableQueryTerm(
+                    PackageQuery.DependsTermKey,
+                    PortableQueryOperator.Equal,
+                    syntax.Value));
+                continue;
+            }
+
+            error =
+                "Package Query supports --where \"depends=<package ID>\" "
+                + "and the staged \"facet=<product facet ID>\" form; run "
+                + "'package query -Q Packages' for the current vocabulary.";
+            return false;
         }
 
         bool requiresPackageContent = ids.Any(id =>
@@ -119,7 +154,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
             : requestedHead is int head
                 && input.Trim().EndsWith('*')
                 && ids.Count == 0
-                    ? Math.Min(head, MaximumCandidates)
+                && terms.Count == 0
+                ? Math.Min(head, MaximumCandidates)
                     : PackageQuery.DefaultMaximumCandidates);
         if (maximumCandidates is <= 0 or > MaximumCandidates)
         {
@@ -131,6 +167,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         PackageQueryPlanResult result = PackageQuery.PlanInput(
             input,
             ids.ToImmutable(),
+            terms.ToImmutable(),
             maximumCandidates,
             maximumMatches: semanticHead,
             includePrerelease);

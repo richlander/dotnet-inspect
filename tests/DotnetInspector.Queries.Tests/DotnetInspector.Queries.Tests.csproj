@@ -18,12 +18,15 @@
     <PackageReference Include="xunit.v3" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
                      Version="[11.0.0-preview.7.26381.103]" />
+    <PackageDownload Include="Markout"
+                     Version="[0.35.2]" />
     <PackageDownload Include="System.Memory.Data"
                      Version="[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="System.Text.Encodings.Web"
                      Version="[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="System.Text.Json"
-                     Version="[11.0.0-preview.7.26381.103]" />
+                     Version="[11.0.0-preview.7.26381.103];[8.0.6];[9.0.0];[10.0.0]" />
+    <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,6 +35,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
@@ -41,6 +46,9 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.SpoofRuntimeFixtures\ILInspector.Analysis.SpoofRuntimeFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.ApiDeclarationCorrespondence.V1\ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.ApiDeclarationCorrespondence.V2\ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
@@ -57,11 +65,31 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\eng\package-manifest-corpus.json"
                       LogicalName="DotnetInspector.Queries.Tests.PackageManifestCorpus.json" />
+    <EmbeddedResource Include="..\..\tools\PackageAssemblyQueryBenchmark.json"
+                      LogicalName="DotnetInspector.Queries.Tests.PackageAssemblyQueryBenchmark.json" />
     <EmbeddedResource Include="..\..\eng\view-facet-compatibility.json"
                       LogicalName="DotnetInspector.Queries.Tests.ViewFacetCompatibility.json" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)markout/0.35.2/lib/net10.0/Markout.dll"
+          Link="RealAssets/VersionCell/Markout.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/8.0.6/system.text.json.8.0.6.nupkg"
+          Link="RealAssets/ApiMatching/system.text.json.8.0.6.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/system.text.json.9.0.0.nupkg"
+          Link="RealAssets/ApiMatching/system.text.json.9.0.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/system.text.json.10.0.0.nupkg"
+          Link="RealAssets/ApiMatching/system.text.json.10.0.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
+          Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)avalonia/12.1.2/avalonia.12.1.2.nupkg"
+          Link="RealAssets/ApiMatching/avalonia.12.1.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.memory.data/11.0.0-preview.7.26381.103/lib/net10.0/System.Memory.Data.dll"
           Link="RealAssets/BindingComposition/package/System.Memory.Data.dll"
           CopyToOutputDirectory="PreserveNewest" />

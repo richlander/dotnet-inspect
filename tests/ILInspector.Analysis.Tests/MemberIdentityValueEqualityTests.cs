@@ -43,6 +43,69 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void TypeRefInstantiationTraversesRetainedCustomModifiers()
+    {
+        TypeRef open = TypeRef.UnsupportedModified(
+            TypeRef.Definition("Sample", "Sample", "Modifier"),
+            TypeRef.MethodGenericParameter(0, "T"),
+            isRequired: false);
+
+        TypeRef instantiated = open.Instantiate(
+            [],
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.NotSame(open, instantiated);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            instantiated.UnmodifiedType);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            open.UnmodifiedType!.Kind);
+        Assert.Same(open.ModifierType, instantiated.ModifierType);
+    }
+
+    [Fact]
+    public void TypeRefInstantiationTraversesFunctionPointerSignatures()
+    {
+        var signature = new MethodSignature<TypeRef>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.Instance),
+            TypeRef.MethodGenericParameter(0, "T"),
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [TypeRef.MethodGenericParameter(0, "T")]);
+        TypeRef open =
+            TypeRef.UnsupportedFunctionPointer(signature);
+
+        TypeRef instantiated = open.Instantiate(
+            [],
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.NotSame(open, instantiated);
+        MethodSignature<TypeRef> closed =
+            instantiated.FunctionPointerSignature!.Value;
+        Assert.Equal(signature.Header, closed.Header);
+        Assert.Equal(
+            signature.RequiredParameterCount,
+            closed.RequiredParameterCount);
+        Assert.Equal(
+            signature.GenericParameterCount,
+            closed.GenericParameterCount);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            closed.ReturnType);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            Assert.Single(closed.ParameterTypes));
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            open.FunctionPointerSignature!.Value.ReturnType.Kind);
+        Assert.Same(open, open.Instantiate([], []));
+    }
+
+    [Fact]
     public void TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear()
     {
         TypeRef left = TypeRef.CoreLib("System", "Int32");
@@ -258,6 +321,53 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void MethodDefinitionMap_ExactFallbackRejectsAmbiguity()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Int32"),
+            0x06000001,
+            true);
+        var duplicate = method with
+        {
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Int32"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                [method, duplicate, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
     public void MethodDefinitionMap_ConstructedGenericFallbackPreservesReturnAssembly()
     {
         TypeRef owner =
@@ -310,6 +420,280 @@ public class MemberIdentityValueEqualityTests
             getB.MetadataToken,
             MethodDefinitionMap.Create([getA, getB, caller])
                 .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_ConstructedGenericVarargFallbackUsesRequiredPrefix()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Box`1");
+        TypeRef closedOwner =
+            TypeRef.GenericInstance(
+                owner,
+                [TypeRef.CoreLib("System", "Int32")]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [TypeRef.GenericParameter(0, "T")],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true)
+        {
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                closedOwner,
+                "Route",
+                [
+                    TypeRef.CoreLib("System", "Int32"),
+                    TypeRef.CoreLib("System", "String"),
+                ],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            {
+                SignatureHeader = 0x05,
+                RequiredParameterCount = 1,
+                OpenParameterTypes =
+                [
+                    TypeRef.GenericParameter(0, "T"),
+                    TypeRef.CoreLib("System", "String"),
+                ],
+            },
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            target.MetadataToken,
+            MethodDefinitionMap.Create([target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ExactFallbackRequiresLocalTypeScope()
+    {
+        AssemblyReferenceIdentity currentAssembly = new(
+            "Sample",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Value"]))
+            .Name;
+        TypeRef localOwner = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(
+                    currentAssembly),
+                exactName));
+        TypeRef selfReference = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentAssembly),
+                exactName));
+        TypeRef externalCollision = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "Value",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    currentAssembly with
+                    {
+                        Version = new Version(2, 0, 0, 0),
+                        PublicKeyToken = "0123456789abcdef",
+                    }),
+                exactName));
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            localOwner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            localOwner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create([target, caller]);
+
+        Assert.Equal(
+            target.MetadataToken,
+            map.Resolve(Call(selfReference)));
+        Assert.Equal(
+            0,
+            map.Resolve(Call(externalCollision)));
+
+        DirectCall Call(TypeRef declaringType) =>
+            new(
+                caller,
+                new MemberRef(
+                    declaringType,
+                    "Route",
+                    [],
+                    TypeRef.CoreLib("System", "Void"),
+                    MemberKind.Method),
+                0,
+                0x0A000001,
+                0x0A000001,
+                CallKind.Call);
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_ExactFallbackRequiresExactSignatureTypeScope()
+    {
+        AssemblyReferenceIdentity currentAssembly = new(
+            "Sample",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName ownerName = Name(
+            "Sample",
+            "Owner");
+        MetadataTypeDefinitionName argumentName = Name(
+            "Sample",
+            "Argument");
+        TypeRef owner = Definition(
+            ownerName,
+            new TypeReferenceOrigin.CurrentAssembly(
+                currentAssembly));
+        TypeRef localArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.CurrentAssembly(
+                currentAssembly));
+        TypeRef selfArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.AssemblyReference(
+                currentAssembly));
+        TypeRef externalArgument = Definition(
+            argumentName,
+            new TypeReferenceOrigin.AssemblyReference(
+                currentAssembly with
+                {
+                    Version = new Version(2, 0, 0, 0),
+                    PublicKeyToken = "0123456789abcdef",
+                }));
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [TypeRef.SzArray(localArgument)],
+            localArgument,
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var externalParameterCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(externalArgument)],
+            selfArgument,
+            MemberKind.Method);
+        var selfCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(selfArgument)],
+            selfArgument,
+            MemberKind.Method);
+        var externalReturnCallee = new MemberRef(
+            owner,
+            "Route",
+            [TypeRef.SzArray(selfArgument)],
+            externalArgument,
+            MemberKind.Method);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create([target, caller]);
+
+        Assert.Equal(
+            target.MetadataToken,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    selfCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+        Assert.Equal(
+            0,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    externalParameterCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+        Assert.Equal(
+            0,
+            map.Resolve(
+                new DirectCall(
+                    caller,
+                    externalReturnCallee,
+                    0,
+                    0x0A000001,
+                    0x0A000001,
+                    CallKind.Call)));
+
+        static MetadataTypeDefinitionName Name(
+            string ns,
+            string name) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    ns,
+                    [name]))
+            .Name;
+
+        static TypeRef Definition(
+            MetadataTypeDefinitionName name,
+            TypeReferenceOrigin origin) =>
+            TypeRef.Definition(
+                "Sample",
+                name.Namespace,
+                name.Segments[0],
+                new ResolvableTypeReference(
+                    origin,
+                    name));
     }
 
     [Fact]
