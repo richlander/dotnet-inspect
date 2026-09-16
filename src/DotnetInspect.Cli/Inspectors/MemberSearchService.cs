@@ -232,8 +232,8 @@ internal static class MemberSearchService
                     {
                         Pattern = member.Pattern,
                         Match = member.IsGlob
-                            ? MatchKind.Glob
-                            : MatchKind.Exact,
+                            ? MemberFindMatchKind.Glob
+                            : MemberFindMatchKind.Exact,
                         Member = member.MemberName,
                         Kind = member.Kind,
                         DeclaringType = member.DeclaringType,

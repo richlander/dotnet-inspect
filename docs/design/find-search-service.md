@@ -68,19 +68,21 @@ generic-name fallback and must either identify one terminal definition or
 surface ambiguity or unavailability. See [Exact single-Type
 operation](assembly-inspection-query.md#exact-single-type-operation).
 
-The current `MatchKind.Exact` name is compatibility vocabulary for a **direct
-non-glob grammar match**. It does not claim exact Metadata identity, exact full
-name, explicit generic arity, uniqueness, or successful terminal selection.
-`Glob` means the direct or namespace-prefix wildcard grammar matched, while
-`Partial` remains similarity fallback. A future vocabulary migration may choose
-the clearer name `Direct`, but it must preserve the current one-to-many
-discovery behavior unless a separately owned product change revises it.
+`TypeFindMatchKind.Direct` means a **direct non-glob grammar match**. It does
+not claim exact Metadata identity, exact full name, explicit generic arity,
+uniqueness, or successful terminal selection. `Glob` means the direct or
+namespace-prefix wildcard grammar matched, while `Partial` remains similarity
+fallback.
+
+Type and member discovery use separate match-kind types because this document
+does not own member classification. The member route retains its existing
+`Exact` and `Glob` vocabulary.
 
 The real platform `System.Action` family demonstrates the boundary:
 
 | Request | Discovery or selection result |
 | --- | --- |
-| `find Action` | May return the non-generic and every generic arity in scope, each as a direct `Exact` row. |
+| `find Action` | May return the non-generic and every generic arity in scope, each as a `Direct` row. |
 | `find Action<T>` | Returns direct arity-one candidates; it does not include non-generic or other arities. |
 | `type Action` in one exact source | Prefers the non-generic declaration under the separately owned exact-Type selection contract. |
 
@@ -156,11 +158,9 @@ contributes results:
 1. **Direct match.** `TypeMatcher.MatchesTypeFilter` applies the Metadata-owned
    case-insensitive type grammar, including simple-name, namespace-qualified,
    generic-arity, nested-type, and wildcard matching. A wildcard pattern
-   produces `Glob`; another direct pattern produces the compatibility
-   classification `Exact`, meaning direct non-glob grammar match rather than
-   exact identity or unique selection. Direct matches preserve every
-   candidate's source provenance; the service does not apply terminal-selection
-   precedence within this rung.
+   produces `Glob`; another direct pattern produces `Direct`. Direct matches
+   preserve every candidate's source provenance; the service does not apply
+   terminal-selection precedence within this rung.
 2. **Namespace-prefix fallback.** A non-wildcard dotted pattern without
    explicit generic notation may be retried as `<pattern>*`. The fallback is
    visible on stderr, the effective wildcard is carried in `Pattern`, and the
@@ -176,7 +176,7 @@ contributes results:
    single-pattern path does not yet construct this row, as recorded under
    [Implementation and validation status](#implementation-and-validation-status).
 
-Exact and glob rows carry similarity `1.0`; partial rows carry their computed
+Direct and glob rows carry similarity `1.0`; partial rows carry their computed
 score; `NotFound` carries no score. Multiple patterns classify independently,
 so one candidate may legitimately appear under more than one pattern.
 
@@ -240,11 +240,12 @@ collection and source behavior:
 - runtime-asset package fallback; and
 - early exit before an unnecessary later source.
 
-`FindTypesAsync_NullableGenericPatternIsClassifiedAsExact` is the first focused
-service-level classification gate. It verifies that result classification uses
-the matcher-owned normalized glob predicate, so nullable generic syntax remains
-a direct `Exact` match rather than becoming `Glob` merely because its raw
-spelling contains `?`. Broader cascade equivalence remains ungated. In
+`FindTypesAsync_NullableGenericPatternIsClassifiedAsDirect` is the first
+focused service-level classification gate. It verifies that result
+classification uses the matcher-owned normalized glob predicate, so nullable
+generic syntax remains a `Direct` match rather than becoming `Glob` merely
+because its raw spelling contains `?`. Broader cascade equivalence remains
+ungated. In
 particular, the following properties are unverified or known gaps:
 
 - the optimized single-pattern path returns an empty list for an all-miss
@@ -256,10 +257,13 @@ particular, the following properties are unverified or known gaps:
 - partial suggestions are selected by similarity but emitted in collected
   candidate order and are not additionally capped by `Limit`;
 - mixed-pattern result order is grouped by outcome dictionaries rather than
-  explicitly preserving request order; and
-- `MatchKind.Exact` is ambiguous compatibility vocabulary for a direct
-  non-glob match; any rename to `Direct` must account for typed and rendered
-  output compatibility without making matching stricter.
+  explicitly preserving request order.
+
+The Type match-vocabulary correction is intentionally limited to this
+operation. It is a corrective but breaking output change under [CLI change
+classification](cli-change-classification.md): typed JSON now emits `Direct`
+instead of `Exact`, and rendered projections emit `direct` instead of `exact`.
+The classification and one-to-many matching behavior are unchanged.
 
 The minimum pathological fixture for future adoption is one non-wildcard
 pattern with no direct, namespace-prefix, or similarity match, exercised

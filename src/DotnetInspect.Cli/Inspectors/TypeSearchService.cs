@@ -116,13 +116,13 @@ internal static class TypeSearchService
         [
             .. results
                 .Where(static result =>
-                    result.Match == MatchKind.NotFound)
+                    result.Match == TypeFindMatchKind.NotFound)
                 .Select(static result => result.Pattern),
         ];
         return new(
             [
                 .. results.Where(static result =>
-                    result.Match != MatchKind.NotFound),
+                    result.Match != TypeFindMatchKind.NotFound),
             ],
             hasFailures,
             unmatchedPatterns)
@@ -296,7 +296,9 @@ internal static class TypeSearchService
                 results.Add(new TypeFindResult
                 {
                     Pattern = pattern,
-                    Match = isGlob ? MatchKind.Glob : MatchKind.Exact,
+                    Match = isGlob
+                        ? TypeFindMatchKind.Glob
+                        : TypeFindMatchKind.Direct,
                     Similarity = 1.0,
                     Type = t.TypeName,
                     Namespace = t.Namespace ?? "",
@@ -318,7 +320,7 @@ internal static class TypeSearchService
                 results.Add(new TypeFindResult
                 {
                     Pattern = pattern,
-                    Match = MatchKind.Partial,
+                    Match = TypeFindMatchKind.Partial,
                     Similarity = similarity,
                     Type = t.TypeName,
                     Namespace = t.Namespace ?? "",
@@ -336,7 +338,7 @@ internal static class TypeSearchService
             results.Add(new TypeFindResult
             {
                 Pattern = pattern,
-                Match = MatchKind.NotFound,
+                Match = TypeFindMatchKind.NotFound,
                 Similarity = null
             });
         }
