@@ -193,13 +193,13 @@ test("application scopes render separately with honest selection", () => {
 
   assert.match(
     workspace,
-    /data-application-scope="query"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="workspace"[^>]*aria-current="page"/);
+    /data-application-scope="query"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="workspace"[^>]*aria-current="page"/);
   assert.match(
     queryOnly,
-    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*disabled/);
+    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*disabled/);
   assert.match(
     inspection,
-    /data-application-scope="query"(?![^>]*aria-current)[^>]*tabindex="0"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*tabindex="-1"/);
+    /data-application-scope="query"(?![^>]*aria-current)[^>]*tabindex="0"[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[^>]*tabindex="-1"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*tabindex="-1"/);
   assert.doesNotMatch(workspace, /role="tab(?:list)?"/);
 });
 
@@ -431,6 +431,7 @@ test("typed focus records its presentation and restores the visible replacement"
 test("application scope bindings dispatch independently of subjects", () => {
   const root = new FakeRoot();
   const query = new FakeElement({ applicationScope: "query" });
+  const activity = new FakeElement({ applicationScope: "activity" });
   const workspace = new FakeElement({ applicationScope: "workspace" });
   root.add("[data-subject-tab]");
   root.add("[data-inspector-tab]");
@@ -439,16 +440,18 @@ test("application scope bindings dispatch independently of subjects", () => {
   root.add("[data-library-lens]");
   root.add("[data-lens]");
   root.add("[data-member-section]");
-  root.add("[data-application-scope]", query, workspace);
+  root.add("[data-application-scope]", query, activity, workspace);
   root.add("[data-application-scope-tab]:not([disabled])");
   const calls: string[] = [];
 
   bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
   query.dispatch("click");
+  activity.dispatch("click");
   workspace.dispatch("click");
 
   assert.deepEqual(calls, [
     "application:query",
+    "application:activity",
     "application:workspace",
   ]);
 });
