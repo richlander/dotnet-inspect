@@ -1355,7 +1355,8 @@ request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
 
-The same `/query` route exposes **Packages** and **Activity** as peer modes.
+The routed `/activity` surface is the Browser's Package Activity entry beside
+`/query`; neither route renders the retired Packages/Activity peer selector.
 Package Activity discovers product-owned package sets from the managed startup
 catalog, submits the default 42-day interval or one validated paired UTC
 interval, and streams the existing `package-changes` Worker operation. That
@@ -1363,9 +1364,11 @@ operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its bounded row window
 renders typed current-advisory, fixed-version, receipt, security-release,
 provider-failure, source-coverage, and completion evidence without inferring
-meaning from formatted text. Mode changes, route exit, replacement, and
-explicit cancellation stop active work; explicit cancellation retains already
-admitted rows. Saved reports and notifications are not part of this surface.
+meaning from formatted text. Route exit, replacement, and explicit
+cancellation stop active work; explicit cancellation retains already admitted
+rows. Direct load and refresh start from session-local initial state, while
+ordinary in-app navigation preserves the current report. Saved reports and
+notifications are not part of this surface.
 The focused contract is
 [The Package Activity experience](../docs/design/package-activity-experience.md).
 
@@ -1374,6 +1377,10 @@ production page through the existing real-Wasm package-adoption harness.
 Deterministic responses cover blank idle behavior, exact-ID resource selection,
 literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
 and bounded completion.
+
+The same harness's **Package Activity website over real Wasm** scenario enters
+the dedicated `/activity` route directly and through Spotlight, refreshes it,
+and exercises Back/Forward before validating progressive report publication.
 
 The same harness's **Assembly Package Query website over real Wasm** scenario
 uses the cataloged `analysis.string-literals` fixture to exercise all four
@@ -1419,7 +1426,11 @@ Oxlint checks all seven compiler-derived production facade artifact triples and
 the multi-facade and managed-operation canary sources as consumer contracts.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
 exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
-correctness and suspicious rules described below. The checked-in production
+correctness and suspicious rules described below. TypeScript's declaration
+emitter appends `export {};` when an exported opaque type references its
+module-private `unique symbol`; generated declarations therefore disable only
+`unicorn/require-module-specifiers`, whose preferred rewrite would make that
+compiler-owned module marker invalid. The checked-in production
 and canary TypeScript facades are compiled separately against the exact
 SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
 initializer and exercise modules in that same program. TypeScript compilation
@@ -1430,8 +1441,9 @@ configuration disables four non-correctness rules: underscore spelling,
 function relocation, listener API preference, and `Array.prototype.sort`.
 Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
-project targets ES2022. Those four, plus the generated-facade overrides, are
-the *complete* set of disabled rules. The compiler-derived JavaScript disables
+project targets ES2022. Those four, plus the generated-facade and generated-
+declaration overrides, are the *complete* set of disabled rules. The
+compiler-derived JavaScript disables
 the five unsafe-operation rules and the catch-callback annotation rule that
 JavaScript cannot satisfy. The authoritative generated TypeScript facades
 disable those unsafe-operation rules, unsafe type-assertion analysis for

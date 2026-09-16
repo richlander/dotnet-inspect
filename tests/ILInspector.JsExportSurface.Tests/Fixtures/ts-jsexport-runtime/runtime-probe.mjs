@@ -55,6 +55,8 @@ const configureHostKey =
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
 const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
+const getInertWidgetAsyncKey =
+  facadeSource.match(/"(GetInertWidgetAsync\.-?\d+)"/)?.[1];
 const getRuntimeApiAsyncKey =
   facadeSource.match(/"(GetRuntimeApiAsync\.-?\d+)"/)?.[1];
 const getStringDtoAsyncKey =
@@ -131,6 +133,10 @@ assert.ok(echoKey, "The generated Echo runtime dispatch key was not found.");
 assert.ok(
   getWidgetAsyncKey,
   "The generated GetWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getInertWidgetAsyncKey,
+  "The generated GetInertWidgetAsync runtime dispatch key was not found.",
 );
 assert.ok(
   getRuntimeApiAsyncKey,
@@ -279,6 +285,12 @@ function managedExports(methods = {}) {
             [getWidgetAsyncKey]:
               methods.getWidgetAsync
               ?? (async (name, count) => JSON.stringify({ name, count })),
+            [getInertWidgetAsyncKey]:
+              methods.getInertWidgetAsync
+              ?? (async (name) => JSON.stringify({
+                name,
+                display: "line\\u202Egpj",
+              })),
             [getRuntimeApiAsyncKey]:
               methods.getRuntimeApiAsync
               ?? (async (value) => JSON.stringify({ value })),
@@ -478,6 +490,10 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getWidgetAsync("widget", 3),
     { name: "widget", count: 3 },
+  );
+  assert.deepEqual(
+    await facade.getInertWidgetAsync("widget"),
+    { name: "widget", display: "line\\u202Egpj" },
   );
   assert.deepEqual(
     await facade.getRuntimeApiAsync("runtime"),

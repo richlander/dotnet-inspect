@@ -632,6 +632,16 @@ public class ApiCommand
             CommandError.Write(cloneCandidatesSelectionError);
             return (null!, 1);
         }
+        (options, string? implementationProfilesSelectionError) =
+            NormalizeExactOnlySectionSelection(
+                options,
+                memberPipeline.SelectableSectionNames,
+                SectionNames.ImplementationProfiles);
+        if (implementationProfilesSelectionError is not null)
+        {
+            CommandError.Write(implementationProfilesSelectionError);
+            return (null!, 1);
+        }
         if (options is
             {
                 BodyKindQuery.HasFilter: true,
@@ -2247,12 +2257,12 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
+                    SourceLinkService.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2262,12 +2272,12 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
+                    SourceLinkService.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
@@ -2603,6 +2613,14 @@ public class ApiCommand
             && !sourceDocumentJson && !findingCensusJson)
         {
             if (GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Implementation Profiles analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+                return 1;
+            }
+            if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
@@ -2792,6 +2810,30 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+            }
+
+            if (options.DllPath is not null
+                && GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(options)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(options);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            options)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (options as MemberOptions)?
+                            .SelectedBodyMethodToken);
             }
 
             // Source code (already resolved in command layer)
@@ -3844,6 +3886,31 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
+            }
+
+            if (renderOptions.DllPath is not null
+                && GetRequestedMemberSections(type, renderOptions)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(renderOptions)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(
+                            renderOptions);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            renderOptions)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (renderOptions as MemberOptions)?
+                            .SelectedBodyMethodToken);
             }
         }
 

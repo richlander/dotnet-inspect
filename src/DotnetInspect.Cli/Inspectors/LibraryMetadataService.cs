@@ -534,6 +534,12 @@ internal static class LibraryMetadataService
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
+        if (queries?.Contains(
+                ImplementationProfilesQuery.Definition) == true)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures
+                .ImplementationProfiles;
+        }
         if (queries?.Contains(OptimizationOpportunitiesQuery.Definition) == true)
         {
             features |=
@@ -1811,6 +1817,29 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ReportImplementationProfileDiagnostics(
+        Analysis.LibraryBodyIndex index,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
+        => ReportImplementationProfileDiagnostics(
+            index.Diagnostics,
+            include);
+
+    internal static void ReportImplementationProfileDiagnostics(
+        IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
+    {
+        foreach (Analysis.AnalysisDiagnostic diagnostic
+            in diagnostics)
+        {
+            if (include is not null && !include(diagnostic))
+                continue;
+            CommandError.WriteWarning(
+                $"implementation profile analysis incomplete for "
+                + $"{diagnostic.Method}: "
+                + diagnostic.Message);
+        }
+    }
+
     internal static OptimizationOpportunitySummary ProjectOptimizationOpportunity(
         Analysis.OptimizationOpportunity opportunity)
         => new()
@@ -2179,6 +2208,18 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                ImplementationProfilesQuery.Definition,
+                out ImplementationProfilesResult? implementationProfiles))
+        {
+            ApplyImplementationProfilesResult(
+                path,
+                inspection,
+                logger,
+                implementationProfiles,
+                queryContext.DrillMap);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2408,6 +2449,44 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     "Unknown optimization opportunities result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyImplementationProfilesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ImplementationProfilesResult result,
+        Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
+            getDrillMap)
+    {
+        ArgumentNullException.ThrowIfNull(getDrillMap);
+
+        inspection.ImplementationProfilesQueryResult = result;
+        inspection.ImplementationProfilesDrillMap = null;
+
+        switch (result)
+        {
+            case ImplementationProfilesResult.Available available:
+                inspection.ImplementationProfilesDrillMap =
+                    getDrillMap();
+                ReportImplementationProfileDiagnostics(
+                    available.Diagnostics);
+                break;
+
+            case ImplementationProfilesResult.NoMetadata:
+                break;
+
+            case ImplementationProfilesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting implementation profiles in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown implementation profiles result "
                     + $"'{result.GetType().Name}'.");
         }
     }

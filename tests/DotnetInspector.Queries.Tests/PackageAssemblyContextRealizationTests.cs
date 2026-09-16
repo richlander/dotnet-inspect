@@ -290,6 +290,39 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void
+        PackageRootBinding_TrySourceSelectionReturnsFalseForRuntimeWithoutFramework()
+    {
+        const string packageId = "owner-default.runtime";
+        var content = new InMemoryPackageContent(
+            Archive(("lib/net11.0/Owner.Default.Runtime.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                targetFramework: null,
+                runtimeIdentifier: "linux-x64");
+
+        Assert.False(
+            PackageRootBinding.TryCreateFromSourceSelection(
+                payload,
+                receipt,
+                out PackageRootBinding? binding));
+        Assert.Null(binding);
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                receipt));
+    }
+
+    [Fact]
     public void PackageRootBinding_SourceSelectionPreservesInvalidSelectionReceipt()
     {
         const string packageId = "invalid.receipt";

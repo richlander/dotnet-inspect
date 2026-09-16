@@ -20,7 +20,9 @@ internal sealed class MethodBodyAnalysisContext
         MethodInstructions instructions,
         IReadOnlyList<(int Start, int End)> loopRegions,
         ImmutableArray<TypeRef> localTypes,
-        MethodExceptionRegionCatalog? exceptionCatalog = null)
+        MethodExceptionRegionCatalog? exceptionCatalog = null,
+        int? localCount = null,
+        string? localTypesIncompleteReason = null)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(instructions);
@@ -30,6 +32,8 @@ internal sealed class MethodBodyAnalysisContext
         Instructions = instructions;
         LoopRegions = loopRegions;
         LocalTypes = localTypes.IsDefault ? [] : localTypes;
+        LocalCount = localCount ?? LocalTypes.Length;
+        LocalTypesIncompleteReason = localTypesIncompleteReason;
         _exceptionCatalog = exceptionCatalog;
     }
 
@@ -37,11 +41,15 @@ internal sealed class MethodBodyAnalysisContext
     public MethodInstructions Instructions { get; }
     public IReadOnlyList<(int Start, int End)> LoopRegions { get; }
     public ImmutableArray<TypeRef> LocalTypes { get; }
+    public int LocalCount { get; }
+    public string? LocalTypesIncompleteReason { get; }
 
     internal static MethodBodyAnalysisContext Create(
         MethodIdentity method,
         MethodBodyData body,
-        ImmutableArray<TypeRef> localTypes)
+        ImmutableArray<TypeRef> localTypes,
+        int? localCount = null,
+        string? localTypesIncompleteReason = null)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(body);
@@ -69,7 +77,9 @@ internal sealed class MethodBodyAnalysisContext
             instructions,
             CollectLoopRegions(instructions),
             localTypes,
-            body.ExceptionRegionCatalog);
+            body.ExceptionRegionCatalog,
+            localCount,
+            localTypesIncompleteReason);
     }
 
     /// <summary>The shared Layer-0 block graph for this body.</summary>

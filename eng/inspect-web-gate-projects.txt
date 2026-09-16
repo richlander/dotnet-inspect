@@ -10,6 +10,7 @@ src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
+src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.PortableQueries
 src/DotnetInspector.Presentation

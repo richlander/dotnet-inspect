@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler;
 using ILInspector.Research;
+using InertText;
 using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
@@ -183,8 +184,7 @@ public static partial class SourceExports
         return new MemberSourceProjection(
             projection.Projection,
             document,
-            $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
-                + $"{participant.Coordinate.Version} {participant.Asset.Path}",
+            PackageProvenance("Annotated by dotnet-inspect from", participant),
             projection.ContextLimitation is { } limitation
                 ? $"{limitation.Kind}: {limitation.Detail}"
                 : null,
@@ -197,7 +197,7 @@ public static partial class SourceExports
     private sealed record MemberSourceProjection(
         ResearchViews.MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
-        string Provenance,
+        InertString Provenance,
         string? ContextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]? InvocationDestinations,
         BrowserAnnotatedSourceCapabilityUnavailableReason DestinationUnavailableReason);

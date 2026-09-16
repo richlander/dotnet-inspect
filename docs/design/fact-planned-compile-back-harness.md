@@ -980,6 +980,45 @@ no-floor execution, snapshot serialization, report disclosure, input identity,
 and same-sample loss regression. The broad pinned-corpus snapshot is retained
 as Deep Inspect evidence rather than added to PR CI.
 
+### Ordinary fidelity and PR-gate migration
+
+**Owner:** ReturnToSender / DecompilerHarness.
+**Focused issue:** step 7 of the eight-step adoption and legacy-retirement
+tracker
+[#6199](https://github.com/richlander/dotnet-inspect/issues/6199).
+
+Ordinary fidelity consumers migrate independently according to the evidence
+they require. A bounded raised-view gate that asks whether named product
+decompiler bodies remain compile-back checkable uses
+`ReturnToSender.CompileBackTargets` with the compile-back floor disabled. The
+gate requires one native result for each requested target and preserves the
+existing available statuses: `Exact`, `OpcodeDiff`, and `OperandDiff`. Missing
+or failed native evidence remains a failure and cannot be replaced by legacy
+compile-back.
+
+Raised changed-method fidelity uses the same product-artifact path. The
+changed-method owner resolves each current, source-spellable delta row once
+against the live assembly, validates the persisted corpus signature at its
+count-all overload ordinal, and binds RTS to the resulting
+`MetadataMethodAddress`. RTS validates that the address belongs to the opened
+module, names the requested type and method, and has a body before constructing
+the artifact. The no-floor evaluator then restores exactly one result in input
+order for every supported row; missing output and assembly-context failure are
+explicit `ContextFail` results rather than omissions. The result carries the
+product body's `DecompilationFidelity`, so a body below `Full` reports
+`NotFull` instead of being promoted to an opcode or operand verdict. These
+statuses are evidence under the current comparison contract, not the stronger
+compile-context receipt planned by #4810.
+
+This migration does not translate architecture-specific whole-module
+reconstruction tests into RTS. Tests whose claim depends on unrelated
+declarations, module-wide skeleton construction, or legacy rendering controls
+retain the labelled legacy path and run on their appropriate Deep Inspect
+cadence. Raised and lowered fidelity remain separate evidence rails. Lowered
+changed-method fidelity remains explicitly on the legacy whole-module path
+until the product artifact provider owns a lowered artifact request. Broad
+standalone fidelity also retains its current path.
+
 ### Member comparison query consumption
 
 **Owner:** ReturnToSender / DecompilerHarness.

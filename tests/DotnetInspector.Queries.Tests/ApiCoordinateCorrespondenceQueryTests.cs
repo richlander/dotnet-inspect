@@ -1,0 +1,243 @@
+using System.Collections.Immutable;
+using System.IO.Compression;
+
+using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
+using NuGetFetch;
+
+namespace DotnetInspector.Queries.Tests;
+
+public sealed class ApiCoordinateCorrespondenceQueryTests
+{
+    static CancellationToken Cancellation =>
+        TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task DirectDefinition_ReturnsExactDestinationType()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        (CoordinatePackageObservation first, CoordinatePackageObservation second) =
+            await ObservePair(workspace, before, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, first, second, Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact, result.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Exact,
+            Assert.IsType<ApiDeclarationBindingResult>(result.SourceBinding).Status);
+        CoordinateTypeResolutionOutcomeEvidence.Resolved resolution =
+            Assert.IsType<CoordinateTypeResolutionOutcomeEvidence.Resolved>(
+                Assert.IsType<CoordinateTypeResolutionEvidence.Available>(
+                    result.Resolution).Outcome);
+        Assert.Empty(resolution.Hops);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Exact,
+            Assert.IsType<ApiDeclarationCorrespondenceResult>(
+                result.Correspondence).Status);
+        StructuralSubjectIdentity.TypeSubject destination =
+            Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                result.Destination);
+        Assert.Same(
+            Assert.Single(second.Libraries).Subject.Identity.Registration,
+            destination.Library.Identity.Registration);
+        Assert.Equal(source.Identity.Type, destination.Identity.Type);
+        Assert.Null(result.Failure);
+    }
+
+    [Fact]
+    public async Task RetiredSourceRoot_ReturnsTypedFailure()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        (CoordinatePackageObservation first, CoordinatePackageObservation second) =
+            await ObservePair(workspace, before, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+        WorkspaceScopeSnapshot current =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await workspace.ClearScopeAsync(
+                current.Revision,
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                Cancellation));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, first, second, Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Failed, result.Status);
+        Assert.Equal(
+            CoordinateLibraryPairingStatus.Exact,
+            result.LibraryPairing.Status);
+        Assert.Null(result.SourceBinding);
+        Assert.Null(result.Resolution);
+        Assert.Equal(
+            ApiCoordinateCorrespondenceFailureKind.SourceRootUnavailable,
+            result.Failure!.Kind);
+        Assert.NotNull(result.Failure.RootFailure);
+    }
+
+    [Fact]
+    public async Task MissingSourceAndAbsentEntryLibrary_IsRefusedNotAbsent()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/_._",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        (CoordinatePackageObservation first, CoordinatePackageObservation second) =
+            await ObservePair(workspace, before, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "MissingApi"));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, first, second, Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Refused, result.Status);
+        Assert.Equal(
+            CoordinateLibraryPairingStatus.Absent,
+            result.LibraryPairing.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Absent,
+            Assert.IsType<ApiDeclarationBindingResult>(result.SourceBinding).Status);
+        Assert.Null(result.Resolution);
+        Assert.Null(result.Correspondence);
+        Assert.Null(result.Destination);
+    }
+
+    [Fact]
+    public async Task EstablishedSourceAndAbsentEntryLibrary_IsAbsent()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/_._",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        (CoordinatePackageObservation first, CoordinatePackageObservation second) =
+            await ObservePair(workspace, before, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, first, second, Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Absent, result.Status);
+        Assert.Equal(
+            CoordinateLibraryPairingStatus.Absent,
+            result.LibraryPairing.Status);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Exact,
+            Assert.IsType<ApiDeclarationBindingResult>(result.SourceBinding).Status);
+        Assert.Null(result.Resolution);
+        Assert.Null(result.Correspondence);
+        Assert.Null(result.Destination);
+    }
+
+    static MetadataTypeDefinitionName Type(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                ImmutableArray.Create(segments))).Name;
+
+    static async Task<(
+        CoordinatePackageObservation Before,
+        CoordinatePackageObservation After)> ObservePair(
+        InspectionWorkspace workspace,
+        PackageRootBinding before,
+        PackageRootBinding after)
+    {
+        WorkspaceScopeSnapshot current =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.ReplaceScopeAsync(
+                    current.Revision,
+                    [before, after],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    Cancellation)).Snapshot;
+        return (
+            await Observe(workspace, before, scope),
+            await Observe(workspace, after, scope));
+    }
+
+    static async Task<CoordinatePackageObservation> Observe(
+        InspectionWorkspace workspace,
+        PackageRootBinding binding,
+        WorkspaceScopeSnapshot scope) =>
+        Assert.IsType<CoordinatePackageObservationResult.Available>(
+            await CoordinateLibraryPairingQuery.ObserveAsync(
+                workspace,
+                binding,
+                scope.FindPackageOccurrence(binding)!,
+                Cancellation)).Observation;
+
+    static PackageRootBinding Binding(
+        string version,
+        params (string Entry, string Image)[] assets)
+    {
+        using var bytes = new MemoryStream();
+        using (var archive =
+            new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach ((string path, string image) in assets)
+            {
+                using Stream entry = archive.CreateEntry(path).Open();
+                if (!path.EndsWith("/_._", StringComparison.Ordinal))
+                    entry.Write(File.ReadAllBytes(image));
+            }
+        }
+
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("coordinate.sample", version),
+            new InMemoryPackageContent(
+                bytes.ToArray(),
+                false,
+                PackageProducerIdentity.NuGetOrg.Key),
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackageProducerIdentity.NuGetOrg,
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSource(payload, "net11.0");
+    }
+}

@@ -19,8 +19,12 @@ This contract is implemented by
 [#6965](https://github.com/richlander/dotnet-inspect/issues/6965). It extends the
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
 that issue. Analysis adopts the facts in step 4. Decompiler import and EH
-structuring adopt them in step 5; later Decompiler consumers remain separately
-staged.
+structuring adopt them in step 5, and protected-region control-flow policy
+adopts them in step 6. Classic async exception-context correspondence adopts
+them in step 7; return timing remains separately staged.
+[Issue #7235](https://github.com/richlander/dotnet-inspect/issues/7235)
+adds observation-scoped clause and region lookup before a separately staged
+Decompiler composition gate.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -78,6 +82,14 @@ The relation is:
 
 Offsets, kinds, catch names, and collection ordinals are evidence attached to
 the identities; none is a replacement identity.
+
+`GetClause` and `GetRegion` resolve an owner-issued identity to the canonical
+fact object from the receiving observation. Resolution is by the full value
+identity, not object reference, range, role, or ordinal alone. A second
+materialization from the same `MethodBodyData` therefore resolves, while an
+equal-shaped identity from another body observation returns typed
+`BodyIdentityMismatch`. The ordered `Clauses` and `Regions` collections remain
+the enumeration contract; lookup neither reorders nor filters them.
 
 ## Construction and topology
 
@@ -219,6 +231,25 @@ for supported explicit branch, leave, and return edges. It retains ownership of 
 raisability, node construction, and fidelity; sequential fallthrough relies on
 successful Instructions construction rather than a transfer query.
 
+The step-6 `ProtectedRegionControlFlow` adapter queries `NormalTransferAt` for
+each candidate `Leave`. Decompiler policy permits only a protected region or a
+catch/filter-associated handler actually present in `RegionsLeft`, and rejects
+a source context inside a `finally` or `fault` handler. The bounded form limits
+correlation to exact associations below the candidate construct; both forms use
+ancestry only to locate the current structured projection and do not reconstruct
+EH membership. Instructions does not expose a Decompiler-specific `CanRaise`
+answer.
+
+The step-7 classic async adapter queries `LocationAt` for every
+provenance-bearing planning node and compares the returned region identities
+with exact associations on its structured `TryCatch`, `CatchClause`, and
+`TryFinally` ancestors. Raw and planning indexes must retain the same
+`InstructionExceptionFlowFacts` observation. The shared owner supplies
+membership and identity only; the classic inverse continues to own completion
+protocol, recipe admission, physical and semantic accounting, reconstruction,
+and visible decline policy. Explicit non-Metadata Layer 0 requests retain
+range-based compatibility.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -248,6 +279,8 @@ review and applicable notices.
 
 - exact Metadata body/clause currency preservation and explicit unavailability
   for raw-body decode;
+- canonical clause/region lookup across same-observation re-materialization and
+  typed rejection of equal-shaped foreign-observation identities;
 - shared protected extents, nesting, filters, catches, `finally`, and a real
   platform `fault`;
 - malformed IL, invalid and prefix-interior boundaries, crossing regions, and
@@ -278,6 +311,16 @@ Decompiler `DecompilerExceptionFactAdoptionTests` gate the correlated
 `MethodInstructions` handoff, exact clause and structured-node identity,
 Metadata catch order, visible refusal of missing or rejected evidence, and the
 runtime `TextReader.Read(Span<char>)` cleanup identity.
+`ProtectedRegionControlFlowTests` additionally gate production try/catch
+transfers, exact candidate-relative association, visible missing-correlation
+refusal, same-range foreign-body rejection, and the explicit synthetic
+compatibility path. `ProtectedContinueRecoveryTests` gate the consuming
+`ForLoopPass` outcome.
+`ClassicInverseCoreExceptionTests` gate shared production catch/finally
+contexts, exact structured clause and region association, same-range
+foreign-body rejection, same-observation raw/planning correlation, and visible
+missing-evidence decline. The full `ClassicInverseCoreTests` population gates
+unchanged classic recipe and accounting policy.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)
