@@ -66,6 +66,7 @@ export interface WorkspaceOccurrenceVisibility {
   explorerOpen: boolean;
   creditsOpen: boolean;
   packageQueryOpen: boolean;
+  packageActivityOpen: boolean;
   loading: boolean;
   error: string;
   home: boolean;
@@ -88,6 +89,7 @@ export function workspaceOccurrenceActionsAreVisible(
     && !state.explorerOpen
     && !state.creditsOpen
     && !state.packageQueryOpen
+    && !state.packageActivityOpen
     && !state.loading
     && !state.error
     && !state.home

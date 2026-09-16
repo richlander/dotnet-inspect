@@ -560,6 +560,18 @@ test("Spotlight renders the package-query action with its seeded prefix identity
   assert.match(html, /data-sl-package-query="1"/);
 });
 
+test("Spotlight renders Package Activity as a routed package action", () => {
+  const { spotlight } = createHarness({
+    searchResults: () => [{ kind: "package-activity" }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Package Activity/);
+  assert.match(html, /Review product package changes over time/);
+  assert.match(html, /data-sl-package-activity="1"/);
+});
+
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
   const first: SpotlightResult = {

@@ -22,8 +22,8 @@ This owner defines:
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
   Keyboard help, and the full-bleed Annotated Source viewer;
-- the classification that Home, Workspace, Package query, and Diagnostics are
-  routed full-bleed surfaces rather than dialogs;
+- the classification that Home, Workspace, Package query, Package Activity,
+  and Diagnostics are routed full-bleed surfaces rather than dialogs;
 - Spotlight Search's input and package-scope behavior;
 - the local-artifact Open overlay; and
 - the command palette's keyboard-driven counterpart to the visible
@@ -279,10 +279,12 @@ returning focus to the invoker, then performs the history transition. History
 navigation focuses the restored destination heading without reopening the
 modal.
 
-Home, Workspace, Package query, and Diagnostics are routed full-bleed surfaces
-rather than dialogs. Navigation places focus on their visible level-one heading
-or, for Package query, its prefix input under that heading. Browser Back returns
-to the prior routed surface and restores focus through the history transition.
+Home, Workspace, Package query, Package Activity, and Diagnostics are routed
+full-bleed surfaces rather than dialogs. Navigation places focus on their
+visible level-one heading or, for Package query, its prefix input, and for
+Package Activity, its package-set selector under that heading. Browser Back
+returns to the prior routed surface and restores focus through the history
+transition.
 
 The focus-parking step referenced above, and the effect-authority validation
 that governs whether a result-derived destination actually receives focus, are
@@ -340,15 +342,18 @@ classify Workspace coverage or reconstruct activation from the selected row.
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
 
-Spotlight exposes one visible `Package query` action. Activating it closes
-Spotlight and requests the routed `/query` surface. When the current
-package-search text is a valid package-ID prefix, the action preserves it as
-the query surface's initial prefix; otherwise the query surface starts with an
-empty prefix. Seeding the prefix does not start source work. `Run query` or a
-facet selection dispatches the request under
+Spotlight exposes visible `Package query` and `Package Activity` actions.
+Activating either closes Spotlight and requests its routed surface. When the
+current package-search text is a valid package-ID prefix, Package query
+preserves it as the query surface's initial prefix; otherwise the query surface
+starts with an empty prefix. Seeding the prefix does not start source work.
+Package Activity ignores free-text search and preserves its session-local
+report state. `Run query` or a facet selection dispatches the query request under
 [Package Query Experience](package-query-experience.md).
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
-commits the route's history entry and destination focus.
+and its
+[Package Activity entry contract](inspect-web-navigation-consumer.md#package-activity-entry-and-return)
+commit each route's history entry and destination focus.
 
 ### Open
 
@@ -539,7 +544,11 @@ outcomes.
    becomes the initial prefix without starting source work.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
-11. Open general and command-scoped Spotlight at the narrow supported width and
+11. Activate the visible `Package Activity` action and confirm that Spotlight
+    closes, `/activity` is pushed, and the package-set selector receives focus.
+    Use Back and Forward and confirm the prior Search focus and Activity
+    destination are restored.
+12. Open general and command-scoped Spotlight at the narrow supported width and
     confirm that every footer-guidance item, including `Ctrl P search`, remains
     visible within the modal.
 12. Confirm that Spotlight exposes no Platform scope or root result and that a
@@ -575,11 +584,12 @@ outcomes.
 8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-9. Navigate to Home, Workspace, Package query, and Diagnostics and confirm that
-   each is a routed surface with one visible level-one heading, no
-   coordinate/subject command, and a persistent `dotnet-inspect` control that
-   opens Workspace. Confirm that Package query places initial focus on its
-   prefix input under that heading.
+9. Navigate to Home, Workspace, Package query, Package Activity, and
+   Diagnostics and confirm that each is a routed surface with one visible
+   level-one heading, no coordinate/subject command, and a persistent
+   `dotnet-inspect` control that opens Workspace. Confirm that Package query
+   places initial focus on its prefix input and Package Activity on its
+   package-set selector under their headings.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

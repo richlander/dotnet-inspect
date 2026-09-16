@@ -288,6 +288,8 @@ public sealed class PlatformManifestReaderTests
         Assert.Equal(
             ".NETCoreApp,Version=v11.0/osx-arm64",
             succeeded.Value.RuntimeTargetName);
+        Assert.Equal(1, succeeded.Value.LibraryCount);
+        Assert.Equal(4, succeeded.Value.AssetCount);
         Assert.Equal(
             [
                 "System.Private.CoreLib.dll",

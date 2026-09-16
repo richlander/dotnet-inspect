@@ -145,6 +145,7 @@ public class IndexBuildInvariantTests
                 SectionNames.AllocationFacts,
                 SectionNames.SafetyFacts,
                 SectionNames.CostFacts,
+                SectionNames.ImplementationProfiles,
                 SectionNames.PerformanceTriage,
             ],
             TipLevel = TipLevel.Quiet,
@@ -170,6 +171,7 @@ public class IndexBuildInvariantTests
             [
                 SectionNames.UnsafeMembers,
                 SectionNames.TopLeverage,
+                SectionNames.ImplementationProfiles,
                 SectionNames.PerformanceTriage,
                 SectionNames.ArrayPoolEscapes,
             ],

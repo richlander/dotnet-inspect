@@ -21,6 +21,8 @@ const EXACT_TYPE_AMBIGUOUS = 2;
 // relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+
 export interface TypeSummary {
   id: string;
   name: string;
@@ -69,13 +71,7 @@ export interface TypeMetadata {
   inspectionFailures?: readonly string[];
 }
 
-export interface TypeSourceResult {
-  provider: string;
-  provenance: string;
-  url?: string | null;
-  pdbSourceLimitation?: string | null;
-  text: string;
-}
+export type TypeSourceResult = BrowserSource;
 
 type EscapeHtml = (value: unknown) => string;
 
@@ -717,7 +713,7 @@ export function typeSourceSignature(
   ], taste);
 }
 
-export type TypeSourceStateSlice = SourceResultState<TypeSourceResult>;
+export type TypeSourceStateSlice = SourceResultState;
 
 export interface RenderTypeSourceOptions {
   item: TypeSummary;

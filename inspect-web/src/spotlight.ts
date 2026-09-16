@@ -55,6 +55,10 @@ interface PackageQueryResult {
   prefix: string;
 }
 
+interface PackageActivityResult {
+  kind: "package-activity";
+}
+
 interface FrameworkLibraryResult {
   kind: "framework-lib";
   assembly: string;
@@ -92,6 +96,7 @@ export type SpotlightResult =
   | CommandPaletteResult
   | SpotlightPackageResult
   | PackageQueryResult
+  | PackageActivityResult
   | FrameworkLibraryResult
   | TypeResult
   | MemberResult;
@@ -161,6 +166,7 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   command: "Commands",
   "pkg-recent": "Recent",
   "package-query": "Query",
+  "package-activity": "Query",
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
   type: "Types",
@@ -216,6 +222,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
       ]);
     case "package-query":
       return JSON.stringify([result.kind, result.prefix]);
+    case "package-activity":
+      return JSON.stringify([result.kind]);
     case "framework-lib":
       return JSON.stringify([result.kind, result.tfm ?? "", result.version ?? "", result.pack, result.assembly]);
     case "type":
@@ -350,6 +358,13 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="kind-icon sl-command">⌕</span>
         <span class="spotlight-item-name">Package query</span>
         <span class="spotlight-item-ns">${suffix}</span>
+      </button>`;
+    }
+    if (result.kind === "package-activity") {
+      return `<button ${base} data-sl-package-activity="1">
+        <span class="kind-icon sl-command">↻</span>
+        <span class="spotlight-item-name">Package Activity</span>
+        <span class="spotlight-item-ns">Review product package changes over time</span>
       </button>`;
     }
     if (result.kind === "framework-lib") {

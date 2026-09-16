@@ -344,6 +344,7 @@ public record MemberOptions : ApiOptions
     /// control later member-pipeline transitions.
     /// </summary>
     internal bool MemberSectionsPreResolved { get; init; }
+    internal int? SelectedBodyMethodToken { get; init; }
 
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }

@@ -19,6 +19,7 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
+using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -2252,6 +2253,26 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserSource typeSource =
             DotnetInspect.Web.Interop.Source.SourceExports.Adapt(typeEntry, participant);
         Assert.Equal(TypeLimitation, typeSource.PdbSourceLimitation);
+    }
+
+    [Fact]
+    public void SourceProvenance_RemainsAScalarJsonString()
+    {
+        var source = new BrowserSource(
+            "pdb",
+            new InertString(TextPolicy.Field, "source\u202E"),
+            null,
+            null,
+            "class C {}");
+
+        string json = JsonSerializer.Serialize(
+            source,
+            BrowserSourceJsonContext.Default.BrowserSource);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement provenance = document.RootElement.GetProperty("provenance");
+
+        Assert.Equal(JsonValueKind.String, provenance.ValueKind);
+        Assert.Equal(@"source\u202E", provenance.GetString());
     }
 
     [Fact]

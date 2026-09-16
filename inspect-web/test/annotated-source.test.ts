@@ -36,6 +36,7 @@ import {
   sampleInvocationTarget,
   sampleViewerCatalog,
 } from "./annotated-source-result-fixture.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
@@ -186,7 +187,7 @@ function escapeHtml(value: unknown) {
 const result: AnnotatedSourceResult = {
   document: sampleDocument,
   viewerCatalog: sampleViewerCatalog,
-  provenance: "decompiled from IL",
+  provenance: inertStringFixture("decompiled from IL"),
   contextLimitation: null,
 };
 
@@ -631,7 +632,7 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         unavailableReason: "NotProjected",
       },
     },
-    provenance: "mixed media",
+    provenance: inertStringFixture("mixed media"),
     contextLimitation: null,
   };
   const html = modalHtml(source);
@@ -655,7 +656,7 @@ test("source text is escaped while source actions and chrome remain separate", (
       targets: [],
     },
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
-    provenance: "decompiled from IL",
+    provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
   const html = embeddedHtml(source);
