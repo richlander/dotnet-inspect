@@ -131,6 +131,18 @@ public sealed class PackageHouseVersionPopulationCell
 
     internal PackageAcquisitionCandidate Candidate { get; }
 
+    /// <summary>
+    /// Returns whether a request retains this cell's exact association and
+    /// reporter-bound candidate.
+    /// </summary>
+    public bool OwnsRequest(PackageHouseRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return ReferenceEquals(request.Association, Association)
+            && request.Demand is PackageHouseDemand.Candidate candidate
+            && ReferenceEquals(candidate.Value, Candidate);
+    }
+
     internal PackageHouseRequest CreateRequest(
         PackageHouseOperation operation,
         PackageHouseTargetContext? targetContext,

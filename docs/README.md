@@ -83,7 +83,7 @@ root README remains current without cataloging every focused capability.
 | Commands, defaults, and disclosure | [Progressive Disclosure](design/progressive-disclosure.md) and [CLI Host Architecture](cli-architecture.md) |
 | Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
-| Package composition | [PackageHouse](design/package-house.md) |
+| Package composition | [PackageHouse](design/package-house.md) and [Package Version-Cell Metadata Inspection](design/package-version-cell-metadata-inspection.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |
