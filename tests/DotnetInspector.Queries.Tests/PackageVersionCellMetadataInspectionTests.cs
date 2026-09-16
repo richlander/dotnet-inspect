@@ -83,6 +83,37 @@ public sealed class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    public async Task OwnerDefaultRuntimeIdentifier_ReturnsNoContribution()
+    {
+        CellContext context = CreateCell();
+        var executor = SuccessfulExecutor(context);
+        var request = new PackageVersionCellMetadataInspectionRequest(
+            context.Cell,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault("linux-x64"),
+            DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30));
+
+        PackageVersionCellMetadataInspectionOutcome outcome =
+            await PackageVersionCellMetadataInspection.ExecuteAsync(
+                request,
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var completed = Assert.IsType<
+            PackageVersionCellMetadataInspectionOutcome.Completed>(
+                outcome);
+        var noContribution = Assert.IsType<
+            PackageVersionCellMetadataInspectionResult.NoContribution>(
+                completed.Result);
+        Assert.Equal(
+            PackageHouseRootNoContributionReason.CoordinateNotRepresentable,
+            noContribution.Reason);
+        Assert.IsType<PackageHouseResult.Settled>(
+            noContribution.HouseResult);
+    }
+
+    [Fact]
     public async Task HouseFailure_RemainsTypedWithoutWorkspaceAdmission()
     {
         CellContext context = CreateCell();

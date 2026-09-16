@@ -80,6 +80,12 @@ settlement.
 `DesktopPackageSourceComposition`. Browser/Wasm can implement the same
 capability without depending on the desktop composition.
 
+A House compile realization whose owner-default target retains a runtime
+identifier but no acquisition framework is valid House evidence but cannot
+form a package Root coordinate. The House-to-Root try-adapter returns
+`CoordinateNotRepresentable`; this operation preserves that typed
+`NoContribution` result.
+
 ## Exact correspondence
 
 The composition preserves this join:
@@ -214,6 +220,7 @@ The focused suite is `DotnetInspector.Queries.Tests`.
 | `SettlementForAnotherCellDemand_IsRejected` | Reusing the cell association cannot substitute another House demand for the cell's reporter-bound candidate. |
 | `MalformedCompileImage_RemainsWorkspaceFailure` | The current Workspace all-or-failure Root admission boundary remains visible and publishes no partial Metadata result. |
 | `RootOnlyCell_ReturnsNoAssemblyContext` | No compile assets do not become successful empty Metadata or an exception. |
+| `OwnerDefaultRuntimeIdentifier_ReturnsNoContribution` | A valid House realization whose RID lacks a representable acquisition framework remains typed `CoordinateNotRepresentable`. |
 | `HouseFailure_RemainsTypedWithoutWorkspaceAdmission` | Source reauthorization and other House no-contribution results remain visible without constructing a Workspace result. |
 | `ExpiredWorkspaceDeadline_RemainsTyped` | Scope deadline rejection retains the owner-issued Workspace terminal. |
 | `Cancellation_PropagatesAfterCleanup` | Caller cancellation remains cancellation with the caller token and no escaped live resources. |
