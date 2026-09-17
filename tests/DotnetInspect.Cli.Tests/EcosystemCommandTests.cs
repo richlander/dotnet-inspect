@@ -57,7 +57,7 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
-    public async Task CommandLine_OutOfRangeRowWindowDoesNotClaimConfiguredSectionIsEmpty()
+    public async Task CommandLine_OutOfRangeRowWindowReportsSemanticFailure()
     {
         string[] arguments =
         [
@@ -70,13 +70,12 @@ public sealed class EcosystemCommandTests
         ];
         var result = await ExecuteCommandLineAsync(arguments);
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        Assert.Contains("## Known Integrations", result.Output);
-        Assert.DoesNotContain("integration.aspire", result.Output);
-        Assert.DoesNotContain(
-            "No Integration concepts are explicitly bound",
-            result.Output);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Ecosystem row selection stage 1 for 'Known Integrations' "
+            + "requires row 2, but only 1 rows are available.",
+            result.Error);
     }
 
     [Fact]
@@ -121,6 +120,49 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, count.ExitCode);
         Assert.Empty(count.Error);
         Assert.Equal("1", count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CommandLine_WindowThenHeadPreservesOrderedSemanticIntent()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Core Packages",
+            "--rows",
+            "2..3",
+            "-n",
+            "1",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            "package\nMicrosoft.Extensions.Configuration.Abstractions",
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CommandLine_HeadThenWindowReportsSecondStageFailure()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "microsoft-extensions",
+            "-S",
+            "Core Packages",
+            "-n",
+            "1",
+            "--rows",
+            "2..3",
+            "--tsv");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Ecosystem row selection stage 2 for 'Core Packages' "
+            + "requires row 3, but only 1 rows are available.",
+            result.Error);
     }
 
     [Fact]

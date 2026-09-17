@@ -132,7 +132,7 @@ Source: Project
 ```bash
 dotnet-inspect member Command \
   --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
-  -S "Member Index" -n 12
+  -S "Member Index" --rows 1..12
 ```
 
 ```expect
