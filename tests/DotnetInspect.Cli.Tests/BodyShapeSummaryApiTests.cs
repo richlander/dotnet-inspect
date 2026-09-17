@@ -341,11 +341,9 @@ public sealed class BodyShapeSummaryApiTests
         {
             Assert.Contains(SectionNames.BodyShapeSummary, pipeline.SelectableSectionNames);
             Assert.DoesNotContain(SectionNames.BodyShapeSummary, pipeline.InfoSectionNames);
-            Assert.DoesNotContain(
-                pipeline.GetCategoryMap().Where(pair =>
-                    pair.Key is not SectionPipeline<ApiType>.AllCategory
-                        and not SectionPipeline<ApiType>.HiddenCategory),
-                pair => pair.Value.Contains(SectionNames.BodyShapeSummary));
+            Assert.Contains(
+                SectionNames.BodyShapeSummary,
+                pipeline.GetCategoryMap()[SectionCategoryNames.Performance]);
             Assert.DoesNotContain(SectionNames.BodyShapeSummary,
                 pipeline.GetEffectiveSections(type, Verbosity.Detailed, [SectionNames.BodyShapeSummary]));
         });

@@ -2228,7 +2228,7 @@ public class SourceForwarderResolutionTests
                     new TypeOptions
                     {
                         TypeName = fixture.Type.FullName,
-                        Discover = [],
+                        Discover = [SectionCategoryNames.Decompiler],
                         DocsExplicitlySet = true,
                         TipLevel = TipLevel.Quiet,
                         Verbosity = Verbosity.Minimal,
@@ -2236,7 +2236,7 @@ public class SourceForwarderResolutionTests
                     source,
                     fixture.Loaded));
 
-            Assert.Equal(0, exit);
+            Assert.True(exit == 0, error);
             Assert.Contains(
                 $"| {SectionNames.DecompiledSource} | section |",
                 output);

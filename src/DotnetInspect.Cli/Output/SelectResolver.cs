@@ -137,36 +137,39 @@ public static class SelectResolver
             return (sections, null);
         }
 
-        bool hasNonExactSectionSelector =
+        bool hasDirectSectionSelector =
             select?.Any(selector =>
             {
                 if (selector.StartsWith('@'))
                     return false;
-                var (matches, _) = ResolveSingle(selector, knownSections);
-                return matches.Count == 1
+                var (matches, _, isExact) =
+                    ResolveSingleWithProvenance(selector, knownSections);
+                return isExact
+                       && matches.Count == 1
                        && matches[0].Equals(
                            exactOnlySection,
                            StringComparison.OrdinalIgnoreCase);
             }) == true;
-        if (hasNonExactSectionSelector)
+        if (hasDirectSectionSelector)
         {
             return (
                 sections,
                 $"section '{exactOnlySection}' requires an exact -S selector.");
         }
 
-        bool hasBroadSectionSelector =
+        bool hasWildcardSectionSelector =
             select?.Any(selector =>
             {
                 if (selector.StartsWith('@'))
                     return false;
-                var (matches, _) = ResolveSingle(selector, knownSections);
-                return matches.Count > 1
+                var (matches, _, isExact) =
+                    ResolveSingleWithProvenance(selector, knownSections);
+                return !isExact
                        && matches.Contains(
                            exactOnlySection,
                            StringComparer.OrdinalIgnoreCase);
             }) == true;
-        if (!IsAllSelector(select) && !hasBroadSectionSelector)
+        if (!IsAllSelector(select) && !hasWildcardSectionSelector)
         {
             return (
                 sections,
@@ -178,6 +181,28 @@ public static class SelectResolver
             StringComparer.OrdinalIgnoreCase);
         normalized.Remove(exactOnlySection);
         return (normalized, null);
+    }
+
+    public static (HashSet<string>? Sections, string? Error) NormalizeExactOnlySections(
+        string[]? select,
+        HashSet<string>? sections,
+        IReadOnlySet<string>? exactSections,
+        IReadOnlyList<string> knownSections,
+        IEnumerable<string> exactOnlySections)
+    {
+        foreach (string exactOnlySection in exactOnlySections)
+        {
+            (sections, string? error) = NormalizeExactOnlySection(
+                select,
+                sections,
+                exactSections,
+                knownSections,
+                exactOnlySection);
+            if (error is not null)
+                return (sections, error);
+        }
+
+        return (sections, null);
     }
 
     internal static bool TryResolveCategory(
@@ -230,7 +255,7 @@ public static class SelectResolver
         return (matches, miss);
     }
 
-    private static (List<string> Matches, SelectMiss? Miss, bool IsExact)
+    internal static (List<string> Matches, SelectMiss? Miss, bool IsExact)
         ResolveSingleWithProvenance(
             string name, IReadOnlyList<string> knownSections, bool singleGlob = false)
     {
@@ -294,7 +319,8 @@ public static class SelectResolver
         IReadOnlyList<string> knownSections,
         IReadOnlyList<string>? infoSections = null,
         IReadOnlyDictionary<string, string[]>? categories = null,
-        bool selectDefault = false)
+        bool selectDefault = false,
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
@@ -306,7 +332,8 @@ public static class SelectResolver
 
         if (selectDefault)
             foreach (var section in infoSections ?? [])
-                matched.Add(section);
+                if (exactOnlySections?.Contains(section) != true)
+                    matched.Add(section);
 
         foreach (var value in select ?? [])
         {
@@ -315,7 +342,8 @@ public static class SelectResolver
                 if (categories.TryGetValue(value, out var categorySections))
                 {
                     foreach (var section in categorySections)
-                        matched.Add(section);
+                        if (exactOnlySections?.Contains(section) != true)
+                            matched.Add(section);
                     continue;
                 }
 
@@ -326,6 +354,11 @@ public static class SelectResolver
             var (matches, miss, isExactSection) = ResolveSingleWithProvenance(value, knownSections);
             foreach (var m in matches)
             {
+                if (!isExactSection
+                    && exactOnlySections?.Contains(m) == true)
+                {
+                    continue;
+                }
                 matched.Add(m);
                 if (isExactSection)
                     exact.Add(m);
@@ -340,7 +373,8 @@ public static class SelectResolver
                     && categories.TryGetValue(aliasCategory, out var aliasSections))
                 {
                     foreach (var section in aliasSections)
-                        matched.Add(section);
+                        if (exactOnlySections?.Contains(section) != true)
+                            matched.Add(section);
                     continue;
                 }
 
