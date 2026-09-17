@@ -608,11 +608,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Count_WritesEmbeddedLibraryAndMultiPackageRoutesToOutputFiles()
+    public async Task Package_Count_WritesLibraryAndMultiPackageRoutesToOutputFiles()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         var libraryPath = Path.Combine(tempDir, "library-count.txt");
-        var allLibrariesPath = Path.Combine(tempDir, "all-libraries-count.txt");
+        var aggregatePath = Path.Combine(tempDir, "aggregate-count.txt");
         var multiPackagePath = Path.Combine(tempDir, "multi-package-count.txt");
         try
         {
@@ -628,17 +628,17 @@ public partial class CommandExecutionTests
             Assert.Empty(libraryError);
             Assert.Equal(libraryBaseline, File.ReadAllText(libraryPath));
 
-            var (allLibrariesBaselineExit, allLibrariesBaseline, allLibrariesBaselineError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count");
-            var (allLibrariesExit, allLibrariesOutput, allLibrariesError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count",
-                "--out", allLibrariesPath);
+            var (aggregateBaselineExit, aggregateBaseline, aggregateBaselineError) = await RunAppAsync(
+                "package", packagePath, "-S", "Library Info", "--count");
+            var (aggregateExit, aggregateOutput, aggregateError) = await RunAppAsync(
+                "package", packagePath, "-S", "Library Info", "--count",
+                "--out", aggregatePath);
 
-            Assert.Equal(0, allLibrariesBaselineExit);
-            Assert.Equal(0, allLibrariesExit);
-            Assert.Empty(allLibrariesOutput);
-            Assert.Equal(allLibrariesBaselineError, allLibrariesError);
-            Assert.Equal(allLibrariesBaseline, File.ReadAllText(allLibrariesPath));
+            Assert.Equal(0, aggregateBaselineExit);
+            Assert.Equal(0, aggregateExit);
+            Assert.Empty(aggregateOutput);
+            Assert.Equal(aggregateBaselineError, aggregateError);
+            Assert.Equal(aggregateBaseline, File.ReadAllText(aggregatePath));
 
             var (multiPackageBaselineExit, multiPackageBaseline, multiPackageBaselineError) = await RunAppAsync(
                 "package", packagePath, packagePath, "-S", "Package Info", "--tsv", "--count");

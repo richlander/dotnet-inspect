@@ -84,11 +84,10 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 or `--library` when you need a specific source.
 
 Use `-D --schema` to inspect the syntax-selected structural view without
-acquiring or loading the target. Package `--library` and `--all-libraries`
-queries expose their route-specific schemas before package resolution, while
-ambiguous commandless or dotted-member targets return separately labeled
-alternatives rather than a lookup-chosen union. A commandless
-`<target> --all-libraries` gesture always selects the package aggregate view.
+acquiring or loading the target. Package Library-section, `--library`, and
+`--namesake-library` queries expose the Library schema before package
+resolution, while ambiguous commandless or dotted-member targets return
+separately labeled alternatives rather than a lookup-chosen union.
 
 ## Demo: query rendered C# body shapes
 
@@ -394,6 +393,27 @@ dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+Package document inspection remains Package-scoped. Asking a Package for a
+Library section instead inspects every compatible compile Library in the
+selected TFM:
+
+```bash
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 -S "Library Info"
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 --namesake-library -S "Library Info"
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 --library Microsoft.Azure.SignalR.Common.dll -S "Library Info"
+```
+
+`--namesake-library` matches the package ID to managed assembly identity;
+`--library <asset>` selects an exact compile asset. With `--tfm all`, either
+narrowing rule is applied independently to each framework and the results are
+rendered as separate framework aggregates. An explicitly empty compile group
+or unmatched TFM fails visibly rather than falling back to another asset.
+`--all-libraries` is retired because aggregate Library inspection is now the
+default.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before

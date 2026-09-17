@@ -81,7 +81,9 @@ The platform copy is typically a ref assembly (smaller, public surface only). Th
 
 ## 2. Multi-library packages
 
-Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two libraries in a single package. The tool defaults to the primary library but lets you pick.
+Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two
+compile Libraries in a single package. Bare package inspection remains focused
+on the Package document:
 
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --path --tfm net8.0
@@ -92,27 +94,47 @@ Microsoft.Azure.SignalR.dll
 Microsoft.Azure.SignalR.Common.dll
 ```
 
+Ask for a Library section to inspect the selected framework's complete compile
+aggregate:
+
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 -S "Library Info" --markdown -T q
+```
+
+```expect
+Microsoft.Azure.SignalR.dll
+Microsoft.Azure.SignalR.Common.dll
+```
+
+Narrow by managed assembly identity when the Package names one unique
+namesake Library:
+
+```bash
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 --namesake-library -S "Library Info" --markdown -T q
 ```
 
 ```expect
 Microsoft.Azure.SignalR.dll
 ```
 
-Switch to the other library:
+Or select the other compile asset exactly:
 
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q --library Microsoft.Azure.SignalR.Common.dll
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 \
+  --tfm net8.0 --library Microsoft.Azure.SignalR.Common.dll \
+  -S "Library Info" --markdown -T q
 ```
 
 ```expect
 Microsoft.Azure.SignalR.Common.dll
 ```
 
-```expect-not
-Microsoft.Azure.SignalR.dll |
-```
+Use `--tfm all` to render a separate aggregate for every available compile
+framework. Exact and namesake narrowing are evaluated independently in each
+framework. The former `--all-libraries` switch is no longer needed and is
+rejected with replacement guidance.
 
 ## 3. Type forwarders
 

@@ -211,11 +211,7 @@ public static class RouterCommandDefinition
                             request,
                             sourceIdentityTypeTarget);
                 var optionErrors = new Dictionary<StructuralRoute, OptionError?>();
-                string[] interpretationTokens =
-                    sourceParseResult.GetResult(packageArgs.AllLibrariesOption) is { Implicit: false }
-                    && !sourceParseResult.GetValue(packageArgs.AllLibrariesOption)
-                    ? RouterTokenRewriter.RemoveOptionWithValue(tokens, "--all-libraries", "false")
-                    : tokens;
+                string[] interpretationTokens = tokens;
                 foreach (StructuralRoute route in alternatives.Alternatives
                     .Select(alternative => alternative.Route)
                     .Distinct())

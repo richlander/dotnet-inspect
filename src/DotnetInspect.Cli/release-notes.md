@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Breaking:** Package-backed `library` inspection and Package Library-section
+  queries now default to every compatible compile Library in the selected TFM.
+  Use `--namesake-library` to narrow by managed assembly identity or
+  `--library <asset>` for an exact compile asset; `--tfm all` applies narrowing
+  independently and renders separate framework aggregates. Flattened aggregate
+  rows retain producer-Library identity, while scalar and exact-assembly
+  operations require narrowing. `--all-libraries` is removed with replacement
+  guidance (#7430).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection with named `--library`, `--package`, and `--platform` source
   context. Heap coordinates remain bound to the selected `--metadata-root`. The

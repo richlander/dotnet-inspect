@@ -4894,15 +4894,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_LibraryFlag_RoutesPackageToLibraryInspection()
+    public async Task Router_ExactLibraryFlag_RoutesPackageToLibraryInspection()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
+            var (exit, output, error) = await RunAppAsync(
+                packagePath,
+                "--library",
+                "Test.Primary.dll",
+                "-S",
+                "Library Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains(
+                "# Test.Primary.dll",
+                output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
@@ -4957,7 +4964,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains(
+            "# Newtonsoft.Json.dll",
+            routed.Output);
         Assert.Contains("## Library Info", routed.Output);
     }
 
@@ -5230,12 +5239,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareLibraryFollowedByColonOption_PreservesPackageInspection()
+    public async Task Router_NamesakeLibraryFollowedByColonOption_PreservesPackageInspection()
     {
         string[] arguments =
         [
             "Newtonsoft.Json@13.0.4",
-            "--library",
+            "--namesake-library",
             "-v:q",
             "-S",
             "Library Info"

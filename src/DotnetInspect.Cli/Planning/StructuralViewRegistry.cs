@@ -18,7 +18,6 @@ public enum StructuralViewIdentity
 {
     Package,
     PackageSingleLibrary,
-    PackageAllLibraries,
     DirectLibrary,
     Type,
     MemberType,
@@ -255,16 +254,6 @@ public static class StructuralViewRegistry
                 SharedProjectionCapabilities
                 | StructuralParserCapabilities.TypeFilter),
             new(
-                StructuralViewIdentity.PackageAllLibraries,
-                30,
-                PackageCommand.Name,
-                "all-libraries",
-                [InspectionCatalogIdentity.LibraryAggregate],
-                SharedProjectionCapabilities
-                & ~StructuralParserCapabilities.Fields
-                & ~StructuralParserCapabilities.Columns
-                | StructuralParserCapabilities.TypeFilter),
-            new(
                 StructuralViewIdentity.DirectLibrary,
                 40,
                 "library",
@@ -344,18 +333,6 @@ public static class StructuralViewRegistry
         if (tokens.Length == 0)
             return false;
 
-        if (CommandLineHelpers.IsBooleanOptionEnabled(
-                tokens,
-                "--all-libraries"))
-        {
-            classification = new CommandlessStructuralRoute(
-                Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate),
-                [PackageCommand.Name, .. tokens]);
-            return true;
-        }
-
         if (!structuralDiscovery)
             return false;
 
@@ -379,6 +356,7 @@ public static class StructuralViewRegistry
             {
                 StructuralViewIdentity view =
                     ContainsOption(tokens, "--library")
+                    || ContainsOption(tokens, "--namesake-library")
                         ? StructuralViewIdentity.PackageSingleLibrary
                         : StructuralViewIdentity.Package;
                 InspectionCatalogIdentity catalog =
@@ -608,8 +586,9 @@ public static class StructuralViewRegistry
             && !hasPackageRelativeLibrary;
         hasExplicitApiSource |= hasExplicitLibraryPath;
         bool hasLibraryGesture =
-            ContainsOption(tokens, "--library")
-            && hasPackageRelativeLibrary;
+            ContainsOption(tokens, "--namesake-library")
+            || ContainsOption(tokens, "--library")
+                && hasPackageRelativeLibrary;
         bool hasTypeMarker =
             ContainsOption(tokens, "-t")
             || ContainsOption(tokens, "--type");
@@ -874,24 +853,6 @@ public static class StructuralViewRegistry
             {
                 var catalog = LibrarySections.CreateCatalog();
                 schema = LibraryCommand.CreateStructuralSchema();
-                selectableSections =
-                    catalog.Sections.SelectableSectionNames;
-                defaultSections = catalog.Sections.InfoSectionNames;
-                annotations = catalog.Pipeline.GetCostAnnotations();
-                categories = catalog.Sections.SelectionCategoryMap;
-                listedCategoryDoors =
-                    catalog.Pipeline.GetListedCategoryDoors();
-                catalogHiddenSections =
-                    catalog.Pipeline.GetCatalogHiddenSections();
-                break;
-            }
-            case InspectionCatalogIdentity.LibraryAggregate:
-            {
-                var catalog = LibrarySections.CreateCatalog();
-                schema = outputShape == StructuralOutputShape.Rows
-                    ? PackageCommand
-                        .PackageAllLibrariesDiscoverySchema()
-                    : LibraryCommand.CreateStructuralSchema();
                 selectableSections =
                     catalog.Sections.SelectableSectionNames;
                 defaultSections = catalog.Sections.InfoSectionNames;
@@ -1439,8 +1400,8 @@ public static class StructuralViewRegistry
         StructuralDiscoveryRequest request,
         IEnumerable<StructuralRoute> routes)
     {
-        if (!routes.Any(route => route.Catalog is
-                InspectionCatalogIdentity.Library or InspectionCatalogIdentity.LibraryAggregate))
+        if (!routes.Any(route =>
+                route.Catalog is InspectionCatalogIdentity.Library))
         {
             return (request, null);
         }
@@ -1470,9 +1431,7 @@ public static class StructuralViewRegistry
         foreach (string section in schema.SectionNames)
         {
             StructuralSectionInput input =
-                route.Catalog is
-                    InspectionCatalogIdentity.Library
-                    or InspectionCatalogIdentity.LibraryAggregate
+                route.Catalog is InspectionCatalogIdentity.Library
                     ? LibraryCommand.GetStructuralSectionInput(
                         section)
                     : StructuralSectionInput.None;

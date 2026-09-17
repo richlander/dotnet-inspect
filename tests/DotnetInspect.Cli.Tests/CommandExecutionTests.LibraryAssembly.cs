@@ -3303,7 +3303,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForAwsS3_ShowsCloudClientSuggestions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AWSSDK.S3", "--library", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "AWSSDK.S3", "-S", "Integration: Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Opportunities", output);
@@ -3317,7 +3317,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForCognito_ShowsAuthenticationSuggestion()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Amazon.Extensions.CognitoAuthentication", "--library", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Amazon.Extensions.CognitoAuthentication", "-S", "Integration: Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Opportunities", output);
@@ -3329,7 +3329,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForNpgsql_ShowsResourceSuggestions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Npgsql", "--library", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Npgsql", "-S", "Integration: Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Opportunities", output);
@@ -3342,7 +3342,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForAzureAppConfiguration_ShowsConfigurationSuggestion()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Data.AppConfiguration", "--library", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Azure.Data.AppConfiguration", "-S", "Integration: Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Opportunities", output);
@@ -3395,7 +3395,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForSystemsManager_ShowsConfigurationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Amazon.Extensions.Configuration.SystemsManager", "--library", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Amazon.Extensions.Configuration.SystemsManager", "-S", "Integration: Configuration", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Configuration", output);
@@ -3410,7 +3410,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForJson_ShowsConfigurationProviderShape()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.Json", "--library", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.Json", "-S", "Integration: Configuration", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Configuration", output);
@@ -3425,7 +3425,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForUserSecrets_ShowsConfigurationApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.UserSecrets", "--library", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.UserSecrets", "-S", "Integration: Configuration", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Configuration", output);
@@ -3438,7 +3438,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForBinder_ShowsBindingApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.Binder", "--library", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.Binder", "-S", "Integration: Configuration", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Configuration", output);
@@ -3451,7 +3451,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForOptionsConfiguration_ShowsOptionsBindingApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Options.ConfigurationExtensions", "--library", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Options.ConfigurationExtensions", "-S", "Integration: Configuration", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Configuration", output);
@@ -3464,7 +3464,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionIntegration_ForScrutor_ShowsScanningAndDecorationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Scrutor", "--library", "-S", "Integration: Dependency Injection", "--rows", "20");
+            "package", "Scrutor", "-S", "Integration: Dependency Injection", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Dependency Injection", output);
@@ -3478,7 +3478,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OptionsIntegration_ForValidationPackage_ShowsValidationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "ReHackt.Extensions.Options.Validation", "--library", "-S", "Integration: Options", "--rows", "20");
+            "package", "ReHackt.Extensions.Options.Validation", "-S", "Integration: Options", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Options", output);
@@ -3491,7 +3491,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HealthChecksIntegration_ForAspNetCoreMiddleware_ShowsUseHealthChecks()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Diagnostics.HealthChecks", "--library", "-S", "Integration: Health Checks", "--rows", "20");
+            "package", "Microsoft.AspNetCore.Diagnostics.HealthChecks", "-S", "Integration: Health Checks", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Health Checks", output);
@@ -3503,7 +3503,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HostingIntegration_ForHostedServiceRegistration_ShowsHostedServiceApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "App.Metrics.Extensions.Hosting", "--library", "-S", "Integration: Hosting", "--rows", "20");
+            "package", "App.Metrics.Extensions.Hosting", "-S", "Integration: Hosting", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Hosting", output);
@@ -3515,7 +3515,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenApiIntegration_ForAnnotations_ShowsAnnotationSupport()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Swashbuckle.AspNetCore.Annotations", "--library", "-S", "Integration: OpenAPI", "--rows", "20");
+            "package", "Swashbuckle.AspNetCore.Annotations", "-S", "Integration: OpenAPI", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenAPI", output);
@@ -3528,7 +3528,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetryIntegration_ForSerilogSink_ShowsOtlpLoggingApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.Sinks.OpenTelemetry", "--library", "-S", "Integration: OpenTelemetry", "--rows", "20");
+            "package", "Serilog.Sinks.OpenTelemetry", "-S", "Integration: OpenTelemetry", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenTelemetry", output);
@@ -3541,7 +3541,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForOpenIddictValidation_ShowsValidationApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "OpenIddict.Validation.AspNetCore", "--library", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "OpenIddict.Validation.AspNetCore", "-S", "Integration: Authentication", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3554,7 +3554,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForBlazorAuthorization_ShowsAuthenticationStateApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Components.Authorization", "--library", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "Microsoft.AspNetCore.Components.Authorization", "-S", "Integration: Authentication", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3567,9 +3567,9 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForGraphQlPackages_ShowsAuthorizationBuilderApis()
     {
         var (hotChocolateExit, hotChocolateOutput, hotChocolateError) = await RunAppAsync(
-            "package", "HotChocolate.Authorization", "--library", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "HotChocolate.Authorization", "-S", "Integration: Authentication", "--rows", "20");
         var (graphQlExit, graphQlOutput, graphQlError) = await RunAppAsync(
-            "package", "GraphQL.Authorization", "--library", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "GraphQL.Authorization", "-S", "Integration: Authentication", "--rows", "20");
 
         Assert.Equal(0, hotChocolateExit);
         Assert.Contains("## Integration: Authentication", hotChocolateOutput);
@@ -3599,7 +3599,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LibraryInfo_CountsStarterApiOnlyIntegrations()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AWSSDK.Extensions.Bedrock.MEAI", "--library", "-S", "Library Info");
+            "package", "AWSSDK.Extensions.Bedrock.MEAI", "-S", "Library Info");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Library Info", output);
@@ -3628,7 +3628,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectIntegrationsCategory_RendersIntegrationSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "--library", "-S", "@Integrations", "--rows", "6");
+            "package", "Microsoft.Extensions.AI", "-S", "@Integrations", "--rows", "6");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -3645,7 +3645,7 @@ public partial class CommandExecutionTests
         // "Integrations" was a rollup section before the per-integration decomposition. It keeps
         // resolving as a category alias, exactly like the retired "Performance Triage" monolith.
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "--library", "-S", "Integrations", "--rows", "6");
+            "package", "Microsoft.Extensions.AI", "-S", "Integrations", "--rows", "6");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error);
@@ -3668,7 +3668,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AISection_DetectsAiCurrencyTypes()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI.Abstractions", "--library", "-S", "Integration: AI", "--rows", "80");
+            "package", "Microsoft.Extensions.AI.Abstractions", "-S", "Integration: AI", "--rows", "80");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -3686,7 +3686,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Aspire.OpenAI", "--preview",
-            "--library", "-S", "Integration: AI", "--rows", "40");
+            "-S", "Integration: AI", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -3704,7 +3704,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AISection_ForMicrosoftExtensionsAIOpenAI_ShowsAdapterApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI.OpenAI", "--library", "-S", "@Integrations", "--rows", "40");
+            "package", "Microsoft.Extensions.AI.OpenAI", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -3726,7 +3726,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Aspire.OpenAI", "--preview",
-            "--library", "-S", "@Integrations", "--rows", "40");
+            "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: AI", output);
@@ -3743,7 +3743,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspireSection_ForAspireHostingRedis_ShowsResourceCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.Hosting.Redis", "--library", "-S", "Integration: Aspire", "--rows", "20");
+            "package", "Aspire.Hosting.Redis", "-S", "Integration: Aspire", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Aspire", output);
@@ -3758,7 +3758,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationsCategory_ForAspireHostingRedis_RendersAspireSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.Hosting.Redis", "--library", "-S", "@Integrations", "--rows", "20");
+            "package", "Aspire.Hosting.Redis", "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Aspire", output);
@@ -3772,7 +3772,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Aspire.OpenAI", "--preview",
-            "--library", "-S", "Integration: Hosting");
+            "-S", "Integration: Hosting");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Hosting", output);
@@ -3787,7 +3787,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForAspireKafka_ShowsTelemetryControls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.Confluent.Kafka", "--library", "-S", "@Integrations", "--rows", "40");
+            "package", "Aspire.Confluent.Kafka", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenTelemetry", output);
@@ -3819,7 +3819,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_ForAwsLogger_ShowsProviderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AWS.Logger.AspNetCore", "--library", "-S", "@Integrations", "--rows", "20");
+            "package", "AWS.Logger.AspNetCore", "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Logging", output);
@@ -3835,7 +3835,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_ForSerilog_ShowsProviderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.Extensions.Logging", "--library", "-S", "Integration: Logging", "--rows", "20");
+            "package", "Serilog.Extensions.Logging", "-S", "Integration: Logging", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Logging", output);
@@ -3850,7 +3850,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "--library", "-S", "Integration: Dependency Injection");
+            "package", "Microsoft.Extensions.AI", "-S", "Integration: Dependency Injection");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Dependency Injection", output);
@@ -3867,7 +3867,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionSection_ForAzureClients_ShowsServiceRegistrationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Azure", "--library", "-S", "Integration: Dependency Injection", "--rows", "20");
+            "package", "Microsoft.Extensions.Azure", "-S", "Integration: Dependency Injection", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Dependency Injection", output);
@@ -3882,7 +3882,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HealthChecksSection_ForSqlServer_ShowsHealthCheckBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AspNetCore.HealthChecks.SqlServer", "--library", "-S", "@Integrations", "--rows", "20");
+            "package", "AspNetCore.HealthChecks.SqlServer", "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Dependency Injection", output);
@@ -3896,7 +3896,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForJwtBearer_ShowsSchemeCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Authentication.JwtBearer", "--library", "-S", "@Integrations", "--rows", "40");
+            "package", "Microsoft.AspNetCore.Authentication.JwtBearer", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3910,7 +3910,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForAuthenticationCore_ShowsMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Authentication", "--library", "-S", "Integration: Authentication", "--rows", "40");
+            "package", "Microsoft.AspNetCore.Authentication", "-S", "Integration: Authentication", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3924,7 +3924,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForAuthorization_ShowsAuthorizationCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Authorization", "--library", "-S", "Integration: Authentication", "--rows", "40");
+            "package", "Microsoft.AspNetCore.Authorization", "-S", "Integration: Authentication", "--rows", "40");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3938,7 +3938,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForAwsCognitoIdentity_ShowsIdentityCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Amazon.AspNetCore.Identity.Cognito", "--library", "-S", "@Integrations", "--rows", "30");
+            "package", "Amazon.AspNetCore.Identity.Cognito", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Authentication", output);
@@ -3951,7 +3951,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenApiSection_ForSwashbuckle_ShowsOpenApiCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Swashbuckle.AspNetCore.Swagger", "--library", "-S", "@Integrations", "--rows", "30");
+            "package", "Swashbuckle.AspNetCore.Swagger", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenAPI", output);
@@ -3965,7 +3965,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenApiSection_ForMicrosoftOpenApi_ShowsServiceAndEndpointApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.OpenApi", "--library", "-S", "Integration: OpenAPI", "--rows", "20");
+            "package", "Microsoft.AspNetCore.OpenApi", "-S", "Integration: OpenAPI", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenAPI", output);
@@ -3979,7 +3979,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForSerilog_ShowsMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.AspNetCore", "--library", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "package", "Serilog.AspNetCore", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -3993,7 +3993,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForHangfire_ShowsEndpointAndMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Hangfire.AspNetCore", "--library", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "package", "Hangfire.AspNetCore", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -4007,7 +4007,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForGrpc_ShowsEndpointCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Grpc.AspNetCore.Server", "--library", "-S", "@Integrations", "--rows", "30");
+            "package", "Grpc.AspNetCore.Server", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -4021,7 +4021,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -4034,7 +4034,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -4047,7 +4047,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HostingSection_ForMassTransit_ShowsHostBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "MassTransit", "--library", "-S", "Integration: Hosting", "--rows", "20");
+            "package", "MassTransit", "-S", "Integration: Hosting", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: Hosting", output);
@@ -4061,7 +4061,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForAzureMonitorExporter_ShowsBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Monitor.OpenTelemetry.Exporter", "--library", "-S", "Integration: OpenTelemetry", "--rows", "30");
+            "package", "Azure.Monitor.OpenTelemetry.Exporter", "-S", "Integration: OpenTelemetry", "--rows", "30");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: OpenTelemetry", output);
@@ -4076,7 +4076,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HttpClientDiagnostics_ShowsUserFacingHttpClientCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Http.Diagnostics", "--library", "-S", "@Integrations", "--rows", "30");
+            "package", "Microsoft.Extensions.Http.Diagnostics", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("OpenTelemetry", output);
@@ -4972,13 +4972,6 @@ public partial class CommandExecutionTests
                 {
                     IncludeSections = [SectionNames.LibraryInfo],
                 },
-                LibrarySections.CreatePipeline(),
-                FailedResourceTriageInspection()));
-        Assert.Equal(
-            1,
-            PackageCommand.AllLibrariesCompletionExitCode(
-                incomplete: false,
-                options,
                 LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
     }

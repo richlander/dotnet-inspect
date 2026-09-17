@@ -46,12 +46,12 @@ public static class PackageCommandDefinitions
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
         {
-            Description = "Inspect a library from this package; omit value to select the primary library when unambiguous",
-            Arity = ArgumentArity.ZeroOrOne
+            Description = "Narrow inspection to an exact library in this package",
+            Arity = ArgumentArity.ExactlyOne
         };
-        var allLibrariesOption = new Option<bool>("--all-libraries")
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
         {
-            Description = "Inspect all compatible libraries from this package"
+            Description = "Narrow inspection to the unique library whose managed assembly name matches the package"
         };
         var versionsOption = new Option<bool>("--versions")
         {
@@ -96,7 +96,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
-        packageCommand.Options.Add(allLibrariesOption);
+        packageCommand.Options.Add(namesakeLibraryOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
         packageCommand.Options.Add(linesOption);
@@ -145,6 +145,13 @@ public static class PackageCommandDefinitions
                     + "--versions or --versions-with-feed.");
             }
 
+            if (result.GetValue(namesakeLibraryOption)
+                && result.GetResult(libraryOption) is { Implicit: false })
+            {
+                result.AddError(
+                    "--namesake-library and --library cannot be combined.");
+            }
+
         });
 
         CliRowSelectionCommandRegistry.Register(
@@ -184,7 +191,7 @@ public static class PackageCommandDefinitions
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption,
             linesOption, tailLinesOption, outOption, pathMatchOption,
@@ -229,7 +236,12 @@ public static class PackageCommandDefinitions
                     {
                         var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                        if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                        if (exitCode == 0
+                            && success.Options.PackageArgs.Length > 0
+                            && success.Options.PackageLibrary == null
+                            && !success.Options.AggregateLibraries
+                            && !success.Options.FormatExplicitlySet
+                            && !success.Options.IsRawOutput)
                         {
                             var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
                             var pkg = target.IsLocalFile

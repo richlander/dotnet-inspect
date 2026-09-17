@@ -16,6 +16,48 @@ namespace DotnetInspect.Cli.Output;
 /// </summary>
 public record RenderDiagnostic(string Formatter, string Condition, string[] Sections);
 
+internal sealed class ProducerLibraryTableFormatter(
+    IMarkoutFormatter inner,
+    string library) : IMarkoutFormatter, ITableFormatter
+{
+    public void FormatTable(
+        TextWriter writer,
+        ReadOnlySpan<string> headers,
+        IList<string[]> rows,
+        int skippedRows,
+        MarkoutWriterOptions options)
+    {
+        if (inner is not ITableFormatter tableFormatter)
+        {
+            throw new InvalidOperationException(
+                $"Formatter '{inner.GetType().Name}' cannot lower "
+                + "producer-Library table provenance.");
+        }
+
+        string[] headersWithLibrary =
+            new string[headers.Length + 1];
+        headersWithLibrary[0] = "library";
+        headers.CopyTo(headersWithLibrary.AsSpan(1));
+
+        var rowsWithLibrary =
+            new List<string[]>(rows.Count);
+        foreach (string[] row in rows)
+        {
+            var rowWithLibrary = new string[row.Length + 1];
+            rowWithLibrary[0] = library;
+            row.CopyTo(rowWithLibrary, 1);
+            rowsWithLibrary.Add(rowWithLibrary);
+        }
+
+        tableFormatter.FormatTable(
+            writer,
+            headersWithLibrary,
+            rowsWithLibrary,
+            skippedRows,
+            options);
+    }
+}
+
 /// <summary>
 /// Handles output formatting for inspection results.
 /// </summary>
@@ -244,9 +286,8 @@ public static class OutputFormatter
     /// markout windows rows as it emits them, so the window is applied to table rows the writer
     /// knows about rather than re-derived by parsing rendered Markdown back into tables. That
     /// removes the need to tell a table row from a prose line or a fenced code line after the
-    /// fact. The two remaining rendered-text windowing sites are the ones whose content the
-    /// writer never sees: the <c>@Metadata</c> lens (#3619) and the package all-libraries
-    /// aggregates (#3624).
+    /// fact. The remaining rendered-text windowing site is the <c>@Metadata</c>
+    /// lens (#3619), whose content the writer never sees.
     /// </remarks>
     public static void WriteWindowedMarkdown(
         TextWriter output,
@@ -701,8 +742,18 @@ public static class OutputFormatter
     /// </summary>
     private static void WriteLibraryTabular(
         LibraryInspectionView auditView, LibraryInspection inspection,
-        MarkoutWriterOptions writerOpts, LibraryOptions options)
+        MarkoutWriterOptions writerOpts, LibraryOptions options,
+        string? producerLibrary = null)
     {
+        IMarkoutFormatter AddProducerLibrary(
+            IMarkoutFormatter formatter) =>
+            producerLibrary is null
+                ? formatter
+                : new ProducerLibraryTableFormatter(
+                    formatter,
+                    LibraryViewText.Contain(producerLibrary)
+                        ?? string.Empty);
+
         // The metadata lens owns its own tabular rendering for the same reason it owns its
         // Markdown rendering: per-table column shapes have no static row type for Markout to bind.
         // Its rows already self-identify with a leading Table/Section column. It still goes through
@@ -727,13 +778,23 @@ public static class OutputFormatter
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
+                (writer, formatter) => MarkoutSerializer.Serialize(
+                    groupView,
+                    writer,
+                    AddProducerLibrary(formatter),
+                    InspectionContext.Default,
+                    groupOpts),
                 options.Rows);
         }
         else
         {
             WriteTable(Console.Out, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
+                (writer, formatter) => MarkoutSerializer.Serialize(
+                    auditView,
+                    writer,
+                    AddProducerLibrary(formatter),
+                    InspectionContext.Default,
+                    writerOpts),
                 options.Rows);
         }
     }
@@ -823,7 +884,12 @@ public static class OutputFormatter
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(auditView, inspection, writerOpts, options);
+                WriteLibraryTabular(
+                    auditView,
+                    inspection,
+                    writerOpts,
+                    options,
+                    inspection.FileName);
             }
         }
     }

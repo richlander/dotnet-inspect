@@ -200,13 +200,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 librarySections,
                 $"focus:{libraryFocusCapabilities};discovery:not-reached"),
             Observe(
-                "package-all-libraries",
-                await ObservePackageAllLibrariesDiscoveryAsync(),
-                libraryPipeline,
-                libraryInfoSections,
-                $"focus:{FormatLibraryCapabilities(libraryInfoFocusAuthorization)};"
-                    + "discovery:not-reached"),
-            Observe(
                 "direct-library",
                 await ObserveLibraryDiscoveryAsync(),
                 libraryPipeline,
@@ -272,17 +265,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "Library Info->Type forwarders;"
                     + "discovery=none",
                 "focus:pdb=True;source=True;cached=False;"
-                    + "discovery:not-reached"),
-            new(
-                "package-all-libraries",
-                "schema-static-before-package-acquisition/"
-                    + "render-after-package-acquisition",
-                "Library[schema:151:1898992BB0AE]",
-                "focus=Library Info->Classified methods,"
-                    + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
-                    + "Library Info->Type forwarders;discovery=none",
-                "focus:pdb=False;source=False;cached=False;"
                     + "discovery:not-reached"),
             new(
                 "direct-library",
@@ -525,7 +507,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [missingPackagePath],
-                PackageLibrary = "",
+                AggregateLibraries = true,
                 Discover = [],
                 Schema = true,
             }));
@@ -537,7 +519,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_packagePath],
-                PackageLibrary = "",
+                AggregateLibraries = true,
                 Discover = [],
                 Schema = true,
             }));
@@ -548,7 +530,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_packagePath],
-                PackageLibrary = "",
+                AggregateLibraries = true,
                 Discover = [],
                 Schema = true,
                 Tree = true,
@@ -560,7 +542,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_packagePath],
-                PackageLibrary = "",
+                AggregateLibraries = true,
                 Discover = [SectionNames.LibraryInfo],
             }));
         Assert.Equal(0, discovery.ExitCode);
@@ -570,47 +552,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             "schema-static-before-package-acquisition/"
                 + "effective-after-package-acquisition",
             IdentifyCatalog(result.Output, schemaTree.Output));
-    }
-
-    private async Task<DiscoveryObservation> ObservePackageAllLibrariesDiscoveryAsync()
-    {
-        var render = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(new InspectionOptions
-            {
-                PackageArgs = [_packagePath],
-                AllLibraries = true,
-                Select = [SectionNames.LibraryInfo],
-            }));
-        Assert.Equal(0, render.ExitCode);
-        Assert.Contains(SectionNames.LibraryInfo, render.Output);
-        Assert.Empty(render.Error);
-
-        var result = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(new InspectionOptions
-            {
-                PackageArgs = [_packagePath],
-                AllLibraries = true,
-                Discover = [],
-                Schema = true,
-            }));
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains(SectionNames.LibraryInfo, result.Output);
-        Assert.Empty(result.Error);
-        var tree = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(new InspectionOptions
-            {
-                PackageArgs = [_packagePath],
-                AllLibraries = true,
-                Discover = [],
-                Schema = true,
-                Tree = true,
-            }));
-        Assert.Equal(0, tree.ExitCode);
-        Assert.Empty(tree.Error);
-        return new(
-            "schema-static-before-package-acquisition/"
-                + "render-after-package-acquisition",
-            IdentifyCatalog(result.Output, tree.Output));
     }
 
     private static async Task<DiscoveryObservation> ObserveLibraryDiscoveryAsync()

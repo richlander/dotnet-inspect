@@ -54,7 +54,9 @@ public partial class PackageCommand
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
         var sectionNames = sectionCatalog.SelectableSectionNames;
-        bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
+        bool packageLibraryMode =
+            options.PackageLibrary != null
+            || options.AggregateLibraries;
         if (!packageLibraryMode)
             options = NormalizeDependencyProjection(options);
 
@@ -76,23 +78,11 @@ public partial class PackageCommand
                 return 1;
             }
 
-            StructuralRoute route = options.AllLibraries
-                ? StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate)
-                : StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageSingleLibrary,
-                    InspectionCatalogIdentity.Library);
-            StructuralOutputShape shape =
-                options.AllLibraries
-                && options.TabularExplicitlySet
-                && !options.Count
-                    ? StructuralOutputShape.Rows
-                    : StructuralOutputShape.Document;
             return StructuralViewRegistry.Execute(
-                route,
-                StructuralDiscoveryRequest.From(options),
-                shape);
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageSingleLibrary,
+                    InspectionCatalogIdentity.Library),
+                StructuralDiscoveryRequest.From(options));
         }
 
         if (!packageLibraryMode
@@ -1084,28 +1074,23 @@ public partial class PackageCommand
                     options);
             }
 
-            if (options.AllLibraries)
+            if (options.AggregateLibraries)
             {
-                // Authority-backed input must not be reacquired through a legacy producer key.
-                return await ExecutePackageAllLibrariesAsync(
-                    client,
-                    extractPath,
+                return await ExecutePackageAggregateLibrariesAsync(
                     target.IsLocalFile,
                     target.OriginalArgument,
+                    resolution.NupkgPath,
                     packageName,
                     version,
-                    resolution,
-                    nuspec?.PackageName,
-                    nuspec?.Version,
                     options);
             }
 
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
-                    extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
+                    resolution.NupkgPath,
                     packageName,
                     version,
                     options);

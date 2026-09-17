@@ -205,57 +205,6 @@ public sealed class CliRowSelectionRouterIntegrationTests
     }
 
     [Fact]
-    public async Task AllLibrariesUnsupportedRequestFailsBeforeStructuralRoute()
-    {
-        RouteInvocation invocation =
-            await InvokeAsync(
-                "NoSuchRouteTarget",
-                "--all-libraries",
-                "-n",
-                "2",
-                "--offline");
-
-        Assert.Equal(1, invocation.ExitCode);
-        Assert.Empty(invocation.Output);
-        Assert.Equal(
-            "Error: -n is not available for this command.",
-            invocation.Error.Trim());
-        Assert.Contains(
-            invocation.Observations,
-            observation =>
-                observation.Stage == "router-row-selection"
-                && observation.Detail == "UnsupportedCapability");
-        Assert.DoesNotContain(
-            invocation.Observations,
-            observation => observation.Stage == "router-structural");
-        Assert.DoesNotContain(
-            invocation.Observations,
-            observation => observation.Stage == "router-rewrite");
-    }
-
-    [Fact]
-    public async Task AllLibrariesWithoutRowRequestUsesStructuralRoute()
-    {
-        RouteInvocation invocation =
-            await InvokeAsync(
-                "NoSuchRouteTarget",
-                "--all-libraries",
-                "--offline");
-
-        Assert.Contains(
-            invocation.Observations,
-            observation =>
-                observation.Stage == "router-row-selection"
-                && observation.Detail == "NoRequest");
-        Assert.Contains(
-            invocation.Observations,
-            observation => observation.Stage == "router-structural");
-        Assert.DoesNotContain(
-            invocation.Observations,
-            observation => observation.Stage == "router-rewrite");
-    }
-
-    [Fact]
     public async Task MixedRealDeclarationsRequireExplicitCommand()
     {
         RootCommand root = CommandLineBuilder.CreateRootCommand();

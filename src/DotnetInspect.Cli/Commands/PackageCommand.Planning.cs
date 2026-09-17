@@ -41,138 +41,6 @@ public partial class PackageCommand
     internal static DocumentSchema PackageDiscoverySchema()
         => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
 
-    internal sealed record AllLibrariesRowSchema(
-        string Section,
-        string[] Headers,
-        string[] StableHeaders,
-        string[]? AlternateHeaders = null,
-        string[]? AlternateStableHeaders = null);
-
-    internal static IReadOnlyList<AllLibrariesRowSchema>
-        AllLibrariesRowSchemas { get; } =
-        CreateAllLibrariesRowSchemas();
-
-    internal static DocumentSchema PackageAllLibrariesDiscoverySchema()
-    {
-        var schema = new DocumentSchema();
-        foreach (AllLibrariesRowSchema rowSchema in
-                 AllLibrariesRowSchemas)
-            schema.Add(
-                rowSchema.Section,
-                "column",
-                rowSchema.Headers
-                    .Concat(rowSchema.AlternateHeaders ?? [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray());
-
-        return schema;
-    }
-
-    private static IReadOnlyList<AllLibrariesRowSchema>
-        CreateAllLibrariesRowSchemas()
-    {
-        var schemas = new List<AllLibrariesRowSchema>
-        {
-            new(
-                SectionNames.LibraryInfo,
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Field",
-                    "Value",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "field",
-                    "value",
-                ]),
-            new(
-                "Switches",
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Kind",
-                    "Switch",
-                    "API",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "kind",
-                    "switch",
-                    "api",
-                ]),
-            new(
-                IntegrationSectionNames.Opportunities,
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Integration",
-                    "API",
-                    "Integration Type",
-                    "Look For",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "integration",
-                    "api",
-                    "integration_type",
-                    "look_for",
-                ]),
-        };
-        schemas.AddRange(
-            LibraryIntegrationCatalog.All.Select(descriptor =>
-                new AllLibrariesRowSchema(
-                    descriptor.SectionName,
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "API",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "api",
-                    ],
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "Type",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "type",
-                    ])));
-        return schemas;
-    }
-
     private static bool ValidatePackageProjection(
         InspectionOptions options,
         int packageCount,
@@ -562,7 +430,7 @@ public partial class PackageCommand
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.AllLibraries) conflicts.Add("--all-libraries");
+        if (options.AggregateLibraries) conflicts.Add("Library section inspection");
         if (options.Discover != null) conflicts.Add("-D/--discover");
 
         return conflicts;
@@ -631,7 +499,7 @@ public partial class PackageCommand
             if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
             if (options.ShowDependencies) conflicts.Add("--dependencies");
             if (options.PackageLibrary != null) conflicts.Add("--library");
-            if (options.AllLibraries) conflicts.Add("--all-libraries");
+            if (options.AggregateLibraries) conflicts.Add("Library section inspection");
             if (options.Discover != null) conflicts.Add("-D/--discover");
             if (options.Columns != null) conflicts.Add("--columns");
             if (options.Fields != null) conflicts.Add("--fields");

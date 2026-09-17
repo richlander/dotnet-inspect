@@ -2747,23 +2747,24 @@ public partial class CommandExecutionTests
                 "--library",
                 "Test.Package.MultiLibraryMode.dll",
                 "--tsv");
-            var allLibraries = await RunAppAsync(
+            var aggregate = await RunAppAsync(
                 "package",
                 packagePath,
                 packagePath,
-                "--all-libraries",
+                "-S",
+                "Library Info",
                 "--tsv");
 
             Assert.Equal(1, library.Exit);
-            Assert.Equal(1, allLibraries.Exit);
+            Assert.Equal(1, aggregate.Exit);
             Assert.Empty(library.Output);
-            Assert.Empty(allLibraries.Output);
+            Assert.Empty(aggregate.Output);
             Assert.Contains(
                 "Multiple package inspection cannot be combined with --library.",
                 library.Error);
             Assert.Contains(
-                "Multiple package inspection cannot be combined with --all-libraries.",
-                allLibraries.Error);
+                "Multiple package inspection cannot be combined with Library section inspection.",
+                aggregate.Error);
         }
         finally
         {

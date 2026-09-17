@@ -27,7 +27,6 @@ public enum InspectionCatalogIdentity
 {
     Package,
     Library,
-    LibraryAggregate,
     ApiType,
     ApiMember,
     ApiMemberOverload,

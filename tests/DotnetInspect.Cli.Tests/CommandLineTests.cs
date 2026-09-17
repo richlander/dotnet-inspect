@@ -849,8 +849,6 @@ public class CommandLineTests
     [Theory]
     [InlineData("--path", "-n1")]
     [InlineData("--path", "-1")]
-    [InlineData("--library", "-n1")]
-    [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
     [InlineData("--version", "-1")]
     public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(
@@ -858,6 +856,19 @@ public class CommandLineTests
         string lineLimit)
     {
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
+
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public void PreprocessArgs_RequiredLibraryValuePreservesFollowingLineLimit(
+        string lineLimit)
+    {
+        PreprocessAndApplyLineWindow(
+            ["package", "Foo", "--library", "Foo.dll", lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -884,6 +895,7 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("package")]
     [InlineData("find")]
     [InlineData("type")]
     public void PreprocessArgs_RequiredLibraryValueCanResembleLineLimit(

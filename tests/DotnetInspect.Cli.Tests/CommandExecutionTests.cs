@@ -2084,56 +2084,6 @@ public partial class CommandExecutionTests
         return (method.MetadataToken, offset);
     }
 
-    /// <summary>
-    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
-    /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
-    /// line, and it carries no trailing whitespace.
-    /// </summary>
-    private static void AssertBlocksSeparatedByOneBlankLine(string output, string expectedTitlePrefix)
-    {
-        Assert.DoesNotContain('\r', output);
-
-        // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
-        // terminating newline itself, so asserting output ends with one asserts WriteLfLine;
-        // strip it and require what the assembling TrimEnd is actually for -- that the document
-        // carries no trailing whitespace. Every block contributes a trailing blank line, so
-        // without that TrimEnd the document would end "\n\n\n".
-        Assert.EndsWith("\n", output, StringComparison.Ordinal);
-        var document = output[..^1];
-        Assert.Equal(document.TrimEnd(), document);
-
-        var lines = document.Split('\n');
-
-        // The document's start, which the heading loop cannot reach: the title block is one
-        // heading line naming the package, followed by exactly one blank line. A bare
-        // StartsWith("# ") would admit anything prepended above the title that is itself a heading.
-        Assert.StartsWith(expectedTitlePrefix, lines[0], StringComparison.OrdinalIgnoreCase);
-        Assert.True(
-            lines[1].Length == 0,
-            $"expected a blank line after the title, found '{lines[1]}'");
-
-        var headings = 0;
-        for (var i = 0; i < lines.Length; i++)
-        {
-            if (!lines[i].StartsWith("## ", StringComparison.Ordinal))
-                continue;
-
-            headings++;
-            Assert.True(i >= 2, $"'{lines[i]}' has no room for a preceding blank line");
-            Assert.True(
-                lines[i - 1].Length == 0,
-                $"expected a blank line before '{lines[i]}', found '{lines[i - 1]}'");
-            Assert.True(
-                lines[i - 2].Length != 0,
-                $"expected exactly one blank line before '{lines[i]}', found more than one");
-        }
-
-        Assert.True(
-            headings >= 2,
-            $"expected at least two section headings, so that separation between blocks is "
-                + $"exercised and not just the boundary below the title, got:\n{output}");
-    }
-
     private static string ExtractSectionName(string line)
     {
         if (line.StartsWith('|'))

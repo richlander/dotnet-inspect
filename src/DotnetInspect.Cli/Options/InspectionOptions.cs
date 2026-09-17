@@ -42,15 +42,15 @@ public record InspectionOptions : IProjectionOptions
     public bool BrowsableUrls { get; init; }
 
     /// <summary>
-    /// Library inside the package to inspect. Null means package inspection; empty string means select
-    /// the primary library when unambiguous; a non-empty value selects a specific DLL.
+    /// Library inside the package to inspect. Null means package inspection; empty string means
+    /// namesake narrowing; a non-empty value selects a specific compile asset.
     /// </summary>
     public string? PackageLibrary { get; init; }
 
     /// <summary>
-    /// Inspect all compatible libraries in the package instead of selecting one.
+    /// Route package Library-section demand through the selected compile-Library aggregate.
     /// </summary>
-    public bool AllLibraries { get; init; }
+    public bool AggregateLibraries { get; init; }
 
     /// <summary>
     /// Show the package file tree (lib/tools structure).
@@ -320,7 +320,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null;
 
     /// <summary>
     /// All inspection features enabled.

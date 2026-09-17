@@ -44,12 +44,6 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
-                    StructuralViewIdentity.PackageAllLibraries,
-                    PackageCommand.Name,
-                    "all-libraries",
-                    ImmutableArray.Create(
-                        InspectionCatalogIdentity.LibraryAggregate)),
-                (
                     StructuralViewIdentity.DirectLibrary,
                     "library",
                     "library",
@@ -121,52 +115,6 @@ public sealed class InspectionPlanningTests
             pair => Assert.Equal(
                 StructuralSectionInput.None,
                 pair.Value));
-    }
-
-    [Fact]
-    public void PackageAllLibraries_DoesNotDeclareFieldOrColumnProjection()
-    {
-        StructuralViewDescriptor view =
-            StructuralViewRegistry.Get(
-                StructuralViewIdentity.PackageAllLibraries);
-
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Fields));
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Columns));
-    }
-
-    [Fact]
-    public void PackageAllLibrariesRowSchema_MatchesRendererDeclarations()
-    {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate),
-                StructuralOutputShape.Rows);
-
-        Assert.Equal(
-            PackageCommand.AllLibrariesRowSchemas.Select(
-                row => row.Section),
-            projection.Schema.SectionNames);
-        foreach (PackageCommand.AllLibrariesRowSchema rowSchema in
-                 PackageCommand.AllLibrariesRowSchemas)
-        {
-            Assert.Equal(
-                ["Package", "Version", "Library", "TFM"],
-                rowSchema.Headers[..4]);
-            Assert.Equal(
-                rowSchema.Headers
-                    .Concat(rowSchema.AlternateHeaders ?? [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase),
-                projection.Schema
-                    .GetSection(rowSchema.Section)!
-                    .Items
-                    .Select(item => item.Name));
-        }
     }
 
     [Theory]
@@ -546,19 +494,16 @@ public sealed class InspectionPlanningTests
         Assert.Contains("| Signature | column |", discovery.Output);
     }
 
-    [Theory]
-    [InlineData("--library")]
-    [InlineData("--all-libraries")]
-    public async Task ExplicitPackageStructuralSchema_DoesNotAcquireTarget(
-        string viewOption)
+    [Fact]
+    public async Task ExplicitPackageLibraryStructuralSchema_DoesNotAcquireTarget()
     {
         string missing =
             $"Missing.Package.{Guid.NewGuid():N}";
-        string[] args = viewOption == "--library"
-            ? ["package", missing, viewOption, "", "-D", "--schema"]
-            : ["package", missing, viewOption, "-D", "--schema"];
 
-        var result = await RunAppAsync(args);
+        var result = await RunAppAsync(
+            "package", missing,
+            "--library", "ref/net8.0/Missing.dll",
+            "-D", "--schema");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -568,30 +513,6 @@ public sealed class InspectionPlanningTests
             "not found",
             result.Error,
             StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("--all-libraries=false")]
-    [InlineData("--all-libraries:false")]
-    public async Task CommandlessDisabledAllLibraries_MatchesOmission(
-        string disabledOption)
-    {
-        string[] projection =
-        [
-            "-D",
-            SectionNames.TypeInfo,
-            "--schema",
-            "--table",
-            "--tips",
-            "q",
-        ];
-        var disabled = await RunAppAsync(
-            ["System.String", disabledOption, .. projection]);
-        var omitted = await RunAppAsync(
-            ["System.String", .. projection]);
-
-        Assert.Equal(omitted, disabled);
-        Assert.Equal(0, disabled.Exit);
     }
 
     [Fact]
@@ -1771,37 +1692,6 @@ public sealed class InspectionPlanningTests
             result.Error);
     }
 
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task PackageAllLibraries_StaticSchemaRejectsUnsupportedProjection(
-        string projection)
-    {
-        string target =
-            $"Missing.Package.{Guid.NewGuid():N}";
-
-        var result = await RunAppAsync(
-            "package",
-            target,
-            "--all-libraries",
-            "-D",
-            "Library Info",
-            "--schema",
-            projection,
-            "NoSuchValue",
-            "--tips",
-            "q");
-
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            $"--all-libraries cannot be combined with {projection}",
-            result.Error);
-        Assert.DoesNotContain(
-            target,
-            result.Error);
-    }
-
     [Fact]
     public async Task CommandlessStructuralMode_UsesParsedAttachedValues()
     {
@@ -1865,7 +1755,6 @@ public sealed class InspectionPlanningTests
     [InlineData("package-version", "--library cannot be combined with --versions")]
     [InlineData("package-dependencies", "--library cannot be combined with --dependencies")]
     [InlineData("package-layout", "--library cannot be combined with --layout")]
-    [InlineData("all-libraries-layout", "--all-libraries cannot be combined with --layout")]
     public async Task StaticSchema_PreservesRouteValidationAddedByReplacement(
         string scenario,
         string expectedError)
@@ -1886,6 +1775,7 @@ public sealed class InspectionPlanningTests
                 "package",
                 "Missing.Package",
                 "--library",
+                "ref/net8.0/Missing.dll",
                 "--versions",
                 "-D",
                 "--schema",
@@ -1906,15 +1796,6 @@ public sealed class InspectionPlanningTests
                 "Missing.Package",
                 "--library",
                 "ref/net8.0/Missing.dll",
-                "--layout",
-                "-D",
-                "--schema",
-            ],
-            "all-libraries-layout" =>
-            [
-                "package",
-                "Missing.Package",
-                "--all-libraries",
                 "--layout",
                 "-D",
                 "--schema",
@@ -2027,24 +1908,17 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("library", "--layout=false")]
-    [InlineData("library", "--layout:false")]
-    [InlineData("all", "--layout=false")]
-    [InlineData("all", "--layout:false")]
+    [InlineData("--layout=false")]
+    [InlineData("--layout:false")]
     public async Task StaticPackageLibrarySchema_ExplicitFalseLayoutIsDisabled(
-        string route,
         string layout)
     {
-        string[] scope =
-            route == "library"
-                ? ["--library", "ref/net8.0/Missing.dll"]
-                : ["--all-libraries"];
-
         var result = await RunAppAsync(
             [
                 "package",
                 "Missing.Package",
-                .. scope,
+                "--library",
+                "ref/net8.0/Missing.dll",
                 layout,
                 "-D",
                 "--schema",
@@ -2064,7 +1938,6 @@ public sealed class InspectionPlanningTests
     [InlineData("--tfms", null)]
     [InlineData("--print", null)]
     [InlineData("--dependencies", null)]
-    [InlineData("--tfm", "all")]
     [InlineData("--path", "README.md")]
     public async Task PackageLibraryAlternativesUsePackageModeValidation(string option, string? value)
     {
@@ -2747,48 +2620,6 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(explicitType, commandless);
         Assert.Equal(0, commandless.Exit);
-    }
-
-    [Fact]
-    public async Task CommandlessDisabledAllLibrariesDoesNotBecomeTarget()
-    {
-        var result = await RunAppAsync(
-            "Missing.Package",
-            "--all-libraries",
-            "false",
-            "-D",
-            "Package Info",
-            "--schema",
-            "--table",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Contains(
-            "[package/package/Package] Package Info",
-            result.Output);
-        Assert.Empty(result.Error);
-    }
-
-    [Fact]
-    public async Task CommandlessLeadingDisabledAllLibrariesDoesNotBecomeTarget()
-    {
-        var result = await RunAppAsync(
-            "--all-libraries",
-            "false",
-            "Missing.Package",
-            "-D",
-            "Package Info",
-            "--schema",
-            "--table",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Contains(
-            "[package/package/Package] Package Info",
-            result.Output);
-        Assert.Empty(result.Error);
     }
 
     [Fact]
@@ -4216,20 +4047,13 @@ public sealed class InspectionPlanningTests
         Assert.Empty(result.Error);
     }
 
-    [Theory]
-    [InlineData("library")]
-    [InlineData("all")]
-    public async Task ProgrammaticPackageLibraryModeRejectsLayout(
-        string route)
+    [Fact]
+    public async Task ProgrammaticPackageLibraryModeRejectsLayout()
     {
         var options = new InspectionOptions
         {
             PackageArgs = ["Missing.Package"],
-            PackageLibrary =
-                route == "library"
-                    ? "ref/net8.0/Missing.dll"
-                    : null,
-            AllLibraries = route == "all",
+            PackageLibrary = "ref/net8.0/Missing.dll",
             ListLayout = true,
         };
 
@@ -4238,9 +4062,7 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
-            route == "library"
-                ? "--library cannot be combined with --layout"
-                : "--all-libraries cannot be combined with --layout",
+            "--library cannot be combined with --layout",
             result.Error);
         Assert.DoesNotContain(
             "Package 'Missing.Package' not found",
