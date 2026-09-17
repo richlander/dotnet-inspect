@@ -34,6 +34,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             [
                 PackageQuery.DependenciesTermKey,
+                PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
@@ -76,6 +77,46 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Theory]
+    [InlineData("all", PackageQueryDependencyTargetKind.All, null)]
+    [InlineData(
+        "NET8.0",
+        PackageQueryDependencyTargetKind.TargetFramework,
+        "net8.0")]
+    [InlineData(
+        "any",
+        PackageQueryDependencyTargetKind.TargetFramework,
+        "any")]
+    public void DependencyTarget_LowersToTheProductPlan(
+        string value,
+        PackageQueryDependencyTargetKind expectedKind,
+        string? expectedFramework)
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "depends=Microsoft.Extensions.DependencyInjection",
+                    $"dependency-target={value}",
+                ],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        Assert.Equal(expectedKind, options!.Plan.DependencyTarget.Kind);
+        Assert.Equal(
+            expectedFramework,
+            options.Plan.DependencyTarget.RequestedTargetFramework);
+        Assert.Contains(
+            options.Plan.Terms,
+            term => term.Key == PackageQuery.DependencyTargetTermKey
+                && term.Value == value);
     }
 
     [Fact]
@@ -208,6 +249,10 @@ public class PackageQueryCliTests
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
+    [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
+    [InlineData(
+        "dependency-target=net8.0",
+        "requires a depends or dependencies term")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
