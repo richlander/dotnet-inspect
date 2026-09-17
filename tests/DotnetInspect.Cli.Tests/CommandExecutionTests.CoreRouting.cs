@@ -2695,6 +2695,7 @@ public partial class CommandExecutionTests
             "System.String.ToString",
             "--focus",
             "--rows",
+            "--lines",
             lineWindow,
             "--help");
 
@@ -2719,12 +2720,14 @@ public partial class CommandExecutionTests
             "member",
             "System.String.ToString",
             requiredValue,
+            "--lines",
             "-1",
             "--help");
         var routed = await RunAppInDirectoryAsync(
             Path.GetTempPath(),
             "System.String.ToString",
             requiredValue,
+            "--lines",
             "-1",
             "--help");
 
@@ -4866,6 +4869,8 @@ public partial class CommandExecutionTests
                 foreach (var section in sections)
                 {
                     var selectArgs = BuildDiscoverySelectionArgs(command, section);
+                    if (section != SectionNames.FindingCensus)
+                        selectArgs = [.. selectArgs, "--lines"];
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     var selectionSucceeded = selectExit == 0
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);

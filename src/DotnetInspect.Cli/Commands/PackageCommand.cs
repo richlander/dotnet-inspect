@@ -1424,14 +1424,16 @@ public partial class PackageCommand
                         writerOptions.IncludeSections,
                         fieldSectionsAsColumns: true);
                 }
-                if (!string.IsNullOrEmpty(options.OutputPath))
-                {
-                    File.WriteAllText(options.OutputPath, output);
-                }
-                else
-                {
-                    Console.WriteLine(output);
-                }
+                bool writesFile = !string.IsNullOrEmpty(options.OutputPath);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    options.Rows,
+                    writer =>
+                    {
+                        writer.Write(output);
+                        if (!writesFile)
+                            writer.WriteLine();
+                    });
             }
 
             return PackageIntegrityExitCode(result);

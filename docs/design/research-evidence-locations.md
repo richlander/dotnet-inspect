@@ -85,10 +85,12 @@ Release tests gate:
 
 ## Production adoption
 
-This is step 1 of 4:
+This is the foundation for a four-step adoption:
 
-1. Define the carrier and adopt it in Research call-site facts (#5610).
-2. Expose method-qualified callee evidence in CLI Facts output (#7358).
+1. Define the carrier and adopt it in Research call-site facts (#5610,
+   completed by #7360).
+2. Expose method-qualified callee evidence in CLI Facts output (#7358,
+   completed by #7392).
 3. Project exact callee safety and semantics evidence into Inspect Web
    (#4641).
 4. Present method-level aggregate cost evidence in Inspect Web (#4642), with

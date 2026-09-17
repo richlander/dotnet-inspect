@@ -119,7 +119,8 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: -n is not available for this command.",
+            "Error: -n selects semantic rows and is not available for this "
+                + "command; add --lines to select rendered lines.",
             invocation.Error.Trim());
         Assert.Contains(
             invocation.Observations,
@@ -146,7 +147,8 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: -n is not available for this command.",
+            "Error: -n selects semantic rows and is not available for this "
+                + "command; add --lines to select rendered lines.",
             invocation.Error.Trim());
         Assert.Contains(
             invocation.Observations,
@@ -173,7 +175,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: -n is not available for this command.",
+            "Error: --rows is not available for this command.",
             invocation.Error.Trim());
         Assert.Contains(
             invocation.Observations,
@@ -202,6 +204,24 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Contains(
             invocation.Observations,
             observation => observation.Stage == "router-hit");
+    }
+
+    [Fact]
+    public void ExplicitLineUnitClaimsModeSpecificFallbackPreprocessing()
+    {
+        string[] arguments =
+        [
+            "package",
+            "System.CommandLine",
+            "--tail",
+            "2",
+            "--lines",
+        ];
+
+        Assert.False(
+            CommandLineBuilder.TryGetStaleArgumentError(
+                arguments,
+                out _));
     }
 
     [Fact]

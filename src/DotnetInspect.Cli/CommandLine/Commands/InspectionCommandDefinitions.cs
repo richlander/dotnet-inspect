@@ -100,9 +100,6 @@ public static class InspectionCommandDefinitions
         command.Options.Add(opts.Fields);
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
-
         command.SetAction(async (parseResult, ct) =>
         {
             string[] positional = parseResult.GetValue(argsArgument) ?? [];
@@ -190,11 +187,16 @@ public static class InspectionCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return command;
     }

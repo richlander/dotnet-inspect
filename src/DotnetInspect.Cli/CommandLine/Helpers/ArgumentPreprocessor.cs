@@ -20,6 +20,8 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static int? TailLines { get; private set; }
 
+    public static bool LineWindowExplicitlySet { get; private set; }
+
     /// <summary>
     /// Reports the pre-#3364 spelling <c>--head N</c>/<c>--tail N</c>, where the count
     /// rode on the direction flag. Those flags now name only a direction, so the count
@@ -220,14 +222,17 @@ public static class ArgumentPreprocessor
     {
         HeadLines = null;
         TailLines = null;
+        LineWindowExplicitlySet = false;
     }
 
     internal static void SetLineWindow(
         int? headLines,
-        int? tailLines)
+        int? tailLines,
+        bool explicitlySet = false)
     {
         HeadLines = headLines;
         TailLines = tailLines;
+        LineWindowExplicitlySet = explicitlySet;
     }
 
     /// <summary>
@@ -238,9 +243,7 @@ public static class ArgumentPreprocessor
 
     internal static string[] PreprocessArgs(string[] args, bool directionPresence)
     {
-        // Reset HeadLines for each preprocessing call
-        HeadLines = null;
-        TailLines = null;
+        SetLineWindow(headLines: null, tailLines: null);
 
         // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
         // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
@@ -362,8 +365,7 @@ public static class ArgumentPreprocessor
         ParseResult parseResult,
         IReadOnlyList<string>? rawArgs = null)
     {
-        HeadLines = null;
-        TailLines = null;
+        SetLineWindow(headLines: null, tailLines: null);
 
         if (parseResult.Errors.Count > 0)
             return;

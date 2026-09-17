@@ -46,12 +46,6 @@ public static class CommandLineHelpers
             Hidden = true
         };
 
-    /// <summary>
-    /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
-    /// </summary>
-    public static int? ParseTypeLimit(string? value)
-        => value != null && int.TryParse(value, out var n) ? n : null;
-
     public static bool IsBooleanOptionEnabled(
         IReadOnlyList<string> tokens,
         string option)

@@ -744,18 +744,25 @@ public class PackageQueryCliTests
         Assert.Contains("package query", result.Error);
     }
 
-    [Fact]
-    public async Task PackageQueryRejectsSourceOverridesBeforeAcquisition()
+    [Theory]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public async Task PackageQueryAcceptsLineUnitsBeforeSourceValidation(
+        string lineUnit)
     {
         var result = await Run(
             "package",
             "query",
             "Contoso.*",
+            "-n",
+            "1",
+            lineUnit,
             "--source",
             "https://example.invalid/index.json");
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("NuGet.org", result.Error);
+        Assert.DoesNotContain("not available with package query", result.Error);
     }
 
     [Fact]
