@@ -194,9 +194,14 @@ failure, provenance, and interpretation facts in baseline Content or ordinary
 Diagnostics. Each evidence field must answer one named question; do not collect
 speculative metrics, and do not treat static counts or one invocation's timing
 as runtime proof. Keep the service contract and correctness gates
-configuration-neutral, but compile host registration and capture selection only
-in Debug builds. Agents may rely on the result only when that Debug host
-explicitly advertises the gesture. Follow
+configuration-neutral. Use
+`EvidenceBuilder<TContent, TEvidence>` at the host boundary so Release callers
+omit the evidence request and one of two static delegates performs the
+operation. The returned ordinary inspection and optional enriched envelope
+share the same baseline instance; normal output consumes the former while a
+Debug host may publish the latter to its evidence destination. Agents may rely
+on the result only when that Debug host explicitly advertises the gesture.
+Follow
 [Use evidence envelopes during command development](evidence-and-validation.md#use-evidence-envelopes-during-command-development)
 for the executable reference pattern, command-family evidence patterns, and
 measurement boundary.

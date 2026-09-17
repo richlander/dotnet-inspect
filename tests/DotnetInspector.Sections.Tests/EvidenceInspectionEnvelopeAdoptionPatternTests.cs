@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Sections.Tests;
@@ -53,38 +54,101 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
     }
 
     [Fact]
-    public void DebugHostAdapterAvailabilityMatchesCompilation()
-    {
-        Type? adapter = typeof(EvidenceInspectionEnvelopeAdoptionPatternTests)
-            .Assembly.GetType(
-                "DotnetInspector.Sections.Tests.DebugEvidenceEnvelopeHostPattern");
-
-#if DEBUG
-        Assert.NotNull(adapter);
-#else
-        Assert.Null(adapter);
-#endif
-    }
-
-#if DEBUG
-    [Fact]
-    public void DebugHostAdapterSelectsEvidenceEntryPoint()
+    public void BuilderWithoutEvidenceRequestUsesOrdinaryEntryPoint()
     {
         var service = new ExampleInspectionService();
-        var host = new DebugEvidenceEnvelopeHostPattern(service);
+        var builder = new EvidenceBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
 
+        (
+            InspectionEnvelope<ExampleInspectionContent> inspection,
+            EvidenceInspectionEnvelope<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence>? evidence) =
+            Build(builder, service, Request());
+
+        Assert.Null(evidence);
+        Assert.Equal(0, inspection.Content.MatchCount);
+        Assert.Equal(1, service.ExecutionCount);
+        Assert.Equal(0, service.EvidenceCaptureCount);
+    }
+
+    [Fact]
+    public void BuilderRequestMatchesCompilationAndReusesBaseline()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+        var requestProbe = new EvidenceRequestProbe();
+
+        builder.RequestEvidence(requestProbe.Request());
+        (
+            InspectionEnvelope<ExampleInspectionContent> inspection,
+            EvidenceInspectionEnvelope<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence>? evidence) =
+            Build(builder, service, Request());
+
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+
+        Assert.Equal(
+            buildProbe.IsDebugBuild ? 1 : 0,
+            requestProbe.EvaluationCount);
+        Assert.Equal(1, service.ExecutionCount);
+        Assert.Equal(
+            buildProbe.IsDebugBuild ? 1 : 0,
+            service.EvidenceCaptureCount);
+        Assert.Equal(buildProbe.IsDebugBuild, evidence is not null);
+        if (evidence is not null)
+        {
+            Assert.Same(inspection, evidence.Inspection);
+            Assert.Equal(2, evidence.Evidence.Decisions.Length);
+        }
+    }
+
+    private static (
+        InspectionEnvelope<ExampleInspectionContent> Inspection,
         EvidenceInspectionEnvelope<
             ExampleInspectionContent,
-            ExampleInspectionEvidence> enriched = host.Execute(Request());
-
-        Assert.Equal(1, service.ExecutionCount);
-        Assert.Equal(1, service.EvidenceCaptureCount);
-        Assert.Equal(2, enriched.Evidence.Decisions.Length);
-    }
-#endif
+            ExampleInspectionEvidence>? Evidence)
+        Build(
+            EvidenceBuilder<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence> builder,
+            ExampleInspectionService service,
+            ExampleInspectionRequest request) =>
+        builder.Build(
+            (Service: service, Request: request),
+            static state => state.Service.Execute(state.Request),
+            static state => state.Service.ExecuteWithEvidence(state.Request));
 
     private static ExampleInspectionRequest Request() =>
         new(["alpha", "beta"], "z");
+
+    private sealed class EvidenceRequestProbe
+    {
+        public int EvaluationCount { get; private set; }
+
+        public bool Request()
+        {
+            EvaluationCount++;
+            return true;
+        }
+    }
+
+    private sealed class DebugBuildProbe
+    {
+        public bool IsDebugBuild { get; private set; }
+
+        [Conditional("DEBUG")]
+        public void Mark()
+        {
+            IsDebugBuild = true;
+        }
+    }
 }
 
 internal sealed record ExampleInspectionRequest

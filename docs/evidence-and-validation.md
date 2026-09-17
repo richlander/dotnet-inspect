@@ -135,9 +135,9 @@ the claim.
 ### Reference implementation pattern
 
 The executable reference pattern is
-[`EvidenceInspectionEnvelopeAdoptionPatternTests.cs`](../tests/DotnetInspector.Sections.Tests/EvidenceInspectionEnvelopeAdoptionPatternTests.cs)
-with its Debug-only host adapter in
-[`DebugEvidenceEnvelopeHostPattern.Debug.cs`](../tests/DotnetInspector.Sections.Tests/DebugEvidenceEnvelopeHostPattern.Debug.cs).
+[`EvidenceBuilder.cs`](../src/DotnetInspector.Sections/EvidenceBuilder.cs)
+with its service and host example in
+[`EvidenceInspectionEnvelopeAdoptionPatternTests.cs`](../tests/DotnetInspector.Sections.Tests/EvidenceInspectionEnvelopeAdoptionPatternTests.cs).
 The test harness is the pattern's production host; it is not a retail CLI
 surface.
 
@@ -147,17 +147,33 @@ The pattern separates three responsibilities:
 2. The evidence-enabled service entry point supplies a collector before the
    same core execution, then composes the unchanged baseline and settled
    evidence into `EvidenceInspectionEnvelope<TContent, TEvidence>`.
-3. The host adapter file is enclosed by `#if DEBUG`; only that adapter chooses
-   the evidence-enabled entry point. Release compilation retains the service
-   contract and tests but has no host adapter to invoke it.
+3. The host uses `EvidenceBuilder<TContent, TEvidence>` to pass operation state
+   to two static delegates. Its `[Conditional("DEBUG")]` request method is
+   omitted by Release callers, including argument evaluation. `Build` invokes
+   exactly one delegate and returns the ordinary inspection plus an optional
+   evidence envelope that contains the same inspection instance. The host uses
+   the ordinary tuple member for normal output and may write the optional
+   enriched member to its evidence destination.
 
 This is the preferred split for adopters. Do not put the shared evidence type,
 serializer, or correctness tests behind `#if DEBUG`, because that would make
 the contract least testable in the configuration that owns correctness gates.
-Do put option or export registration, destination handling, and the host branch
-that requests capture behind the Debug boundary. Resolve capture intent before
-execution, use the enriched value's `Inspection` as the ordinary result, and
-never run the operation a second time to obtain evidence.
+Keep option or export registration and destination handling in the host.
+Resolve capture intent before execution, put additional evidence work inside
+the evidence-enabled delegate, use the enriched value's `Inspection` as the
+ordinary result, and never run the operation a second time to obtain evidence.
+The conditional request controls host availability; it is not a correctness
+gate. Exercise each service's enriched entry point directly in Release tests.
+
+Do not generalize the first helper preemptively. An owner-specific typed
+capture-request abstraction in the builder is a future option when evidence
+phases need distinct costs, bounds, or capabilities; current adopters can carry
+their request in operation state or construct it inside the enriched delegate.
+Conditional registration of the evidence delegate is a future option only if
+passing an uninvoked cached static delegate becomes a measured cost. A
+streaming producer with runtime backpressure is a separate design option only
+if a bounded settled evidence value cannot serve a demonstrated scenario; it
+would not be an envelope-construction feature.
 
 ## Asserted properties name their gate
 
