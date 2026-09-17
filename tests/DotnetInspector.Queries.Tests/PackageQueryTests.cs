@@ -136,6 +136,7 @@ public sealed class PackageQueryTests
                 ("prefix", 20),
                 ("prerelease", 30),
                 ("dependencies", 100),
+                ("dependency-target", 150),
                 ("depends", 200),
                 ("downloads", 300),
                 ("readme", 400),
@@ -150,6 +151,7 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
+                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -195,6 +197,18 @@ public sealed class PackageQueryTests
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
+        PackageQueryTermDescriptor dependencyTarget =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.DependencyTargetTermKey);
+        Assert.Equal(
+            "all or NuGet target framework",
+            dependencyTarget.ValueKind);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            dependencyTarget.ControlKind);
+        Assert.Equal(
+            "dependency-target",
+            dependencyTarget.SelectionGroupId);
         Assert.Equal(
             ["10k", "100k", "1m"],
             PackageQuery.Terms.Single(term =>
@@ -218,6 +232,16 @@ public sealed class PackageQueryTests
         PortableQueryOperator.Equal,
         "not/a/package",
         PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "dependency-target",
+        PortableQueryOperator.NotEqual,
+        "net8.0",
+        PackageQueryRequestFailureReason.TermOperatorNotAdmitted)]
+    [InlineData(
+        "dependency-target",
+        PortableQueryOperator.Equal,
+        "not/a/tfm",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
     public void PlanInput_RejectsInvalidTermsBeforeExecution(
         string key,
         PortableQueryOperator @operator,
@@ -230,6 +254,107 @@ public sealed class PackageQueryTests
                 terms: [new PortableQueryTerm(key, @operator, value)]));
 
         Assert.Equal(reason, rejected.Reason);
+    }
+
+    [Fact]
+    public void PlanInput_BindsAllAndCanonicalDependencyTargets()
+    {
+        PackageQueryPlan implicitAll = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms: [Term(PackageQuery.DependsTermKey, "Dependency")]));
+        Assert.Equal(
+            PackageQueryDependencyTargetKind.All,
+            implicitAll.DependencyTarget.Kind);
+        Assert.Null(
+            implicitAll.DependencyTarget.RequestedTargetFramework);
+
+        PackageQueryPlan explicitAll = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "ALL"),
+                ]));
+        Assert.Equal(
+            PackageQueryDependencyTargetKind.All,
+            explicitAll.DependencyTarget.Kind);
+        Assert.Contains(
+            explicitAll.Terms,
+            term => term.Key == PackageQuery.DependencyTargetTermKey
+                && term.Value == "ALL");
+
+        PackageQueryPlan framework = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "NET8.0"),
+                ]));
+        Assert.Equal(
+            PackageQueryDependencyTargetKind.TargetFramework,
+            framework.DependencyTarget.Kind);
+        Assert.Equal(
+            "net8.0",
+            framework.DependencyTarget.RequestedTargetFramework);
+
+        PackageQueryPlan any = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "ANY"),
+                ]));
+        Assert.Equal(
+            "any",
+            any.DependencyTarget.RequestedTargetFramework);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "all"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net8.0"),
+                ])).Reason);
+    }
+
+    [Fact]
+    public void PlanInput_DependencyTargetRequiresDependencyPredicate()
+    {
+        PackageQueryRequestFailure failure = Rejected(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net8.0"),
+                    Term(PackageQuery.DownloadsTermKey, "100k"),
+                ]));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .DependencyTargetRequiresDependencyPredicate,
+            failure.Reason);
+        Assert.Equal(
+            [PackageQuery.DependencyTargetTermKey],
+            failure.TermKeys);
     }
 
     [Fact]
@@ -484,17 +609,291 @@ public sealed class PackageQueryTests
             termEvidence.Single(evidence =>
                 evidence.Term!.Value
                     == "microsoft.extensions.configuration");
-        Assert.Equal(3, configurationEvidence.Summary!.Count);
+        Assert.Equal(4, configurationEvidence.Summary!.Count);
         Assert.Equal(
             [
-                "Microsoft.Extensions.Configuration 10.0.0",
-                "Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
-                "microsoft.extensions.configuration [10.0.0, 11.0.0)",
+                "net10.0: Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
+                "net7.0: Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
+                "net8.0: Microsoft.Extensions.Configuration 10.0.0",
             ],
             configurationEvidence.Summary.Preview.Select(value =>
                 value.ToString()));
         Assert.Equal(2, source.ManifestRequests.Count);
         Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependencyTargetSelectsOneCompatibleGroup()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Polly.Core",
+                dependencies:
+                """
+                <group targetFramework="netstandard2.0">
+                  <dependency id="Microsoft.Bcl.AsyncInterfaces" version="8.0.0" />
+                  <dependency id="Microsoft.Bcl.TimeProvider" version="8.0.0" />
+                  <dependency id="System.ComponentModel.Annotations" version="5.0.0" />
+                  <dependency id="System.Threading.Tasks.Extensions" version="4.5.4" />
+                </group>
+                <group targetFramework="net8.0" />
+                """),
+            "Polly.Core");
+
+        PackageQueryPlan all = Accepted(
+            PackageQuery.PlanInput(
+                "Polly.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "System.Threading.Tasks.Extensions"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch allMatch = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                all,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal(
+            PackageQueryDependencyTargetKind.All,
+            all.DependencyTarget.Kind);
+        Assert.Contains(
+            "netstandard2.0: System.Threading.Tasks.Extensions 4.5.4",
+            allMatch.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Value,
+            StringComparison.Ordinal);
+
+        PackageQueryPlan net12Dependency = Accepted(
+            PackageQuery.PlanInput(
+                "Polly.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "System.Threading.Tasks.Extensions"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net12.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        Assert.Empty(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                net12Dependency,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>());
+
+        PackageQueryPlan net12Empty = Accepted(
+            PackageQuery.PlanInput(
+                "Polly.*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "none"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net12.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch emptyMatch = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                net12Empty,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Contains(
+            "Dependency target net12.0 selected manifest group net8.0.",
+            emptyMatch.Evidence.Single(evidence =>
+                evidence.Id
+                    == PackageQuery.DependencyTargetTermKey).Value,
+            StringComparison.Ordinal);
+
+        PackageQueryPlan netStandardDependency = Accepted(
+            PackageQuery.PlanInput(
+                "Polly.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "System.Threading.Tasks.Extensions"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "netstandard2.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch selectedMatch = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                netStandardDependency,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal(
+            [
+                PackageQuery.PrefixEvidenceId,
+                PackageQuery.DependencyTargetTermKey,
+                PackageQuery.DependsTermKey,
+            ],
+            selectedMatch.Evidence.Select(evidence => evidence.Id));
+        Assert.Contains(
+            "selected manifest group netstandard2.0",
+            selectedMatch.Evidence[1].Value,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageQueryEvidenceScope.Package,
+            selectedMatch.Evidence[1].Scope);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependencyTargetAllAndAnyRemainDistinct()
+    {
+        var source = SourceFor(Manifest(
+            "Contoso.Package",
+            dependencies:
+            """
+            <group targetFramework="any">
+              <dependency id="Universal.Dependency" version="1.0.0" />
+            </group>
+            <group targetFramework="net8.0">
+              <dependency id="Net8.Dependency" version="8.0.0" />
+            </group>
+            """));
+
+        PackageQueryPlan all = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Net8.Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "all"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch allMatch = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                all,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence allTarget = Assert.Single(
+            allMatch.Evidence,
+            evidence =>
+                evidence.Id == PackageQuery.DependencyTargetTermKey);
+        Assert.Equal(PackageQueryEvidenceScope.Query, allTarget.Scope);
+        Assert.Contains(
+            "all package manifest groups",
+            allTarget.Value,
+            StringComparison.Ordinal);
+
+        PackageQueryPlan anyNet8 = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Net8.Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "any"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        Assert.Empty(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                anyNet8,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>());
+
+        PackageQueryPlan anyUniversal = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Universal.Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "any"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch anyMatch = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                anyUniversal,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence anyTarget = Assert.Single(
+            anyMatch.Evidence,
+            evidence =>
+                evidence.Id == PackageQuery.DependencyTargetTermKey);
+        Assert.Equal(PackageQueryEvidenceScope.Package, anyTarget.Scope);
+        Assert.Contains(
+            "selected manifest group any",
+            anyTarget.Value,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "any: Universal.Dependency 1.0.0",
+            anyMatch.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Value,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependencyTargetDistinguishesNoGroupsFromNoMatch()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.NoGroups"),
+            Match("Contoso.Net8Only"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.nogroups@1.0.0"] =
+                    Manifest("Contoso.NoGroups"),
+                ["contoso.net8only@1.0.0"] = Manifest(
+                    "Contoso.Net8Only",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0" />
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "none"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net6.0"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal("Contoso.NoGroups", match.Package.PackageId);
+        Assert.Contains(
+            "found no declared dependency groups",
+            match.Evidence.Single(evidence =>
+                evidence.Id
+                    == PackageQuery.DependencyTargetTermKey).Value,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -944,10 +1343,11 @@ public sealed class PackageQueryTests
         PackageQueryEvidenceSummary summary =
             Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
         Assert.Equal(2, summary.Count);
-        Assert.Equal(["Alpha [1.0.0]", "Alpha [2.0.0]"],
+        Assert.Equal(
+            ["net8.0: Alpha [1.0.0]", "net9.0: Alpha [2.0.0]"],
             summary.Preview.Select(item => item.ToString()));
         Assert.Equal(
-            "2 dependency declarations: Alpha [1.0.0], Alpha [2.0.0].",
+            "2 dependency declarations: net8.0: Alpha [1.0.0], net9.0: Alpha [2.0.0].",
             evidence.Value);
         Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
         Assert.Single(source.ManifestRequests);
