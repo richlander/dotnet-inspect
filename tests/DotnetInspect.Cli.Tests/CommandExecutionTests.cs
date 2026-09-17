@@ -2554,6 +2554,9 @@ public sealed class CommandInitializerOnlyFixture
 public static class FactsTableFixture
 {
     public static object BoxInt(int value) => value;
+
+    public static object[] MultipleFacts(int value)
+        => [value, new object()];
 }
 
 public static class FactsHeaderFixture

@@ -2991,6 +2991,50 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--head", true)]
+    [InlineData("--tail", false)]
+    public async Task Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization(
+        string direction,
+        bool selectsFirst)
+    {
+        string[] common =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--tips", "q",
+        ];
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(common);
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync([.. common, "-n", "1", direction]);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        using JsonDocument allDocument =
+            JsonDocument.Parse(allOutput);
+        string[] allIds = allDocument.RootElement
+            .GetProperty("facts")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("id").GetString()!)
+            .ToArray();
+        Assert.True(allIds.Length > 1);
+
+        Assert.Equal(0, windowExit);
+        Assert.Empty(windowError);
+        using JsonDocument windowDocument =
+            JsonDocument.Parse(windowOutput);
+        JsonElement selected = Assert.Single(
+            windowDocument.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+        Assert.Equal(
+            selectsFirst ? allIds[0] : allIds[^1],
+            selected.GetProperty("id").GetString());
+    }
+
+    [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     public async Task Member_FactsJson_RejectsDirectionOnlyWindow(

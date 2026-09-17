@@ -3111,7 +3111,7 @@ public class ApiCommand
                         writerOptions);
                 },
                 !options.CompactJson,
-                options.Rows);
+                GetProjectedFactsRowWindow(options));
             return 0;
         }
 
@@ -4820,6 +4820,20 @@ public class ApiCommand
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.Facts)
            && HasOnlyExplicitFactsSelectors(options);
+
+    private static RowWindow? GetProjectedFactsRowWindow(
+        ApiOptions options)
+    {
+        if (options.Rows is { } rows)
+            return rows;
+        if (ArgumentPreprocessor.TailLines is int tail)
+            return RowWindow.Tail(tail);
+        if (ArgumentPreprocessor.HeadLines is int head)
+            return RowWindow.Head(head);
+        return options.Limit is int limit
+            ? RowWindow.Head(limit)
+            : null;
+    }
 
     private static bool IsInvalidFactsJsonSelection(ApiOptions options)
         => options.JsonOutput

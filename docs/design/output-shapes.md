@@ -710,7 +710,9 @@ offset for either state.
 The typed document is complete rather than a rendered row window. Combining
 its exact unprojected JSON selection with another section, `--rows`, `-n`,
 `--head`, or `--tail` is rejected. A caller that wants lowered or windowed rows
-uses table, TSV, JSONL, or an explicit field/column projection.
+uses table, TSV, JSONL, or an explicit field/column projection. In projected
+JSON, `-n` with `--head` or `--tail` is a semantic Facts-row window applied
+before serialization; it never clips the rendered JSON text.
 
 Release CLI gates cover:
 
@@ -721,7 +723,7 @@ Release CLI gates cover:
 - exact Facts JSON retaining the typed subject and physical method identities;
   and
 - explicit Facts field and column projections using the lowered row
-  vocabulary.
+  vocabulary, including valid first- and last-item JSON windows.
 
 ### Reverse type-declaration locator projection
 
