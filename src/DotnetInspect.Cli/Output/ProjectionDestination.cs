@@ -23,11 +23,14 @@ internal static class ProjectionDestinationWriter
     public static bool ValidateBeforeDestinationMutation(
         ProjectionDestination destination)
     {
+        bool hasLineWindow =
+            CommandLineBuilder.HeadLines is not null
+            || CommandLineBuilder.TailLines is not null;
         if (!destination.ExactTransfer
             || !IsFile(destination)
-            || destination.RowWindow is not null
-            || (CommandLineBuilder.HeadLines is null
-                && CommandLineBuilder.TailLines is null))
+            || !hasLineWindow
+            || (destination.RowWindow is not null
+                && !CommandLineBuilder.LineWindowExplicitlySet))
         {
             return true;
         }

@@ -767,7 +767,7 @@ public class ProjectCommand
             writer.Flush();
         }
 
-        WriteOutput(output.ToString(), options.OutputPath);
+        WriteOutput(output.ToString(), options.OutputPath, options.Rows);
         return 0;
     }
 
@@ -904,12 +904,17 @@ public class ProjectCommand
         return true;
     }
 
-    private static void WriteOutput(string output, string? outputPath)
+    private static void WriteOutput(
+        string output,
+        string? outputPath,
+        RowWindow? rows)
     {
-        if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
-        else
-            Console.Write(output);
+        string? destinationPath =
+            string.IsNullOrWhiteSpace(outputPath) ? null : outputPath;
+        OutputDestination.Write(
+            destinationPath,
+            rows,
+            writer => writer.Write(output));
     }
 
     private sealed record ProjectSection(
