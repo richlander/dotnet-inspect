@@ -15,7 +15,7 @@ public static class WorkspaceCommandDefinitions
     {
         var command = new Command(
             WorkspaceCommand.Name,
-            "Show an inspection Workspace and optionally evaluate one exact Navigation occurrence");
+            "Author or inspect an inspection Workspace and optionally evaluate one exact Navigation occurrence");
         var packageOption = new Option<string[]>("--package")
         {
             Description =
@@ -36,7 +36,7 @@ public static class WorkspaceCommandDefinitions
         var packetOption = new Option<string?>("--packet")
         {
             Description =
-                "Restore one canonical Workspace packet",
+                "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
             Arity = ArgumentArity.ExactlyOne,
         };
         var registerLibraryOption =
@@ -110,7 +110,7 @@ public static class WorkspaceCommandDefinitions
                 "Exact destination view-facet id, such as type.compare or member.compare",
         };
         var shareOption = WorkspaceShareOption.Create(
-            "Emit the Workspace inventory's canonical packet or complete URL");
+            "Emit the complete portable Workspace definition as a canonical packet or URL without realization");
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);

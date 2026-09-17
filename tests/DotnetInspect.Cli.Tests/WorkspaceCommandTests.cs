@@ -873,7 +873,7 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketRoute_UsesExactPacketShareBasis()
+    public async Task PacketRoute_WithoutShareMatchesDirectInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -892,7 +892,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -906,7 +905,7 @@ public sealed class WorkspaceCommandTests
                 document.RootElement.GetProperty("entries")
                     .EnumerateArray())
                 .GetProperty("package_id").GetString());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
 
         var direct = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(
@@ -926,7 +925,7 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketRoute_InventoriesPackageMembershipFromEveryContext()
+    public async Task PacketUrlRoute_InventoriesPackageMembershipFromEveryContext()
     {
         const string secondPackageId = "Markout";
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -950,7 +949,9 @@ public sealed class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
-                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Packet =
+                        "https://dotnet-inspect.net/?w="
+                        + WorkspaceSharePacketCodec.Encode(packet),
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -989,7 +990,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -1001,7 +1001,7 @@ public sealed class WorkspaceCommandTests
         using JsonDocument document = JsonDocument.Parse(captured.Output);
         Assert.Single(
             document.RootElement.GetProperty("entries").EnumerateArray());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
@@ -1024,7 +1024,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -1045,7 +1044,7 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(
             "net8.0",
             entry.GetProperty("effective_target_framework").GetString());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
@@ -1138,12 +1137,12 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "--share reports top-level Workspace inventory",
+            "--share emits a portable Workspace definition",
             captured.Error);
     }
 
     [Fact]
-    public async Task FilteredPacket_ContentRemainsAvailableButShareDoesNot()
+    public async Task FilteredPacket_WithoutShareRendersSelectedInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -1166,13 +1165,12 @@ public sealed class WorkspaceCommandTests
                     [
                         WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
                     ],
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(1, captured.ExitCode);
+        Assert.Equal(0, captured.ExitCode);
         using JsonDocument document = JsonDocument.Parse(captured.Output);
         Assert.Equal(
             0,
@@ -1180,13 +1178,52 @@ public sealed class WorkspaceCommandTests
                 .GetInt32());
         Assert.Empty(
             document.RootElement.GetProperty("entries").EnumerateArray());
-        Assert.Contains(
-            "do not represent inventory kind filters",
-            captured.Error);
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
-    public async Task DirectRouteShare_RemainsNonProjectable()
+    public async Task DirectShare_AuthorsMixedFormat3DefinitionWithoutAcquisition()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages =
+                    [
+                        "System.Text.Json@10.0.0",
+                        "System.Text.Json@10.0.0",
+                    ],
+                    Tfm = "net10.0",
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("System.Text.Json", tab.Source);
+        Assert.Equal("10.0.0", tab.Version);
+        Assert.Equal("net10.0", tab.Framework);
+        Assert.Single(packet.Contexts);
+        var prefix = Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            Assert.Single(packet.Registrations));
+        Assert.Equal("Microsoft.Extensions.", prefix.Prefix.Prefix);
+        Assert.Null(packet.FocusedTabIndex);
+        Assert.Equal(0, packet.SelectedContextIndex);
+        Assert.Equal(2, packet.ViewStates.Count);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyShare_AuthorsUrlWithoutAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
         var captured = await ConsoleCapture.RunAsync(
@@ -1194,17 +1231,158 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     RegisteredPackagePrefixes = ["Microsoft.Extensions."],
-                    ShareFormat = WorkspaceShareFormat.Packet,
-                    Format = OutputFormat.Json,
+                    ShareFormat = WorkspaceShareFormat.Url,
                 },
-                LoadOptions(client, new InMemoryPackageStore()),
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        const string prefix = "https://dotnet-inspect.net/?w=";
+        Assert.StartsWith(prefix, captured.Output, StringComparison.Ordinal);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd()[prefix.Length..],
+            TestContext.Current.CancellationToken);
+        Assert.Empty(packet.Tabs);
+        Assert.Empty(packet.Contexts);
+        Assert.Single(packet.Registrations);
+        Assert.Null(packet.SelectedContextIndex);
+        Assert.Single(packet.ViewStates);
+    }
+
+    [Fact]
+    public async Task PacketUrlShare_ReemitsCanonicalPacketWithoutAcquisition()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""",
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet =
+                        $"https://dotnet-inspect.net/?w={encoded}",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Equal(encoded, captured.Output.TrimEnd());
+    }
+
+    [Fact]
+    public async Task PacketShare_RejectsForeignUrlWithoutAcquisition()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = "https://example.test/?w=packet",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
-        Assert.Contains("packagePrefix", captured.Output);
+        Assert.Empty(captured.Output);
         Assert.Contains(
-            "no retained Definitions-owned projection",
-            captured.Error);
+            "exact https://dotnet-inspect.net/?w=<packet> URL",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScannerBearingEcosystemShare_IsVisiblyNonProjectable()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredEcosystems = ["aspire"],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "integrationScanner",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "not projectable",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task DefinitionShare_RejectsRuntimeObservationOptions(
+        bool inventoryFilter,
+        bool rootRequest)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    InventoryKinds = inventoryFilter
+                        ?
+                        [
+                            WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+                        ]
+                        : [],
+                    RootRequest = rootRequest ? "root.invalid" : null,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.NotEmpty(captured.Error);
+    }
+
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("source")]
+    public async Task DefinitionShare_RejectsAcquisitionPolicy(
+        string policy)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    IncludePrerelease = policy == "preview",
+                    SourceOptions = policy == "source"
+                        ? new NuGetSourceOptions
+                        {
+                            Sources = ["https://example.test/v3/index.json"],
+                        }
+                        : NuGetSourceOptions.Default,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "resource-free portable Workspace definition",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1902,6 +2080,26 @@ public sealed class WorkspaceCommandTests
                 {
                     RequestMessage = request,
                 });
+    }
+
+    sealed class FailOnAccessPackageStore : IPackageStore
+    {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            throw new InvalidOperationException(
+                "Portable Workspace authoring must not read the Package store.");
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Portable Workspace authoring must not write the Package store.");
     }
 
     sealed class VersionListingHandler : HttpMessageHandler
