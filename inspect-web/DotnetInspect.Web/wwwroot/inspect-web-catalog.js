@@ -50,6 +50,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Catalog");
         value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "CanonicalizeWorkspaceSharePacket.304094707");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CanonicalizeWorkspaceSharePacket.304094707\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
         value = $ownDataProperty(value, "DeactivateRetainedWorkspaceDefinition.976702342");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.DeactivateRetainedWorkspaceDefinition.976702342\u0027 is not callable.");
@@ -166,6 +178,11 @@ export function runEntryPoint(mainAssemblyName, args) {
 }
 export async function activateRetainedWorkspaceDefinition(retainedDefinitionId, label, canonicalLocation, canonicalPacket) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinition.1579276339"](retainedDefinitionId, label, canonicalLocation, canonicalPacket);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function canonicalizeWorkspaceSharePacket(encoded) {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanonicalizeWorkspaceSharePacket.304094707"](encoded);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

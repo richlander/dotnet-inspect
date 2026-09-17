@@ -9,7 +9,7 @@ implemented. Workspace Definitions now supplies complete resource-free
 restoration under
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027), and
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes its
-format-2 packet path through the production Browser facade. The current
+format-2 and format-3 packet paths through the production Browser facade. The
 format-1 Browser URL projection remains intentionally partial and cannot enter
 this transaction. Producer migration and retirement of the compatibility
 snapshot collection remain

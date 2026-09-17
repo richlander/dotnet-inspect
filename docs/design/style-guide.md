@@ -2,6 +2,27 @@
 
 This document defines the output format conventions for `dotnet-inspect`. The primary goal is to produce output that is easily consumable by both humans and LLMs.
 
+## Machine names and identifiers
+
+The owning contract chooses its established machine-name casing, such as
+`lower_snake_case` or `camelCase`. Within that casing:
+
+- An underscore joins words within one snake-case name, such as
+  `schema_version`, `il_offset`, or `callee_evidence`.
+- A dot separates ordered semantic segments in an opaque hierarchical
+  identifier. It is not a word separator for object properties.
+
+Finding IDs use dots from broad family to specific kind or scope:
+`alloc.box`, `safety.callee`, and `cost.method`. Dotted segments carry
+identifier semantics, including prefix matching at segment boundaries.
+Compound JSON properties therefore use the owning contract's word separator:
+the `safety.callee` Finding has a `callee_evidence` property, not
+`callee.evidence`.
+
+Human-facing labels use spaced title casing, such as `Callee Evidence`.
+Language bindings use their normal identifier convention, such as
+`CalleeEvidence` in C#.
+
 ## Document structure
 
 Document-form Markdown uses a subject heading, optional description, available

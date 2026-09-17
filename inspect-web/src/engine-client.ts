@@ -83,6 +83,7 @@ type CallGraphOperations =
 
 type CatalogOperations =
   | "activateRetainedWorkspaceDefinition"
+  | "canonicalizeWorkspaceSharePacket"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"

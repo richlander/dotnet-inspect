@@ -94,6 +94,7 @@ type CallGraphOperationName =
 
 type CatalogOperationName =
   | "activateRetainedWorkspaceDefinition"
+  | "canonicalizeWorkspaceSharePacket"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
@@ -1128,6 +1129,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.activateRetainedWorkspaceDefinition(...args),
     ),
+    canonicalizeWorkspaceSharePacket: valueOperation(
+      "ordinary-catalog-canonicalize-workspace-share-packet",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["canonicalizeWorkspaceSharePacket"]
+        >
+      ) => facades.catalog.canonicalizeWorkspaceSharePacket(...args),
+    ),
     deactivateRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-deactivate-retained-workspace-definition",
       1,
@@ -1408,6 +1419,10 @@ export function bindEngineWorkerOrdinaryClient(
       activateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinition,
+      ),
+      canonicalizeWorkspaceSharePacket: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .canonicalizeWorkspaceSharePacket,
       ),
       deactivateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

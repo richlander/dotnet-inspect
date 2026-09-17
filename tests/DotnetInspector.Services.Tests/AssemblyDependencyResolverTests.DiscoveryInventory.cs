@@ -23,7 +23,9 @@ public partial class AssemblyDependencyResolverTests
         });
 
         Assert.Empty(resolver.ResolveAll());
-        var target = Assert.IsType<ResolvedAssemblyReference>(resolver.AcquireTargetAssembly());
+        ResolvedAssemblyReference target =
+            Assert.IsType<AssemblyDependencyAcquisition.Acquired>(
+                resolver.AcquireTargetAssembly()).Assembly;
         var inventory = Assert.IsType<AssemblyDependencyDiscoveryResult.Captured>(
             resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
         Assert.Same(resolver.Version, inventory.Version);
@@ -43,7 +45,10 @@ public partial class AssemblyDependencyResolverTests
         Assert.NotSame(target.Registration, Acquired(sibling).Registration);
         Assert.NotSame(Acquired(sibling).Registration, Acquired(designatedTarget).Registration);
         Assert.Same(Acquired(firstOther), Acquired(repeatedOther));
-        Assert.Same(Acquired(firstOther), resolver.Acquire(firstOther.Dependency));
+        Assert.Same(
+            Acquired(firstOther),
+            Assert.IsType<AssemblyDependencyAcquisition.Acquired>(
+                resolver.Acquire(firstOther.Dependency)).Assembly);
         Assert.Equal(new Version(1, 0, 0, 0), Acquired(sibling).Identity.Version);
         Assert.Equal(new Version(2, 0, 0, 0), Acquired(firstOther).Identity.Version);
 
@@ -645,7 +650,10 @@ public partial class AssemblyDependencyResolverTests
         var row = Assert.Single(failure.PartialEntries);
         Assert.Equal(CandidateOpenFailureKind.ResourceBudget,
             Assert.IsType<AssemblyDependencyAcquisition.Unavailable>(row.Acquisition).Failure.Kind);
-        Assert.Throws<AssemblyDependencySnapshotBudgetExceededException>(() => resolver.Acquire(row.Dependency));
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            Assert.IsType<AssemblyDependencyAcquisition.Unavailable>(
+                resolver.Acquire(row.Dependency)).Failure.Kind);
     }
 
     [Fact]

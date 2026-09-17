@@ -141,15 +141,12 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             incompleteCount.Error,
             StringComparison.Ordinal);
 
+        PackageQueryOptions qualifiedOptions = Options(tail);
         var qualifiedCount = await ConsoleCapture.RunAsync(() =>
             Task.FromResult(
                 PackageQueryCommand.CompleteLibraryLiteralExecution(
-                    options with
-                    {
-                        RowSelection = tail,
-                        Count = true,
-                    },
-                    options.LibraryLiteralPlan!,
+                    qualifiedOptions with { Count = true },
+                    qualifiedOptions.LibraryLiteralPlan!,
                     document)));
         Assert.Equal(0, qualifiedCount.ExitCode);
         Assert.Equal("1", qualifiedCount.Output.Trim());
@@ -230,7 +227,8 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             StringComparison.Ordinal);
     }
 
-    private static PackageQueryOptions Options()
+    private static PackageQueryOptions Options(
+        RowSelectionIntent<string>? rowSelection = null)
     {
         Assert.True(
             PackageQueryOptions.TryCreate(
@@ -238,7 +236,7 @@ public sealed class PackageAssemblySemanticQueryOutputTests
                 [],
                 nuspecOnly: false,
                 take: 5,
-                rowSelection: null,
+                rowSelection,
                 includePrerelease: false,
                 libraryLiteral: Marker,
                 targetFramework: Framework,

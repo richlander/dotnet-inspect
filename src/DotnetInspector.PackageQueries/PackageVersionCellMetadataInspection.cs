@@ -8,9 +8,9 @@ using ILInspector.Metadata;
 namespace DotnetInspector.PackageQueries;
 
 /// <summary>Finite Workspace realization limits for one package version cell.</summary>
-public sealed class PackageVersionCellMetadataInspectionLimits
+public sealed class PackageVersionCellWorkspaceLimits
 {
-    public PackageVersionCellMetadataInspectionLimits(
+    public PackageVersionCellWorkspaceLimits(
         int maximumAssemblies,
         long maximumEntryBytes,
         long maximumRetainedImageBytes)
@@ -46,7 +46,7 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         PackageHouseVersionPopulationCell cell,
         PackageHouseOperation operation,
         PackageHouseTargetContext targetContext,
-        PackageVersionCellMetadataInspectionLimits limits,
+        PackageVersionCellWorkspaceLimits limits,
         DateTimeOffset workspaceDeadline)
         : this(cell, operation, targetContext, limits, workspaceDeadline, null)
     {
@@ -56,7 +56,7 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         PackageHouseVersionPopulationCell cell,
         PackageHouseOperation operation,
         PackageHouseTargetContext targetContext,
-        PackageVersionCellMetadataInspectionLimits limits,
+        PackageVersionCellWorkspaceLimits limits,
         DateTimeOffset workspaceDeadline,
         PackageVersionCellApiInspectionRequest? apiInspection)
     {
@@ -91,7 +91,7 @@ public sealed class PackageVersionCellMetadataInspectionRequest
 
     public PackageHouseVersionPopulationCell Cell { get; }
 
-    public PackageVersionCellMetadataInspectionLimits Limits { get; }
+    public PackageVersionCellWorkspaceLimits Limits { get; }
 
     public DateTimeOffset WorkspaceDeadline { get; }
 
@@ -113,10 +113,10 @@ public interface IPackageHouseVersionPopulationCellExecutor
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Detached correspondence retained by every terminal outcome.</summary>
-public sealed class PackageVersionCellMetadataInspectionEvidence
+/// <summary>Detached execution evidence retained by a cell operation.</summary>
+public sealed class PackageVersionCellExecutionEvidence
 {
-    internal PackageVersionCellMetadataInspectionEvidence(
+    internal PackageVersionCellExecutionEvidence(
         PackageHouseVersionPopulationCellExecution execution,
         PackageHouseResult houseResult,
         PackageHouseRealizationReceipt.Compile? compileRealization,
@@ -166,6 +166,18 @@ public sealed class PackageVersionCellMetadataInspectionEvidence
     }
 
     public RealizedMemberCoordinate.Package? RootCoordinate { get; }
+
+    internal static PackageVersionCellExecutionEvidence Create(
+        PackageHouseVersionPopulationCellExecution execution,
+        PackageHouseResult result,
+        PackageHouseRootContribution? contribution) =>
+        new(
+            execution,
+            result,
+            contribution?.Realization
+                ?? result.Evidence.Realization
+                    as PackageHouseRealizationReceipt.Compile,
+            contribution?.Binding.Coordinate);
 }
 
 public enum PackageVersionCellMetadataWorkspaceStage
@@ -211,7 +223,7 @@ public sealed class PackageVersionCellMetadataWorkspaceFailure
         new(stage, rejection: null, failure);
 }
 
-public enum PackageVersionCellMetadataCleanupStage
+public enum PackageVersionCellWorkspaceCleanupStage
 {
     GroupRelease,
     ArtifactRelease,
@@ -219,20 +231,20 @@ public enum PackageVersionCellMetadataCleanupStage
     CloseOrchestration,
 }
 
-public readonly record struct PackageVersionCellMetadataCleanupFailure(
-    PackageVersionCellMetadataCleanupStage Stage,
+public readonly record struct PackageVersionCellWorkspaceCleanupFailure(
+    PackageVersionCellWorkspaceCleanupStage Stage,
     int Count);
 
 /// <summary>Bounded resource-free evidence from awaited Workspace close.</summary>
-public sealed record PackageVersionCellMetadataCleanupEvidence
+public sealed record PackageVersionCellWorkspaceCleanupEvidence
 {
-    internal PackageVersionCellMetadataCleanupEvidence(
-        ImmutableArray<PackageVersionCellMetadataCleanupFailure> failures)
+    internal PackageVersionCellWorkspaceCleanupEvidence(
+        ImmutableArray<PackageVersionCellWorkspaceCleanupFailure> failures)
     {
         Failures = failures;
     }
 
-    public ImmutableArray<PackageVersionCellMetadataCleanupFailure> Failures
+    public ImmutableArray<PackageVersionCellWorkspaceCleanupFailure> Failures
     {
         get;
     }
@@ -240,25 +252,26 @@ public sealed record PackageVersionCellMetadataCleanupEvidence
     public bool IsEmpty => Failures.IsEmpty;
 }
 
-public static class PackageVersionCellMetadataInspectionExceptionEvidence
+/// <summary>Cleanup evidence attached to a propagated cell-operation exception.</summary>
+public static class PackageVersionCellWorkspaceExceptionEvidence
 {
     static readonly object CleanupKey = new();
 
     public static bool TryGetCleanup(
         Exception primary,
         [NotNullWhen(true)]
-        out PackageVersionCellMetadataCleanupEvidence? cleanup)
+        out PackageVersionCellWorkspaceCleanupEvidence? cleanup)
     {
         ArgumentNullException.ThrowIfNull(primary);
         cleanup =
             primary.Data[CleanupKey]
-                as PackageVersionCellMetadataCleanupEvidence;
+                as PackageVersionCellWorkspaceCleanupEvidence;
         return cleanup is not null;
     }
 
     internal static void Attach(
         Exception primary,
-        PackageVersionCellMetadataCleanupEvidence cleanup)
+        PackageVersionCellWorkspaceCleanupEvidence cleanup)
     {
         if (!cleanup.IsEmpty)
             primary.Data[CleanupKey] = cleanup;
@@ -271,23 +284,23 @@ public static class PackageVersionCellMetadataInspectionExceptionEvidence
 public abstract record PackageVersionCellMetadataInspectionOutcome
 {
     private protected PackageVersionCellMetadataInspectionOutcome(
-        PackageVersionCellMetadataInspectionEvidence evidence,
-        PackageVersionCellMetadataCleanupEvidence? cleanup)
+        PackageVersionCellExecutionEvidence evidence,
+        PackageVersionCellWorkspaceCleanupEvidence? cleanup)
     {
         ArgumentNullException.ThrowIfNull(evidence);
         Evidence = evidence;
         Cleanup = cleanup;
     }
 
-    public PackageVersionCellMetadataInspectionEvidence Evidence { get; }
+    public PackageVersionCellExecutionEvidence Evidence { get; }
 
-    public PackageVersionCellMetadataCleanupEvidence? Cleanup { get; }
+    public PackageVersionCellWorkspaceCleanupEvidence? Cleanup { get; }
 
     public sealed record Available :
         PackageVersionCellMetadataInspectionOutcome
     {
         internal Available(
-            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellExecutionEvidence evidence,
             AssemblyContextResult<MetadataImageOverview> metadata,
             PackageVersionCellApiInspectionResult? apiInspection = null)
             : base(evidence, cleanup: null)
@@ -306,7 +319,7 @@ public abstract record PackageVersionCellMetadataInspectionOutcome
         PackageVersionCellMetadataInspectionOutcome
     {
         internal NoContribution(
-            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellExecutionEvidence evidence,
             PackageHouseRootNoContributionReason reason)
             : base(evidence, cleanup: null)
         {
@@ -322,9 +335,9 @@ public abstract record PackageVersionCellMetadataInspectionOutcome
         PackageVersionCellMetadataInspectionOutcome
     {
         internal WorkspaceFailure(
-            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellExecutionEvidence evidence,
             PackageVersionCellMetadataWorkspaceFailure failure,
-            PackageVersionCellMetadataCleanupEvidence? cleanup = null)
+            PackageVersionCellWorkspaceCleanupEvidence? cleanup = null)
             : base(evidence, cleanup)
         {
             ArgumentNullException.ThrowIfNull(failure);
@@ -338,8 +351,8 @@ public abstract record PackageVersionCellMetadataInspectionOutcome
         PackageVersionCellMetadataInspectionOutcome
     {
         internal CleanupFailure(
-            PackageVersionCellMetadataInspectionEvidence evidence,
-            PackageVersionCellMetadataCleanupEvidence cleanup)
+            PackageVersionCellExecutionEvidence evidence,
+            PackageVersionCellWorkspaceCleanupEvidence cleanup)
             : base(evidence, cleanup)
         {
             if (cleanup.IsEmpty)

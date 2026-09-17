@@ -36,7 +36,8 @@ for source path rows.
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
-dnx dotnet-inspect -y -- library System.Text.Json --il-offset 0x06000001+0x0
+dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ## Fetch PDB source

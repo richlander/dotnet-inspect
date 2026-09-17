@@ -386,9 +386,17 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                     as CompleteRestorationProjection.Projectable
                 ?? throw new InvalidOperationException(
                     "Packet restoration must retain its canonical packet.");
-            var resolved =
-                (CompleteRestorationResolvedState.Version2)
-                    workspace.Snapshot.Resolved;
+            (ImmutableArray<CompleteRestorationResolvedViewState> states,
+                int? activeStateIndex) =
+                workspace.Snapshot.Resolved switch
+                {
+                    CompleteRestorationResolvedState.Version2 version2 =>
+                        (version2.States, version2.ActiveStateIndex),
+                    CompleteRestorationResolvedState.Version3 version3 =>
+                        (version3.States, version3.ActiveStateIndex),
+                    _ => throw new InvalidOperationException(
+                        "Unknown complete restoration resolved state."),
+                };
             long publicationOrdinal = ++_nextRealization;
             var installation = new BrowserRetainedWorkspaceInstallation(
                 intent.Request.RetainedDefinitionId,
@@ -398,9 +406,9 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                 $"workspace-realization-{publicationOrdinal}",
                 publicationOrdinal,
                 new BrowserRetainedWorkspaceNavigationState(
-                    resolved.ActiveStateIndex,
+                    activeStateIndex,
                     [
-                        .. resolved.States.Select(
+                        .. states.Select(
                             static state =>
                                 new BrowserRetainedWorkspaceViewState(
                                     state.NavigationId,

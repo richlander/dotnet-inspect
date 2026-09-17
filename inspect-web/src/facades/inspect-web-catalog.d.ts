@@ -339,6 +339,7 @@ export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function activateRetainedWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string): Promise<BrowserRetainedWorkspaceActivationResult>;
+export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
 export declare function deactivateRetainedWorkspaceDefinition(retainedDefinitionId: string): Promise<BrowserRetainedWorkspaceDeactivationResult>;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;

@@ -105,6 +105,25 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task Format2Packet_RemainsActivatable()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet(InspectionDefinitionSchema.Version2);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspaceInstallation installation =
+            await ActivateAsync(owner, "format-2", packet);
+
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Format2Version,
+            WorkspaceSharePacketCodec.Decode(
+                packet,
+                TestContext.Current.CancellationToken).FormatVersion);
+        Assert.Equal(packet, installation.CanonicalPacket);
+    }
+
+    [Fact]
     public async Task NewSelection_SupersedesBlockedPreparation()
     {
         CompleteRestorationExecutionOptions baseline = await OptionsAsync();
@@ -234,7 +253,8 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 admission).Lease;
     }
 
-    static string Packet()
+    static string Packet(
+        int schemaVersion = InspectionDefinitionSchema.Version3)
     {
         var registry = new InspectionDefinitionRegistry();
         var package = new DefinitionMemberCoordinate.PackageCoordinate(
@@ -242,7 +262,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             "9.0.4",
             "net9.0");
         registry.Add(new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "workspace",
             [
                 new WorkspaceContextDefinition(
@@ -251,12 +271,12 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                     members: [package]),
             ]));
         registry.Add(new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "navigation",
             [new NavigationTabDefinition("package", coordinate: package)],
             focus: "package"));
         registry.Add(new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "view",
             [
                 new CommittedViewStateDefinition(
@@ -268,18 +288,25 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                     new PortableRetainedSubjectContext.Package()),
             ]));
         registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "scenario",
             workspace: "workspace",
             context: "context",
             view: "view",
             navigation: "navigation"));
-        var prepared = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult.Version2>(
-                registry.PrepareScenario("scenario"));
+        CommittedScenarioDefinitionSet definitions =
+            registry.PrepareScenario("scenario") switch
+            {
+                InspectionDefinitionScenarioPreparationResult.Version2 version2 =>
+                    version2.Definitions,
+                InspectionDefinitionScenarioPreparationResult.Version3 version3 =>
+                    version3.Definitions,
+                _ => throw new InvalidOperationException(
+                    "Retained activation tests require schema version 2 or 3."),
+            };
         WorkspaceSharePacketProjectionResult projection =
             WorkspaceSharePacketTransposer.ToPacket(
-                prepared.Definitions,
+                definitions,
                 TestContext.Current.CancellationToken);
         return WorkspaceSharePacketCodec.Encode(
             Assert.IsType<WorkspaceSharePacket>(projection.Packet));

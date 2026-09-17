@@ -407,6 +407,7 @@ public partial class CommandExecutionTests
                 "graph libraries",
                 "implements",
                 "library",
+                "library coordinate",
                 "member",
                 "package",
                 "package activity",

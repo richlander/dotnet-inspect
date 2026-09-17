@@ -95,6 +95,11 @@ public record LibraryOptions : IProjectionOptions
     public string? ILOffsetParameter { get; init; }
 
     /// <summary>
+    /// The IL coordinate came from the focus-first Library Coordinate child.
+    /// </summary>
+    internal bool IsCoordinateCommand { get; init; }
+
+    /// <summary>
     /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
     /// </summary>
     public string? HeapParameter { get; init; }
