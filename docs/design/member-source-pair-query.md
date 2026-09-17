@@ -100,6 +100,11 @@ process memory. Adapter capture uses the larger image allowance and combined
 retention uses their sum; the House enforces each role's stricter snapshot
 allowance. A limit or deadline produces retained `Incomplete` evidence and a
 failed host-facing source attempt, never a complete or empty comparison.
+The public outcome distinguishes `SourceDeadlineExceeded` from
+`SourceLimitExceeded`; neither is lexical source complexity. Producer slicing
+failures preserve `SourceTooComplex`, `InvalidSequencePointCoordinates`, and
+`SourceExtractionFailed`, without deriving a classification from diagnostic
+prose.
 Ordinary source/decompiler queries do not consume these member-pair settings.
 
 The query is `InspectionCost.Moderated` and requires explicit source intent.
@@ -195,6 +200,11 @@ The versioned Counter fixtures preserve source-only edits and neighboring
 unchanged/moved declarations. `SourcePair_SourceHouseByteBoundIsVisibleAndExact`
 gates one byte below and exactly at the larger source document's length;
 `SourcePair_ExpiredHouseDeadlineIsNotMissingSource` gates visible expiry.
+Both bound cases assert the public outcome. The real-repository source/PDB
+mutation case `SourcePair_ProducerSlicingFailuresRemainDistinct` supplies
+checksum-matching token-dense and truncated documents and gates retained
+producer failure classifications; product code still performs verification
+and slicing.
 The detached-envelope, selected CLI, and browser comparison gates assert native
 House evidence, including external-companion and embedded-PDB paths.
 These focused outcome cases are PR-fast.

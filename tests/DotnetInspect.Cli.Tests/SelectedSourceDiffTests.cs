@@ -364,6 +364,48 @@ public sealed class SelectedSourceDiffTests
     }
 
     [Fact]
+    public async Task SelectedSourceDeadline_FormatsTruthfulFailure()
+    {
+        var before = Participant(FixtureCatalog.SourceDiffPair.OldAssemblyPath(), "1.0.0");
+        var after = Participant(FixtureCatalog.SourceDiffPair.NewAssemblyPath(), "2.0.0");
+        using var assembly = AssemblyInspectionSession.Open(before.Assembly);
+        var type = Assert.Single(assembly.ApiSurface(includeAll: true).Types,
+            type => type.FullName == "SourceDiffFixture.Counter");
+        var member = Assert.Single(type.Members, member => member.Name == "Value");
+        await using var workspace = new InspectionWorkspace();
+        using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);
+        using var afterGroup = workspace.CreateAssemblyContextGroup([after]);
+        var handler = new SourceHandler(HttpStatusCode.NotFound, []);
+        using var client = new HttpClient(handler);
+        var context = new AssemblyContextSourceQueryContext(
+            client, new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization([NuGetFetch.PackageSource.NuGetOrg]),
+            new SourceFetch(client, new InMemorySourceContentStore()))
+        {
+            AllowAdjacentPdbReads = true,
+            MemberSourcePairTimeout = TimeSpan.FromTicks(1),
+        };
+        var inspection = await MemberSourcePairInspection.ExecuteAsync(
+            beforeGroup, before, afterGroup, after,
+            AssemblyMemberSourcePairRequest.From(type, member), context,
+            TestContext.Current.CancellationToken);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "SourceDiff.Package", new ImplementationDiffResult([], new ResearchComparison([])),
+            "1.0.0", "2.0.0", inspection.Content);
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Unavailable, inspection.Content.Status);
+        Assert.NotEmpty(view.Rows!);
+        Assert.All(view.Rows!, row =>
+        {
+            Assert.Equal("PDB Source", row.Mechanism);
+            Assert.Contains("SourceDeadlineExceeded", row.Evidence);
+            Assert.DoesNotContain("SourceTooComplex", row.Evidence);
+        });
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task WithoutPdbSource_SameLocalImplementationStillHasNoRows()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(

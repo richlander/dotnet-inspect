@@ -100,7 +100,9 @@ public static partial class AssemblyContextMemberSourcePairQuery
             AssemblyContextSourceQuery.EnsureBindingPolicyVersion(participant, version);
             return new(subject, request, new AssemblyMemberPdbSourceAttempt.Unavailable(
                 UnsuccessfulInspection(
-                    findingSubject, PdbMemberSourceOutcome.InspectionFailed,
+                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
+                        ? PdbMemberSourceOutcome.SourceLimitExceeded
+                        : PdbMemberSourceOutcome.InspectionFailed,
                     AdmissionDetail(terminal), failed: true)))
             {
                 LibraryFailure = terminal,
@@ -221,7 +223,9 @@ public static partial class AssemblyContextMemberSourcePairQuery
         bool failed = true;
         if (outcome is SourceHouseOutcome.Incomplete incomplete)
         {
-            kind = PdbMemberSourceOutcome.SourceTooComplex;
+            kind = incomplete.Boundary == SourceHouseIncompleteBoundary.Deadline
+                ? PdbMemberSourceOutcome.SourceDeadlineExceeded
+                : PdbMemberSourceOutcome.SourceLimitExceeded;
             detail = $"Authored source stopped at its {incomplete.Boundary} bound.";
         }
         else if (outcome is SourceHouseOutcome.Rejected rejected)
@@ -245,9 +249,19 @@ public static partial class AssemblyContextMemberSourcePairQuery
         }
         else if (outcome is SourceHouseOutcome.Failed failure)
         {
-            kind = failure.Failure.Stage == SourceHouseFailureStage.SourceCapability
-                ? PdbMemberSourceOutcome.SourceAcquisitionFailed
-                : PdbMemberSourceOutcome.InspectionFailed;
+            kind = (failure.Failure.Stage, failure.Failure.Code) switch
+            {
+                (SourceHouseFailureStage.SourceSlicing, "SourceTooComplex") =>
+                    PdbMemberSourceOutcome.SourceTooComplex,
+                (SourceHouseFailureStage.SourceSlicing, "InvalidSequencePointCoordinates") =>
+                    PdbMemberSourceOutcome.InvalidSequencePointCoordinates,
+                (SourceHouseFailureStage.SourceSlicing, "SourceExtractionFailed")
+                    or (SourceHouseFailureStage.SourceVerification, "SourceDecodeFailed") =>
+                    PdbMemberSourceOutcome.SourceExtractionFailed,
+                (SourceHouseFailureStage.SourceCapability, _) =>
+                    PdbMemberSourceOutcome.SourceAcquisitionFailed,
+                _ => PdbMemberSourceOutcome.InspectionFailed,
+            };
             detail = $"{failure.Failure.Code}: {failure.Failure.Detail}";
         }
         else if (outcome.PdbContribution.Kind == SourceHousePdbContributionKind.Unavailable)
