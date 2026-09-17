@@ -148,7 +148,11 @@ public static class ApiOutputFormatter
             var showDocs = options.ShowDocs
                 || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)
                     || c.Equals("Kind", StringComparison.OrdinalIgnoreCase)) == true;
-            PopulateTypeSections(view, api.Types, showDocs);
+            PopulateTypeSections(
+                view,
+                api.Types,
+                showDocs,
+                ShowsProducerLibrary(options));
         }
 
         return (view, truncatedCount);
@@ -169,7 +173,11 @@ public static class ApiOutputFormatter
                 SectionNames.InspectionFailures);
     }
 
-    private static void PopulateTypeSections(CliApiSurface view, List<ApiType> types, bool showDocs)
+    private static void PopulateTypeSections(
+        CliApiSurface view,
+        List<ApiType> types,
+        bool showDocs,
+        bool showProducerLibrary)
     {
         var byKind = types
             .GroupBy(t => t.Kind)
@@ -195,7 +203,8 @@ public static class ApiOutputFormatter
                     ApiViewText.Field(members),
                     desc,
                     ApiViewText.OptionalField(
-                        t.SourceAssemblyPath is null
+                        !showProducerLibrary
+                        || t.SourceAssemblyPath is null
                             ? null
                             : Path.GetFileName(
                                 t.SourceAssemblyPath)));
@@ -3448,6 +3457,7 @@ public static class ApiOutputFormatter
         bool showDescription = options.ShowDocs
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
 
+        bool showProducerLibrary = ShowsProducerLibrary(options);
         var rows = types
             .OrderBy(t => GetTypeKindSortOrder(t.Kind))
             .ThenBy(t => t.FullName)
@@ -3471,7 +3481,8 @@ public static class ApiOutputFormatter
                     ApiViewText.Field(t.Members.Count.ToString()),
                     desc,
                     ApiViewText.OptionalField(
-                        t.SourceAssemblyPath is null
+                        !showProducerLibrary
+                        || t.SourceAssemblyPath is null
                             ? null
                             : Path.GetFileName(
                                 t.SourceAssemblyPath)));
@@ -3486,6 +3497,11 @@ public static class ApiOutputFormatter
 
         return (view, truncated);
     }
+
+    private static bool ShowsProducerLibrary(ApiOptions options) =>
+        options.PackagePath is not null
+        && string.IsNullOrWhiteSpace(options.AssemblyPath)
+        && !options.NamesakeLibrary;
 
     private static int GetTypeKindSortOrder(string kind) => kind switch
     {

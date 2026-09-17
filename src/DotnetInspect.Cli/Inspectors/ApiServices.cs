@@ -28,14 +28,16 @@ internal static class ApiServices
         SelectedTypeBindingContext? RootBindingContext = null,
         IReadOnlyDictionary<
             ApiType,
-            SelectedTypeBindingContext>? BindingContexts = null)
+            SelectedTypeBindingContext>? BindingContexts = null,
+        bool IsPackageAggregate = false)
     {
         internal string GetLibraryAssetPath(
             string? packageExtractPath,
             ApiType? type = null)
         {
             string path =
-                type is not null
+                IsPackageAggregate
+                && type is not null
                 && TryGetSourceAssembly(type)?.Path is { } sourcePath
                     ? sourcePath
                     : ApiDllPath;
@@ -382,7 +384,8 @@ internal static class ApiServices
             BindingContexts:
                 bindingContexts.Count == 0
                     ? null
-                    : bindingContexts);
+                    : bindingContexts,
+            IsPackageAggregate: true);
     }
 
     private readonly record struct AggregateTypeIdentity(

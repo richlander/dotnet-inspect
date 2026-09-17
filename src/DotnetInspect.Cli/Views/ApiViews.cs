@@ -757,29 +757,45 @@ public class CliApiSurface
 
     // Per-kind type sections (5 kinds × with/without docs)
     [MarkoutSection(Name = "Classes", IgnoreProperty = "Kind,Description")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? Classes { get; set; }
     [MarkoutSection(Name = "Classes")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? ClassesWithDocs { get; set; }
 
     [MarkoutSection(Name = "Structs", IgnoreProperty = "Kind,Description")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? Structs { get; set; }
     [MarkoutSection(Name = "Structs")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? StructsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Interfaces", IgnoreProperty = "Kind,Description")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? Interfaces { get; set; }
     [MarkoutSection(Name = "Interfaces")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? InterfacesWithDocs { get; set; }
 
     [MarkoutSection(Name = "Enums", IgnoreProperty = "Kind,Description")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? Enums { get; set; }
     [MarkoutSection(Name = "Enums")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? EnumsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Delegates", IgnoreProperty = "Kind,Description")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? Delegates { get; set; }
     [MarkoutSection(Name = "Delegates")]
+    [MarkoutIgnoreColumnWhen(nameof(TypeSummaryLibraryIsEmpty), nameof(TypeSummaryRow.Library))]
     public List<TypeSummaryRow>? DelegatesWithDocs { get; set; }
+
+    public static bool TypeSummaryLibraryIsEmpty(
+        List<TypeSummaryRow>? rows) =>
+        rows is null
+        || rows.All(static row =>
+            string.IsNullOrEmpty(row.Library));
 }
 
 [MarkoutSerializable]
@@ -1109,10 +1125,18 @@ public class ApiTypeTableView
 public class ApiSurfaceTableView
 {
     [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiSurfaceTableRow.Description))]
+    [MarkoutIgnoreColumnWhen(nameof(LibraryIsEmpty), nameof(ApiSurfaceTableRow.Library))]
     public List<ApiSurfaceTableRow>? Rows { get; set; }
 
     [MarkoutSection(Name = "Types")]
+    [MarkoutIgnoreColumnWhen(nameof(LibraryIsEmpty), nameof(ApiSurfaceTableRow.Library))]
     public List<ApiSurfaceTableRow>? RowsWithDescription { get; set; }
+
+    public static bool LibraryIsEmpty(
+        List<ApiSurfaceTableRow>? rows) =>
+        rows is null
+        || rows.All(static row =>
+            string.IsNullOrEmpty(row.Library));
 }
 
 [MarkoutSerializable]

@@ -179,7 +179,17 @@ internal static class ApiTypeLookupService
             .. types.Where(type =>
                 type.FullName == lookup.Match),
         ];
-        return matches.Length == 1
+        bool oneDefinition = matches.Length > 0
+            && matches[0].SourceAssemblyPath is not null
+            && matches[0].DefinitionName is not null
+            && matches.All(type =>
+                string.Equals(
+                    type.SourceAssemblyPath,
+                    matches[0].SourceAssemblyPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && type.DefinitionName
+                    == matches[0].DefinitionName);
+        return matches.Length == 1 || oneDefinition
             ? new ApiTypeLookupResult(
                 query,
                 lookup,
