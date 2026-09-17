@@ -3,7 +3,7 @@ using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
 
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>The closed declaration state of one admitted root, as a projected row value.</summary>
 public enum DependencyEvidenceDeclarationState
@@ -194,12 +194,13 @@ public sealed record DependencyEvidenceSummary(
     PackageDependencyEvidencePackagePrefixCompletion? PackagePrefix);
 
 /// <summary>
-/// The immutable typed CLI projection over one <see cref="PackageDependencyEvidenceOutcome"/>.
+/// A host-neutral typed projection over one
+/// <see cref="PackageDependencyEvidenceOutcome"/>.
 /// </summary>
 /// <remarks>
-/// Every renderer — Markout, typed JSON, lowered JSON, and count — consumes this one projection.
-/// No sink reopens an archive, nuspec, or assets file, and every artifact-authored value stays an
-/// <see cref="InertString"/> until a serializer or Markout display property unwraps it.
+/// No consumer reopens an archive, nuspec, or assets file, and every
+/// artifact-authored value stays an <see cref="InertString"/> until a host
+/// explicitly lowers it.
 /// </remarks>
 public sealed record DependencyEvidenceProjection(
     DependencyEvidenceSummary Summary,
@@ -215,10 +216,18 @@ public sealed record DependencyEvidenceProjection(
     /// comparison, failure, or completion semantics.
     /// </summary>
     public static DependencyEvidenceProjection Create(
-        PackageDependencyEvidenceOutcome outcome)
-        => Create(outcome, admittedRootIndexes: null, failedRootIndexes: null);
+        DependencyInspectionEvidenceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return Create(
+            document.PackageInputs,
+            [.. document.AdmittedRootOccurrences.Select(
+                static occurrence => occurrence.Value)],
+            [.. document.FailedRootOccurrences.Select(
+                static occurrence => occurrence?.Value)]);
+    }
 
-    internal static DependencyEvidenceProjection Create(
+    private static DependencyEvidenceProjection Create(
         PackageDependencyEvidenceOutcome outcome,
         IReadOnlyList<int>? admittedRootIndexes,
         IReadOnlyList<int?>? failedRootIndexes)
@@ -343,9 +352,9 @@ public sealed record DependencyEvidenceProjection(
                         group.FrameworkScope.SourceSpelling,
                         group.Identity is
                             PackageDependencyEvidenceGroupIdentity.Package
-                            {
-                                IsImplicitManifestGroup: true,
-                            },
+                        {
+                            IsImplicitManifestGroup: true,
+                        },
                         group.Declarations.Length,
                         isSelected));
 

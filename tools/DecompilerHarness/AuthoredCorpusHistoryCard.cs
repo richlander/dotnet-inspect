@@ -144,12 +144,7 @@ static class AuthoredCorpusHistoryCard
             return null;
 
         string[] cols = ColumnKeys(window);
-        var rows = new List<MultiSourceRow>
-        {
-            ScalarRow("Valid %", Goal.Higher, window, cols, r => r.ValidPct),
-            ScalarRow("Correct", Goal.Higher, window, cols, r => r.Correct),
-            ScalarRow("Invalid (raw)", Goal.Lower, window, cols, r => r.Invalid),
-        };
+        var rows = SourceOutcomeRows(window, cols).ToList();
         rows.AddRange(ProductDefectRows(window, cols));
         if (window.Any(run => run.ValidDifferent?.FrontierIlDiffAttribution is not null))
         {
@@ -162,12 +157,47 @@ static class AuthoredCorpusHistoryCard
         return rows;
     }
 
-    static MultiSourceRow ScalarRow(
-        string label, Goal goal, IReadOnlyList<HistoryRun> window, string[] cols, Func<HistoryRun, double> value)
+    static IEnumerable<MultiSourceRow> SourceOutcomeRows(
+        IReadOnlyList<HistoryRun> window,
+        string[] cols)
+    {
+        int[] lineages = window
+            .Select(run => AuthoredCorpusMethodology.SourceOutcomeLineage(run.Methodology))
+            .OfType<int>()
+            .Distinct()
+            .Order()
+            .ToArray();
+        foreach (int? lineage in lineages.Length > 1 ? lineages.Cast<int?>() : [null])
+        {
+            yield return SourceOutcomeRow(
+                SourceOutcomeLabel("Valid %", lineage), Goal.Higher,
+                window, cols, lineage, run => run.ValidPct);
+            yield return SourceOutcomeRow(
+                SourceOutcomeLabel("Correct", lineage), Goal.Higher,
+                window, cols, lineage, run => run.Correct);
+            yield return SourceOutcomeRow(
+                SourceOutcomeLabel("Invalid (raw)", lineage), Goal.Lower,
+                window, cols, lineage, run => run.Invalid);
+        }
+    }
+
+    static MultiSourceRow SourceOutcomeRow(
+        string label,
+        Goal goal,
+        IReadOnlyList<HistoryRun> window,
+        string[] cols,
+        int? lineage,
+        Func<HistoryRun, double> value)
     {
         var sources = new Source[window.Count];
         for (int i = 0; i < window.Count; i++)
-            sources[i] = new Source(cols[i], value(window[i]));
+        {
+            bool inLineage = lineage is null
+                || AuthoredCorpusMethodology.SourceOutcomeLineage(window[i].Methodology) == lineage;
+            sources[i] = inLineage
+                ? new Source(cols[i], value(window[i]))
+                : new Source(cols[i], (IMarkoutCell?)null);
+        }
         return new MultiSourceRow(label, sources) { Goal = goal };
     }
 
@@ -236,7 +266,17 @@ static class AuthoredCorpusHistoryCard
             1 => "Product defects (v1 substitution lower bound)",
             2 => "Product defects (v2 span-measured lower bound)",
             3 => "Product defects (v3 final-shell lower bound)",
+            4 => "Product defects (v4 native-RTS lower bound)",
             _ => $"Product defects (lineage {lineage})",
+        };
+
+    static string SourceOutcomeLabel(string label, int? lineage)
+        => lineage switch
+        {
+            null => label,
+            1 => $"{label} (legacy source outcomes)",
+            2 => $"{label} (native RTS source outcomes)",
+            _ => $"{label} (lineage {lineage})",
         };
 
     // Column keys are the run dates (the pivoted table's headers). Disambiguate a repeated date with its

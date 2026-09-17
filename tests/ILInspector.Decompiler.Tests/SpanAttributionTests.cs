@@ -307,6 +307,9 @@ public class SpanAttributionTests
             // v3 adds the ValidDifferent fidelity control without changing the
             // invalid-row span rule, so it inherits the exact v2 allow list.
             KeyValuePair.Create(3, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
+            // v4 changes source-outcome admission and compilation context without
+            // changing the invalid-row span rule.
+            KeyValuePair.Create(4, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
         ]);
 
     [Fact]

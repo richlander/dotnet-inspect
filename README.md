@@ -188,7 +188,7 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Pass a direct-Package-only canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
+| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -532,21 +532,21 @@ JSONL retain the typed entry arms and their portable details. `--verbose`
 adds each Package producer, requested/selected/effective target, runtime
 identifier, and asset-selection status to human output.
 
-Restore complete Package membership from every context in one
-direct-Package-only canonical Workspace packet instead of supplying direct
-construction options:
+Restore one current-format canonical Workspace packet instead of supplying
+direct construction options:
 
 ```bash
 dotnet-inspect workspace --packet PACKET --share packet
 ```
 
 Packet input is mutually exclusive with direct Package and registration
-construction. Packet-restored Navigation refinement is intentionally deferred;
-`--packet` currently supports inventory controls only and visibly rejects group
-subscriptions or non-Package context members pending complete Workspace
-restoration. Unfiltered `--share` re-emits the exact canonical packet. A
-directly constructed Workspace remains inspectable but reports that no retained
-Definitions projection is available when Share output is requested.
+construction. Workspace Definitions performs complete restoration, including
+group and non-Package context intent and retained Navigation state, before the
+CLI enters the inventory operation. CLI refinement of that restored Navigation
+state is intentionally deferred, so `--packet` currently combines only with
+inventory controls. Unfiltered `--share` re-emits the exact canonical packet.
+A directly constructed Workspace remains inspectable but reports that no
+retained Definitions projection is available when Share output is requested.
 Share reports the top-level inventory and cannot be combined with
 `--active-package` or descendant Navigation selectors.
 

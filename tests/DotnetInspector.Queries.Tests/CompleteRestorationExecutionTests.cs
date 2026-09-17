@@ -308,6 +308,39 @@ public sealed class CompleteRestorationExecutionTests
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
+    [Fact]
+    public async Task CompatibleImplementationTarget_RetainsRequestedAssociation()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version2CompatibleTargetRegistry(),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        WorkspacePackageDescriptor packageDescriptor =
+            Assert.Single(
+                activated.Workspace.Snapshot.Scope.Packages).Occurrence.Package;
+        Assert.Equal("net10.0", packageDescriptor.Coordinate.Framework);
+        Assert.Equal("net10.0", packageDescriptor.RequestedTargetFramework);
+        Assert.Equal("net9.0", packageDescriptor.SelectedTargetFramework);
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
 
     [Fact]
     public async Task SubjectlessPackageState_UsesCoordinateRecommendationBasis()
@@ -951,6 +984,52 @@ public sealed class CompleteRestorationExecutionTests
                             "9.0.4"),
                     framework: "net9.0"),
             ],
+            "package"));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "package",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    facet: "package.overview"),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+        return registry;
+    }
+
+    private static InspectionDefinitionRegistry
+        Version2CompatibleTargetRegistry()
+    {
+        var package =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                "9.0.4",
+                "net10.0");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    framework: "net10.0",
+                    members: [package]),
+            ]));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [new NavigationTabDefinition("package", coordinate: package)],
             "package"));
         registry.Add(new CommittedViewDefinition(
             InspectionDefinitionSchema.Version2,
