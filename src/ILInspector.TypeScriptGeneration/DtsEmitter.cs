@@ -990,8 +990,23 @@ static class DtsEmitter
                 or JsonWireMemberPresence.Conditional)
             .ToArray();
 
-        foreach ((ApiMember member, _, _) in members)
+        foreach ((
+            ApiMember member,
+            JsonWireMemberPresence presence,
+            _) in members)
         {
+            if (presence == JsonWireMemberPresence.Conditional
+                && TryGetConditionalParameter(
+                    member.SignatureModel,
+                    record.TypeParameters,
+                    out string? conditionalParameter))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{record.Name}.{member.Name}",
+                    $"conditional generic record parameter "
+                        + $"'{conditionalParameter}' has no exact "
+                        + "present-value mapping");
+            }
             if (TryGetArrayParameter(
                     member.SignatureModel,
                     record.TypeParameters,
@@ -1072,6 +1087,39 @@ static class DtsEmitter
         }
 
         sb.Append("}\n\n");
+    }
+
+    static bool TryGetConditionalParameter(
+        ApiSignature? signature,
+        IReadOnlyList<TypeParameter> parameters,
+        out string? parameterName)
+    {
+        ApiTypeShape? type = signature?.ReturnTypeShape;
+        if (type is
+            {
+                Kind: ApiTypeShapeKind.GenericInstance,
+                Definition.FullName: "System.Nullable`1",
+                TypeArguments: [var nullable],
+            })
+        {
+            type = nullable;
+        }
+
+        if (type is
+            {
+                Kind: ApiTypeShapeKind.GenericParameter,
+                IsMethodGenericParameter: false,
+                GenericParameterIndex: var parameterIndex,
+            }
+            && parameterIndex >= 0
+            && parameterIndex < parameters.Count)
+        {
+            parameterName = parameters[parameterIndex].Name;
+            return true;
+        }
+
+        parameterName = null;
+        return false;
     }
 
     static bool TryGetArrayParameter(
@@ -1537,13 +1585,50 @@ static class DtsEmitter
     }
 
     internal static bool UsesJsonValue(
-        ILInspector.JsExportSurface.JsExportSurface surface) =>
-        surface.Records.Any(type =>
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity =
+                DeclaredTypesByScopedIdentity(
+                    surface,
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
+        return surface.Records
+            .Where(type => ShouldEmit(surface, type))
+            .Any(type =>
         {
             JsonWireDirection directions =
                 surface.WireDirections.GetValueOrDefault(
                     type,
                     JsonWireDirection.Both);
+            if (type.JsonPropertyNamingPolicy
+                    == JsonWireNamingPolicy.Unsupported
+                || HasUnsupportedJsonConverter(type)
+                || HasUnsupportedRecordWireShape(
+                    type,
+                    surface.AssemblyIdentity,
+                    declaredTypesByScopedIdentity)
+                || ((directions & JsonWireDirection.Deserialize)
+                        != JsonWireDirection.None
+                    && type.Members.Any(member =>
+                        JsonWireMemberRules
+                            .RequiresConstructorBindingEvidence(
+                                type,
+                                member,
+                                surface.AssemblyIdentity,
+                                declaredTypesByScopedIdentity)))
+                || (directions == JsonWireDirection.Both
+                    && type.Members.Any(member =>
+                        JsonWireMemberRules.IsDirectionSensitive(
+                            member,
+                            surface.AssemblyIdentity,
+                            declaredTypesByScopedIdentity))))
+            {
+                return false;
+            }
+
             JsonWireDirection declarationDirection =
                 (directions & JsonWireDirection.Serialize)
                     != JsonWireDirection.None
@@ -1553,11 +1638,20 @@ static class DtsEmitter
                 .Any(member =>
                     JsonWireMemberRules.GetPresence(
                         member,
-                        declarationDirection)
+                        declarationDirection,
+                        surface.AssemblyIdentity,
+                        declaredTypesByScopedIdentity)
                         == JsonWireMemberPresence.Conditional
+                    && (member.JsonConverterAttributeCount == 0
+                        || HasApprovedInertStringConverter(member))
+                    && !TryGetConditionalParameter(
+                        member.SignatureModel,
+                        type.TypeParameters,
+                        out _)
                     && ContainsJsonElement(
                         member.SignatureModel?.ReturnTypeShape));
         });
+    }
 
     static bool ContainsJsonElement(ApiTypeShape? type)
     {

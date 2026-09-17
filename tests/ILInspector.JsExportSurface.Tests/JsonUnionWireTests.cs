@@ -330,6 +330,29 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
+    public void Emit_RejectsConditionalGenericRecordParameter()
+    {
+        Assert.Equal(
+            """{"payload":{"value":1}}""",
+            UnionExports.GetConditionalGenericRecord());
+
+        var surface = Build(
+            nameof(UnionExports.GetConditionalGenericRecord));
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "conditional generic record parameter",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Throws<UnsupportedWireContractException>(
+            () => TypeScriptFacadeEmitter.Emit(
+                surface,
+                "./dotnet.js"));
+    }
+
+    [Fact]
     public void Emit_DoesNotConfuseConcreteArrayTypesWithGenericParameters()
     {
         Assert.Equal(

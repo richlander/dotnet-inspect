@@ -256,6 +256,13 @@ present-value alias, which includes JSON `null` but excludes JavaScript
 `property?: unknown`. Other arbitrary JSON outputs retain their existing
 opaque `unknown` contract.
 
+A conditional member whose present-value type is an immediate record generic
+parameter is unsupported. The open generic declaration does not retain enough
+owner-issued information to distinguish a CLR default null from JSON null in
+every authenticated closed instantiation, and `property?: T` becomes unsound
+when a supported argument maps to `unknown`. Generation fails visibly rather
+than publishing that declaration.
+
 A bidirectional record whose serialize and deserialize presence differs still
 fails visibly. Separate input and output declarations are a later
 direction-specific contract, not a shape the emitter guesses in this slice.

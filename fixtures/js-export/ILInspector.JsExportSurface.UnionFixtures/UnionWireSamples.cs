@@ -35,6 +35,9 @@ public sealed record NonParametricNestedAnnotatedArrayRecord<T>(
     IReadOnlyDictionary<string, T?[]> Items);
 public sealed record ParametricNullableValueArrayRecord<T>(T?[] Items)
     where T : struct;
+public sealed record ConditionalGenericRecord<T>(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    T Payload);
 public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
 public sealed record GlobalConcreteArrayRecord<Collision>(
     Collision Value,
@@ -213,6 +216,16 @@ public static partial class UnionExports
                 .ParametricNullableValueArrayRecordInt32);
 
     [JSExport]
+    public static string GetConditionalGenericRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalGenericRecord<JsonElement>(
+                document.RootElement.Clone()),
+            UnionJsonContext.Default.ConditionalGenericRecordJsonElement);
+    }
+
+    [JSExport]
     public static string GetConcreteArrayRecord() =>
         JsonSerializer.Serialize(
             new ConcreteArrayRecord<int>(7, [new(8)]),
@@ -271,6 +284,7 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NonParametricAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(NonParametricNestedAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(ParametricNullableValueArrayRecord<int>))]
+[JsonSerializable(typeof(ConditionalGenericRecord<JsonElement>))]
 [JsonSerializable(typeof(ConcreteArrayRecord<int>))]
 [JsonSerializable(typeof(GlobalConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

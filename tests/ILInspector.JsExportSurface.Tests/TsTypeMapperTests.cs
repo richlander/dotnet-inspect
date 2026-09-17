@@ -1062,6 +1062,8 @@ public sealed class TsTypeMapperTests
     [Theory]
     [InlineData("System.Text.Json.JsonElement")]
     [InlineData("JsonElement")]
+    [InlineData("System.Text.Json.JsonElement?")]
+    [InlineData("JsonElement?")]
     public void MapJsonWirePresentValue_JsonElementMapsToJsonValueWithoutReportingAsUnmapped(
         string csharpType)
     {

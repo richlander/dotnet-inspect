@@ -95,6 +95,7 @@ export function readConditionalOutput(value: ConditionalOutputDto): string {
   const nullableItems: ReadonlyArray<WidgetDto | null> | undefined =
     value.nullableItems;
   const payload: JsonValue | undefined = value.payload;
+  const nullablePayload: JsonValue | undefined = value.nullablePayload;
 
   return [
     alwaysNullable ?? "null",
@@ -104,6 +105,7 @@ export function readConditionalOutput(value: ConditionalOutputDto): string {
     nonNullableNullHidden ?? "missing",
     nullableItems?.[0]?.name ?? "missing",
     payload === undefined ? "missing" : "json",
+    nullablePayload === undefined ? "missing" : "json",
   ].join("|");
 }
 
@@ -125,6 +127,13 @@ export const invalidConditionalOutput: ConditionalOutputDto = {
 export const invalidConditionalJson: ConditionalOutputDto = {
   ...output,
   payload: undefined,
+};
+
+// Nullable JsonElement consumes CLR null as absence but preserves JSON null.
+// @ts-expect-error
+export const invalidConditionalNullableJson: ConditionalOutputDto = {
+  ...output,
+  nullablePayload: undefined,
 };
 TS
 

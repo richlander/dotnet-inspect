@@ -359,7 +359,8 @@ static class TsTypeMapper
                 mappingContext,
                 nullableInnerShape,
                 identityNames,
-                unionContext);
+                unionContext,
+                suppressOuterNull);
             return suppressOuterNull
                 ? mappedInner
                 : $"{mappedInner} | null";
@@ -429,7 +430,8 @@ static class TsTypeMapper
                 mappingContext,
                 GenericArgumentShape(typeShape, 0),
                 identityNames,
-                unionContext);
+                unionContext,
+                suppressOuterNull);
             return suppressOuterNull
                 ? mappedInner
                 : $"{mappedInner} | null";

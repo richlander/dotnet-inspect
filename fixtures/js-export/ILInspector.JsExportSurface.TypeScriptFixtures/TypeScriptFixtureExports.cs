@@ -90,6 +90,9 @@ public sealed record ConditionalOutputDto(string Name)
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonElement Payload { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? NullablePayload { get; init; }
 }
 
 public sealed class HiddenTypeJsonIncludeDto
