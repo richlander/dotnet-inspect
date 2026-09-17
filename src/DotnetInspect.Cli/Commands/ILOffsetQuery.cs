@@ -68,7 +68,9 @@ internal static class ILOffsetQuery
             // interpolated raw here.
             if (writeErrors)
                 CommandError.Write(
-                    $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
+                    options.IsCoordinateCommand
+                        ? $"Invalid coordinate '{options.ILOffsetParameter ?? string.Empty}'."
+                        : $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
                     "Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }

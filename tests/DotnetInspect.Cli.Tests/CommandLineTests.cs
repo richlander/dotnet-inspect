@@ -627,6 +627,36 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void LibraryCoordinateCommand_UsesFocusFirstGrammar()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "coordinate",
+                "0x06000001+0x5",
+                "--library",
+                "MyLib.dll",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("coordinate", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void LibraryCoordinateCommand_RejectsPositionalLibrarySource()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "coordinate",
+                "0x06000001+0x5",
+                "MyLib.dll",
+            ]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
     public void LibraryCommand_WithLocalPath_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll"]);

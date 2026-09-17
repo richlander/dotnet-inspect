@@ -1771,6 +1771,230 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_BareLocalRequestMatchesLegacyILOffset()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string coordinate = $"0x{token:X8}+0x{callOffset:X}";
+
+        var legacy = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--il-offset",
+            coordinate,
+            "--tips",
+            "q");
+        var child = await RunAppAsync(
+            "library",
+            "coordinate",
+            coordinate,
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+
+        Assert.Equal(legacy.Exit, child.Exit);
+        Assert.Equal(legacy.Output, child.Output);
+        Assert.Equal(legacy.Error, child.Error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_UsesPackageRelativeLibrary()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-coordinate-package-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string relativeLibraryPath =
+            "lib/net11.0/Coordinate.Package.dll";
+        string libraryPath = Path.Combine(
+            content,
+            "lib",
+            "net11.0",
+            "Coordinate.Package.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(libraryPath)!);
+        File.Copy(TestAssemblyPath, libraryPath);
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Context: Member", output);
+            Assert.Contains(nameof(SemanticFactsFixture.AllSignals), output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_InvalidCoordinateFailsBeforeAcquisition()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "not-a-coordinate",
+            "--library",
+            missingLibrary,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Invalid coordinate", error);
+        Assert.DoesNotContain(missingLibrary, error);
+        Assert.DoesNotContain("--il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_RequiresNamedLibrarySource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires --library, --package, or --platform",
+            error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_RejectsMultiLibraryTfmBeforeAcquisition()
+    {
+        string missingPackage = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-package-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "--package",
+            missingPackage,
+            "--tfm",
+            "all",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires one selected Library", error);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_MemberSelectionAllowsNonInstructionBoundary()
+    {
+        var bare = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x2",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        var member = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x2",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "Context: Member",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, bare.Exit);
+        Assert.Empty(bare.Output);
+        Assert.Contains("not an instruction boundary", bare.Error);
+        Assert.Equal(0, member.Exit);
+        Assert.Empty(member.Error);
+        Assert.Contains("## Context: Member", member.Output);
+        Assert.Contains(
+            "| Member | System.HexConverter.FromChar |",
+            member.Output);
+        Assert.DoesNotContain(
+            "## Context: Instruction",
+            member.Output);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_DiscoveryIsCoordinateScoped()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "@Context",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: Source Location", output);
+        Assert.Contains("Context: Member", output);
+        Assert.Contains("Context: Instruction", output);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_HelpShowsFocusAndNamedSources()
+    {
+        var parent = await RunAppAsync("library", "--help");
+        var child = await RunAppAsync(
+            "library",
+            "coordinate",
+            "--help");
+
+        Assert.Equal(0, parent.Exit);
+        Assert.Contains("coordinate", parent.Output);
+        Assert.Empty(parent.Error);
+        Assert.Equal(0, child.Exit);
+        Assert.Contains("<coordinate>", child.Output);
+        Assert.Contains("--library", child.Output);
+        Assert.Contains("--package", child.Output);
+        Assert.Contains("--platform", child.Output);
+        Assert.Empty(child.Error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
     {
         var (token, callOffset) = FindIlCoordinate(

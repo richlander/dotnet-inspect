@@ -95,7 +95,11 @@ public class LibraryCommand
         // which is exactly when "what did this actually scan?" is worth knowing.
         var trace = new InspectionTrace
         {
-            Command = new InertString(TextPolicy.Field, "library"),
+            Command = new InertString(
+                TextPolicy.Field,
+                options.IsCoordinateCommand
+                    ? "library coordinate"
+                    : "library"),
             Target = new InertString(
                 TextPolicy.Field,
                 Path.GetFileName(
@@ -531,7 +535,10 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            CommandError.Write($"--il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
+            string requestName = options.IsCoordinateCommand
+                ? "library coordinate"
+                : "--il-offset";
+            CommandError.Write($"{requestName} requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
@@ -1752,7 +1759,17 @@ public class LibraryCommand
         {
             var value = select[i].Trim();
             if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                return (options, $"IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
+            {
+                return options.IsCoordinateCommand
+                    ? (options,
+                        "IL coordinate parameters belong in the coordinate argument, "
+                        + $"not in -S. Use library coordinate 0x06000001+0x5 "
+                        + $"--library <path> -S \"{SectionNames.ILOffset}\".")
+                    : (options,
+                        $"IL offset parameters belong in --il-offset, not in -S. "
+                        + $"Use --il-offset 0x06000001+0x5 "
+                        + $"-S \"{SectionNames.ILOffset}\".");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
