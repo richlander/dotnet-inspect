@@ -192,17 +192,25 @@ owner:
 
 1. this owner resolves one exact matched destination API Member to native
    implementation Analysis Findings;
-2. #7248 executes one bounded reporter-bound source/destination PackageHouse
-   cell pair and invokes this query while both endpoints are live;
-3. Diff History evaluates its chosen checkpoints serially and joins detached
+2. [Diff History inspection](diff-history.md) resolves the baseline source
+   Member once and issues its detached exact declaration, kind, and stable
+   `FindingSubject` receipt;
+3. [#7337](https://github.com/richlander/dotnet-inspect/issues/7337) supplies
+   Queries-owned detached coordinate-correspondence evidence;
+4. #7248 owns bounded baseline/checkpoint execution, invokes this query for
+   exact matched Members, and returns resource-free evaluation evidence;
+5. Diff History evaluates its chosen checkpoints serially and joins detached
    sparse node and correspondence-edge evidence;
-4. the subject CLI and Browser/Wasm consume the same shared
-   `InspectionEnvelope<TContent>` terminal; and
-5. the standalone `timeline` implementation is removed without compatibility.
+6. the subject CLI consumes the shared `InspectionEnvelope<TContent>` terminal
+   and atomically removes the standalone `timeline` implementation without
+   compatibility; and
+7. Browser/Wasm adopts that same shared terminal.
 
-Diff History separately owns seed selection, behavior when the baseline lacks
-the subject, seed-to-checkpoint correspondence across gaps, transition
-classification, Count, and output retention or streaming.
+Diff History separately owns the now-locked baseline-required receipt, direct
+seed-to-checkpoint correspondence across gaps, transition classification,
+Count, and detached output retention or streaming. #7248 owns how the receipt
+is bound and how matched Analysis or non-success is projected for one bounded
+evaluation; #7337 owns the detached correspondence evidence.
 
 ## Evidence
 
