@@ -73,6 +73,34 @@ public sealed class BrowserPackageQueryOperationsTests
             rejected.Failure.Reason);
     }
 
+    [Fact]
+    public void PackagePlan_UsesProductPortableInspectionTermBoundary()
+    {
+        PortableQueryTerm[] maximum = InspectionTerms(
+            PackageQuery.MaximumInspectionTerms);
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                maximum,
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: false));
+        Assert.Equal(
+            PortableQueryPayloadCodec.MaxTerms,
+            accepted.Plan.Intent.Terms.Count);
+
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                InspectionTerms(PackageQuery.MaximumInspectionTerms + 1),
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: false));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyTerms,
+            rejected.Failure.Reason);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -1349,6 +1377,15 @@ public sealed class BrowserPackageQueryOperationsTests
             _ => throw new InvalidOperationException(
                 "Unknown package-query tier."),
         };
+
+    static PortableQueryTerm[] InspectionTerms(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(index =>
+            new PortableQueryTerm(
+                PackageQuery.DependsTermKey,
+                PortableQueryOperator.Equal,
+                $"Contoso.Dependency.{index:D2}")),
+    ];
 
     static async Task WaitUntilAsync(Func<bool> condition)
     {

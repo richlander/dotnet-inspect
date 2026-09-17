@@ -153,6 +153,12 @@ alias. `-Q Packages` and `Query: Packages` expose the product term keys,
 closed values, value kinds, and examples without acquisition. The CLI does not
 define a parallel vocabulary or infer terms from labels or evidence text.
 
+One request admits at most 22 authored inspection terms. Package Query reserves
+the other two slots in Portable Query's 24-term payload limit for its required
+population and prerelease terms. The count is charged before duplicate
+collapse, matching the canonical codec; both CLI and Browser receive the same
+typed planning rejection for a twenty-third inspection term.
+
 `depends` uses NuGet package-ID comparison semantics and matches a direct
 dependency declared in any nuspec dependency group. It does not select a
 target-framework group, evaluate version-range satisfiability, or traverse

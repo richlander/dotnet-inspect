@@ -305,6 +305,54 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public void PlanInput_EnforcesPortableInspectionTermBoundary()
+    {
+        PortableQueryTerm[] maximum = InspectionTerms(
+            PackageQuery.MaximumInspectionTerms);
+        PackageQueryPlan accepted = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms: maximum));
+
+        Assert.Equal(
+            PortableQueryPayloadCodec.MaxTerms,
+            accepted.Intent.Terms.Count);
+        string payload = PortableQueryPayloadCodec.Encode(
+            accepted.Intent,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            payload,
+            PortableQueryPayloadCodec.Encode(
+                PortableQueryPayloadCodec.Decode(
+                    payload,
+                    TestContext.Current.CancellationToken),
+                TestContext.Current.CancellationToken));
+
+        PackageQueryRequestFailure rejected = Rejected(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms: InspectionTerms(
+                    PackageQuery.MaximumInspectionTerms + 1)));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyTerms,
+            rejected.Reason);
+        Assert.Equal(
+            PackageQuery.MaximumInspectionTerms + 1,
+            rejected.Value);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms:
+                [
+                    .. Enumerable.Repeat(
+                        maximum[0],
+                        PackageQuery.MaximumInspectionTerms + 1),
+                ])).Reason);
+    }
+
+    [Fact]
     public void PlanInput_RetainsStagesAndExplicitBounds()
     {
         RowSelectionIntent<string> selection = RowSelectionIntent<string>.Create(
@@ -1943,6 +1991,14 @@ public sealed class PackageQueryTests
 
     private static PortableQueryTerm Term(string key, string value) =>
         new(key, PortableQueryOperator.Equal, value);
+
+    private static PortableQueryTerm[] InspectionTerms(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(index =>
+            Term(
+                PackageQuery.DependsTermKey,
+                $"Contoso.Dependency.{index:D2}")),
+    ];
 
     private static SearchResult Match(
         string packageId,

@@ -69,6 +69,12 @@ public static partial class PackageQuery
             return Rejected(PackageQueryRequestFailureReason.InvalidCandidateLimit);
         if (maximumMatches is <= 0 or > MaximumCandidates)
             return Rejected(PackageQueryRequestFailureReason.InvalidMatchLimit);
+        if (terms is { Count: > MaximumInspectionTerms })
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.TooManyTerms,
+                value: terms.Count);
+        }
         if (populationKey == PackageTermKey)
             maximumCandidates = 1;
 

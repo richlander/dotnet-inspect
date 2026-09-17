@@ -35,6 +35,7 @@ public enum PackageQueryRequestFailureReason
 {
     InvalidCandidateLimit,
     InvalidMatchLimit,
+    TooManyTerms,
     InvalidPackageInput,
     UnknownVocabulary,
     UnknownTerm,
@@ -82,6 +83,9 @@ public sealed record PackageQueryRequestFailure
             + $"package-content terms admit at most {PackageQuery.MaximumPackageContentCandidates} candidates.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
             $"The package-query match limit must be between 1 and {PackageQuery.MaximumCandidates}.",
+        PackageQueryRequestFailureReason.TooManyTerms =>
+            $"Package Query admits at most {PackageQuery.MaximumInspectionTerms} inspection terms "
+            + $"so its complete intent remains within {PortableQueryPayloadCodec.MaxTerms} portable terms.",
         PackageQueryRequestFailureReason.UnknownVocabulary =>
             "The Package Query vocabulary is not available in this build.",
         PackageQueryRequestFailureReason.UnknownTerm =>
@@ -345,10 +349,14 @@ internal sealed record PackageContentFacts(
 /// </summary>
 public static partial class PackageQuery
 {
+    private const int RequiredPortableTermCount = 2;
+
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
     public const int MaximumCandidates = 1_000;
     public const int MaximumPackageContentCandidates = 20;
+    public const int MaximumInspectionTerms =
+        PortableQueryPayloadCodec.MaxTerms - RequiredPortableTermCount;
     public const int MaximumToolSettingsBytes = 64 * 1024;
     public const int MaximumEvidencePreviewItems = 3;
     public const int MaximumEvidencePreviewCharacters = 160;
@@ -590,6 +598,13 @@ public static partial class PackageQuery
         PortableQueryIntent intent,
         CancellationToken cancellationToken = default)
     {
+        if (intent.Terms.Count > PortableQueryPayloadCodec.MaxTerms)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.TooManyTerms,
+                value: intent.Terms.Count);
+        }
+
         PortableQueryResolution<PackageQueryPlan> resolution =
             PortableQueryResolver.Resolve(
                 Vocabulary.Identity,

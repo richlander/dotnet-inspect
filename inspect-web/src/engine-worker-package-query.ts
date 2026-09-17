@@ -41,6 +41,8 @@ const engineWorkerPackageQueryKind = "package-query";
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
 const maximumCollectionItems = 4_096;
+// Outer wire-shape ceiling. The shared managed planner reserves its structural
+// terms and owns the lower product limit for authored inspection terms.
 const maximumQueryTerms = 24;
 const maximumOwnerItems = 4_096;
 // Match the PackageManifestFactsQuery owner limits while retaining the

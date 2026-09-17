@@ -225,6 +225,40 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public void InspectionTermCount_UsesProductPortableBoundary()
+    {
+        string[] maximum = InspectionExpressions(
+            PackageQuery.MaximumInspectionTerms);
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                maximum,
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? accepted,
+                out OptionError acceptedError),
+            acceptedError.ToString());
+        Assert.NotNull(accepted);
+
+        Assert.False(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                InspectionExpressions(PackageQuery.MaximumInspectionTerms + 1),
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? rejected,
+                out OptionError rejectedError));
+        Assert.Null(rejected);
+        Assert.Contains(
+            $"at most {PackageQuery.MaximumInspectionTerms} inspection terms",
+            rejectedError.ToString());
+    }
+
+    [Fact]
     public void NuspecOnly_RejectsPackageContentTerms()
     {
         Assert.False(PackageQueryOptions.TryCreate(
@@ -961,6 +995,12 @@ public class PackageQueryCliTests
             string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
             return CommandLineBuilder.InvokeAsync(root.Parse(processed), processed);
         });
+
+    private static string[] InspectionExpressions(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(index =>
+            $"depends=Contoso.Dependency.{index:D2}"),
+    ];
 
     private static IPackageSourceClient Source(out FakeSource fixture)
     {
