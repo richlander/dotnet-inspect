@@ -352,7 +352,9 @@ public static class MemberCommand
                     actualPipeline.SelectableSectionNames,
                     actualPipeline.InfoSectionNames,
                     ApiMemberSectionPipelines.GetCategoryMap(actualPipeline),
-                    selectDefault: options.SelectDefault);
+                    selectDefault: options.SelectDefault,
+                    exactOnlySections:
+                        ApiMemberSectionPipelines.GetExactOnlySections(options));
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
                 if (actualSelect.Sections != null)

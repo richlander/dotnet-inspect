@@ -1149,6 +1149,43 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("Member I*", "Member Index")]
+    [InlineData("Clone*", "Clone Candidates")]
+    public async Task Member_ResolvedType_ReappliesExactOnlyPolicy(
+        string selector,
+        string exactOnlySection)
+    {
+        var qualified = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            selector,
+            "--markdown",
+            "--tips",
+            "q");
+        var resolved = await RunAppAsync(
+            "member",
+            "String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            selector,
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(qualified.Exit, resolved.Exit);
+        Assert.Equal(qualified.Output, resolved.Output);
+        Assert.Equal(qualified.Error, resolved.Error);
+        Assert.DoesNotContain($"## {exactOnlySection}", resolved.Output);
+        Assert.DoesNotContain(
+            $"Section '{exactOnlySection}' requires",
+            resolved.Error);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Member_DiscoveryGlob_DoesNotExposeExactOnlySection(
