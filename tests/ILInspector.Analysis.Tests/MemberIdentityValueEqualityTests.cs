@@ -486,6 +486,134 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Owner");
+        TypeRef integer =
+            TypeRef.CoreLib("System", "Int32");
+        TypeRef voidType =
+            TypeRef.CoreLib("System", "Void");
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Write",
+            [integer],
+            voidType,
+            0x06000001,
+            true)
+        {
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            voidType,
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "Write",
+                [integer, integer],
+                voidType,
+                MemberKind.Method)
+            {
+                SignatureHeader = 0x05,
+                RequiredParameterCount = 1,
+            },
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            target.MetadataToken,
+            MethodDefinitionMap.Create([target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_ConversionParametersUseExactFunctionPointerIdentity()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner");
+        TypeRef integer =
+            TypeRef.CoreLib("System", "Int32");
+        TypeRef FunctionPointer(
+            SignatureCallingConvention callingConvention) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        callingConvention,
+                        SignatureAttributes.None),
+                    TypeRef.CoreLib(
+                        "System",
+                        "Void"),
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+        TypeRef cdecl =
+            FunctionPointer(
+                SignatureCallingConvention.CDecl);
+        TypeRef stdcall =
+            FunctionPointer(
+                SignatureCallingConvention.StdCall);
+        var first = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Implicit",
+            [cdecl],
+            integer,
+            0x06000001,
+            true);
+        var second = first with
+        {
+            ParameterTypes = [stdcall],
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            integer,
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "op_Implicit",
+                [stdcall],
+                integer,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            second.MetadataToken,
+            MethodDefinitionMap.Create(
+                    [first, second, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
     public void MethodDefinitionMap_ExactFallbackRequiresLocalTypeScope()
     {
         AssemblyReferenceIdentity currentAssembly = new(
@@ -694,6 +822,405 @@ public class MemberIdentityValueEqualityTests
                 new ResolvableTypeReference(
                     origin,
                     name));
+    }
+
+    [Fact]
+    public void
+        UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner");
+        var unsafeTarget = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true,
+            CallerUnsafeMode:
+                CallerUnsafeMode.Explicit);
+        var safeCollision = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "Route",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create(
+                [unsafeTarget, safeCollision, caller]);
+
+        UnsafeMethodLeverage leverage = Assert.Single(
+            UnsafeLeverage.Top(
+                [call],
+                [unsafeTarget],
+                count: 1,
+                methodMap: map));
+
+        Assert.Equal(0, leverage.DirectCallerCount);
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_MalformedUnsupportedSignatureDoesNotBind()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner");
+        TypeRef unsupported =
+            TypeRef.Unsupported("malformed signature");
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [unsupported],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [unsupported],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_OutOfRangeDeclaringTypeParameterDoesNotBind()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner`1");
+        TypeRef malformed =
+            TypeRef.GenericParameter(1);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [malformed],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [malformed],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void
+        MethodDefinitionMap_MalformedConstructedDeclaringTypeArityDoesNotBind(
+            int argumentCount)
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner`1");
+        TypeRef constructed = TypeRef.GenericInstance(
+            owner,
+            [
+                .. Enumerable.Range(0, argumentCount)
+                    .Select(_ =>
+                        TypeRef.CoreLib(
+                            "System",
+                            "Int32")),
+            ]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                constructed,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_DeclaringTypeMethodVariableOutsideCallerScopeDoesNotBind()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Target`1");
+        TypeRef constructed = TypeRef.GenericInstance(
+            owner,
+            [TypeRef.MethodGenericParameter(0)]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Caller"),
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                constructed,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_LiteralPlusSegmentPreservesDeclaredArity()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Outer`1+Target`1"]))
+                .Name;
+        TypeRef owner = TypeRef.Definition(
+            "Sample",
+            exactName.Namespace,
+            "Outer`1+Target`1",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                exactName));
+        TypeRef constructed = TypeRef.GenericInstance(
+            owner,
+            [TypeRef.CoreLib("System", "Int32")]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Caller"),
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                constructed,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            target.MetadataToken,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodLeverage_ResolvesBeforeFilteringBodilessDeclarations()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Target");
+        var bodyTarget = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        MethodIdentity bodilessCollision =
+            bodyTarget with
+            {
+                MetadataToken = 0x06000002,
+            };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        MethodDefinitionMap declarationMap =
+            MethodDefinitionMap.Create(
+                [bodyTarget, bodilessCollision, caller]);
+
+        MethodLeverage leverage =
+            Assert.Single(
+                MethodLeverageRanking.Top(
+                    [call],
+                    [bodyTarget],
+                    count: 1,
+                    scope: null,
+                    maxDepth: 64,
+                    methodMap: declarationMap));
+
+        Assert.Equal(
+            0,
+            leverage.DirectCallerCount);
     }
 
     [Fact]
