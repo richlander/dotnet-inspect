@@ -109,7 +109,7 @@ settlement.
 
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
-its callers. The three-delivery adapter-first path and overall twelve-step
+its callers. The four-delivery adapter-first path and overall twelve-step
 plan below still require both CLI and Browser/Wasm consumers of a shared
 completed `InspectionEnvelope<TContent>` API.
 
@@ -747,11 +747,14 @@ production hosts remain in scope.
 
 The immediate delivery path is the merged adapter in
 [#7313](https://github.com/richlander/dotnet-inspect/pull/7313), the authored
-settlement core in #7356, and shared source-query adoption through a completed
-`InspectionEnvelope<TContent>` for CLI and Browser/Wasm. The latter delivery
-retires only the legacy composition it actually replaces; unimplemented
-acquisition/decompiler modes and remaining callers stay tracked by the steps
-above.
+settlement core in #7356, supplied-PDB adapter admission in
+[#7439](https://github.com/richlander/dotnet-inspect/issues/7439), and the shared
+member-source-pair cutover through its existing completed
+`InspectionEnvelope<TContent>` for CLI and Browser/Wasm. These four deliveries
+reach the first production consumers without combining the adapter's companion
+contract with query adoption. The last delivery retires only the composition
+it replaces; ordinary type/member source, acquisition/decompiler modes, and
+remaining callers stay tracked by the twelve steps above.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse

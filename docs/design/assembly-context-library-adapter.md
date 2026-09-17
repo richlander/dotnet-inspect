@@ -6,14 +6,17 @@ The Workspace-owned adapter in `DotnetInspector.Queries` owns the conversion
 of an existing exact assembly-context participant into a direct Library input.
 It is tracked by [#7312](https://github.com/richlander/dotnet-inspect/issues/7312).
 
-The adapter is implemented. SourceHouse and production-query adoption remain
-the next deliveries below.
+The assembly-only adapter and authored SourceHouse core are implemented.
+Supplied companion admission is tracked by
+[#7439](https://github.com/richlander/dotnet-inspect/issues/7439);
+production-query adoption remains the next delivery below.
 
 > Given a live group, its exact selected participant, an explicit assembly
-> role, finite materialization bounds, and cancellation, construct an
-> independently owned Library from that participant's retained image, preserve
-> the original-input-to-Artifact correspondence, and transfer its Library
-> owner and adjacent Artifact session separately.
+> role, optional supplied Portable PDB, finite materialization bounds, and
+> cancellation, construct an independently owned Library from that
+> participant's retained image and matching companion, preserve input
+> correspondence and provenance, and transfer its Library owner and adjacent
+> Artifact session separately.
 
 The adapter consumes group snapshot access, Artifact publication and content
 children, Metadata-issued physical identity, and
@@ -35,10 +38,23 @@ and image-budget behavior.
 
 The caller explicitly chooses API-only content or an implementation image
 that serves both API and implementation roles. The adapter does not infer the
-choice from filenames, perform forwarding, or pair independent images. PDB and
-XML companions are not admitted by this first adapter operation. Embedded
-symbols remain bytes in the image; only their owning producer and consumer
-policy may interpret them.
+choice from filenames, perform forwarding, or pair independent assembly images.
+An optional already-acquired Portable PDB supplies immutable content and
+resource-free Artifact provenance. It requires the implementation role, under
+the existing Library companion contract; supplying it for an API-only image is
+an argument error, not permission to promote that image.
+
+Metadata must establish the Portable PDB's correspondence to the exact captured
+assembly before the adapter issues a Library companion. A missing Portable
+CodeView identity, mismatching PDB, or unreadable supplied content remains
+`PortablePdbRejected` with native observations rather than a Library with
+unvouched symbols. The adapter consumes Metadata's identity loader; it does not
+implement another GUID/stamp comparison or interpret SourceLink.
+
+XML companions remain outside this operation. Embedded symbols remain bytes
+in the image; only their owning producer and consumer policy may interpret
+them. Existing PDB acquisition stays upstream; this operation does not discover
+symbols or infer source authorization from a path.
 
 Materialization publishes a new bounded Artifact generation. Its provenance
 preserves the original acquisition registration and binding-policy snapshot;
@@ -46,6 +62,10 @@ Metadata projects the exact published content and supplies its assembly
 identity and MVID. The association records the new Artifact content as a new
 registration, not as a restoration of the original one. Same-name inputs in
 different groups or acquisitions remain distinguishable.
+The companion has a distinct Artifact registration in the same generation,
+retains its supplied provenance, and names the exact assembly Artifact through
+Library companion correspondence. It does not inherit the assembly's source
+provenance merely because the two are supplied together.
 
 The resulting `LibraryReference` is a direct-artifact reference. Its
 correspondence retains the exact published content and Metadata identity.
@@ -62,7 +82,8 @@ disposal, following the group's existing retained-reference behavior.
 
 The completed arm transfers a `LibraryContentOwner` and an
 `ArtifactSetSession` as separate authorities beside the resource-free Library
-reference and adapter correspondence. It does not wrap them in a new
+reference and adapter correspondence. A companion contributes its own content
+lease to the same Library owner. The result does not wrap them in a new
 source-ready resource or return a live authority inside an inspection
 envelope. The consumer obtains a `LibraryOperationLease` from that owner and
 transfers it to the later Library-consuming operation.
@@ -81,11 +102,14 @@ Library. A declared materialization bound prevents work beyond that bound.
 Caller cancellation remains cancellation after owned cleanup. Unexpected
 programmer failures are not converted into absence.
 
-The request bounds the one input image and retained Artifact bytes before
-publication. The adapter does not promise a process-RSS ceiling or
-zero-copy publication. Any independently retained image is accounted for by
-the operation's declared materialization bound; the group's existing image
-charge remains with the group.
+The existing capture bound applies separately to the assembly and optional PDB
+image, checked before either independent copy. Capture-limit incompleteness
+names the content role, observed bytes and limit. The retained Artifact bound
+applies to the combined assembly and PDB content, not a fresh allowance for
+each. Existing assembly-only calls keep their bounds and behavior.
+The adapter does not promise a process-RSS ceiling or zero-copy publication.
+The caller's supplied immutable PDB and the group's existing image charge
+remain with their respective owners.
 
 ## Adoption and retirement
 
@@ -97,20 +121,24 @@ This adapter also advances
 [#6621](https://github.com/richlander/dotnet-inspect/issues/6621) slice 6,
 without claiming full Workspace ownership adoption.
 
-The counted adapter-to-production path has three deliveries:
+The user approved companion admission as a separate prerequisite rather than
+mixing an adapter contract expansion with a production-query cutover. The
+counted adapter-to-first-production path now has four deliveries:
 
 1. Implement this adapter and its exact-content and ownership gates.
 2. Implement authored SourceHouse settlement over a transferred Library
    operation lease, replacing authored candidate composition.
-3. Have the shared source-query family supply this Library input to the House,
-   serving CLI member/source operations and Inspect Web type/member Source.
-   The completed host-facing API returns `InspectionEnvelope<TContent>` under
-   its query/presentation owner.
+3. Admit supplied Portable PDB companions through this adapter.
+4. Have `MemberSourcePairInspection` supply these Library inputs to SourceHouse.
+   Its existing `InspectionEnvelope<AssemblyMemberSourcePairResult>` handoff
+   serves CLI `diff --pdb-source` and Browser/Wasm two-version Source.
+   Retire the authored acquisition composition those endpoints replace.
 
 The independent source producers already serve both hosts; this adapter alone
-does not make those callers SourceHouse consumers. PDB companion admission,
-acquisition, decompiler fallback, explicit comparison, and remaining source
-policy retirement stay with the corresponding #6512 slices.
+does not make those callers SourceHouse consumers. Ordinary type/member
+source-query adoption, acquisition, decompiler fallback, other Library
+producers, and remaining source policy retirement stay with the corresponding
+twelve-step #6512 slices.
 
 The bridge retires per adoption: when a caller receives a canonical Library
 from PackageHouse, PlatformHouse, or Workspace realization, it passes that
@@ -136,6 +164,11 @@ image selected for `JsonSerializerOptions.MaxDepth` source inspection.
 Its pathless equivalent exercises the browser-compatible construction path;
 API-only content is the neighboring role case.
 
+The companion case uses the real repository's compiled
+`CSharpText.MemberSlicing`, its external Portable PDB, and `MemberTextSlicer.cs`.
+It transfers the adapted Library lease to `SourceHouse.ExecuteAuthoredAsync`
+and retrieves the exact authored member after closing the input group.
+
 `AssemblyContextLibraryAdapterTests` gates, in Release:
 
 - exact selected-participant association and Metadata identity;
@@ -147,6 +180,13 @@ API-only content is the neighboring role case.
 - separate Library and Artifact retirement, including a live operation lease
   delaying retirement; and
 - visible rejection of non-projectable managed input.
+
+The supplied-PDB gates additionally cover independent assembly/companion
+retirement and byte preservation, unchanged API-only role restrictions,
+foreign/malformed PDB and unavailable Portable CodeView identity, exact capture
+and combined-retention thresholds, cancellation, and the real SourceHouse
+member handoff. Native PDB grammar and matching remain Metadata's contract;
+the adapter tests establish their use at this handoff.
 
 The real-image retirement case verifies all returned image bytes while both
 owners drain and the original group has already closed. The bounds case checks
