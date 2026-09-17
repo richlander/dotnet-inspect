@@ -867,7 +867,8 @@ public static class NavigationTransitions
             request.Identity,
             outcome,
             evaluation.Resolution,
-            scopeResult: evaluation.Settlement);
+            scopeResult: evaluation.Settlement,
+            coordinateRetention: evaluation.CoordinateRetention);
     }
 
     public static NavigationScopeCancellationObservation
@@ -963,7 +964,8 @@ public static class NavigationTransitions
         NavigationState previous, NavigationStateData next, NavigationRequest request,
         NavigationConsumerOutcome outcome, NavigationLensActivationResult? resolution = null,
         DescendantSubjectLensRequest? descendant = null,
-        WorkspaceScopeOperationResult? scopeResult = null)
+        WorkspaceScopeOperationResult? scopeResult = null,
+        NavigationCoordinateRetentionResult? coordinateRetention = null)
     {
         var projection = new NavigationConsumerProjection(next.Projection);
         if (next.ActionsNeedRenewal)
@@ -978,7 +980,8 @@ public static class NavigationTransitions
             request.Operation, request.Id, next.Consumer, outcome, Disposition(next), authority);
         return new(previous, next, request, result: new(consumerResult,
             resolution is null ? null : new(request.Id, request.Operation, authority, resolution, descendant),
-            scopeResult));
+            scopeResult,
+            coordinateRetention));
     }
 
     static NavigationAdmissionRefusal? AdmissionRefusal(

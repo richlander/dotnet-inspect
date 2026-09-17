@@ -416,7 +416,8 @@ public static class InspectionCommandDefinitions
             LibraryCoordinateCommandDefinitions.Create(
                 opts,
                 assemblyCommand,
-                assemblyPathArg));
+                assemblyPathArg,
+                metadataRootOption));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -591,24 +592,12 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], .. targets];
             }
 
-            string? metadataRootText = parseResult.GetValue(metadataRootOption);
-            MetadataRootKind metadataRoot;
-            if (string.IsNullOrWhiteSpace(metadataRootText)
-                || metadataRootText.Equals("cli", StringComparison.OrdinalIgnoreCase))
+            if (!TryParseMetadataRoot(
+                    parseResult.GetValue(metadataRootOption),
+                    out MetadataRootKind metadataRoot,
+                    out string? metadataRootError))
             {
-                metadataRoot = MetadataRootKind.Cli;
-            }
-            else if (metadataRootText.Equals(
-                "r2r-manifest",
-                StringComparison.OrdinalIgnoreCase))
-            {
-                metadataRoot = MetadataRootKind.ReadyToRunManifest;
-            }
-            else
-            {
-                CommandError.Write(
-                    $"invalid --metadata-root value '{metadataRootText}': "
-                    + "expected cli or r2r-manifest.");
+                CommandError.Write(metadataRootError!);
                 return 1;
             }
 
@@ -677,5 +666,32 @@ public static class InspectionCommandDefinitions
         });
 
         return assemblyCommand;
+    }
+
+    internal static bool TryParseMetadataRoot(
+        string? value,
+        out MetadataRootKind metadataRoot,
+        out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Equals("cli", StringComparison.OrdinalIgnoreCase))
+        {
+            metadataRoot = MetadataRootKind.Cli;
+            error = null;
+            return true;
+        }
+
+        if (value.Equals("r2r-manifest", StringComparison.OrdinalIgnoreCase))
+        {
+            metadataRoot = MetadataRootKind.ReadyToRunManifest;
+            error = null;
+            return true;
+        }
+
+        metadataRoot = default;
+        error =
+            $"invalid --metadata-root value '{value}': "
+            + "expected cli or r2r-manifest.";
+        return false;
     }
 }

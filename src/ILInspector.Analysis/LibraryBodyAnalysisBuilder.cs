@@ -105,6 +105,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _assemblyName,
                 _mvid,
                 _methodReferenceResolver.ResolveMethod,
+                _methodReferenceResolver
+                    .ResolvePresenceMethod,
                 _genericConstraintClassifier
                     .GenericParameterCanBeValueType,
                 _stableReceiverGetterClassifier
@@ -226,6 +228,27 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             scope,
             caller);
 
+    CallerUnsafeMode?
+        ILibraryMethodAnalysisInfrastructure
+            .ResolveSameImageCallerUnsafeMode(
+                int operandToken,
+                MemberRef member,
+                UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver
+            .ResolveSameImageCallerUnsafeMode(
+                operandToken,
+                member,
+                workBudget);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .MayResolveSameImageCall(
+            int operandToken,
+            UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver
+            .MayResolveSameImageCall(
+                operandToken,
+                workBudget);
+
     MemberRef ILibraryMethodAnalysisInfrastructure.ResolveMethod(
         int token,
         GenericScope scope,
@@ -234,6 +257,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             token,
             scope,
             caller);
+
+    MemberRef
+        ILibraryMethodAnalysisInfrastructure
+            .ResolvePresenceMethod(
+                int token,
+                GenericScope scope,
+                UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver.ResolvePresenceMethod(
+            token,
+            scope,
+            workBudget);
 
     string? ILibraryMethodAnalysisInfrastructure.CalliReturnDetail(
         int token,

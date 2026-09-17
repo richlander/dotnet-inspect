@@ -82,13 +82,14 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
-  | "activateRetainedWorkspace"
-  | "awaitRetainedWorkspaceSettlement"
+  | "activateRetainedWorkspaceDefinition"
   | "canonicalizeWorkspaceSharePacket"
+  | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"
   | "listVocabulary"
+  | "observeRetainedWorkspaceSettlement"
   | "resolveHomeDemo"
   | "runHomeDemo";
 

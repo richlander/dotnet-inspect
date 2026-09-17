@@ -381,26 +381,72 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     string? Packet,
     BrowserWorkspaceShareFailure? Failure);
 
+/// <summary>Detached Navigation state for one retained Workspace installation.</summary>
+public sealed record BrowserRetainedWorkspaceNavigation(
+    int? ActiveStateIndex,
+    BrowserRetainedWorkspaceView[] States);
+
+/// <summary>One restored view-state identity; query execution remains managed.</summary>
+public sealed record BrowserRetainedWorkspaceView(
+    string? NavigationId,
+    string? SubjectKind,
+    string? Facet);
+
+/// <summary>
+/// Observable settlement for the realization replaced by a successful cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePredecessor(
+    string SettlementId,
+    string Reason);
+
+/// <summary>
+/// Detached managed evidence TypeScript installs after a successful cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceInstallation(
+    string RetainedDefinitionId,
+    string Label,
+    string CanonicalLocation,
+    string CanonicalPacket,
+    string RealizationId,
+    long PublicationOrdinal,
+    BrowserRetainedWorkspaceNavigation Navigation,
+    BrowserRetainedWorkspacePredecessor? Predecessor);
+
+/// <summary>Typed complete-restoration failure at the Browser boundary.</summary>
 public sealed record BrowserRetainedWorkspaceActivationFailure(
     string Kind,
     string Message);
 
-public sealed record BrowserRetainedWorkspaceActivationResultDto(
-    string Kind,
-    string RetainedDefinitionId,
-    string? ActivationId,
-    string? CanonicalPacket,
-    string? NavigationJson,
-    string? PredecessorSettlementId,
-    int FailedSettlementCount,
+/// <summary>
+/// Retained Workspace selection result. Status is <c>activated</c>,
+/// <c>noEffect</c>, <c>superseded</c>, or <c>failed</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceActivationResult(
+    string Status,
+    BrowserRetainedWorkspaceInstallation? Installation,
     BrowserRetainedWorkspaceActivationFailure? Failure);
 
-public sealed record BrowserRetainedWorkspaceSettlementResultDto(
-    string Kind,
-    string SettlementId,
-    bool? Succeeded,
-    string? Reason,
-    BrowserRetainedWorkspaceActivationFailure? Failure);
+/// <summary>
+/// Active-retained-definition deletion result. Status is <c>deactivated</c>,
+/// <c>cleanupFailed</c>, <c>noEffect</c>, or <c>rejected</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceDeactivationResult(
+    string Status,
+    BrowserRetainedWorkspaceSettlement? Settlement,
+    string? Message);
+
+/// <summary>Detached realization cleanup evidence.</summary>
+public sealed record BrowserRetainedWorkspaceSettlement(
+    bool Succeeded,
+    string Reason,
+    string? Failure);
+
+/// <summary>
+/// Predecessor observation result. Status is <c>settled</c> or <c>unknown</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceSettlementResult(
+    string Status,
+    BrowserRetainedWorkspaceSettlement? Settlement);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
@@ -410,6 +456,7 @@ public sealed record BrowserRetainedWorkspaceSettlementResultDto(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
-[JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResultDto))]
-[JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResultDto))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

@@ -198,7 +198,7 @@ public abstract record CompleteRestorationFailure
 
     public sealed record Cancelled : CompleteRestorationFailure
     {
-        public Cancelled(string message)
+        internal Cancelled(string message)
             : base(message)
         {
         }

@@ -38,21 +38,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Catalog");
         value = $ownDataProperty(value, "CatalogExports");
-        value = $ownDataProperty(value, "ActivateRetainedWorkspace.451505237");
+        value = $ownDataProperty(value, "ActivateRetainedWorkspaceDefinition.1579276339");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspace.451505237\u0027 is not callable.");
-        }
-    }
-    {
-        let value = exports;
-        value = $ownDataProperty(value, "DotnetInspect");
-        value = $ownDataProperty(value, "Web");
-        value = $ownDataProperty(value, "Interop");
-        value = $ownDataProperty(value, "Catalog");
-        value = $ownDataProperty(value, "CatalogExports");
-        value = $ownDataProperty(value, "AwaitRetainedWorkspaceSettlement.976702342");
-        if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.AwaitRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition.1579276339\u0027 is not callable.");
         }
     }
     {
@@ -65,6 +53,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "CanonicalizeWorkspaceSharePacket.304094707");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CanonicalizeWorkspaceSharePacket.304094707\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "DeactivateRetainedWorkspaceDefinition.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.DeactivateRetainedWorkspaceDefinition.976702342\u0027 is not callable.");
         }
     }
     {
@@ -122,6 +122,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Catalog");
         value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "ObserveRetainedWorkspaceSettlement.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ObserveRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
         value = $ownDataProperty(value, "ResolveHomeDemo.304094707");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ResolveHomeDemo.304094707\u0027 is not callable.");
@@ -164,18 +176,18 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
-export async function activateRetainedWorkspace(retainedDefinitionId, packet) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspace.451505237"](retainedDefinitionId, packet);
-    const $parsed = JSON.parse($result);
-    return $parsed;
-}
-export async function awaitRetainedWorkspaceSettlement(settlementId) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AwaitRetainedWorkspaceSettlement.976702342"](settlementId);
+export async function activateRetainedWorkspaceDefinition(retainedDefinitionId, label, canonicalLocation, canonicalPacket) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinition.1579276339"](retainedDefinitionId, label, canonicalLocation, canonicalPacket);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
 export function canonicalizeWorkspaceSharePacket(encoded) {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanonicalizeWorkspaceSharePacket.304094707"](encoded);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function deactivateRetainedWorkspaceDefinition(retainedDefinitionId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["DeactivateRetainedWorkspaceDefinition.976702342"](retainedDefinitionId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -196,6 +208,11 @@ export function listHomeDemos() {
 }
 export function listVocabulary() {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListVocabulary.1310674786"]();
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function observeRetainedWorkspaceSettlement(settlementId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ObserveRetainedWorkspaceSettlement.976702342"](settlementId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

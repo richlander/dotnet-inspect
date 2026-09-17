@@ -93,12 +93,13 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
-  | "activateRetainedWorkspace"
-  | "awaitRetainedWorkspaceSettlement"
-  | "resolveHomeDemo"
+  | "activateRetainedWorkspaceDefinition"
   | "canonicalizeWorkspaceSharePacket"
+  | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "observeRetainedWorkspaceSettlement"
+  | "resolveHomeDemo"
   | "runHomeDemo";
 
 type AsyncMethod<TMethod> =
@@ -1118,23 +1119,15 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
-    activateRetainedWorkspace: valueOperation(
-      "ordinary-catalog-activate-retained-workspace",
-      2,
-      (
-        facades,
-        ...args: Parameters<CatalogFacade["activateRetainedWorkspace"]>
-      ) => facades.catalog.activateRetainedWorkspace(...args),
-    ),
-    awaitRetainedWorkspaceSettlement: valueOperation(
-      "ordinary-catalog-await-retained-workspace-settlement",
-      1,
+    activateRetainedWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-activate-retained-workspace-definition",
+      4,
       (
         facades,
         ...args: Parameters<
-          CatalogFacade["awaitRetainedWorkspaceSettlement"]
+          CatalogFacade["activateRetainedWorkspaceDefinition"]
         >
-      ) => facades.catalog.awaitRetainedWorkspaceSettlement(...args),
+      ) => facades.catalog.activateRetainedWorkspaceDefinition(...args),
     ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
@@ -1145,6 +1138,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["canonicalizeWorkspaceSharePacket"]
         >
       ) => facades.catalog.canonicalizeWorkspaceSharePacket(...args),
+    ),
+    deactivateRetainedWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-deactivate-retained-workspace-definition",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["deactivateRetainedWorkspaceDefinition"]
+        >
+      ) => facades.catalog.deactivateRetainedWorkspaceDefinition(...args),
     ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
@@ -1169,6 +1172,16 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<CatalogFacade["encodeWorkspaceShareState"]>
       ) => facades.catalog.encodeWorkspaceShareState(...args),
+    ),
+    observeRetainedWorkspaceSettlement: valueOperation(
+      "ordinary-catalog-observe-retained-workspace-settlement",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["observeRetainedWorkspaceSettlement"]
+        >
+      ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
     ),
     runHomeDemo: valueOperation(
       "ordinary-catalog-run-home-demo",
@@ -1403,17 +1416,17 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
-      activateRetainedWorkspace: bind(
+      activateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
-          .activateRetainedWorkspace,
-      ),
-      awaitRetainedWorkspaceSettlement: bind(
-        engineWorkerOrdinaryOperations.catalog
-          .awaitRetainedWorkspaceSettlement,
+          .activateRetainedWorkspaceDefinition,
       ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog
           .canonicalizeWorkspaceSharePacket,
+      ),
+      deactivateRetainedWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .deactivateRetainedWorkspaceDefinition,
       ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,
@@ -1425,6 +1438,10 @@ export function bindEngineWorkerOrdinaryClient(
       encodeWorkspaceShareState: bind(
         engineWorkerOrdinaryOperations.catalog
           .encodeWorkspaceShareState,
+      ),
+      observeRetainedWorkspaceSettlement: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .observeRetainedWorkspaceSettlement,
       ),
       runHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.runHomeDemo,

@@ -35,9 +35,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.SourceHouse\DotnetInspector.SourceHouse.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
@@ -74,6 +76,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\src\CSharpText.MemberSlicing\MemberTextSlicer.cs"
+          Link="RealAssets/LibraryAdapter/MemberTextSlicer.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)markout/0.35.2/lib/net10.0/Markout.dll"
           Link="RealAssets/VersionCell/Markout.dll"
           CopyToOutputDirectory="PreserveNewest" />
@@ -85,6 +90,12 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/system.text.json.10.0.0.nupkg"
           Link="RealAssets/ApiMatching/system.text.json.10.0.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="RealAssets/DocumentationQuery/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.xml"
+          Link="RealAssets/DocumentationQuery/System.Text.Json.xml"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"

@@ -160,7 +160,7 @@ stderr rather than mixed into structured output.
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
-| Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace inventory and navigation | `workspace --package X --tfm TFM` | Render one typed top-level inventory over committed Packages and inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent, or restore one canonical packet with `--packet`. Add `--active-package N` on the direct route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
@@ -317,15 +317,16 @@ dotnet-inspect library coordinate 0x060002EA+0x0 \
 ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
 validated image header and section directory. Use `@Metadata` to discover or
 render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
-the ReadyToRun manifest metadata instead of the default CLI root, and `--heap`
-for one exact heap address in the selected root.
+the ReadyToRun manifest metadata instead of the default CLI root, and
+`library coordinate` for one exact heap address in the selected root.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
+dotnet-inspect library coordinate "#Strings:0x1a4" \
+  --library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll
 dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
 
@@ -368,6 +369,7 @@ dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
@@ -406,12 +408,19 @@ dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
-Use `depends=<package-id>` to require a direct dependency declared in any
-package manifest group. Repeat the term to require every named dependency:
+Use `depends=<package-id>` to require a direct dependency. Package Query
+considers all package manifest groups by default; add
+`dependency-target=<TFM>` to select one applicable dependency group instead.
+`dependency-target=all` spells the default explicitly and remains distinct
+from a manifest's real `any` group. Repeat `depends` to require every named
+dependency under the same scope:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count

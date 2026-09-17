@@ -46,10 +46,24 @@ internal interface ILibraryMethodAnalysisInfrastructure
         GenericScope scope,
         MethodIdentity caller);
 
+    CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
+        int operandToken,
+        MemberRef member,
+        UnsafePresenceWorkBudget workBudget);
+
+    bool MayResolveSameImageCall(
+        int operandToken,
+        UnsafePresenceWorkBudget workBudget);
+
     MemberRef ResolveMethod(
         int token,
         GenericScope scope,
         MethodDefinitionHandle caller);
+
+    MemberRef ResolvePresenceMethod(
+        int token,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget);
 
     string? CalliReturnDetail(
         int token,
@@ -277,7 +291,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 }
             }
 
-            IMethodCallResolver? resolver = null;
             bool hasEvidence = false;
             InstructionDecoder.Visit(
                 body,
@@ -312,15 +325,26 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 == UnsafeCallProbeResult
                                     .RequiresResolution)
                             {
-                                resolver ??=
-                                    _infrastructure.CreateCallResolver(
-                                        Scope(),
-                                        Caller());
                                 MemberRef member =
-                                    resolver.ResolveMember(
-                                        operandToken);
+                                    _infrastructure
+                                        .ResolvePresenceMethod(
+                                            operandToken,
+                                            Scope(),
+                                            _unsafePresenceWork);
+                                CallerUnsafeMode? targetCallerUnsafeMode =
+                                    operation is
+                                        ILOpCode.Call
+                                        or ILOpCode.Callvirt
+                                        or ILOpCode.Newobj
+                                            ? _infrastructure
+                                                .ResolveSameImageCallerUnsafeMode(
+                                                    operandToken,
+                                                    member,
+                                                    _unsafePresenceWork)
+                                            : null;
                                 if (MethodSafetyAnalysis.IsUnsafeCall(
-                                        member))
+                                        member,
+                                        targetCallerUnsafeMode))
                                 {
                                     hasEvidence = true;
                                     return false;
@@ -399,8 +423,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                             specification.Signature,
                             SignatureBlobGuard.Kind
                                 .MethodSpecification);
-                    return signature
-                        == UnsafeCallProbeResult.NoCandidate
+                    if (signature
+                        == UnsafeCallProbeResult.Incomplete)
+                    {
+                        return signature;
+                    }
+                    return target
+                        == UnsafeCallProbeResult.RequiresResolution
                             ? target
                             : signature;
                 }
@@ -410,21 +439,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                     var method =
                         reader.GetMethodDefinition(
                             (MethodDefinitionHandle)handle);
-                    bool unsafeApiCandidate =
-                        MayBeUnsafeApiType(
-                            reader,
-                            method.GetDeclaringType());
                     UnsafeCallProbeResult result =
                         ProbeUnsafeSignature(
                             reader,
                             method.Signature,
                             SignatureBlobGuard.Kind.Method);
                     return result
-                        == UnsafeCallProbeResult.NoCandidate
-                            && unsafeApiCandidate
-                                ? UnsafeCallProbeResult
-                                    .RequiresResolution
-                                : result;
+                        == UnsafeCallProbeResult.Incomplete
+                            ? result
+                            : UnsafeCallProbeResult.RequiresResolution;
                 }
 
             case HandleKind.MemberReference:
@@ -433,9 +456,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                         reader.GetMemberReference(
                             (MemberReferenceHandle)handle);
                     bool parentRequiresResolution =
-                        member.Parent.Kind is not
-                            HandleKind.TypeDefinition
-                            and not HandleKind.TypeReference;
+                        _infrastructure
+                            .MayResolveSameImageCall(
+                                token,
+                                _unsafePresenceWork);
                     if (MayBeUnsafeApiType(
                             reader,
                             member.Parent))
@@ -447,12 +471,14 @@ internal sealed class LibraryMethodAnalysisRunner(
                             reader,
                             member.Signature,
                             SignatureBlobGuard.Kind.Method);
-                    return signature
-                            == UnsafeCallProbeResult.NoCandidate
-                        && parentRequiresResolution
-                            ? UnsafeCallProbeResult
-                                .RequiresResolution
-                            : signature;
+                    if (signature
+                        == UnsafeCallProbeResult.Incomplete)
+                    {
+                        return signature;
+                    }
+                    return parentRequiresResolution
+                        ? UnsafeCallProbeResult.RequiresResolution
+                        : signature;
                 }
 
             default:
