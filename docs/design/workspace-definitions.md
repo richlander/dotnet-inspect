@@ -451,23 +451,53 @@ definition. That association is process-local construction proof; only the
 derived portable facts cross the packet boundary.
 
 “Make Package dependencies explicit/top-level” is the motivating
-realization-backed transformation:
+realization-backed transformation. Here **top-level** means an explicit direct
+member of an existing Workspace context, not a global member outside contexts:
 
-1. Start from a definition containing one or more Package roots and target
-   declarations.
-2. Realize the selected roots under ordinary source authorization.
-3. Ask the dependency owner for the selected operation's owner-issued portable
-   Package coordinates.
-4. Add those coordinates as explicit top-level Workspace members under the
-   Workspace duplicate and order policy.
-5. Emit a derived definition and packet.
+1. Select an ordered set of direct Package member occurrences. Each selection
+   is the exact pair of context identity and member position; the same Package
+   declaration in two contexts is two selections. If the user supplies no
+   narrower selection, document order selects every direct Package member by
+   context order and then member order. Group-expanded Packages are not
+   silently promoted to roots in this first operation.
+2. Resolve each selected member's effective framework and RID through ordinary
+   context/member target inheritance, then realize that exact root under
+   ordinary source authorization.
+3. Ask the dependency owner for that root and effective target's ordered exact
+   `PackageSourceCoordinate` values. The dependency owner retains
+   direct-versus-transitive selection, Package dependency semantics, and the
+   order within that one result.
+4. Append each returned coordinate to the selected root's same context as a
+   direct Package member. The emitted member retains exact Package ID and
+   version and inherits that context's target; the transformation does not
+   create a global member slot or move a dependency to another context.
+5. Preserve context order and every existing subscription/member position.
+   Within each context, process selected roots in document order and their
+   owner-issued dependencies in result order. Append only the first occurrence
+   whose effective `(PackageSourceCoordinate, framework, RID)` is not already
+   present in that context or earlier in the append sequence.
+6. Treat contexts independently. The same Package dependency reached from two
+   contexts remains one explicit member in each, including when their effective
+   targets differ. No cross-context deduplication or target merging occurs.
+7. Emit one derived definition and packet only after every selected root has a
+   complete dependency result and the complete derived definition validates.
 
 The packet carries Package coordinates and targets, not nuspec XML, graph
 nodes, edges, traversal diagnostics, acquired archives, or cached resolution.
-Dependency selection, direct-versus-transitive policy, ordering, and failure
-remain with the dependency operation that supplies the portable coordinates.
-This owner governs only their insertion into the derived definition and the
-all-or-nothing portable outcome.
+Dependency selection, direct-versus-transitive policy, per-root result order,
+and discovery failure remain with the dependency operation that supplies the
+portable coordinates. This owner governs selected-root/context association,
+canonical insertion into the derived definition, context-local duplicate
+handling, and the all-or-nothing portable outcome.
+
+The pathological fixed vector uses
+`Microsoft.Extensions.Hosting@10.0.0` as a direct member in two contexts with
+different effective targets. One dependency is already explicit in the first
+context, and one owner-issued dependency is shared by both results. The gate
+requires no duplicate append in the first context, one append in the second,
+distinct declarations across contexts, unchanged preexisting order, and exact
+first-seen order for every newly appended member. A failure for either root
+emits no derived definition.
 
 ### Noun-command consumption and derived scenarios
 
@@ -601,8 +631,9 @@ Implementation proceeds in focused slices:
    realization when no transformation needs it.
 4. **Portable enrichment.** Add one real realization-backed transformation,
    “make Package dependencies explicit/top-level,” using a nuget.org package
-   with deterministic direct dependencies and proving that no graph result
-   enters the packet.
+   with deterministic direct dependencies and proving context-preserving
+   placement, context-local duplicate handling, all-or-nothing completion, and
+   that no graph result enters the packet.
 5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
    `type`, then `library` and `member`, one command at a time.
 6. **Transitional retirement.** Remove `workspace --active-package` and any
@@ -622,7 +653,9 @@ Required evidence includes:
   supplies a portable scanner vocabulary;
 - direct-input and packet-input semantic equivalence;
 - no-acquisition packet authoring for resource-free definitions;
-- realization-backed dependency promotion with deterministic portable output;
+- realization-backed dependency promotion with deterministic context and
+  member placement, including differently targeted contexts and context-local
+  duplicates;
 - visible all-or-nothing failure when enrichment is incomplete or
   non-projectable;
 - noun-command input preserving the exact Workspace definition while adding
