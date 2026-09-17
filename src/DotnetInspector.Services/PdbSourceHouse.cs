@@ -217,17 +217,17 @@ public static class PdbSourceHouse
                 SourceChecksumVerification.Unavailable);
         }
 
-        SourceFetchBytesResult fetch =
-            await fetcher.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult fetch =
+            await fetcher.FetchVerifiedSourceBytesAsync(
                 url,
                 content => SourceLinkService.VerifyChecksum(document, content.Span)
                     is SourceChecksumVerification.Exact
                         or SourceChecksumVerification
                             .LineEndingNormalized,
                 cancellationToken).ConfigureAwait(false);
-        if (fetch.Bytes is null)
+        if (fetch is FetchSourceResult.Failure failure)
         {
-            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            if (failure.Error == SourceError.NotFound)
             {
                 return TypeAbsent(
                     "The resolved SourceLink document was not found.",
@@ -238,19 +238,19 @@ public static class PdbSourceHouse
 
             return TypeFailed(
                 subject,
-                fetch.Failure switch
+                failure.Error switch
                 {
-                    SourceFetchFailureKind.RequestNotAuthorized =>
+                    SourceError.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.ValidationFailed =>
+                    SourceError.ValidationFailed =>
                         "Fetched PDB source does not match the portable-PDB checksum.",
-                    SourceFetchFailureKind.StorageFailed =>
+                    SourceError.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
                 },
                 mapping,
                 document,
-                fetch.Failure == SourceFetchFailureKind.ValidationFailed
+                failure.Error == SourceError.ValidationFailed
                     ? SourceChecksumVerification.Mismatch
                     : null);
         }
@@ -258,7 +258,7 @@ public static class PdbSourceHouse
         return FromTypeContent(
             mapping,
             document,
-            fetch.Bytes,
+            ((FetchSourceResult.Success)fetch).Content,
             subject);
     }
 
@@ -410,15 +410,15 @@ public static class PdbSourceHouse
                 PdbMemberSourceOutcome.SourceAcquisitionUnavailable);
         }
 
-        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult fetch = await fetcher.FetchVerifiedSourceBytesAsync(
             url,
             content => SourceLinkService.VerifyChecksum(document, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
-        if (fetch.Bytes is null)
+        if (fetch is FetchSourceResult.Failure failure)
         {
-            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            if (failure.Error == SourceError.NotFound)
             {
                 return Absent(
                     "The resolved SourceLink document was not found.",
@@ -428,7 +428,7 @@ public static class PdbSourceHouse
                     SourceChecksumVerification.Unavailable);
             }
 
-            if (fetch.Failure == SourceFetchFailureKind.ValidationFailed)
+            if (failure.Error == SourceError.ValidationFailed)
             {
                 return Failed(
                     subject,
@@ -441,18 +441,23 @@ public static class PdbSourceHouse
 
             return Failed(
                 subject,
-                fetch.Failure switch
+                failure.Error switch
                 {
-                    SourceFetchFailureKind.RequestNotAuthorized =>
+                    SourceError.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.StorageFailed =>
+                    SourceError.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
                 },
                 PdbMemberSourceOutcome.SourceAcquisitionFailed);
         }
 
-        return FromContent(mapping, document, fetch.Bytes, methodName, subject);
+        return FromContent(
+            mapping,
+            document,
+            ((FetchSourceResult.Success)fetch).Content,
+            methodName,
+            subject);
     }
 
     internal static SourceDocumentObservation? SelectMappedDocument(
@@ -521,30 +526,32 @@ public static class PdbSourceHouse
                 "The portable PDB does not provide a usable source checksum.");
         }
 
-        var fetch = await fetcher.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult fetch = await fetcher.FetchVerifiedSourceBytesAsync(
             url,
             content => SourceLinkService.VerifyChecksum(checksumAlgorithm, checksum, content.Span)
                 is SourceChecksumVerification.Exact
                     or SourceChecksumVerification.LineEndingNormalized,
             cancellationToken).ConfigureAwait(false);
-        if (fetch.Bytes is null)
+        if (fetch is FetchSourceResult.Failure failure)
         {
             return new VerifiedSourceTextResult(
                 null,
-                fetch.Failure switch
+                failure.Error switch
                 {
-                    SourceFetchFailureKind.RequestNotAuthorized =>
+                    SourceError.RequestNotAuthorized =>
                         "The host does not authorize this SourceLink destination.",
-                    SourceFetchFailureKind.ValidationFailed =>
+                    SourceError.ValidationFailed =>
                         "Fetched source does not match the portable-PDB checksum.",
-                    SourceFetchFailureKind.StorageFailed =>
+                    SourceError.StorageFailed =>
                         "The source-content store failed.",
                     _ => "Could not fetch SourceLink source.",
                 });
         }
 
         return SourceLinkService.VerifySourceContent(
-            checksumAlgorithm, checksum, fetch.Bytes);
+            checksumAlgorithm,
+            checksum,
+            ((FetchSourceResult.Success)fetch).Content);
     }
 
     public static async Task<VerifiedSourceTextResult> AcquireVerifiedSourceTextAsync(

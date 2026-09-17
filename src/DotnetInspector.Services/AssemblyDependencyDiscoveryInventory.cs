@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Immutable;
 using ILInspector.Metadata;
 using InertText;
@@ -81,6 +82,35 @@ public sealed class AssemblyDependencyDiscoveryFailure
     public AssemblyDependencyProvenance Tier { get; }
     public InertString? Location { get; }
     public AssemblyDependencyDiscoveryFailureKind Kind { get; }
+}
+
+/// <summary>
+/// The deduplicated dependency projection plus every expected discovery
+/// failure observed while producing it.
+/// </summary>
+public sealed class AssemblyResolutionResult :
+    IReadOnlyList<ResolvedAssemblyDependency>
+{
+    internal AssemblyResolutionResult(
+        AssemblyBindingPolicyVersion version,
+        ImmutableArray<ResolvedAssemblyDependency> items,
+        ImmutableArray<AssemblyDependencyDiscoveryFailure> diagnostics)
+    {
+        Version = version;
+        Items = items;
+        Diagnostics = diagnostics;
+    }
+
+    public AssemblyBindingPolicyVersion Version { get; }
+    public ImmutableArray<ResolvedAssemblyDependency> Items { get; }
+    public ImmutableArray<AssemblyDependencyDiscoveryFailure> Diagnostics { get; }
+    public int Count => Items.Length;
+    public ResolvedAssemblyDependency this[int index] => Items[index];
+
+    public IEnumerator<ResolvedAssemblyDependency> GetEnumerator() =>
+        ((IEnumerable<ResolvedAssemblyDependency>)Items).GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 /// <summary>
