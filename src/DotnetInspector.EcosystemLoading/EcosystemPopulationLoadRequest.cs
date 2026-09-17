@@ -332,6 +332,12 @@ static class EcosystemPopulationSnapshots
         EcosystemPopulationChildSettlement[] snapshot = [.. children];
         var seen = new HashSet<EcosystemPopulationChildSettlement>(
             ReferenceEqualityComparer.Instance);
+        var requests =
+            new HashSet<EcosystemPopulationChildRequestIdentity>(
+                ReferenceEqualityComparer.Instance);
+        var receipts =
+            new HashSet<EcosystemPopulationChildReceiptIdentity>(
+                ReferenceEqualityComparer.Instance);
         foreach (EcosystemPopulationChildSettlement child in snapshot)
         {
             ArgumentNullException.ThrowIfNull(child, nameof(children));
@@ -347,6 +353,11 @@ static class EcosystemPopulationSnapshots
                     "One child settlement cannot be retained more than once.",
                     nameof(children));
             }
+            ValidateChildIdentityUniqueness(
+                child,
+                requests,
+                receipts,
+                nameof(children));
         }
 
         return snapshot;
@@ -360,6 +371,12 @@ static class EcosystemPopulationSnapshots
         EcosystemPopulationCompletedChild[] snapshot = [.. children];
         var settlements =
             new HashSet<EcosystemPopulationChildSettlement>(
+                ReferenceEqualityComparer.Instance);
+        var requests =
+            new HashSet<EcosystemPopulationChildRequestIdentity>(
+                ReferenceEqualityComparer.Instance);
+        var receipts =
+            new HashSet<EcosystemPopulationChildReceiptIdentity>(
                 ReferenceEqualityComparer.Instance);
         foreach (EcosystemPopulationCompletedChild child in snapshot)
         {
@@ -376,9 +393,34 @@ static class EcosystemPopulationSnapshots
                     "One completed child settlement cannot be retained more than once.",
                     nameof(children));
             }
+            ValidateChildIdentityUniqueness(
+                child.Settlement,
+                requests,
+                receipts,
+                nameof(children));
         }
 
         return snapshot;
+    }
+
+    static void ValidateChildIdentityUniqueness(
+        EcosystemPopulationChildSettlement child,
+        HashSet<EcosystemPopulationChildRequestIdentity> requests,
+        HashSet<EcosystemPopulationChildReceiptIdentity> receipts,
+        string parameterName)
+    {
+        if (!requests.Add(child.Request))
+        {
+            throw new ArgumentException(
+                "One exact child request can have only one retained settlement.",
+                parameterName);
+        }
+        if (!receipts.Add(child.Receipt))
+        {
+            throw new ArgumentException(
+                "One exact child receipt can have only one retained settlement.",
+                parameterName);
+        }
     }
 
     public static EcosystemPopulationLibraryOwnership[] Ownerships(

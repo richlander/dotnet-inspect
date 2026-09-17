@@ -348,6 +348,46 @@ public sealed class EcosystemPopulationLoadingTests
     }
 
     [Fact]
+    public async Task DuplicateChildIdentityCannotEnterOneLoadReply()
+    {
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        LibraryContentOwner owner =
+            artifacts.CreateOwner("Contoso.DuplicateChild");
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationLoadRequest<TestInputs> request =
+            workspace.Request(
+                new(LoadMode.CompletedNoMembers),
+                TestContext.Current.CancellationToken);
+        ChildEvidence evidence = Child("child");
+        EcosystemPopulationChildSettlement completed =
+            request.ChildCompleted(
+                evidence.Request,
+                evidence.Receipt,
+                EcosystemPopulationChildCompletionKind.Members);
+        EcosystemPopulationChildSettlement incomplete =
+            request.ChildIncomplete(
+                evidence.Request,
+                evidence.Receipt);
+        var completedChild = new EcosystemPopulationCompletedChild(
+            completed,
+            [
+                new(
+                    owner,
+                    EcosystemPopulationLibraryRole.Focus),
+            ]);
+
+        Assert.Throws<ArgumentException>(
+            () => request.Incomplete(
+                [completed, incomplete],
+                [completedChild],
+                [Diagnostic("duplicate-child")]));
+
+        await owner.DisposeAsync();
+    }
+
+    [Fact]
     public async Task ReplyFromAnotherRequestIsRejected()
     {
         EcosystemPopulationLoaderBinding<TestInputs> binding = Binding();
