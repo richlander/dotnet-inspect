@@ -43,9 +43,17 @@ for the evidence category not the caller — but each owns a different category:
 metadata identity, compiler-shape evidence, intra-method place identity, and
 reference-scope ownership. `ProtectedRegionControlFlow` adds the narrow EH
 category shared by `StructuringPass` and `ForLoopPass`: it proves that a
-`Leave` exits a `try`/`catch` region and never originates in a `finally` body.
-Its boundary-aware atom also proves that the protected region is below the
-candidate construct; the consuming pass still owns target and loop identity.
+`Leave` exits a validated protected region or catch handler and never
+originates in a `finally` or `fault` handler. For Metadata-backed bodies, the
+proof consumes Instructions `NormalTransferAt` facts and regions actually left
+by the edge, then correlates those identities with exact associations on the
+current structured projection; it does not infer membership from structured
+node kinds. Its boundary-aware atom limits that projection walk to constructs
+below the candidate boundary. Equal extents and foreign body observations do
+not match. The consuming pass still owns target and loop identity. Explicit
+synthetic Layer 0 trees retain structural compatibility. Detached
+`StructuringPass` candidates carry their production function's evidence owner,
+so clone detachment does not make a production leave synthetic.
 
 ## Boundaries and roadmap
 

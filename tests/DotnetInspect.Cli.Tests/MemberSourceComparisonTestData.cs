@@ -64,7 +64,7 @@ internal static class MemberSourceComparisonTestData
             ApiType type,
             ApiMember member,
             string pdbText,
-            MemberBodyProductionStatus status)
+            CSharpDecompilationStatus status)
     {
         AssemblyMemberSourceComparisonEntry.Available comparison =
             Create(type, member, pdbText, "    void M() { }");
@@ -72,8 +72,10 @@ internal static class MemberSourceComparisonTestData
         {
             Decompiled =
                 new AssemblyMemberDecompiledSourceAttempt.Unavailable(
-                    status,
-                    "Synthetic decompilation failure."),
+                    new CSharpDecompilationAttempt(
+                        status,
+                        DecompilerResult.Failure("TEST_FAILURE", "Synthetic decompilation failure."),
+                        [], [], false, DecompilerSymbolSource.None, 0)),
         };
     }
 
@@ -116,9 +118,9 @@ internal static class MemberSourceComparisonTestData
                     "https://github.com/example/repo",
                     "0123456789abcdef")),
             new AssemblyMemberDecompiledSourceAttempt.Available(
-                new MemberRenderResult(
-                    MemberBodyProductionStatus.Complete,
-                    decompiledText,
-                    [])));
+                new CSharpDecompilationAttempt(
+                    CSharpDecompilationStatus.Available,
+                    DecompilerResult.Success(decompiledText),
+                    [], [], false, DecompilerSymbolSource.None, 0)));
     }
 }

@@ -5,6 +5,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
@@ -30,8 +31,8 @@ public partial class DependsCommand
                 "The Pruning section requires a validated target framework.");
         PackageHouseTargetContext unboundTarget =
             PackageHouseTargetContext.Exact(requestedFramework);
-        var rows = ImmutableArray.CreateBuilder<DependsPruningRow>();
-        var failures = ImmutableArray.CreateBuilder<DependsFailureRow>();
+        var rows = ImmutableArray.CreateBuilder<DependencyInspectionPruning>();
+        var failures = ImmutableArray.CreateBuilder<DependencyInspectionFailure>();
         var pending = new List<PendingPruningDeclaration>();
         int failedLibraryRoots = libraries.Count(
             static library => library.Document is null);
@@ -65,8 +66,8 @@ public partial class DependsCommand
                             .Unavailable)
                     {
                         failures.Add(
-                            new DependsFailureRow.Pruning(
-                                new DependsPruningFailure.Prerequisite(
+                            new DependencyInspectionFailure.Pruning(
+                                new DependencyInspectionPruningFailure.Prerequisite(
                                     admittedIndexes[inputIndex],
                                     root.Identity,
                                     root.Display,
@@ -158,7 +159,7 @@ public partial class DependsCommand
                             root,
                             declaration,
                             applicability,
-                            DependsPruningDisposition.SourceBounded,
+                            DependencyInspectionPruningDisposition.SourceBounded,
                             "The explicit root authorizes direct declarations but not package-source candidate resolution."));
                     sourceBounded++;
                     successful++;
@@ -207,8 +208,8 @@ public partial class DependsCommand
                         .Order(),
                 ];
                 failures.Add(
-                    new DependsFailureRow.Pruning(
-                        new DependsPruningFailure.Inventory(
+                    new DependencyInspectionFailure.Pruning(
+                        new DependencyInspectionPruningFailure.Inventory(
                             family,
                             requestedFramework,
                             new InertString(TextPolicy.Prose, message),
@@ -222,7 +223,7 @@ public partial class DependsCommand
                             item.Root,
                             item.Declaration,
                             item.Applicability,
-                            DependsPruningDisposition.InventoryUnavailable,
+                            DependencyInspectionPruningDisposition.InventoryUnavailable,
                             message));
                 }
                 failed += pending.Count;
@@ -242,8 +243,8 @@ public partial class DependsCommand
                         .Order(),
                 ];
                 failures.Add(
-                    new DependsFailureRow.Pruning(
-                        new DependsPruningFailure.Inventory(
+                    new DependencyInspectionFailure.Pruning(
+                        new DependencyInspectionPruningFailure.Inventory(
                             family,
                             requestedFramework,
                             new InertString(
@@ -259,7 +260,7 @@ public partial class DependsCommand
                             item.Root,
                             item.Declaration,
                             item.Applicability,
-                            DependsPruningDisposition
+                            DependencyInspectionPruningDisposition
                                 .InventoryUnavailable,
                             targetError));
                 }
@@ -272,62 +273,82 @@ public partial class DependsCommand
                         composition,
                         options.SourceOptions,
                         context.Logger.Log);
-                foreach (PendingPruningDeclaration item in pending)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    PackageDependencyCandidateResult candidate =
-                        await PackageDependencyCandidateQuery.ExecuteAsync(
-                            new PackageDependencyCandidateRequest.Declared(
-                                item.Declaration),
+                var inspectionRequest =
+                    new PackageDependencyPruningInspectionRequest(
+                        pending.Select(
+                            item =>
+                                new PackageDependencyPruningInspectionSubject(
+                                    item.Root,
+                                    item.Declaration)),
+                        target,
+                        inventory);
+                InspectionEnvelope<PackageDependencyPruningInspectionResult>
+                    inspection =
+                        await PackageDependencyPruningInspection.ExecuteAsync(
+                            inspectionRequest,
                             candidateSource,
                             cancellationToken,
                             operationContext).ConfigureAwait(false);
-                    if (candidate
-                        is not PackageDependencyCandidateResult.Resolved
-                            resolved)
+                if (inspection.Content.Outcomes.Length != pending.Count)
+                {
+                    throw new InvalidOperationException(
+                        "Package dependency pruning inspection did not preserve the requested subject count.");
+                }
+
+                for (int index = 0; index < pending.Count; index++)
+                {
+                    PendingPruningDeclaration item = pending[index];
+                    PackageDependencyPruningInspectionOutcome outcome =
+                        inspection.Content.Outcomes[index];
+                    if (!ReferenceEquals(
+                            item.Root,
+                            outcome.Subject.Root)
+                        || !ReferenceEquals(
+                            item.Declaration,
+                            outcome.Subject.Declaration))
+                    {
+                        throw new InvalidOperationException(
+                            "Package dependency pruning inspection did not preserve subject order.");
+                    }
+
+                    if (outcome
+                        is PackageDependencyPruningInspectionOutcome
+                            .CandidateUnavailable candidateUnavailable)
                     {
                         rows.Add(
                             CreateCandidateUnavailableRow(
                                 item,
-                                candidate,
+                                candidateUnavailable,
                                 target,
                                 inventory));
                         failures.Add(
-                            new DependsFailureRow.Pruning(
-                                new DependsPruningFailure.Candidate(
+                            new DependencyInspectionFailure.Pruning(
+                                new DependencyInspectionPruningFailure.Candidate(
                                     item.RootOccurrence,
                                     item.Root.Identity,
                                     item.Declaration.Identity,
                                     item.Declaration.CanonicalPackageId,
                                     item.Declaration
                                         .CanonicalVersionConstraint,
-                                    candidate)));
+                                    candidateUnavailable.Candidate)));
                         failed++;
                         continue;
                     }
 
-                    PackageHouseDependencyInput input =
-                        PackageHouseDependencyInputAdapter.Create(
-                            item.Root,
-                            resolved,
-                            PackageHouseOperation.Create(
-                                PackageHouseOperationProfile.Settle),
-                            target);
-                    PackageHouseDependencyPruningResult result =
-                        PackageHouseDependencyPruningQuery.Execute(
-                            input,
-                            inventory);
+                    PackageDependencyPruningInspectionOutcome.Evaluated
+                        evaluatedOutcome =
+                            outcome
+                                as PackageDependencyPruningInspectionOutcome
+                                    .Evaluated
+                            ?? throw new InvalidOperationException(
+                                "A pending package dependency pruning subject did not produce a candidate-bound outcome.");
                     rows.Add(
                         CreateEvaluatedRow(
                             item,
-                            resolved,
-                            result));
+                            evaluatedOutcome));
                     evaluated++;
-                    if (result
-                        is PackageHouseDependencyPruningResult.Evaluated
-                        {
-                            Pruning.Supply.DelegatesToPlatform: true,
-                        })
+                    if (evaluatedOutcome.Result.Pruning.Supply
+                        .DelegatesToPlatform)
                     {
                         delegated++;
                     }
@@ -340,18 +361,18 @@ public partial class DependsCommand
             }
         }
 
-        DependsPruningCompletion completion =
+        DependencyInspectionPruningCompletion completion =
             failed > 0
                 ? successful > 0
-                    ? DependsPruningCompletion.Partial
-                    : DependsPruningCompletion.Failed
+                    ? DependencyInspectionPruningCompletion.Partial
+                    : DependencyInspectionPruningCompletion.Failed
                 : sourceBounded > 0
-                    ? DependsPruningCompletion.SourceBounded
-                    : DependsPruningCompletion.Complete;
+                    ? DependencyInspectionPruningCompletion.SourceBounded
+                    : DependencyInspectionPruningCompletion.Complete;
         return new DependsPruningProjectionResult(
             rows.ToImmutable(),
             failures.ToImmutable(),
-            new DependsPruningSummary(
+            new DependencyInspectionPruningSummary(
                 completion,
                 roots,
                 declarations,
@@ -434,7 +455,7 @@ public partial class DependsCommand
         return true;
     }
 
-    private static DependsPruningRow CreateApplicabilityRow(
+    private static DependencyInspectionPruning CreateApplicabilityRow(
         int rootOccurrence,
         PackageDependencyEvidenceRoot root,
         PackageDependencyEvidenceDeclaration declaration,
@@ -449,17 +470,17 @@ public partial class DependsCommand
             PlatformTargetFramework: null,
             PlatformVersion: null,
             PlatformProvidedVersion: null,
-            DependsPruningDisposition.NotEvaluated,
+            DependencyInspectionPruningDisposition.NotEvaluated,
             applicability.State.ToString(),
             CandidateOutcome: null,
             Result: null);
 
-    private static DependsPruningRow CreateUnavailableRow(
+    private static DependencyInspectionPruning CreateUnavailableRow(
         int rootOccurrence,
         PackageDependencyEvidenceRoot root,
         PackageDependencyEvidenceDeclaration declaration,
         PackageHouseDependencyPruningApplicability applicability,
-        DependsPruningDisposition disposition,
+        DependencyInspectionPruningDisposition disposition,
         string reason) =>
         CreateRow(
             rootOccurrence,
@@ -476,9 +497,10 @@ public partial class DependsCommand
             CandidateOutcome: null,
             Result: null);
 
-    private static DependsPruningRow CreateCandidateUnavailableRow(
+    private static DependencyInspectionPruning CreateCandidateUnavailableRow(
         PendingPruningDeclaration item,
-        PackageDependencyCandidateResult candidate,
+        PackageDependencyPruningInspectionOutcome.CandidateUnavailable
+            outcome,
         PackageHouseTargetContext target,
         PlatformPruneInventory inventory) =>
         CreateRow(
@@ -494,8 +516,8 @@ public partial class DependsCommand
             PlatformProvidedVersion: PlatformProvidedVersion(
                 inventory,
                 item.Declaration.CanonicalPackageId),
-            DependsPruningDisposition.CandidateUnavailable,
-            candidate switch
+            DependencyInspectionPruningDisposition.CandidateUnavailable,
+            outcome.Candidate switch
             {
                 PackageDependencyCandidateResult.Failed failed =>
                     failed.Failure.GetType().Name,
@@ -504,7 +526,7 @@ public partial class DependsCommand
                 _ => throw new InvalidOperationException(
                     "A resolved candidate is not unavailable."),
             },
-            candidate,
+            outcome.Candidate,
             Result: null);
 
     private static string? PlatformProvidedVersion(
@@ -514,36 +536,31 @@ public partial class DependsCommand
             ? entry.SuppliedVersion.ToNormalizedString()
             : null;
 
-    private static DependsPruningRow CreateEvaluatedRow(
+    private static DependencyInspectionPruning CreateEvaluatedRow(
         PendingPruningDeclaration item,
-        PackageDependencyCandidateResult.Resolved candidate,
-        PackageHouseDependencyPruningResult result)
+        PackageDependencyPruningInspectionOutcome.Evaluated outcome)
     {
-        PackageHouseDependencyPruningResult.Evaluated evaluated =
-            result as PackageHouseDependencyPruningResult.Evaluated
-            ?? throw new InvalidOperationException(
-                "A candidate-required pruning input must produce an evaluated result.");
-        PackageHousePruningReceipt pruning = evaluated.Pruning;
+        PackageHousePruningReceipt pruning = outcome.Result.Pruning;
         bool delegates = pruning.Supply.DelegatesToPlatform;
         return CreateRow(
             item.RootOccurrence,
             item.Root,
             item.Declaration,
-            item.Applicability,
-            candidate.Candidate.Coordinate.Version,
+            outcome.Applicability,
+            outcome.Candidate.Candidate.Coordinate.Version,
             pruning.Target.Family.ToString(),
             pruning.Target.TargetFramework.ToString(),
             pruning.Target.Version.Value,
             pruning.Supply.SuppliedVersion?.ToNormalizedString(),
             delegates
-                ? DependsPruningDisposition.PlatformDelegation
-                : DependsPruningDisposition.PackageRetained,
+                ? DependencyInspectionPruningDisposition.PlatformDelegation
+                : DependencyInspectionPruningDisposition.PackageRetained,
             pruning.Supply.Subsumption.ToString(),
-            candidate,
-            result);
+            outcome.Candidate,
+            outcome.Result);
     }
 
-    private static DependsPruningRow CreateRow(
+    private static DependencyInspectionPruning CreateRow(
         int rootOccurrence,
         PackageDependencyEvidenceRoot root,
         PackageDependencyEvidenceDeclaration declaration,
@@ -553,7 +570,7 @@ public partial class DependsCommand
         string? PlatformTargetFramework,
         string? PlatformVersion,
         string? PlatformProvidedVersion,
-        DependsPruningDisposition disposition,
+        DependencyInspectionPruningDisposition disposition,
         string reason,
         PackageDependencyCandidateResult? CandidateOutcome,
         PackageHouseDependencyPruningResult? Result) =>
@@ -588,7 +605,7 @@ public partial class DependsCommand
         PackageHouseDependencyPruningApplicability Applicability);
 
     private sealed record DependsPruningProjectionResult(
-        ImmutableArray<DependsPruningRow> Rows,
-        ImmutableArray<DependsFailureRow> Failures,
-        DependsPruningSummary Summary);
+        ImmutableArray<DependencyInspectionPruning> Rows,
+        ImmutableArray<DependencyInspectionFailure> Failures,
+        DependencyInspectionPruningSummary Summary);
 }

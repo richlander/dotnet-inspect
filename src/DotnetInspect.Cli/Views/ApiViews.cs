@@ -282,6 +282,31 @@ public class TypeView
     [JsonIgnore]
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
+    [MarkoutSection(
+        Name = SectionNames.ImplementationProfiles,
+        EmptyText = "No implementation profiles found for this type.")]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileUnsafeEmpty),
+        nameof(ImplementationProfileRow.Unsafe))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileAsyncEmpty),
+        nameof(ImplementationProfileRow.Async))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileTargetsEmpty),
+        nameof(ImplementationProfileRow.OverloadTargets))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceMethod))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceToken))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileIncompleteEmpty),
+        nameof(ImplementationProfileRow.Incomplete))]
+    [JsonIgnore]
+    public List<ImplementationProfileRow>?
+        ImplementationProfileRows { get; set; }
+
     [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = "No optimization opportunities were found for this type.")]
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
@@ -298,6 +323,23 @@ public class TypeView
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
     public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
+    public static bool ImplementationProfileUnsafeEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Unsafe is null);
+    public static bool ImplementationProfileAsyncEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Async is null);
+    public static bool ImplementationProfileTargetsEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null
+            || rows.All(row => row.OverloadTargets is null);
+    public static bool ImplementationProfileEvidenceEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null
+            || rows.All(row => row.EvidenceMethod is null);
+    public static bool ImplementationProfileIncompleteEmpty(
+        List<ImplementationProfileRow>? rows)
+        => rows is null || rows.All(row => row.Incomplete is null);
     public static bool TypeExceptionRegionFilterRangeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
     public static bool TypeExceptionRegionCaughtTypeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.CaughtType));
 
@@ -706,7 +748,7 @@ public class CliApiSurface
     [JsonIgnore]
     public ApiInfoSection? ApiInfo { get; set; }
 
-    // Type forwarders (edge case: types == 0 with forwarders)
+    // Type forwarder inventory grouped by target assembly.
     [MarkoutSection(Name = "Type Forwarders")]
     public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
 
@@ -1276,6 +1318,10 @@ public class MemberCodeView
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
 
+    [MarkoutIgnore]
+    internal CallGraphRenderedFieldEvidence CallGraphRenderedFieldEvidence { get; set; } =
+        CallGraphRenderedFieldEvidence.Empty;
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
@@ -1787,6 +1833,154 @@ public record TopLeverageRow(
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Visibility { get; init; } = LibraryViewText.Contain(Visibility);
+
+    [MarkoutSkipNull]
+    public string? Generated { get; init; } = Generated;
+
+    [MarkoutSkipNull]
+    public string? Stable { get; init; } = Stable;
+
+    [MarkoutSkipNull]
+    public string? Selector { get; init; } = Selector;
+}
+
+[MarkoutSerializable]
+public record ImplementationProfileRow(
+    string Member,
+    string MemberToken,
+    string? EvidenceMethod,
+    string EvidenceToken,
+    int ILBytes,
+    int Instructions,
+    int Opcodes,
+    int BasicBlocks,
+    int Branches,
+    int ConditionalBranches,
+    int Switches,
+    int SwitchTargets,
+    int Loops,
+    int Exceptions,
+    int CatchRegions,
+    int FilterRegions,
+    int FinallyRegions,
+    int FaultRegions,
+    int Locals,
+    int Calls,
+    int DistinctCallees,
+    int Allocations,
+    int Throws,
+    string? Async,
+    string? Unsafe,
+    int Reflection,
+    int IncomingOverloads,
+    int OutgoingOverloads,
+    string? OverloadTargets = null,
+    string? OverloadRelationships = null,
+    bool Complete = true,
+    string? Incomplete = null,
+    string? Visibility = null,
+    string? Generated = null,
+    string? Stable = null,
+    string? Selector = null)
+{
+    public string Member { get; init; } = Member;
+
+    [MarkoutPropertyName("Member Token")]
+    public string MemberToken { get; init; } =
+        LibraryViewText.Contain(MemberToken);
+
+    [MarkoutPropertyName("Evidence Method")]
+    [MarkoutSkipNull]
+    public string? EvidenceMethod { get; init; } =
+        EvidenceMethod;
+
+    [MarkoutPropertyName("Evidence Token")]
+    public string EvidenceToken { get; init; } =
+        EvidenceToken;
+
+    [MarkoutPropertyName("IL Bytes")]
+    public int ILBytes { get; init; } = ILBytes;
+
+    public int Instructions { get; init; } = Instructions;
+
+    public int Opcodes { get; init; } = Opcodes;
+
+    [MarkoutPropertyName("Basic Blocks")]
+    public int BasicBlocks { get; init; } = BasicBlocks;
+
+    public int Branches { get; init; } = Branches;
+
+    [MarkoutPropertyName("Conditional Branches")]
+    public int ConditionalBranches { get; init; } =
+        ConditionalBranches;
+
+    public int Switches { get; init; } = Switches;
+
+    [MarkoutPropertyName("Switch Targets")]
+    public int SwitchTargets { get; init; } = SwitchTargets;
+
+    public int Loops { get; init; } = Loops;
+
+    public int Exceptions { get; init; } = Exceptions;
+
+    [MarkoutPropertyName("Catch Regions")]
+    public int CatchRegions { get; init; } = CatchRegions;
+
+    [MarkoutPropertyName("Filter Regions")]
+    public int FilterRegions { get; init; } = FilterRegions;
+
+    [MarkoutPropertyName("Finally Regions")]
+    public int FinallyRegions { get; init; } = FinallyRegions;
+
+    [MarkoutPropertyName("Fault Regions")]
+    public int FaultRegions { get; init; } = FaultRegions;
+
+    public int Locals { get; init; } = Locals;
+
+    public int Calls { get; init; } = Calls;
+
+    [MarkoutPropertyName("Distinct Callees")]
+    public int DistinctCallees { get; init; } =
+        DistinctCallees;
+
+    public int Allocations { get; init; } = Allocations;
+
+    public int Throws { get; init; } = Throws;
+
+    [MarkoutSkipNull]
+    public string? Async { get; init; } = Async;
+
+    [MarkoutSkipNull]
+    public string? Unsafe { get; init; } = Unsafe;
+
+    public int Reflection { get; init; } = Reflection;
+
+    [MarkoutPropertyName("Incoming Overloads")]
+    public int IncomingOverloads { get; init; } =
+        IncomingOverloads;
+
+    [MarkoutPropertyName("Outgoing Overloads")]
+    public int OutgoingOverloads { get; init; } =
+        OutgoingOverloads;
+
+    [MarkoutPropertyName("Overload Targets")]
+    [MarkoutSkipNull]
+    public string? OverloadTargets { get; init; } =
+        OverloadTargets;
+
+    [MarkoutPropertyName("Overload Relationships")]
+    [MarkoutSkipNull]
+    public string? OverloadRelationships { get; init; } =
+        LibraryViewText.Contain(OverloadRelationships);
+
+    public bool Complete { get; init; } = Complete;
+
+    [MarkoutSkipNull]
+    public string? Incomplete { get; init; } = Incomplete;
+
+    [MarkoutSkipNull]
+    public string? Visibility { get; init; } =
+        LibraryViewText.Contain(Visibility);
 
     [MarkoutSkipNull]
     public string? Generated { get; init; } = Generated;

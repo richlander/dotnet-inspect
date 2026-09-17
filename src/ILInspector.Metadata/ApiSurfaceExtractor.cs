@@ -159,6 +159,21 @@ public static class ApiSurfaceExtractor
 {
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
+    private const byte ReservedSignatureFlag = 0x80;
+    private const MethodAttributes PropertyAccessorDeclarationModifierMask =
+        MethodAttributes.Static
+        | MethodAttributes.Virtual
+        | MethodAttributes.Abstract
+        | MethodAttributes.NewSlot
+        | MethodAttributes.Final;
+    private const MethodAttributes RepresentablePropertyAccessorAttributeMask =
+        MethodAttributes.MemberAccessMask
+        | PropertyAccessorDeclarationModifierMask
+        | MethodAttributes.HideBySig
+        | MethodAttributes.SpecialName;
+    private const MethodAttributes RequiredPropertyAccessorAttributes =
+        MethodAttributes.HideBySig
+        | MethodAttributes.SpecialName;
     private static readonly ConditionalWeakTable<
         MetadataReader,
         PrimitiveDefinitionClassification>
@@ -1200,20 +1215,10 @@ public static class ApiSurfaceExtractor
                 var member = new ApiMember
                 {
                     Name = methodName,
-                    Kind = methodName switch
-                    {
-                        ".ctor" => "constructor",
-                        _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
-                        _ when isFinalizer => "finalizer",
-                        _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
-                        _ => "method"
-                    },
+                    Kind = ClassifyMethodKind(
+                        methodName,
+                        isFinalizer,
+                        isExplicitInterfaceImplementation),
                     MethodSemantics = accessorAssociationsAvailable
                         ? accessorMethods.GetValueOrDefault(
                             methodHandle,
@@ -2603,12 +2608,16 @@ public static class ApiSurfaceExtractor
                 | ApiMethodSemanticsKind.EventAdder
                 | ApiMethodSemanticsKind.EventRemover)) != 0;
 
-    private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
-        MetadataReader reader, TypeDefinition typeDef)
+    internal static HashSet<MethodDefinitionHandle>
+        GetExplicitImplementationBodies(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Action<int>? beforeDecodeWork = null)
     {
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
+            beforeDecodeWork?.Invoke(16);
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
@@ -2658,10 +2667,19 @@ public static class ApiSurfaceExtractor
     /// text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off the hot path for
     /// every other method.
     /// </summary>
-    internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
+    internal static bool IsFinalizerMethod(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        Action<int>? beforeDecodeWork = null)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+        if (!string.Equals(
+                DecodeString(
+                    reader,
+                    method.Name,
+                    beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
             return false;
         if (method.GetGenericParameters().Count != 0)
             return false;
@@ -2673,14 +2691,21 @@ public static class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
                 && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+                && ReferencesObjectFinalize(
+                    reader,
+                    implementation.MethodDeclaration,
+                    beforeDecodeWork))
             {
                 return true;
             }
         }
 
         // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-        return IsImplicitObjectFinalizeOverride(reader, typeHandle, method);
+        return IsImplicitObjectFinalizeOverride(
+            reader,
+            typeHandle,
+            method,
+            beforeDecodeWork);
     }
 
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
@@ -3051,6 +3076,22 @@ public static class ApiSurfaceExtractor
 
         return false;
     }
+
+    internal static string ClassifyMethodKind(
+        string methodName,
+        bool isFinalizer,
+        bool isExplicitInterfaceImplementation)
+        => methodName switch
+        {
+            ".ctor" => "constructor",
+            _ when IsOperatorMethodName(methodName) => "operator",
+            // A finalizer's MethodImpl also makes it look explicit. Preserve
+            // production precedence so its ordinary selector remains stable.
+            _ when isFinalizer => "finalizer",
+            _ when isExplicitInterfaceImplementation =>
+                "explicit-interface-implementation",
+            _ => "method",
+        };
 
     private static bool IsOperatorMethodName(string methodName) =>
         methodName.StartsWith(
@@ -3720,6 +3761,25 @@ public static class ApiSurfaceExtractor
             targetType.DerivedTypes = derivedTypes;
         }
     }
+
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetMethodSignatureForIdentity(
+            MetadataReader reader,
+            GenericContext typeContext,
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method,
+            byte typeNullableContext,
+            Action<string>? beforeRetainText = null,
+            Action<int>? beforeDecodeWork = null)
+        => GetMethodSignature(
+            reader,
+            typeContext,
+            methodHandle,
+            method,
+            typeNullableContext,
+            beforeRetainText: beforeRetainText,
+            beforeDecodeWork: beforeDecodeWork,
+            beforeAttributeMaterialize: beforeDecodeWork);
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
@@ -4922,7 +4982,10 @@ public static class ApiSurfaceExtractor
             }
             else if (hasPublicGetter && hasSetter)
             {
-                accessorStr = "{ get; private set; }";
+                string? setterAccessibility =
+                    GetAccessibility(setterAccess);
+                accessorStr =
+                    $"{{ get; {setterAccessibility ?? "private"} set; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -4935,7 +4998,7 @@ public static class ApiSurfaceExtractor
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    Accessibility = "private",
+                    Accessibility = setterAccessibility,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
@@ -4952,6 +5015,32 @@ public static class ApiSurfaceExtractor
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText,
+                        attributeMaterialize)
+                });
+            }
+            else if (hasPublicSetter && hasGetter)
+            {
+                string? getterAccessibility =
+                    GetAccessibility(getterAccess);
+                accessorStr =
+                    $"{{ {getterAccessibility ?? "private"} get; set; }}";
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "get",
+                    Accessibility = getterAccessibility,
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        beforeRetainText,
+                        attributeMaterialize)
+                });
+                accessorModels.Add(new ApiAccessor
+                {
+                    Kind = "set",
+                    ReturnAttributes = ReturnParameterAttributes(
+                        reader,
+                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -4989,7 +5078,8 @@ public static class ApiSurfaceExtractor
             context,
             explicitImplementationBodies,
             beforeRetainText,
-            beforeDecodeWork);
+            beforeDecodeWork,
+            treeSignature);
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
@@ -5252,23 +5342,51 @@ public static class ApiSurfaceExtractor
         GenericContext context,
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
-        Action<int>? beforeDecodeWork)
+        Action<int>? beforeDecodeWork,
+        MethodSignature<TypeNode>? propertySignature = null)
     {
+        bool declarationModifiersMatch =
+            AccessorDeclarationModifiersMatchProperty(
+                accessors,
+                reader,
+                handleForKind);
         foreach (ApiAccessor accessor in accessors)
         {
             MethodDefinitionHandle handle = handleForKind(accessor.Kind);
             accessor.Name = MethodDefinitionName(reader, handle, beforeDecodeWork);
             if (accessor.Name is not null)
                 beforeRetainText?.Invoke(accessor.Name);
-            accessor.StructuralReturnType = MethodStructuralReturnType(
-                reader,
-                handle,
-                provider,
-                context,
-                beforeRetainText);
             if (!handle.IsNil)
             {
                 MethodDefinition method = reader.GetMethodDefinition(handle);
+                accessor.AccessibilityIsRepresentable =
+                    IsRepresentableMethodAccessibility(
+                        method.Attributes & MethodAttributes.MemberAccessMask);
+                accessor.DeclarationModifiersMatchProperty =
+                    declarationModifiersMatch;
+                accessor.DeclarationModifiersAreRepresentable =
+                    AreRepresentablePropertyAccessorDeclarationModifiers(
+                        method.Attributes,
+                        method.ImplAttributes);
+                MethodSignature<TypeNode> signature = GuardedProviderDecode.Method(
+                    reader,
+                    method,
+                    provider,
+                    context,
+                    (TypeNode)new DegradedTypeNode());
+                accessor.StructuralReturnType = MethodStructuralReturnType(
+                    signature.ReturnType,
+                    beforeRetainText);
+                if (propertySignature is { } property)
+                {
+                    accessor.SignatureMatchesProperty =
+                        AccessorSignatureMatchesProperty(
+                            accessor.Kind,
+                            signature,
+                            property,
+                            context.TypeParameters.Count,
+                            method.Attributes);
+                }
                 accessor.IsExplicitInterfaceImplementation =
                     explicitImplementationBodies.Contains(handle)
                     && (method.Attributes & MethodAttributes.MemberAccessMask)
@@ -5280,6 +5398,50 @@ public static class ApiSurfaceExtractor
                     beforeDecodeWork);
             }
         }
+    }
+
+    static bool AccessorDeclarationModifiersMatchProperty(
+        IReadOnlyList<ApiAccessor> accessors,
+        MetadataReader reader,
+        Func<string, MethodDefinitionHandle> handleForKind)
+    {
+        MethodAttributes? common = null;
+        foreach (ApiAccessor accessor in accessors)
+        {
+            MethodDefinitionHandle handle = handleForKind(accessor.Kind);
+            if (handle.IsNil)
+                return false;
+            MethodAttributes modifiers =
+                reader.GetMethodDefinition(handle).Attributes
+                & PropertyAccessorDeclarationModifierMask;
+            if (common is not null && common != modifiers)
+                return false;
+            common = modifiers;
+        }
+
+        return common is not null;
+    }
+
+    static bool AreRepresentablePropertyAccessorDeclarationModifiers(
+        MethodAttributes attributes,
+        MethodImplAttributes implementationAttributes)
+    {
+        if ((attributes & ~RepresentablePropertyAccessorAttributeMask) != 0
+            || (attributes & RequiredPropertyAccessorAttributes)
+                != RequiredPropertyAccessorAttributes
+            || implementationAttributes != MethodImplAttributes.IL)
+        {
+            return false;
+        }
+
+        bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
+        bool isAbstract = (attributes & MethodAttributes.Abstract) != 0;
+        bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
+        bool isFinal = (attributes & MethodAttributes.Final) != 0;
+
+        return (!isAbstract || isVirtual && !isFinal)
+            && (!isNewSlot || isVirtual)
+            && (!isFinal || isVirtual && !isNewSlot && !isAbstract);
     }
 
     static string? MethodDefinitionName(
@@ -5297,28 +5459,171 @@ public static class ApiSurfaceExtractor
     }
 
     static string? MethodStructuralReturnType(
-        MetadataReader reader,
-        MethodDefinitionHandle handle,
-        TypeNodeProvider provider,
-        GenericContext context,
+        TypeNode returnType,
         Action<string>? beforeRetainText)
     {
-        if (handle.IsNil)
+        if (!returnType.HasStructuralPayload)
             return null;
 
-        var method = reader.GetMethodDefinition(handle);
-        var signature = GuardedProviderDecode.Method(
-            reader,
-            method,
-            provider,
-            context,
-            (TypeNode)new DegradedTypeNode());
-        if (!signature.ReturnType.HasStructuralPayload)
-            return null;
-
-        string identity = signature.ReturnType.StructuralIdentity();
+        string identity = returnType.StructuralIdentity();
         beforeRetainText?.Invoke(identity);
         return identity;
+    }
+
+    static bool AccessorSignatureMatchesProperty(
+        string kind,
+        MethodSignature<TypeNode> accessor,
+        MethodSignature<TypeNode> property,
+        int declaringTypeParameterCount,
+        MethodAttributes accessorAttributes)
+    {
+        bool methodIsStatic =
+            (accessorAttributes & MethodAttributes.Static) != 0;
+        if (methodIsStatic == accessor.Header.IsInstance
+            || property.Header.Kind != SignatureKind.Property
+            || property.Header.HasExplicitThis
+            || property.Header.IsGeneric
+            || (property.Header.RawValue & ReservedSignatureFlag) != 0
+            || property.GenericParameterCount != 0
+            || property.RequiredParameterCount != property.ParameterTypes.Length
+            || accessor.Header.Kind != SignatureKind.Method
+            || accessor.Header.HasExplicitThis
+            || accessor.Header.IsGeneric
+            || (accessor.Header.RawValue & ReservedSignatureFlag) != 0
+            || accessor.GenericParameterCount != 0
+            || accessor.Header.CallingConvention != SignatureCallingConvention.Default
+            || accessor.Header.IsInstance != property.Header.IsInstance
+            || accessor.RequiredParameterCount != accessor.ParameterTypes.Length)
+        {
+            return false;
+        }
+
+        return kind switch
+        {
+            "get" =>
+                SignatureTypeMatches(
+                    accessor.ReturnType,
+                    property.ReturnType,
+                    declaringTypeParameterCount)
+                && SignatureTypesMatch(
+                    accessor.ParameterTypes,
+                    property.ParameterTypes,
+                    declaringTypeParameterCount),
+            "set" =>
+                IsVoidReturn(accessor.ReturnType)
+                && accessor.ParameterTypes.Length
+                    == property.ParameterTypes.Length + 1
+                && SignatureTypePrefixMatches(
+                    accessor.ParameterTypes,
+                    property.ParameterTypes,
+                    declaringTypeParameterCount)
+                && SignatureTypeMatches(
+                    accessor.ParameterTypes[^1],
+                    property.ReturnType,
+                    declaringTypeParameterCount),
+            _ => false,
+        };
+    }
+
+    static bool SignatureTypesMatch(
+        ImmutableArray<TypeNode> left,
+        ImmutableArray<TypeNode> right,
+        int declaringTypeParameterCount)
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        for (int index = 0; index < left.Length; index++)
+        {
+            if (!SignatureTypeMatches(
+                    left[index],
+                    right[index],
+                    declaringTypeParameterCount))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool SignatureTypePrefixMatches(
+        ImmutableArray<TypeNode> left,
+        ImmutableArray<TypeNode> prefix,
+        int declaringTypeParameterCount)
+    {
+        if (left.Length < prefix.Length)
+            return false;
+
+        for (int index = 0; index < prefix.Length; index++)
+        {
+            if (!SignatureTypeMatches(
+                    left[index],
+                    prefix[index],
+                    declaringTypeParameterCount))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool SignatureTypeMatches(
+        TypeNode left,
+        TypeNode right,
+        int declaringTypeParameterCount)
+    {
+        if (ApiTypeShapeFactory.FromTypeNode(left) is not { } leftShape
+            || ApiTypeShapeFactory.FromTypeNode(right) is not { } rightShape
+            || ContainsUnboundGenericParameter(
+                leftShape,
+                declaringTypeParameterCount)
+            || ContainsUnboundGenericParameter(
+                rightShape,
+                declaringTypeParameterCount))
+        {
+            return false;
+        }
+
+        return leftShape.Equals(rightShape);
+    }
+
+    static bool ContainsUnboundGenericParameter(
+        ApiTypeShape shape,
+        int declaringTypeParameterCount)
+    {
+        if (shape is
+            {
+                Kind: ApiTypeShapeKind.GenericParameter,
+                GenericParameterIndex: var index,
+                IsMethodGenericParameter: var isMethod,
+            })
+        {
+            return isMethod
+                || index < 0
+                || index >= declaringTypeParameterCount;
+        }
+        if (shape.ElementType is not null
+            && ContainsUnboundGenericParameter(
+                shape.ElementType,
+                declaringTypeParameterCount))
+        {
+            return true;
+        }
+        foreach (ApiTypeShape argument in shape.TypeArguments)
+        {
+            if (ContainsUnboundGenericParameter(
+                    argument,
+                    declaringTypeParameterCount))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool IsVoidReturn(TypeNode type)
+    {
+        while (type is ModifiedTypeNode modified)
+            type = modified.Inner;
+
+        return type is PrimitiveTypeNode { Name: "void" };
     }
 
     /// <summary>
@@ -5993,7 +6298,8 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Maps MethodAttributes access level to C# keyword. Returns null for public.
+    /// Maps MethodAttributes access level to a C# keyword.
+    /// Returns null for public or unrepresentable access.
     /// </summary>
     private static string? GetAccessibility(MethodAttributes access) => access switch
     {
@@ -6004,6 +6310,16 @@ public static class ApiSurfaceExtractor
         MethodAttributes.FamORAssem => "protected internal",
         _ => null // Public
     };
+
+    private static bool IsRepresentableMethodAccessibility(
+        MethodAttributes access) =>
+        access is
+            MethodAttributes.Private
+            or MethodAttributes.FamANDAssem
+            or MethodAttributes.Assembly
+            or MethodAttributes.Family
+            or MethodAttributes.FamORAssem
+            or MethodAttributes.Public;
 
     /// <summary>
     /// Maps FieldAttributes access level to C# keyword. Returns null for public.

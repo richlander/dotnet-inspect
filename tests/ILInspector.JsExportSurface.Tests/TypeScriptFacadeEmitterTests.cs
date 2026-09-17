@@ -581,6 +581,206 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_PreservesInertStringProvenanceAsOpaqueBrand()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+
+        string source = TypeScriptFacadeEmitter.Emit(surface, RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const inertStringBrand: unique symbol;
+
+            export type InertString = string & {
+              readonly [inertStringBrand]: "InertString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface InertWidgetDto {
+              readonly name: string;
+              readonly display: InertString;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getInertWidgetAsync(name: string): "
+                + "Promise<InertWidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "decodeInertString",
+            source,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "function inertString(",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotBrandAnUnrelatedInertStringSimpleName()
+    {
+        var applicationAssembly = new ApiAssemblyIdentity(
+            "Application",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var applicationInertString = new ApiTypeReferenceIdentity(
+            applicationAssembly,
+            "Application.InertString");
+
+        Assert.Equal(
+            "ApplicationInertString",
+            TsTypeMapper.MapJsonWireType(
+                "InertString",
+                new HashSet<string>(StringComparer.Ordinal),
+                mappedTypeNames: new Dictionary<string, string>
+                {
+                    ["InertString"] = "ApplicationInertString",
+                },
+                typeShape: ApiTypeShape.Named(applicationInertString),
+                identityNames:
+                    new Dictionary<ApiTypeReferenceIdentity, string>
+                    {
+                        [applicationInertString] =
+                            "ApplicationInertString",
+                    }));
+    }
+
+    [Fact]
+    public void Emit_AllocatesBrandBindingsBeforeUnrelatedTypes()
+    {
+        ApiAssemblyIdentity assembly = AssemblyIdentity();
+        var inertStringIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "InertText",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            "InertText.InertString");
+        var container = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Container",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Display",
+                    Kind = "property",
+                    HasGetter = true,
+                    JsonConverterAttributeCount = 1,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "InertText.InertString",
+                        ReturnTypeReferences = [inertStringIdentity],
+                        ReturnTypeShape =
+                            ApiTypeShape.Named(inertStringIdentity),
+                    },
+                },
+            ],
+        };
+        var unrelated = new ApiType
+        {
+            Namespace = "Application",
+            Name = "InertString",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var unrelatedBrand = new ApiType
+        {
+            Namespace = "Application",
+            Name = "inertStringBrand",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [container, unrelated, unrelatedBrand],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [container] = JsonWireDirection.Serialize,
+                        [unrelated] = JsonWireDirection.Serialize,
+                        [unrelatedBrand] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const inertStringBrand: unique symbol;
+
+            export type InertString = string & {
+              readonly [inertStringBrand]: "InertString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly Display: InertString;",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface InertString {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface inertStringBrand {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            source.Split(
+                "export interface type_",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public async Task InertStringFixture_SerializesEncodedTextAsScalarString()
+    {
+        string json = await global::ILInspector.JsExportSurface
+            .TypeScriptFixtures.TypeScriptFixtureExports
+            .GetInertWidgetAsync("widget");
+
+        Assert.Equal(
+            """{"name":"widget","display":"line\\u202Egpj"}""",
+            json);
+    }
+
+    [Fact]
     public void Emit_ProjectsGenericRecordDeclarationsAndClosedJsonRoots()
     {
         string path = typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures

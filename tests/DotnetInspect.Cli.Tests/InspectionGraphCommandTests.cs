@@ -122,11 +122,15 @@ public sealed class InspectionGraphCommandTests
             ]);
 
         Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--where");
         Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name is "--depth"
                 or "--direction"
-                or "--relationship");
+                or "--relationship"
+                or "--cluster");
     }
 
     [Fact]
@@ -168,6 +172,7 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains("Consumer Use Sites", captured.Output);
         Assert.Contains("Provider API Types", captured.Output);
+        Assert.Contains("Direct Use Clusters", captured.Output);
         Assert.Contains("Call Sites", captured.Output);
         Assert.Empty(captured.Error);
     }
@@ -183,6 +188,7 @@ public sealed class InspectionGraphCommandTests
             [
                 LibraryCallUseCommand.ConsumerUseSitesSection,
                 LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
             ],
             schema.SectionNames);
@@ -201,6 +207,27 @@ public sealed class InspectionGraphCommandTests
             ],
             schema.GetSection(
                     LibraryCallUseCommand.ConsumerUseSitesSection)!
+                .Items
+                .Select(item => item.Key));
+        Assert.Equal(
+            [
+                "source_library",
+                "source_mvid",
+                "target_library",
+                "target_mvid",
+                "cluster",
+                "derivation",
+                "anchor_source_token",
+                "anchor_target_token",
+                "source_members",
+                "provider_types",
+                "target_members",
+                "extension_methods",
+                "call_sites",
+                "call_site_rows",
+            ],
+            schema.GetSection(
+                    LibraryCallUseCommand.DirectUseClustersSection)!
                 .Items
                 .Select(item => item.Key));
         Assert.Equal(
@@ -238,6 +265,10 @@ public sealed class InspectionGraphCommandTests
             document.RootElement.GetProperty("consumer_use_sites");
         JsonElement providerApiTypes =
             document.RootElement.GetProperty("provider_api_types");
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "direct_use_clusters",
+                out _));
         Assert.Equal(15, consumerUseSites.GetArrayLength());
         Assert.Equal(9, providerApiTypes.GetArrayLength());
         Assert.Equal(
@@ -251,6 +282,391 @@ public sealed class InspectionGraphCommandTests
                 .GetProperty("target_type")
                 .GetString());
         Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ProjectsDirectUseClusters()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "-S",
+                        "Direct Use Clusters",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        JsonElement[] clusters =
+        [
+            .. captured.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement.Clone();
+                }),
+        ];
+        JsonElement echo = Assert.Single(
+            clusters,
+            cluster =>
+                cluster.GetProperty("source_members").GetString() == "2"
+                && cluster.GetProperty("target_members").GetString() == "1"
+                && cluster.GetProperty("extension_methods").GetString() == "1"
+                && cluster.GetProperty("call_sites").GetString() == "3");
+        Assert.Equal(
+            "exact-bipartite-connected-component",
+            echo.GetProperty("derivation").GetString());
+        Assert.False(
+            string.IsNullOrEmpty(
+                echo.GetProperty("call_site_rows").GetString()));
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_DrillsFromClusterIntoExactCalls()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=3",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        JsonElement[] calls =
+        [
+            .. captured.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement.Clone();
+                }),
+        ];
+        Assert.Equal(3, calls.Length);
+        Assert.Equal(
+            ["RunTwice", "RunTwice", "UseEcho"],
+            calls.Select(call =>
+                call.GetProperty("source_member")
+                    .GetString()!
+                    .Split('(')[0]
+                    .Split('.')[^1]));
+        Assert.All(
+            calls,
+            call =>
+            {
+                Assert.Contains(
+                    "Echo",
+                    call.GetProperty("target_member").GetString());
+                Assert.StartsWith(
+                    "0x0600",
+                    call.GetProperty("source_token").GetString());
+                Assert.Equal(
+                    "0x0600000B",
+                    call.GetProperty("target_token").GetString());
+            });
+        Assert.Empty(captured.Error);
+
+        var human = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=3",
+                    ])
+                .InvokeAsync());
+        Assert.Equal(0, human.ExitCode);
+        Assert.Contains(
+            "| Source Member | Source Token | Target Member | Target Token | Call | Evidence Method | Evidence Token | IL Offset |",
+            human.Output);
+        Assert.Contains(
+            "| Shared.Entry.RunTwice() | 0x06000004 | Target.GenericApi.Echo(T) | 0x0600000B | call | Shared.Entry.RunTwice() | 0x06000004 | 0x0001 |",
+            human.Output);
+        Assert.Empty(human.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterUsesEvidenceTokenForIlHandoff()
+    {
+        string consumer =
+            FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        string provider = Path.Combine(
+            Path.GetDirectoryName(consumer)!,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll");
+        var cluster = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        consumer,
+                        "--library",
+                        provider,
+                        "--where",
+                        "Cluster=1",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, cluster.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(
+            cluster.Output.Trim());
+        JsonElement call = document.RootElement;
+        string sourceToken =
+            call.GetProperty("source_token").GetString()!;
+        string evidenceToken =
+            call.GetProperty("evidence_token").GetString()!;
+        string ilOffset =
+            call.GetProperty("il_offset").GetString()!;
+        Assert.NotEqual(sourceToken, evidenceToken);
+        Assert.Contains(
+            "MoveNext",
+            call.GetProperty("evidence_method").GetString());
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete.",
+            cluster.Error);
+
+        var location = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "library",
+                        consumer,
+                        "--il-offset",
+                        $"{evidenceToken}+{ilOffset}",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, location.ExitCode);
+        Assert.Contains("## Context: Callsite", location.Output);
+        Assert.Contains("MoveNext", location.Output);
+        Assert.Contains("callvirt", location.Output);
+        Assert.Empty(location.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterScopesEverySelectedSection()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=3",
+                        "-S",
+                        "*",
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document =
+            JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            2,
+            document.RootElement
+                .GetProperty("consumer_use_sites")
+                .GetArrayLength());
+        Assert.Single(
+            document.RootElement
+                .GetProperty("provider_api_types")
+                .EnumerateArray());
+        JsonElement cluster = Assert.Single(
+            document.RootElement
+                .GetProperty("direct_use_clusters")
+                .EnumerateArray());
+        Assert.Equal(
+            "3",
+            cluster.GetProperty("cluster").GetString());
+        Assert.Equal(
+            "1,2,3",
+            cluster.GetProperty("call_site_rows").GetString());
+        Assert.Equal(
+            3,
+            document.RootElement
+                .GetProperty("call_sites")
+                .GetArrayLength());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsUnavailableCluster()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=99",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Direct Use Cluster 99 does not exist.",
+            captured.Error);
+        Assert.Contains(
+            "Observed pair-wide cluster ordinals: 1..13.",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsClusterDuringDiscovery()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--where",
+                        "Cluster=1",
+                        "-D",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--where Cluster=... cannot be combined with -D/--discover.",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsNonPositiveCluster()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--where",
+                        "Cluster=0",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Field 'Cluster' requires a positive integer ordinal.",
+            captured.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "Cluster!=3",
+        "Field 'Cluster' in graph libraries supports only = predicates.")]
+    [InlineData(
+        "Cluster=3",
+        "graph libraries accepts exactly one --where Cluster=... predicate.")]
+    public async Task LibrariesCommand_RejectsInvalidClusterPredicates(
+        string predicate,
+        string expected)
+    {
+        string[] arguments =
+            predicate == "Cluster=3"
+                ?
+                [
+                    "graph",
+                    "libraries",
+                    "--where",
+                    predicate,
+                    "--where",
+                    predicate,
+                ]
+                :
+                [
+                    "graph",
+                    "libraries",
+                    "--where",
+                    predicate,
+                ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(arguments)
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(expected, captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsUnsupportedWhereField()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--where",
+                        "SourceMember=Run",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Field 'SourceMember' is not queryable by graph libraries.",
+            captured.Error);
+        Assert.Contains(
+            "Use --where \"Cluster=<positive ordinal>\".",
+            captured.Error);
     }
 
     [Fact]
@@ -462,6 +878,7 @@ public sealed class InspectionGraphCommandTests
         async Task<(
             int UseSites,
             int ProviderTypes,
+            int DirectUseClusters,
             int CallSites)> Counts(
             string consumer)
         {
@@ -495,15 +912,23 @@ public sealed class InspectionGraphCommandTests
                     .GetInt32(),
                 document.RootElement[2]
                     .GetProperty("count")
+                    .GetInt32(),
+                document.RootElement[3]
+                    .GetProperty("count")
                     .GetInt32());
         }
 
+        var presentation =
+            await Counts("DotnetInspector.Presentation.dll");
         Assert.Equal(
-            (36, 10, 1244),
-            await Counts("DotnetInspector.Presentation.dll"));
+            (38, 12, 8, 1258),
+            presentation);
+
+        var metadataRendering =
+            await Counts("DotnetInspector.MetadataRendering.dll");
         Assert.Equal(
-            (13, 4, 72),
-            await Counts("DotnetInspector.MetadataRendering.dll"));
+            (13, 4, 1, 72),
+            metadataRendering);
     }
 
     [Fact]

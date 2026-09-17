@@ -44,7 +44,7 @@ public class MemberSearchServiceTests
                     && r.Library == "CopiedMemberAssembly");
             Assert.Equal("method", result.Kind);
             Assert.Equal(typeof(MemberSearchServiceTests).FullName, result.DeclaringType);
-            Assert.Equal(MatchKind.Exact, result.Match);
+            Assert.Equal(MemberFindMatchKind.Direct, result.Match);
             Assert.Equal(Path.GetFileName(directory), result.Source);
             Assert.Null(result.SourceVersion);
         }
@@ -82,7 +82,7 @@ public class MemberSearchServiceTests
             Assert.NotEmpty(search.Rows);
             Assert.All(
                 search.Rows,
-                r => Assert.Equal(MatchKind.Glob, r.Match));
+                r => Assert.Equal(MemberFindMatchKind.Glob, r.Match));
             Assert.Contains(
                 search.Rows,
                 r => r.Member == SearchTargetMemberName);
@@ -91,6 +91,38 @@ public class MemberSearchServiceTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task FindMembersAsync_IndexerAliasIsClassifiedAsDirect()
+    {
+        using var httpClient = new HttpClient();
+        FindSearchResult<MemberFindResult> search =
+            await MemberSearchService.FindMembersAsync(
+                new FindOptions
+                {
+                    Pattern = "this[]",
+                    Assemblies =
+                    [
+                        typeof(MemberSearchServiceTests).Assembly.Location,
+                    ],
+                    IncludeAll = true,
+                    Members = true,
+                },
+                ["this[]"],
+                new VerboseLogger(enabled: false),
+                httpClient,
+                TestContext.Current.CancellationToken);
+
+        MemberFindResult result = Assert.Single(
+            search.Rows,
+            row => row.DeclaringType
+                == typeof(MemberSearchIndexerFixture).FullName!
+                    .Replace('+', '.'));
+        Assert.Equal("this[]", result.Pattern);
+        Assert.Equal("Item", result.Member);
+        Assert.Equal(MemberFindMatchKind.Direct, result.Match);
+        Assert.False(search.HasFailures);
     }
 
     [Fact]
@@ -192,5 +224,10 @@ public class MemberSearchServiceTests
             typeof(MemberSearchServiceTests).FullName,
             result.DeclaringType);
         Assert.False(search.HasFailures);
+    }
+
+    public sealed class MemberSearchIndexerFixture
+    {
+        public int this[int index] => index;
     }
 }

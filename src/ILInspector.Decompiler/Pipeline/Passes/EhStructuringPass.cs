@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -30,18 +33,58 @@ public sealed partial class EhStructuringPass : IIrPass
         public required int TryStart { get; init; }
         public required int TryEnd { get; init; }
         public required List<HandlerRegion> Handlers { get; init; }
+        public InstructionExceptionRegionId? ProtectedRegion { get; init; }
+        public IReadOnlyDictionary<HandlerRegion, InstructionExceptionClause>
+            ClauseFacts
+        { get; init; } =
+            new Dictionary<HandlerRegion, InstructionExceptionClause>(
+                ReferenceEqualityComparer.Instance);
         public int End => Handlers[^1].HandlerOffset + Handlers[^1].HandlerLength;
         public List<Construct> Children { get; } = [];
 
         public bool Contains(int offset) => offset >= TryStart && offset < End;
         public bool Contains(Construct other) => other.TryStart >= TryStart && other.End <= End;
         public bool IsFinally => Handlers is [{ Kind: HandlerKind.Finally }];
+        public InstructionExceptionClause? FactsFor(HandlerRegion handler) =>
+            ClauseFacts.GetValueOrDefault(handler);
     }
 
     public void Run(IrFunction function, PassContext context)
     {
         if (function.Regions.IsEmpty)
             return;
+
+        InstructionExceptionFlowFacts? exceptionFlow;
+        switch (function.ExceptionFlow)
+        {
+            case null when function.IsMetadataBacked:
+                function.ExceptionFactFailure =
+                    "Metadata-backed EH structuring has no correlated Instructions evidence.";
+                return;
+            case null:
+                exceptionFlow = null;
+                break;
+            case InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available available:
+                exceptionFlow = available.Value;
+                break;
+            case InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Unavailable unavailable:
+                function.ExceptionFactFailure =
+                    $"Instructions exception-flow evidence is unavailable "
+                    + $"({unavailable.Reason}): {unavailable.Detail}";
+                return;
+            case InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Ambiguous ambiguous:
+                function.ExceptionFactFailure =
+                    $"Instructions exception-flow evidence is ambiguous: "
+                    + ambiguous.Detail;
+                return;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Instructions exception-flow result.");
+        }
+
         if (function.Regions.Any(r => r.Kind is HandlerKind.Fault))
             return;
 
@@ -50,9 +93,22 @@ public sealed partial class EhStructuringPass : IIrPass
         for (int i = 0; i < blocks.Count; i++)
             offsetToIndex[blocks[i].StartOffset] = i;
 
-        if (BuildForest(function.Regions, offsetToIndex) is not { } forest)
+        if (BuildForest(
+                function.Regions,
+                function.ExceptionClauseImports,
+                exceptionFlow,
+                offsetToIndex,
+                out string? evidenceFailure) is not { } forest)
+        {
+            if (evidenceFailure is not null)
+                function.ExceptionFactFailure = evidenceFailure;
             return;
-        if (!Validate(blocks, forest.All, offsetToIndex))
+        }
+        if (!Validate(
+                blocks,
+                forest.All,
+                offsetToIndex,
+                exceptionFlow))
             return;
         if (!ValidateFilters(function, blocks, forest.All, offsetToIndex))
             return;
@@ -61,11 +117,12 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt);
+        InlineReturnLeaves(function, rebuilt);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
         function.Regions = [];
+        function.ExceptionFactFailure = null;
     }
 
     /// <summary>
@@ -125,20 +182,28 @@ public sealed partial class EhStructuringPass : IIrPass
     /// overlap, or boundaries that are not block leaders.
     /// </summary>
     static (List<Construct> Roots, List<Construct> All)? BuildForest(
-        ImmutableArray<HandlerRegion> regions, Dictionary<int, int> offsetToIndex)
+        ImmutableArray<HandlerRegion> regions,
+        ImmutableArray<DecompilerExceptionClauseImport> imports,
+        InstructionExceptionFlowFacts? exceptionFlow,
+        Dictionary<int, int> offsetToIndex,
+        out string? evidenceFailure)
     {
-        var all = new List<Construct>();
-        foreach (var group in regions.GroupBy(r => (r.TryOffset, r.TryLength)))
+        evidenceFailure = null;
+        List<Construct>? all = exceptionFlow is null
+            ? BuildLegacyConstructs(regions)
+            : BuildCorrelatedConstructs(
+                regions,
+                imports,
+                exceptionFlow,
+                out evidenceFailure);
+        if (all is null)
+            return null;
+
+        foreach (Construct construct in all)
         {
-            var handlers = group.OrderBy(r => r.HandlerOffset).ToList();
+            List<HandlerRegion> handlers = construct.Handlers;
             if (handlers.Count > 1 && handlers.Any(h => h.Kind is not (HandlerKind.Catch or HandlerKind.Filter)))
                 return null;
-            var construct = new Construct
-            {
-                TryStart = group.Key.TryOffset,
-                TryEnd = group.Key.TryOffset + group.Key.TryLength,
-                Handlers = handlers,
-            };
             int expected = construct.TryEnd;
             foreach (var handler in handlers)
             {
@@ -162,7 +227,6 @@ public sealed partial class EhStructuringPass : IIrPass
             {
                 return null;
             }
-            all.Add(construct);
         }
 
         // Outer-first ordering, then a containment stack builds the forest.
@@ -171,7 +235,11 @@ public sealed partial class EhStructuringPass : IIrPass
         var stack = new Stack<Construct>();
         foreach (var construct in all)
         {
-            while (stack.Count > 0 && !stack.Peek().Contains(construct))
+            while (stack.Count > 0
+                   && !ContainsConstruct(
+                       stack.Peek(),
+                       construct,
+                       exceptionFlow))
             {
                 if (construct.TryStart < stack.Peek().End)
                     return null;
@@ -182,10 +250,10 @@ public sealed partial class EhStructuringPass : IIrPass
                 // A nested construct must sit wholly inside the parent's try
                 // or wholly inside one handler — never straddle.
                 var parent = stack.Peek();
-                bool placed = construct.End <= parent.TryEnd && construct.TryStart >= parent.TryStart
-                    || parent.Handlers.Any(h =>
-                        construct.TryStart >= h.HandlerOffset
-                        && construct.End <= h.HandlerOffset + h.HandlerLength);
+                bool placed = SegmentWithin(
+                    parent,
+                    construct.TryStart,
+                    exceptionFlow) != -2;
                 if (!placed)
                     return null;
                 parent.Children.Add(construct);
@@ -199,8 +267,138 @@ public sealed partial class EhStructuringPass : IIrPass
         return (roots, all);
     }
 
+    static bool ContainsConstruct(
+        Construct outer,
+        Construct inner,
+        InstructionExceptionFlowFacts? exceptionFlow)
+        => exceptionFlow is null
+            ? outer.Contains(inner)
+            : ContainsAt(outer, inner.TryStart, exceptionFlow);
+
+    static List<Construct> BuildLegacyConstructs(
+        ImmutableArray<HandlerRegion> regions)
+    {
+        var all = new List<Construct>();
+        foreach (var group in regions.GroupBy(
+                     region => (region.TryOffset, region.TryLength)))
+        {
+            all.Add(new Construct
+            {
+                TryStart = group.Key.TryOffset,
+                TryEnd = group.Key.TryOffset + group.Key.TryLength,
+                Handlers = group.OrderBy(
+                    region => region.HandlerOffset).ToList(),
+            });
+        }
+
+        return all;
+    }
+
+    static List<Construct>? BuildCorrelatedConstructs(
+        ImmutableArray<HandlerRegion> regions,
+        ImmutableArray<DecompilerExceptionClauseImport> imports,
+        InstructionExceptionFlowFacts exceptionFlow,
+        out string? evidenceFailure)
+    {
+        evidenceFailure = null;
+        if (imports.Length != regions.Length
+            || imports.Length != exceptionFlow.Clauses.Length)
+        {
+            evidenceFailure =
+                "Decompiler exception-clause imports do not cover the complete owner-issued catalog.";
+            return null;
+        }
+
+        var canonicalImports =
+            ImmutableArray.CreateBuilder<DecompilerExceptionClauseImport>(
+                imports.Length);
+        for (int index = 0; index < imports.Length; index++)
+        {
+            DecompilerExceptionClauseImport import = imports[index];
+            InstructionExceptionClause facts = exceptionFlow.Clauses[index];
+            if (!ReferenceEquals(import.Region, regions[index])
+                || exceptionFlow.GetClause(import.Facts.Id) is not
+                    InstructionExceptionFlowResult<
+                        InstructionExceptionClause>.Available availableClause
+                || availableClause.Value.Id != facts.Id)
+            {
+                evidenceFailure =
+                    "Decompiler exception-clause association does not preserve the owner-issued identity.";
+                return null;
+            }
+            canonicalImports.Add(new DecompilerExceptionClauseImport(
+                import.Region,
+                availableClause.Value));
+
+            if (facts.Kind != ExceptionRegionKind.Catch)
+                continue;
+
+            MethodExceptionCatchType? catchType = facts.Clause.CatchType;
+            bool valid = catchType?.Name switch
+            {
+                MetadataTypeNameResult.Resolved =>
+                    catchType.MetadataToken != 0
+                    && import.Region.CatchType is not null,
+                MetadataTypeNameResult.Absent =>
+                    catchType.MetadataToken == 0
+                    && import.Region.CatchType is null,
+                MetadataTypeNameResult.Rejected => false,
+                _ => false,
+            };
+            if (!valid)
+            {
+                evidenceFailure =
+                    $"Metadata catch-type evidence is unavailable for clause "
+                    + $"{facts.Id.Ordinal}.";
+                return null;
+            }
+        }
+
+        var all = new List<Construct>();
+        foreach (IGrouping<
+                     InstructionExceptionRegionId,
+                     DecompilerExceptionClauseImport> group
+                 in canonicalImports.GroupBy(
+                     import => import.Facts.ProtectedRegion))
+        {
+            if (exceptionFlow.GetRegion(group.Key) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionRegion>.Available availableRegion)
+            {
+                evidenceFailure =
+                    "Instructions did not publish the protected region named by an imported clause.";
+                return null;
+            }
+            InstructionExceptionRegion protectedRegion =
+                availableRegion.Value;
+
+            List<DecompilerExceptionClauseImport> clauses = group.ToList();
+            var clauseFacts =
+                new Dictionary<HandlerRegion, InstructionExceptionClause>(
+                    ReferenceEqualityComparer.Instance);
+            foreach (DecompilerExceptionClauseImport clause in clauses)
+                clauseFacts.Add(clause.Region, clause.Facts);
+
+            all.Add(new Construct
+            {
+                TryStart = protectedRegion.Extent.Start,
+                TryEnd = protectedRegion.Extent.End,
+                Handlers = clauses.Select(
+                    clause => clause.Region).ToList(),
+                ProtectedRegion = protectedRegion.Id,
+                ClauseFacts = clauseFacts,
+            });
+        }
+
+        return all;
+    }
+
     /// <summary>Phase 1: pure checks over the flat blocks — no mutation until the whole function fits the slice.</summary>
-    static bool Validate(IReadOnlyList<Block> blocks, List<Construct> all, Dictionary<int, int> offsetToIndex)
+    static bool Validate(
+        IReadOnlyList<Block> blocks,
+        List<Construct> all,
+        Dictionary<int, int> offsetToIndex,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -213,83 +411,182 @@ public sealed partial class EhStructuringPass : IIrPass
                 switch (statement)
                 {
                     case Leave leave:
-                    {
-                        if (!isLast)
-                            return false;
-                        // leave exits to the continuation of an enclosing
-                        // construct — possibly through several (it runs the
-                        // intervening finallys, exactly C# goto-out-of-try).
-                        bool enclosed = false, targetsContinuation = false;
-                        foreach (var construct in all)
                         {
-                            if (!construct.Contains(offset))
-                                continue;
-                            enclosed = true;
-                            if (construct.IsFinally && offset >= construct.TryEnd)
-                                return false;  // leave out of a finally is not valid IL
-                            if (leave.TargetOffset == construct.End)
-                                targetsContinuation = true;
+                            if (!isLast)
+                                return false;
+                            if (exceptionFlow is not null
+                                && !AvailableNormalTransfer(
+                                    exceptionFlow,
+                                    statement.SourceOffset,
+                                    leave.TargetOffset,
+                                    InstructionNormalTransferKind.Leave))
+                            {
+                                return false;
+                            }
+                            // leave exits to the continuation of an enclosing
+                            // construct — possibly through several (it runs the
+                            // intervening finallys, exactly C# goto-out-of-try).
+                            bool enclosed = false, targetsContinuation = false;
+                            foreach (var construct in all)
+                            {
+                                if (!ContainsAt(
+                                        construct,
+                                        offset,
+                                        exceptionFlow))
+                                    continue;
+                                enclosed = true;
+                                if (construct.IsFinally
+                                    && InHandlerAt(
+                                        construct,
+                                        construct.Handlers[0],
+                                        offset,
+                                        exceptionFlow))
+                                    return false;  // leave out of a finally is not valid IL
+                                if (leave.TargetOffset == construct.End)
+                                    targetsContinuation = true;
+                            }
+                            if (!enclosed)
+                                return false;
+                            // A leave targets either an enclosing construct's
+                            // continuation (trimmed or printed as a goto) or a
+                            // one-statement return/throw block — the multi-return
+                            // idiom the build phase inlines back into the body.
+                            if (!targetsContinuation
+                                && !TargetsOutsideContainingConstructs(
+                                    all,
+                                    offset,
+                                    leave.TargetOffset,
+                                    exceptionFlow)
+                                && !TargetsWithinEnclosingSegment(
+                                    blocks,
+                                    all,
+                                    offsetToIndex,
+                                    offset,
+                                    leave.TargetOffset,
+                                    exceptionFlow)
+                                && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
+                                return false;
+                            break;
                         }
-                        if (!enclosed)
-                            return false;
-                        // A leave targets either an enclosing construct's
-                        // continuation (trimmed or printed as a goto) or a
-                        // one-statement return/throw block — the multi-return
-                        // idiom the build phase inlines back into the body.
-                        if (!targetsContinuation
-                            && !TargetsOutsideContainingConstructs(all, offset, leave.TargetOffset)
-                            && !TargetsWithinEnclosingSegment(blocks, all, offsetToIndex, offset, leave.TargetOffset)
-                            && !IsInlineableReturn(blocks, offsetToIndex, leave.TargetOffset))
-                            return false;
-                        break;
-                    }
                     case EndFinally:
-                    {
-                        // Exactly the canonical close: last statement of the
-                        // final block of its finally range.
-                        if (!isLast)
-                            return false;
-                        var owner = all.FirstOrDefault(c =>
-                            c.IsFinally && offset >= c.TryEnd && offset < c.End);
-                        if (owner is null)
-                            return false;
-                        if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < owner.End)
-                            return false;
-                        break;
-                    }
+                        {
+                            // Exactly the canonical close: last statement of the
+                            // final block of its finally range.
+                            if (!isLast)
+                                return false;
+                            var owner = all.FirstOrDefault(c =>
+                                c.IsFinally
+                                && InHandlerAt(
+                                    c,
+                                    c.Handlers[0],
+                                    offset,
+                                    exceptionFlow));
+                            if (owner is null)
+                                return false;
+                            if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < owner.End)
+                                return false;
+                            break;
+                        }
                     case EndFilter:
-                    {
-                        if (!isLast)
-                            return false;
-                        var owner = all.FirstOrDefault(c =>
-                            c.Handlers.Any(h => h.Kind == HandlerKind.Filter
-                                && offset >= h.FilterOffset
-                                && offset < h.HandlerOffset));
-                        if (owner is null)
-                            return false;
-                        var handler = owner.Handlers.Single(h => h.Kind == HandlerKind.Filter
-                            && offset >= h.FilterOffset
-                            && offset < h.HandlerOffset);
-                        if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < handler.HandlerOffset)
-                            return false;
-                        break;
-                    }
+                        {
+                            if (!isLast)
+                                return false;
+                            var owner = all.FirstOrDefault(c =>
+                                c.Handlers.Any(h =>
+                                    h.Kind == HandlerKind.Filter
+                                    && InFilterAt(
+                                        c,
+                                        h,
+                                        offset,
+                                        exceptionFlow)));
+                            if (owner is null)
+                                return false;
+                            var handler = owner.Handlers.Single(h =>
+                                h.Kind == HandlerKind.Filter
+                                && InFilterAt(
+                                    owner,
+                                    h,
+                                    offset,
+                                    exceptionFlow));
+                            if (i + 1 < blocks.Count && blocks[i + 1].StartOffset < handler.HandlerOffset)
+                                return false;
+                            break;
+                        }
+                    case Return:
+                        {
+                            if (!isLast)
+                                return false;
+                            if (exceptionFlow is not null
+                                && (statement.SourceOffset < 0
+                                    || exceptionFlow.NormalTransferAt(
+                                        statement.SourceOffset,
+                                        logicalDestinationOffset: null) is not
+                                        InstructionExceptionFlowResult<
+                                            InstructionNormalTransfer>.Available
+                                        {
+                                            Value.Kind:
+                                                    InstructionNormalTransferKind.Return,
+                                        }))
+                            {
+                                return false;
+                            }
+                            break;
+                        }
                     case Branch branch:
-                        if (!SameZone(all, offset, branch.TargetOffset))
+                        if (exceptionFlow is not null
+                            ? !AvailableNormalTransfer(
+                                exceptionFlow,
+                                statement.SourceOffset,
+                                branch.TargetOffset,
+                                InstructionNormalTransferKind.Branch)
+                            : !SameZone(all, offset, branch.TargetOffset))
                             return false;
                         break;
                     case ConditionalBranch conditional:
-                        if (!SameZone(all, offset, conditional.TargetOffset))
+                        if (exceptionFlow is not null
+                            ? !AvailableNormalTransfer(
+                                exceptionFlow,
+                                statement.SourceOffset,
+                                conditional.TargetOffset,
+                                InstructionNormalTransferKind.Branch)
+                            : !SameZone(
+                                all,
+                                offset,
+                                conditional.TargetOffset))
                             return false;
                         break;
                     case SwitchBranch sw:
-                        if (sw.TargetOffsets.Any(t => !SameZone(all, offset, t)))
+                        if (sw.TargetOffsets.Any(target =>
+                            exceptionFlow is not null
+                                ? !AvailableNormalTransfer(
+                                    exceptionFlow,
+                                    statement.SourceOffset,
+                                    target,
+                                    InstructionNormalTransferKind.Branch)
+                                : !SameZone(all, offset, target)))
                             return false;
                         break;
                 }
             }
         }
-        return ValidateCaughtExceptions(blocks, all);
+        return ValidateCaughtExceptions(blocks, all, exceptionFlow);
+    }
+
+    static bool AvailableNormalTransfer(
+        InstructionExceptionFlowFacts exceptionFlow,
+        int sourceOffset,
+        int destinationOffset,
+        InstructionNormalTransferKind expectedKind)
+    {
+        if (sourceOffset < 0)
+            return false;
+
+        return exceptionFlow.NormalTransferAt(
+            sourceOffset,
+            destinationOffset) is
+            InstructionExceptionFlowResult<
+                InstructionNormalTransfer>.Available available
+            && available.Value.Kind == expectedKind;
     }
 
     /// <summary>
@@ -298,7 +595,10 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the discard pop) and the bare rethrow. Anything else — the value
     /// flowing across blocks, inline consumption — is outside the slice.
     /// </summary>
-    static bool ValidateCaughtExceptions(IReadOnlyList<Block> blocks, List<Construct> all)
+    static bool ValidateCaughtExceptions(
+        IReadOnlyList<Block> blocks,
+        List<Construct> all,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         // Inline (non-entry, non-rethrow) value uses of the caught exception, by
         // handler. A handler that uses the exception inline must use it exactly once
@@ -307,10 +607,16 @@ public sealed partial class EhStructuringPass : IIrPass
         var inlineUses = new Dictionary<int, int>();
         foreach (var block in blocks)
         {
-            if (InsideFilter(all, block.StartOffset))
+            if (InsideFilter(
+                    all,
+                    block.StartOffset,
+                    exceptionFlow))
                 continue;
 
-            var handler = InnermostCatchHandler(all, block.StartOffset);
+            var handler = InnermostCatchHandler(
+                all,
+                block.StartOffset,
+                exceptionFlow);
             for (int s = 0; s < block.Children.Count; s++)
             {
                 var statement = block.Children[s];
@@ -349,11 +655,22 @@ public sealed partial class EhStructuringPass : IIrPass
         return true;
     }
 
-    static bool InsideFilter(List<Construct> all, int offset)
-        => all.SelectMany(c => c.Handlers).Any(h =>
-            h.Kind == HandlerKind.Filter && offset >= h.FilterOffset && offset < h.HandlerOffset);
+    static bool InsideFilter(
+        List<Construct> all,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
+        => all.Any(construct => construct.Handlers.Any(handler =>
+            handler.Kind == HandlerKind.Filter
+            && InFilterAt(
+                construct,
+                handler,
+                offset,
+                exceptionFlow)));
 
-    static HandlerRegion? InnermostCatchHandler(List<Construct> all, int offset)
+    static HandlerRegion? InnermostCatchHandler(
+        List<Construct> all,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         Construct? best = null;
         HandlerRegion? bestHandler = null;
@@ -361,17 +678,34 @@ public sealed partial class EhStructuringPass : IIrPass
         {
             foreach (var handler in construct.Handlers)
             {
-                bool insideCatch = handler.Kind == HandlerKind.Catch
-                    && offset >= handler.HandlerOffset
-                    && offset < handler.HandlerOffset + handler.HandlerLength;
-                bool insideFilter = handler.Kind == HandlerKind.Filter
-                    && offset >= handler.FilterOffset
-                    && offset < handler.HandlerOffset + handler.HandlerLength;
+                bool insideCatch =
+                    handler.Kind == HandlerKind.Catch
+                    && InHandlerAt(
+                        construct,
+                        handler,
+                        offset,
+                        exceptionFlow);
+                bool insideFilter =
+                    handler.Kind == HandlerKind.Filter
+                    && (InFilterAt(
+                            construct,
+                            handler,
+                            offset,
+                            exceptionFlow)
+                        || InHandlerAt(
+                            construct,
+                            handler,
+                            offset,
+                            exceptionFlow));
                 if (!insideCatch && !insideFilter)
                 {
                     continue;
                 }
-                if (best is null || best.Contains(construct))
+                if (best is null
+                    || ContainsConstruct(
+                        best,
+                        construct,
+                        exceptionFlow))
                 {
                     best = construct;
                     bestHandler = handler;
@@ -388,15 +722,19 @@ public sealed partial class EhStructuringPass : IIrPass
     /// finally blocks, preserving the original <c>leave</c> semantics. This is the
     /// retry-loop shape in helpers such as <c>Interop.Sys.GetCwd</c>.
     /// </summary>
-    static bool TargetsOutsideContainingConstructs(List<Construct> all, int offset, int targetOffset)
+    static bool TargetsOutsideContainingConstructs(
+        List<Construct> all,
+        int offset,
+        int targetOffset,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         bool enclosed = false;
         foreach (var construct in all)
         {
-            if (!construct.Contains(offset))
+            if (!ContainsAt(construct, offset, exceptionFlow))
                 continue;
             enclosed = true;
-            if (construct.Contains(targetOffset))
+            if (ContainsAt(construct, targetOffset, exceptionFlow))
                 return false;
         }
         return enclosed;
@@ -412,7 +750,8 @@ public sealed partial class EhStructuringPass : IIrPass
         List<Construct> all,
         Dictionary<int, int> offsetToIndex,
         int offset,
-        int targetOffset)
+        int targetOffset,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         if (!offsetToIndex.TryGetValue(targetOffset, out int targetIndex)
             || !HasPrintableLandingStatement(blocks[targetIndex]))
@@ -420,18 +759,27 @@ public sealed partial class EhStructuringPass : IIrPass
             return false;
         }
 
-        var source = Zone(all, offset);
-        var target = Zone(all, targetOffset);
+        var source = Zone(all, offset, exceptionFlow);
+        var target = Zone(all, targetOffset, exceptionFlow);
         if (source.Construct is null
             || target.Construct is null
             || ReferenceEquals(source.Construct, target.Construct)
-            || source.Construct.Contains(targetOffset)
-            || !target.Construct.Contains(offset))
+            || ContainsAt(
+                source.Construct,
+                targetOffset,
+                exceptionFlow)
+            || !ContainsAt(
+                target.Construct,
+                offset,
+                exceptionFlow))
         {
             return false;
         }
 
-        return SegmentWithin(target.Construct, offset) == target.Segment;
+        return SegmentWithin(
+            target.Construct,
+            offset,
+            exceptionFlow) == target.Segment;
     }
 
     static bool HasPrintableLandingStatement(Block block)
@@ -442,41 +790,128 @@ public sealed partial class EhStructuringPass : IIrPass
     /// construct — branches never cross a region boundary in the slice.
     /// </summary>
     static bool SameZone(List<Construct> all, int offsetA, int offsetB)
-        => Zone(all, offsetA) == Zone(all, offsetB);
+        => Zone(all, offsetA, exceptionFlow: null)
+            == Zone(all, offsetB, exceptionFlow: null);
 
-    static (Construct? Construct, int Segment) Zone(List<Construct> all, int offset)
+    static (Construct? Construct, int Segment) Zone(
+        List<Construct> all,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
         Construct? best = null;
         foreach (var construct in all)
         {
-            if (construct.Contains(offset) && (best is null || best.Contains(construct)))
+            if (ContainsAt(construct, offset, exceptionFlow)
+                && (best is null
+                    || ContainsConstruct(
+                        best,
+                        construct,
+                        exceptionFlow)))
                 best = construct;
         }
         if (best is null)
             return (null, -2);
-        if (offset < best.TryEnd)
-            return (best, -1);
-        for (int h = 0; h < best.Handlers.Count; h++)
-        {
-            var handler = best.Handlers[h];
-            if (offset >= handler.HandlerOffset && offset < handler.HandlerOffset + handler.HandlerLength)
-                return (best, h);
-        }
-        return (best, -2);
+        int segment = SegmentWithin(best, offset, exceptionFlow);
+        return (best, segment);
     }
 
-    static int SegmentWithin(Construct construct, int offset)
+    static int SegmentWithin(
+        Construct construct,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
     {
-        if (offset >= construct.TryStart && offset < construct.TryEnd)
+        if (InProtectedAt(construct, offset, exceptionFlow))
             return -1;
         for (int h = 0; h < construct.Handlers.Count; h++)
         {
             var handler = construct.Handlers[h];
-            if (offset >= handler.HandlerOffset && offset < handler.HandlerOffset + handler.HandlerLength)
+            if (InHandlerAt(
+                    construct,
+                    handler,
+                    offset,
+                    exceptionFlow))
+            {
                 return h;
+            }
         }
         return -2;
     }
+
+    static bool ContainsAt(
+        Construct construct,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
+        => exceptionFlow is null
+            ? construct.Contains(offset)
+            : InProtectedAt(construct, offset, exceptionFlow)
+                || construct.Handlers.Any(handler =>
+                    InFilterAt(
+                        construct,
+                        handler,
+                        offset,
+                        exceptionFlow)
+                    || InHandlerAt(
+                        construct,
+                        handler,
+                        offset,
+                        exceptionFlow));
+
+    static bool InProtectedAt(
+        Construct construct,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
+    {
+        if (exceptionFlow is null)
+            return offset >= construct.TryStart && offset < construct.TryEnd;
+
+        return construct.ProtectedRegion is { } region
+            && LocationAt(exceptionFlow, offset).Any(
+                location => location.Id == region);
+    }
+
+    static bool InFilterAt(
+        Construct construct,
+        HandlerRegion handler,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
+    {
+        if (exceptionFlow is null)
+        {
+            return handler.Kind == HandlerKind.Filter
+                && offset >= handler.FilterOffset
+                && offset < handler.HandlerOffset;
+        }
+
+        return construct.FactsFor(handler)?.FilterRegion is { } region
+            && LocationAt(exceptionFlow, offset).Any(
+                location => location.Id == region);
+    }
+
+    static bool InHandlerAt(
+        Construct construct,
+        HandlerRegion handler,
+        int offset,
+        InstructionExceptionFlowFacts? exceptionFlow)
+    {
+        if (exceptionFlow is null)
+        {
+            return offset >= handler.HandlerOffset
+                && offset < handler.HandlerOffset + handler.HandlerLength;
+        }
+
+        return construct.FactsFor(handler) is { } clause
+            && LocationAt(exceptionFlow, offset).Any(
+                location => location.Id == clause.HandlerRegion);
+    }
+
+    static ImmutableArray<InstructionExceptionRegion> LocationAt(
+        InstructionExceptionFlowFacts exceptionFlow,
+        int offset)
+        => exceptionFlow.LocationAt(offset) is
+            InstructionExceptionFlowResult<
+                ImmutableArray<InstructionExceptionRegion>>.Available available
+                ? available.Value
+                : [];
 
     /// <summary>Phase 2: rebuilds a block range as a container, nesting each construct into its statement node. Shapes were already proven.</summary>
     static BlockContainer BuildContainer(
@@ -518,7 +953,10 @@ public sealed partial class EhStructuringPass : IIrPass
             var handler = construct.Handlers[0];
             var finallyBody = BuildHandlerBody(function, blocks, construct, handler, offsetToIndex, sliceEnd, continuations);
             TrimTrailingEndFinally(finallyBody);
-            node = new TryFinally(tryBody, finallyBody);
+            node = new TryFinally(tryBody, finallyBody)
+            {
+                ExceptionClause = construct.FactsFor(handler),
+            };
         }
         else
         {
@@ -535,14 +973,30 @@ public sealed partial class EhStructuringPass : IIrPass
                     var filter = TryBuildFilter(function, blocks, offsetToIndex, handler, allocateVariable: true, preferredVariable: variable, preferredVariableType: handlerEntryVariable?.Type)!;
                     if (filter.VariableIndex is { } filterLocal)
                         ReplaceCaughtExceptions(body, filterLocal, filter.ExceptionType);
-                    clauses.Add(new CatchClause(filter.ExceptionType, body, filter.Condition) { VariableIndex = filter.VariableIndex });
+                    clauses.Add(new CatchClause(
+                        filter.ExceptionType,
+                        body,
+                        filter.Condition)
+                    {
+                        VariableIndex = filter.VariableIndex,
+                        ExceptionClause = construct.FactsFor(handler),
+                    });
                 }
                 else
                 {
-                    clauses.Add(new CatchClause(handler.CatchType ?? CatchAllType, body) { VariableIndex = variable });
+                    clauses.Add(new CatchClause(
+                        handler.CatchType ?? CatchAllType,
+                        body)
+                    {
+                        VariableIndex = variable,
+                        ExceptionClause = construct.FactsFor(handler),
+                    });
                 }
             }
-            node = new TryCatch(tryBody, clauses);
+            node = new TryCatch(tryBody, clauses)
+            {
+                ExceptionProtectedRegion = construct.ProtectedRegion,
+            };
         }
         continuations[node] = construct.End;
         return node;
@@ -576,22 +1030,191 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
     /// exactly the finallys the leave did — and drop each return block once it
     /// is unreachable (no remaining reference, not reached by falling out of the
-    /// previous block). The single normal-continuation return stays put. With
-    /// the leaves gone the structuring pass raises the bodies.
+    /// previous block). Keep a return outside when reaching it first exits an
+    /// enclosing finally that may change the local it returns. With the leaves
+    /// gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(BlockContainer root)
+    static void InlineReturnLeaves(IrFunction function, BlockContainer root)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
             byOffset.TryAdd(block.StartOffset, block);
 
         foreach (var leave in root.Descendants.OfType<Leave>().ToList())
-            if (byOffset.TryGetValue(leave.TargetOffset, out var target) && CloneTerminator(target) is { } clone)
+            if (byOffset.TryGetValue(leave.TargetOffset, out var target)
+                && CloneTerminator(target) is { } clone)
+            {
+                if (TerminatorValueMayChangeAcrossFinally(
+                    function,
+                    root,
+                    leave,
+                    target))
+                {
+                    continue;
+                }
+
                 leave.ReplaceWith(clone);
+            }
 
         // The multi-return blocks sit in the top-level slice after the
         // constructs; once their leaves are inlined they are unreachable.
         RemoveDeadReturns(root, ReferencedOffsets(root));
+    }
+
+    static bool TerminatorValueMayChangeAcrossFinally(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        Block target)
+    {
+        (int Index, bool IsArgument)? place = target.Children is [var terminator]
+            ? terminator switch
+            {
+                Return { Value: LoadLocal local } => (local.Index, false),
+                Throw { Value: LoadLocal local } => (local.Index, false),
+                Return { Value: LoadArgument argument } => (argument.Index, true),
+                Throw { Value: LoadArgument argument } => (argument.Index, true),
+                _ => null,
+            }
+            : null;
+        if (place is not { } returned)
+            return false;
+
+        bool addressTaken = AddressTaken(root, returned.Index, returned.IsArgument);
+        if (function.IsMetadataBacked)
+        {
+            return SharedCleanupMayWritePlace(
+                function,
+                root,
+                leave,
+                returned.Index,
+                returned.IsArgument,
+                addressTaken);
+        }
+
+        for (IrNode? ancestor = leave.Parent;
+             ancestor is not null;
+             ancestor = ancestor.Parent)
+        {
+            if (ancestor is TryFinally tryFinally
+                && IsDescendantOf(leave, tryFinally.TryBody)
+                && !IsDescendantOf(target, tryFinally)
+                && (MayWritePlace(
+                        tryFinally.FinallyBody,
+                        returned.Index,
+                        returned.IsArgument)
+                    || addressTaken))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool SharedCleanupMayWritePlace(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        int index,
+        bool isArgument,
+        bool addressTaken)
+    {
+        if (function.ExceptionFlow is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available available
+            || available.Value.NormalTransferAt(
+                leave.SourceOffset,
+                leave.TargetOffset) is not
+                InstructionExceptionFlowResult<
+                    InstructionNormalTransfer>.Available
+                    {
+                        Value:
+                        {
+                            Kind: InstructionNormalTransferKind.Leave,
+                        } transfer,
+                    })
+        {
+            return true;
+        }
+
+        foreach (InstructionCleanupHandler cleanup
+            in transfer.CleanupHandlers)
+        {
+            if (available.Value.GetClause(cleanup.Clause) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionClause>.Available clause
+                || clause.Value.HandlerRegion != cleanup.Handler)
+            {
+                return true;
+            }
+
+            TryFinally? matched = null;
+            foreach (TryFinally candidate in
+                root.Descendants.OfType<TryFinally>())
+            {
+                if (candidate.ExceptionClause?.Id != clause.Value.Id)
+                    continue;
+                if (matched is not null)
+                    return true;
+                matched = candidate;
+            }
+
+            if (matched is null
+                || addressTaken
+                || MayWritePlace(
+                    matched.FinallyBody,
+                    index,
+                    isArgument))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool MayWritePlace(BlockContainer body, int index, bool isArgument)
+    {
+        foreach (var node in body.Descendants)
+        {
+            int? writtenIndex = node switch
+            {
+                StoreLocal store when !isArgument => store.Index,
+                LoadLocalAddress address when !isArgument => address.Index,
+                StoreArgument store when isArgument => store.Index,
+                LoadArgumentAddress address when isArgument => address.Index,
+                _ => null,
+            };
+            if (writtenIndex == index
+                && !ReferenceOwnership.IsInsideNestedFunctionBody(node))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool AddressTaken(BlockContainer root, int index, bool isArgument)
+        => root.Descendants.Any(node =>
+            node switch
+            {
+                LoadLocalAddress address when !isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                LoadArgumentAddress address when isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                _ => false,
+            });
+
+    static bool IsDescendantOf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
     }
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)

@@ -54,6 +54,10 @@ probe budget. Rendering may spend a larger content budget.
 Categories are authored, typed grouping declarations. They are not computed
 from section names.
 
+On a target-aware command, a category is a lens over the current route's
+catalog; selecting it does not change target granularity. A direct section
+selector may choose a narrower route when that section requires one.
+
 Most selectable sections belong to at least one authored category. A section
 may belong to more than one category when it is genuine evidence in multiple
 domains. A deliberately standalone section may remain uncategorized when no
@@ -61,6 +65,11 @@ category is a coherent promise for it; it remains reachable by exact name,
 explicit wildcard, and structural schema discovery. It may also be promoted in
 target-aware discovery by a bounded presence probe without joining an automatic
 rendering scope.
+
+A section explicitly declared exact-name-only is a stronger exception:
+category and wildcard expansion remove it, while direct exact selection retains
+it. Sections implied by non-selector command options may narrow the target but
+do not make category- or wildcard-expanded sections exact.
 
 Two category roles exist.
 
@@ -91,6 +100,17 @@ The whole-package listing is unbounded, so it remains outside every automatic
 verbosity preset even though it belongs to `@Package`. Explicitly selecting
 `@Package` requests the complete package-native lens.
 
+The `type` command's assembly type-list catalog uses `@Surface` as its sole
+base category. It contains the bounded `API Info` overview, public type and
+type-forwarder inventories, and `Inspection Failures`. Exact-type inspection
+uses the shared type/member-list catalog and is curated with the `member`
+command.
+
+The `member` command and exact-type inspection use `@Member` as their sole
+base category. Its membership follows the resolved view: member-kind summaries
+for a type, the matching inventory for a member name, and signature plus local
+implementation evidence for one selected overload.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -115,6 +135,11 @@ At package scope, `@Dependencies` groups direct and runtime-specific package
 dependencies, while `@Audit` cross-lists package signals, artifact-text concern
 locations, signing, vulnerabilities, and SourceLink integrity evidence.
 `@SourceLink` remains a separate provenance domain.
+
+At type/member scope, `@Audit`, `@Calls`, `@Decompiler`, `@Performance`,
+`@Source`, and `@SourceLink` are explicit lenses. The same category names span
+the broad type view, overload inventory, and exact-member detail view, while
+each resolved catalog exposes only the sections it can render.
 
 ### Category doors
 
@@ -558,6 +583,30 @@ The package command's current authored ownership is:
 `@Package` and `@Files` are base categories. The remaining categories are
 domains.
 
+## Member category map
+
+The member command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Member` | Route-specific ordinary evidence: type/member-kind summaries, overload inventory, or selected-overload signature and local implementation |
+| `@Audit` | `Unsafe Members`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
+| `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
+| `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
+| `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
+| `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
+| `@SourceLink` | `Source Files`, `Source Locations` |
+
+`@Member` is the base category; the remaining categories are domains.
+`Member Index` and `Finding Census` remain exact-name sections: their focused
+selector and indivisible-document contracts are not coherent promises for a
+broader category. `Clone Candidates` also remains exact-name-only because its
+cross-member comparison does not compose with partial category selection.
+`Implementation Profiles` remains exact-name-only because its unbounded
+whole-assembly acquisition must not be implied by category selection. On an
+overload inventory, `Signature` and `Custom Attributes` remain exact-name
+sections because both require one selected overload.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -568,9 +617,13 @@ The section pipeline and derived catalog gates enforce these invariants:
 4. Every selectable package section has authored category ownership. Every
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
-   Gates:
+   Every selectable member section is categorized except the explicitly pinned
+   `Member Index`, `Finding Census`, `Clone Candidates`, and `Implementation
+   Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
+   sections. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
-   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
+   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
+   `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -585,9 +638,10 @@ sets so stale and missing entries both fail.
 
 ## Migration
 
-The library model is the reference implementation. Package uses the same
-size/cost axes, base-category scope, authored category model, and curated
-discovery. Type, member, project, and API commands should migrate incrementally.
+The library model is the reference implementation. Package, type listing, and
+member inspection use the same size/cost axes, base-category scope, authored
+category model, and curated discovery. Project and remaining API commands
+should migrate incrementally.
 
 During migration:
 

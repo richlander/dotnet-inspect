@@ -648,7 +648,84 @@ public static class MemberBodyProducer
     sealed record TypeCompositionResult(
         string? Text,
         Exception? Error = null,
-        DecompilerResult? Failure = null);
+        DecompilerResult? Failure = null,
+        ImmutableArray<string> Namespaces = default);
+
+    static bool TryResolveServiceType(
+        MetadataReader reader,
+        ApiType type,
+        out TypeDefinitionHandle handle)
+    {
+        handle = default;
+        if (type.MetadataToken is not { } token
+            || GetDefinitionName(type) is not { } name)
+            return false;
+
+        EntityHandle entity = MetadataTokens.EntityHandle(token);
+        if (entity.Kind != HandleKind.TypeDefinition)
+            return false;
+
+        handle = (TypeDefinitionHandle)entity;
+        return MetadataTypeDefinitionName.Matches(reader, handle, name, out _)
+            == MetadataTypeDefinitionNameMatchResult.Match;
+    }
+
+    internal static CSharpServiceCompositionResult ComposeServiceType(
+        ApiType type,
+        Func<Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.PrinterOptions? printerOptions,
+        CSharpCompositionTracker tracker)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(openPipelineSource);
+        ArgumentNullException.ThrowIfNull(tracker);
+
+        try
+        {
+            using Pipeline.MetadataSource source =
+                openPipelineSource();
+            if (!TryResolveServiceType(source.Reader, type, out TypeDefinitionHandle typeHandle))
+            {
+                tracker.ObserveSymbols(source.Symbols);
+                return new CSharpServiceCompositionResult(
+                    MemberBodyProductionStatus.Absent,
+                    Text: null,
+                    [],
+                    Failure: null,
+                    source.Symbols);
+            }
+
+            ThrowIfMemorySafetyModeUnavailable(source);
+            TypeCompositionResult composed =
+                ComposeOpenedType(
+                    type,
+                    source,
+                    source.Reader,
+                    typeHandle,
+                    printerOptions,
+                    tracker);
+            tracker.ObserveSymbols(source.Symbols);
+            return new CSharpServiceCompositionResult(
+                composed.Text is null
+                    ? MemberBodyProductionStatus.Absent
+                    : MemberBodyProductionStatus.Complete,
+                composed.Text,
+                composed.Namespaces.IsDefault
+                    ? []
+                    : composed.Namespaces,
+                composed.Failure,
+                source.Symbols);
+        }
+        catch (DecompilerProjectionException projection)
+        {
+            return new CSharpServiceCompositionResult(
+                MemberBodyProductionStatus.Failed,
+                Text: null,
+                [],
+                projection.Result,
+                tracker.Symbols);
+        }
+    }
 
     static TypeCompositionResult ComposeCore(
         ApiType type,
@@ -684,60 +761,13 @@ public static class MemberBodyProducer
                         definition,
                         context);
                     ThrowIfMemorySafetyModeUnavailable(pipelineSource);
-                    if (type.Kind is "delegate")
-                        return new TypeCompositionResult(Text: null);
-
-                    var union = TryUnionDeclaration(reader, typeHandle, type);
-
-                    var sb = new StringBuilder();
-                    if (!string.IsNullOrEmpty(type.Namespace))
-                    {
-                        sb.AppendLf($"namespace {type.Namespace};");
-                        sb.AppendLf();
-                    }
-
-                    // The printer renders every type with its simple name, so there is
-                    // no namespace prefix for HoistUsings to strip into a directive. The
-                    // bodies' namespaces are collected straight from the typed IR
-                    // instead and seeded into the using block; attribute namespaces
-                    // join them so the short attribute names resolve.
-                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-
-                    if (union is not null)
-                        AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
-
-                    var typeDef = reader.GetTypeDefinition(typeHandle);
-                    foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
-                        sb.AppendLf($"[{attribute}]");
-
-                    foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
-                                 union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
-                        sb.AppendLf($"[{attribute}]");
-
-                    sb.AppendLf(TypeDeclaration(type, union));
-                    sb.AppendLf("{");
-
-                    bool any = union is not null;
-                    if (type.Kind == "enum")
-                    {
-                        ComposeEnumValues(sb, type, ref any);
-                    }
-                    else
-                    {
-                        ComposeFields(sb, reader, typeHandle, bodyNamespaces,
-                            CollectFieldInitializers(pipelineSource, reader, typeHandle), ref any);
-                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
-                    }
-
-                    sb.AppendLf("}");
-                    if (!any)
-                        return new TypeCompositionResult(Text: null);
-                    return new TypeCompositionResult(
-                        HoistUsings(
-                            sb.ToString().TrimEnd(),
-                            reader,
-                            type.Namespace,
-                            bodyNamespaces));
+                    return ComposeOpenedType(
+                        type,
+                        pipelineSource,
+                        reader,
+                        typeHandle,
+                        printerOptions,
+                        tracker: null);
             }
             finally
             {
@@ -758,6 +788,102 @@ public static class MemberBodyProducer
             // silently disappearing.
             return new TypeCompositionResult(Text: null, ex);
         }
+    }
+
+    static TypeCompositionResult ComposeOpenedType(
+        ApiType type,
+        Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        Pipeline.PrinterOptions? printerOptions,
+        CSharpCompositionTracker? tracker)
+    {
+        if (type.Kind is "delegate")
+            return new TypeCompositionResult(Text: null);
+
+        var union = TryUnionDeclaration(reader, typeHandle, type);
+
+        var sb = new StringBuilder();
+        if (!string.IsNullOrEmpty(type.Namespace))
+        {
+            sb.AppendLf($"namespace {type.Namespace};");
+            sb.AppendLf();
+        }
+
+        var bodyNamespaces =
+            new SortedSet<string>(StringComparer.Ordinal);
+
+        if (union is not null)
+            AddTypeNamespaces(bodyNamespaces, union.CaseTypes);
+
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        foreach (var attribute in LayoutAttributes(
+            type,
+            typeDef,
+            bodyNamespaces))
+        {
+            sb.AppendLf($"[{attribute}]");
+        }
+
+        foreach (var attribute in AttributeReader.RenderAttributes(
+            reader,
+            typeDef.GetCustomAttributes(),
+            bodyNamespaces,
+            union is null
+                ? null
+                : name => name
+                    == KnownAttributeNames.UnionAttribute))
+        {
+            sb.AppendLf($"[{attribute}]");
+        }
+
+        sb.AppendLf(TypeDeclaration(type, union));
+        sb.AppendLf("{");
+
+        bool any = union is not null;
+        if (type.Kind == "enum")
+        {
+            ComposeEnumValues(sb, type, ref any);
+        }
+        else
+        {
+            ComposeFields(
+                sb,
+                reader,
+                typeHandle,
+                bodyNamespaces,
+                CollectFieldInitializers(
+                    pipelineSource,
+                    reader,
+                    typeHandle,
+                    tracker),
+                ref any);
+            ComposeMembers(
+                sb,
+                type,
+                pipelineSource,
+                reader,
+                typeHandle,
+                union,
+                bodyNamespaces,
+                ref any,
+                printerOptions: printerOptions,
+                tracker: tracker);
+        }
+
+        sb.AppendLf("}");
+        if (!any)
+            return new TypeCompositionResult(Text: null);
+
+        string text = HoistUsings(
+            sb.ToString().TrimEnd(),
+            reader,
+            type.Namespace,
+            bodyNamespaces,
+            out ImmutableArray<string> namespaces);
+        return new TypeCompositionResult(
+            text,
+            Namespaces: namespaces);
     }
 
     static MemberRenderResult ComposeMemberCore(
@@ -791,46 +917,15 @@ public static class MemberBodyProducer
                     definition,
                     context);
                 ThrowIfMemorySafetyModeUnavailable(pipelineSource);
-                if (type.Kind is "delegate")
-                {
-                    return new MemberRenderResult(
-                        MemberBodyProductionStatus.Absent,
-                        Text: null,
-                        []);
-                }
-
-                var union = TryUnionDeclaration(reader, typeHandle, type);
-
-                // The same body/attribute namespaces the whole-type listing
-                // collects for this member — a wrapping consumer emits them as
-                // using directives.
-                var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
-                var sb = new StringBuilder();
-                bool any = false;
-                ComposeMembers(
-                    sb,
+                return ComposeOpenedMember(
                     type,
+                    member,
                     pipelineSource,
                     reader,
                     typeHandle,
-                    union,
-                    bodyNamespaces,
-                    ref any,
-                    only: member,
-                    printerOptions: printerOptions,
-                    attributeMode: attributeMode);
-
-                if (!any)
-                    return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
-
-                // Shorten qualified names and normalize newlines exactly as the
-                // whole-type Project listing does, so the per-member text is
-                // byte-identical to this member's segment there. The harvested
-                // imports (body namespaces + qualified prefixes) are returned for
-                // the wrapping consumer to emit; directives are not prepended.
-                var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
-                string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
-                return new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                    printerOptions,
+                    attributeMode,
+                    tracker: null);
             }
             finally
             {
@@ -844,6 +939,125 @@ public static class MemberBodyProducer
             // rendered text instead of silently disappearing.
             return FailedMemberRender(ex);
         }
+    }
+
+    internal static CSharpServiceCompositionResult ComposeServiceMember(
+        ApiType type,
+        ApiMember member,
+        Func<Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.PrinterOptions? printerOptions,
+        CSharpCompositionTracker tracker)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(openPipelineSource);
+        ArgumentNullException.ThrowIfNull(tracker);
+
+        try
+        {
+            using Pipeline.MetadataSource source =
+                openPipelineSource();
+            if (!TryResolveServiceType(source.Reader, type, out TypeDefinitionHandle typeHandle))
+            {
+                tracker.ObserveSymbols(source.Symbols);
+                return new CSharpServiceCompositionResult(
+                    MemberBodyProductionStatus.Absent,
+                    Text: null,
+                    [],
+                    Failure: null,
+                    source.Symbols);
+            }
+
+            ThrowIfMemorySafetyModeUnavailable(source);
+            MemberRenderResult rendered =
+                ComposeOpenedMember(
+                    type,
+                    member,
+                    source,
+                    source.Reader,
+                    typeHandle,
+                    printerOptions,
+                    MemberRenderAttributeMode.All,
+                    tracker);
+            tracker.ObserveSymbols(source.Symbols);
+            return new CSharpServiceCompositionResult(
+                rendered.Status,
+                rendered.Text,
+                [.. rendered.Namespaces],
+                rendered.Failure,
+                source.Symbols);
+        }
+        catch (DecompilerProjectionException projection)
+        {
+            return new CSharpServiceCompositionResult(
+                MemberBodyProductionStatus.Failed,
+                Text: null,
+                [],
+                projection.Result,
+                tracker.Symbols);
+        }
+    }
+
+    static MemberRenderResult ComposeOpenedMember(
+        ApiType type,
+        ApiMember member,
+        Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        Pipeline.PrinterOptions? printerOptions,
+        MemberRenderAttributeMode attributeMode,
+        CSharpCompositionTracker? tracker)
+    {
+        if (type.Kind is "delegate")
+        {
+            return new MemberRenderResult(
+                MemberBodyProductionStatus.Absent,
+                Text: null,
+                []);
+        }
+
+        var union = TryUnionDeclaration(
+            reader,
+            typeHandle,
+            type);
+        var bodyNamespaces =
+            new SortedSet<string>(StringComparer.Ordinal);
+        var sb = new StringBuilder();
+        bool any = false;
+        ComposeMembers(
+            sb,
+            type,
+            pipelineSource,
+            reader,
+            typeHandle,
+            union,
+            bodyNamespaces,
+            ref any,
+            only: member,
+            printerOptions: printerOptions,
+            attributeMode: attributeMode,
+            tracker: tracker);
+
+        if (!any)
+        {
+            return new MemberRenderResult(
+                MemberBodyProductionStatus.Absent,
+                Text: null,
+                bodyNamespaces.ToArray());
+        }
+
+        var imports =
+            new SortedSet<string>(
+                bodyNamespaces,
+                StringComparer.Ordinal);
+        string text = ShortenQualifiedNames(
+            sb.ToString(),
+            reader,
+            imports);
+        return new MemberRenderResult(
+            MemberBodyProductionStatus.Complete,
+            text,
+            imports.ToArray());
     }
 
     /// <summary>
@@ -1179,7 +1393,8 @@ public static class MemberBodyProducer
         MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
         SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null,
         Pipeline.PrinterOptions? printerOptions = null,
-        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All)
+        MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All,
+        CSharpCompositionTracker? tracker = null)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -1273,7 +1488,7 @@ public static class MemberBodyProducer
                     IReadOnlyList<string>? bodyParameterNames = null;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null, tracker);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method. Derive the property identity from
@@ -1393,7 +1608,8 @@ public static class MemberBodyProducer
                         bodyNamespaces,
                         printerOptions,
                         attributeMode,
-                        failOnDiagnostic: only is not null);
+                        failOnDiagnostic: only is not null,
+                        tracker: tracker);
                     break;
                 }
 
@@ -1416,7 +1632,8 @@ public static class MemberBodyProducer
                         bodyNamespaces,
                         printerOptions,
                         attributeMode,
-                        failOnDiagnostic: only is not null);
+                        failOnDiagnostic: only is not null,
+                        tracker: tracker);
                     break;
                 }
             }
@@ -1926,6 +2143,7 @@ public static class MemberBodyProducer
                     out _,
                     out bool requiresAsync,
                     out _,
+                    out _,
                     printerOptions: null,
                     failOnDiagnostic: true);
                 if (requiresAsync
@@ -1952,6 +2170,7 @@ public static class MemberBodyProducer
                     out _,
                     out bool requiresAsync,
                     out _,
+                    out _,
                     printerOptions: null,
                     failOnDiagnostic: true);
                 if (requiresAsync
@@ -1973,7 +2192,8 @@ public static class MemberBodyProducer
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
-        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker)
     {
         string typeFullName = type.FullName;
         var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
@@ -1983,6 +2203,14 @@ public static class MemberBodyProducer
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
+        if (member.IsAbstract)
+        {
+            sb.AppendLf(
+                accessorList >= 0
+                    ? $"    {head} {signature[accessorList..]}"
+                    : $"    {head}");
+            return;
+        }
 
         var getterHandle = ResolveAccessorHandle(
             reader,
@@ -1997,7 +2225,14 @@ public static class MemberBodyProducer
             member.Name,
             AccessorRole.Setter);
 
-        var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
+        var accessors = new List<(
+            string Keyword,
+            string Head,
+            string? Body,
+            bool RequiresUnsafeContext,
+            bool RequiresAsyncContext,
+            bool SingleReturnExpression,
+            CSharpCompositionTracker.ProjectionTicket? Projection)>();
         var declarationParameterNames = DeclarationParameterNames(member);
         if (accessorList >= 0)
         {
@@ -2006,26 +2241,29 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "get",
                     declarationFormatter.FormatAccessorHead(type, member, "get"),
-                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", AccessorRole.Getter, declarationParameterNames, bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", AccessorRole.Getter, declarationParameterNames, bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, out var getProjection, printerOptions, failOnDiagnostic, tracker),
                     getRequiresUnsafe,
                     getRequiresAsync,
-                    getSingleReturn));
+                    getSingleReturn,
+                    getProjection));
             if (list.Contains("set;", StringComparison.Ordinal))
                 accessors.Add((
                     "set",
                     declarationFormatter.FormatAccessorHead(type, member, "set"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, out var setProjection, printerOptions, failOnDiagnostic, tracker),
                     setRequiresUnsafe,
                     setRequiresAsync,
-                    setSingleReturn));
+                    setSingleReturn,
+                    setProjection));
             if (list.Contains("init;", StringComparison.Ordinal))
                 accessors.Add((
                     "init",
                     declarationFormatter.FormatAccessorHead(type, member, "init"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, out var initProjection, printerOptions, failOnDiagnostic, tracker),
                     initRequiresUnsafe,
                     initRequiresAsync,
-                    initSingleReturn));
+                    initSingleReturn,
+                    initProjection));
         }
 
         if (accessors.Any(accessor => accessor.RequiresAsyncContext))
@@ -2041,7 +2279,7 @@ public static class MemberBodyProducer
             head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         }
 
-        if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
+        if (accessors.Count == 0 || accessors.All(a => a.Body is null))
         {
             sb.AppendLf(accessorList >= 0 ? $"    {head} {signature[accessorList..]}" : $"    {head}");
             return;
@@ -2064,6 +2302,8 @@ public static class MemberBodyProducer
                 member.Name,
                 member.IsStatic)))
         {
+            foreach (var accessor in accessors)
+                accessor.Projection?.MarkNonContributing();
             sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Head};"))} }}");
             return;
         }
@@ -2075,7 +2315,7 @@ public static class MemberBodyProducer
         // body is one multi-line 'return <expr>;' also folds to an expression
         // body (a raised switch return, issue #3088; a wrapped single expression,
         // issue #3084), gated on the printer's typed single-return signal.
-        if (accessors is [("get", "get", { } loneGet, _, _, var loneGetSingleReturn)]
+        if (accessors is [("get", "get", { } loneGet, _, _, var loneGetSingleReturn, _)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
             CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn, DisableSignatureWrapping(printerOptions));
@@ -2086,7 +2326,7 @@ public static class MemberBodyProducer
         sb.AppendLf("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (_, accessorHead, body, _, _, singleReturn) = accessors[i];
+            var (_, accessorHead, body, _, _, singleReturn, _) = accessors[i];
             if (i > 0) sb.AppendLf();
             CSharpMemberLayout.Append(sb, accessorHead, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
@@ -2097,7 +2337,8 @@ public static class MemberBodyProducer
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions,
-        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic)
+        MemberRenderAttributeMode attributeMode, bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker)
     {
         var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
             ? DefaultDeclarationFormatter
@@ -2159,8 +2400,10 @@ public static class MemberBodyProducer
             out bool adderRequiresUnsafe,
             out bool adderRequiresAsync,
             out bool adderIsSingleExpression,
+            out _,
             printerOptions,
-            failOnDiagnostic);
+            failOnDiagnostic,
+            tracker);
         string? removerBody = DecompileAccessor(
             pipelineSource,
             remover,
@@ -2172,8 +2415,10 @@ public static class MemberBodyProducer
             out bool removerRequiresUnsafe,
             out bool removerRequiresAsync,
             out bool removerIsSingleExpression,
+            out _,
             printerOptions,
-            failOnDiagnostic);
+            failOnDiagnostic,
+            tracker);
 
         if (adderRequiresAsync || removerRequiresAsync)
             throw new InvalidOperationException("C# events cannot carry an async accessor modifier.");
@@ -2267,7 +2512,9 @@ public static class MemberBodyProducer
     /// </summary>
     static Dictionary<string, string> CollectFieldInitializers(
         Pipeline.MetadataSource pipelineSource,
-        MetadataReader reader, TypeDefinitionHandle typeHandle)
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        CSharpCompositionTracker? tracker = null)
     {
         var initializers = new Dictionary<string, string>(StringComparer.Ordinal);
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -2279,13 +2526,36 @@ public static class MemberBodyProducer
             if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) != ".ctor")
                 continue;
 
+            CSharpCompositionTracker.ProjectionTicket? projection =
+                tracker?.Begin(
+                    pipelineSource,
+                    methodHandle,
+                    CSharpBodyProjectionKind.FieldInitializerProbe);
             var function = Pipeline.IrImporter.Import(pipelineSource, methodHandle);
             if (function is null)
+            {
+                if (projection is not null)
+                {
+                    tracker!.Complete(
+                        projection,
+                        DecompilerResult.Failure(
+                            DiagnosticIds.ContextUnavailable,
+                            "constructor body could not be imported"));
+                    projection.MarkNonContributing();
+                }
                 continue;
+            }
 
             var result = Pipeline.CSharpPrinter.PrintRaised(
                 function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method),
                 typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+            if (projection is not null)
+            {
+                tracker!.Complete(projection, result);
+                tracker.ObserveSymbols(pipelineSource.Symbols);
+                if (result.FieldInitializers.Count == 0)
+                    projection.MarkNonContributing();
+            }
             if (!result.Succeeded
                 && result.Diagnostics.Any(static diagnostic =>
                     diagnostic.Id
@@ -2307,7 +2577,8 @@ public static class MemberBodyProducer
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
         out IReadOnlyList<string>? parameterNames,
         Pipeline.PrinterOptions? printerOptions,
-        bool failOnDiagnostic)
+        bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -2316,9 +2587,13 @@ public static class MemberBodyProducer
         // to null and falls back to the name+ordinal path rather than
         // mis-addressing.
         if (memberHandle is { } methodHandle)
-            return DecompileFunction(pipelineSource,
-                Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
+            return DecompileFunction(
+                pipelineSource,
+                methodHandle,
+                () => Pipeline.IrImporter.Import(
+                    pipelineSource,
+                    methodHandle),
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic, tracker);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -2327,7 +2602,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic, tracker);
     }
 
     /// <summary>
@@ -2445,25 +2720,38 @@ public static class MemberBodyProducer
         AccessorRole role,
         IReadOnlyList<string> declarationParameterNames,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
-        bool failOnDiagnostic)
+        out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody,
+        out CSharpCompositionTracker.ProjectionTicket? projection,
+        Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker = null)
     {
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
         // special-name methods, counted across all visibilities — when no valid
         // handle is available.
-        var function = accessorHandle is { } handle
-            ? Pipeline.IrImporter.Import(pipelineSource, handle)
-            : Pipeline.IrImporter.Import(
-                pipelineSource,
+        MethodDefinitionHandle? resolvedHandle =
+            accessorHandle
+            ?? Pipeline.IrImporter.ResolveMethodHandle(
+                pipelineSource.Reader,
                 typeFullName,
                 accessorName,
                 overloadIndex: 0,
                 publicOnly: false);
+        Pipeline.IrFunction? function = null;
         var body = DecompileFunction(
             pipelineSource,
-            function,
+            resolvedHandle,
+            () =>
+            {
+                function = resolvedHandle is { } handle
+                    ? Pipeline.IrImporter.Import(
+                        pipelineSource,
+                        handle)
+                    : null;
+                return function;
+            },
             bodyNamespaces,
             out _,
             out requiresUnsafeContext,
@@ -2471,7 +2759,10 @@ public static class MemberBodyProducer
             out _,
             out var parameterNames,
             printerOptions,
-            failOnDiagnostic);
+            failOnDiagnostic,
+            tracker,
+            CSharpBodyProjectionKind.AccessorBody,
+            out projection);
         ThrowIfAccessorParameterNamesChanged(
             function?.Name ?? accessorName,
             role,
@@ -2622,10 +2913,34 @@ public static class MemberBodyProducer
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
         out IReadOnlyList<string>? parameterNames,
         Pipeline.PrinterOptions? printerOptions,
-        bool failOnDiagnostic)
-        => DecompileFunction(pipelineSource,
-            Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
+        bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker)
+    {
+        MethodDefinitionHandle? handle =
+            Pipeline.IrImporter.ResolveMethodHandle(
+                pipelineSource.Reader,
+                typeFullName,
+                methodName,
+                overloadIndex,
+                publicOnly);
+        return DecompileFunction(
+            pipelineSource,
+            handle,
+            () => handle is { } methodHandle
+                ? Pipeline.IrImporter.Import(
+                    pipelineSource,
+                    methodHandle)
+                : null,
+            bodyNamespaces,
+            out constructorChain,
+            out requiresUnsafeContext,
+            out bodyIsSingleExpressionBody,
+            out bodyIsDestructor,
+            out parameterNames,
+            printerOptions,
+            failOnDiagnostic,
+            tracker);
+    }
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -2635,24 +2950,52 @@ public static class MemberBodyProducer
     /// the member-result boundary, which reports them as <c>Failed</c>.
     /// </summary>
     static string? DecompileFunction(
-        Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
+        Pipeline.MetadataSource pipelineSource,
+        MethodDefinitionHandle? methodHandle,
+        Func<Pipeline.IrFunction?> importFunction,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
         out IReadOnlyList<string>? parameterNames,
         Pipeline.PrinterOptions? printerOptions,
-        bool failOnDiagnostic)
+        bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker,
+        CSharpBodyProjectionKind projectionKind,
+        out CSharpCompositionTracker.ProjectionTicket? projection)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
         bodyIsSingleExpressionBody = false;
         bodyIsDestructor = false;
         parameterNames = null;
+        projection = methodHandle is { } handle
+            ? tracker?.Begin(
+                pipelineSource,
+                handle,
+                projectionKind)
+            : null;
+        Pipeline.IrFunction? function = importFunction();
         if (function is null)
+        {
+            if (projection is not null)
+            {
+                tracker!.Complete(
+                    projection,
+                    DecompilerResult.Failure(
+                        DiagnosticIds.ContextUnavailable,
+                        "method has no importable IL body"));
+                projection.MarkNonContributing();
+            }
             return null;
+        }
         CollectNamespaces(function, bodyNamespaces);
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (projection is not null)
+        {
+            tracker!.Complete(projection, result);
+            tracker.ObserveSymbols(pipelineSource.Symbols);
+        }
         if (!result.Succeeded
             && result.Diagnostics.Any(static diagnostic =>
                 diagnostic.Id == DiagnosticIds.MemorySafetyModeUnavailable))
@@ -2662,7 +3005,8 @@ public static class MemberBodyProducer
         if (failOnDiagnostic
             && (!result.Succeeded
             || result.Diagnostics.Any(static diagnostic =>
-                diagnostic.Id == DiagnosticIds.InternalError)))
+                diagnostic.Id is DiagnosticIds.InternalError
+                    or DiagnosticIds.ContextUnavailable)))
         {
             throw new InvalidOperationException(DiagnosticComment(result));
         }
@@ -2673,6 +3017,37 @@ public static class MemberBodyProducer
         parameterNames = result.ParameterNames;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
+
+    static string? DecompileFunction(
+        Pipeline.MetadataSource pipelineSource,
+        MethodDefinitionHandle? methodHandle,
+        Func<Pipeline.IrFunction?> importFunction,
+        SortedSet<string> bodyNamespaces,
+        out string? constructorChain,
+        out bool requiresUnsafeContext,
+        out bool bodyIsSingleExpressionBody,
+        out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
+        bool failOnDiagnostic,
+        CSharpCompositionTracker? tracker = null,
+        CSharpBodyProjectionKind projectionKind =
+            CSharpBodyProjectionKind.MemberBody)
+        => DecompileFunction(
+            pipelineSource,
+            methodHandle,
+            importFunction,
+            bodyNamespaces,
+            out constructorChain,
+            out requiresUnsafeContext,
+            out bodyIsSingleExpressionBody,
+            out bodyIsDestructor,
+            out parameterNames,
+            printerOptions,
+            failOnDiagnostic,
+            tracker,
+            projectionKind,
+            out _);
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references
@@ -2733,7 +3108,12 @@ public static class MemberBodyProducer
     /// literal contents are never rewritten; namespaces covered by implicit
     /// usings and the type's own namespace are shortened without a using.
     /// </summary>
-    static string HoistUsings(string listing, MetadataReader reader, string? ownNamespace, SortedSet<string> seedNamespaces)
+    static string HoistUsings(
+        string listing,
+        MetadataReader reader,
+        string? ownNamespace,
+        SortedSet<string> seedNamespaces,
+        out ImmutableArray<string> namespaces)
     {
         // The IR-collected body namespaces seed the set; text shortening of
         // the declaration lines adds any it harvests from qualified prefixes.
@@ -2749,6 +3129,7 @@ public static class MemberBodyProducer
             usings.Remove(implicitNs);
         }
 
+        namespaces = [.. usings];
         if (usings.Count == 0)
             return result;
 

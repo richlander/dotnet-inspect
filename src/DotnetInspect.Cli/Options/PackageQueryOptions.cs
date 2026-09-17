@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
@@ -13,6 +14,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public const int MaximumCandidates = 1_000;
 
     public required PackageQueryPlan Plan { get; init; }
+    internal PackageAssemblySemanticQueryCliPlan? LibraryLiteralPlan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
     public RowSelectionIntent<string>? RowSelection { get; init; }
     public bool Count { get; init; }
@@ -35,7 +37,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             or PackageQuery.ToolV2FacetId),
     ];
 
-    public static SectionQueryFacet QueryFacet { get; } = new(
+    public static SectionQueryKey QueryKey { get; } = new(
         "facet",
         ["--where"],
         ["="],
@@ -43,7 +45,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [.. CliFacets.Select(facet => facet.Id)],
         "--where \"facet=package.query.dotnet-tool\"");
 
-    public static SectionQueryFacet DependsTerm { get; } = new(
+    public static SectionQueryKey DependsTerm { get; } = new(
         PackageQuery.DependsTermKey,
         ["--where"],
         ["="],
@@ -51,8 +53,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [],
         "--where \"depends=Microsoft.Extensions.DependencyInjection\"");
 
-    public static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
-        [DependsTerm, QueryFacet];
+    public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
+        [DependsTerm, QueryKey];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
@@ -76,8 +78,97 @@ public sealed record PackageQueryOptions : IProjectionOptions
         bool includePrerelease,
         out PackageQueryOptions? options,
         out OptionError error)
+        => TryCreate(
+            input,
+            expressions,
+            nuspecOnly,
+            take,
+            rowSelection,
+            includePrerelease,
+            libraryLiteral: null,
+            targetFramework: null,
+            out options,
+            out error);
+
+    public static bool TryCreate(
+        string input,
+        IReadOnlyList<string> expressions,
+        bool nuspecOnly,
+        int? take,
+        RowSelectionIntent<string>? rowSelection,
+        bool includePrerelease,
+        string? libraryLiteral,
+        string? targetFramework,
+        out PackageQueryOptions? options,
+        out OptionError error)
     {
         options = null;
+        if (libraryLiteral is not null)
+        {
+            if (expressions.Count > 0)
+            {
+                error =
+                    "--library-literal cannot yet be combined with --where; "
+                    + "run the package filters and library-literal query separately.";
+                return false;
+            }
+            if (nuspecOnly)
+            {
+                error =
+                    "--library-literal requires package and assembly content "
+                    + "and cannot be combined with --nuspec-only.";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(targetFramework))
+            {
+                error =
+                    "--library-literal requires an explicit --tfm "
+                    + "(for example --tfm net10.0).";
+                return false;
+            }
+
+            try
+            {
+                PackageAssemblySemanticQueryCliPlan semanticPlan =
+                    PackageAssemblySemanticQueryCliPlan.Create(
+                        input,
+                        libraryLiteral,
+                        targetFramework,
+                        take,
+                        includePrerelease);
+                int semanticMaximumCandidates =
+                    semanticPlan.Population
+                        is PackageAssemblySemanticQueryPopulationPlan.Prefix
+                            prefix
+                        ? prefix.MaximumCandidates
+                        : 1;
+                PackageQueryPlanResult packagePlan = PackageQuery.PlanInput(
+                    input,
+                    maximumCandidates: semanticMaximumCandidates,
+                    maximumMatches: null,
+                    includePrerelease: includePrerelease);
+                if (packagePlan
+                    is PackageQueryPlanResult.Rejected semanticRejected)
+                {
+                    error = semanticRejected.Failure.Message;
+                    return false;
+                }
+
+                options = new PackageQueryOptions
+                {
+                    Plan = ((PackageQueryPlanResult.Accepted)packagePlan).Plan,
+                    LibraryLiteralPlan = semanticPlan,
+                };
+                error = "";
+                return true;
+            }
+            catch (ArgumentException ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         var ids = ImmutableArray.CreateBuilder<string>();
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)

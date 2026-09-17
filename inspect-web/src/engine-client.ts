@@ -23,15 +23,14 @@ type PackageOperations =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listPackageAssemblyQueryPatterns"
-  | "listPackageChangesPackageSets"
-  | "listPackageQueryFacets"
+  | "listPackageActivityPackageSets"
+  | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
-  | "openPackageAssemblyQueryResult"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
+  | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPackage"
   | "queryPackageDependencies"
@@ -39,8 +38,7 @@ type PackageOperations =
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
-  | "runPackageAssemblyQuery"
-  | "runPackageChanges"
+  | "runPackageActivity"
   | "runPackageQuery"
   | "searchTypes";
 
@@ -94,8 +92,8 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
-    cancelPackageChanges(
-      ...args: Parameters<PackageFacade["cancelPackageChanges"]>
+    cancelPackageActivity(
+      ...args: Parameters<PackageFacade["cancelPackageActivity"]>
     ): void;
     cancelPackageQuery(
       ...args: Parameters<PackageFacade["cancelPackageQuery"]>

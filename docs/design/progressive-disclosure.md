@@ -42,6 +42,10 @@ domain category is the gesture that enters that domain.
 Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Package` and `@Files`; package evidence is also cross-listed into
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
+Member and exact-type inspection use `@Member` as the base category. Their
+domain doors are `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`,
+and `@SourceLink`; the resolved broad, overload, or exact-member catalog
+determines which authored members each door exposes.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -92,6 +96,7 @@ dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S References --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
+dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
 Selection controls both rendering and data collection. Only producers needed
@@ -118,8 +123,9 @@ This is a stable candidate rule, not a promise of an identical rendered set
 for every target. A missing README or unavailable symbol record legitimately
 removes that section.
 
-Other command contexts may use an equivalent focused preset while they migrate
-to authored base categories. See [Bare `-S` default view](info-view.md).
+Member contexts use focused presets within `@Member`: member-kind summaries for
+a broad type view, the matching inventory for a member name, and `Signature`
+for one selected overload. See [Bare `-S` default view](info-view.md).
 
 ## Discovery
 
@@ -145,8 +151,9 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Commands not yet migrated may retain their existing discovery behavior. New
-work should follow the reference model rather than copy a legacy command.
+Package, type-listing, and member catalogs follow this model. Commands not yet
+migrated may retain their existing discovery behavior; new work should follow
+the reference model rather than copy a legacy command.
 
 ## Query discovery
 
@@ -180,7 +187,8 @@ section scope; there is no `-S Section -Q` spelling. `--schema` and
 data. Query execution flags such as `--where`, `--order-by`, and `--top` are
 rejected rather than run against the metadata or silently discarded.
 
-The initial commands are `library`, `type`, `member`, `package`, and `find`.
+The initial commands are `library`, `type`, `member`, `package`, `find`, and
+`graph libraries`.
 Discovery describes command capabilities, including contexts requiring a
 selected type or member, rather than target-dependent applicability. A target
 may accompany the request, but it is not acquired or inspected. Commandless

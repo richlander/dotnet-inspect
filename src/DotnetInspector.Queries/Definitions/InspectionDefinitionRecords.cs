@@ -467,10 +467,10 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
                         nameof(query));
                 }
 
-                if ((view is null) != (navigation is null))
+                if (view is null || navigation is null)
                 {
                     throw new ArgumentException(
-                        "A coordinate-backed schema-version-2 scenario references view and navigation together or omits both.",
+                        "A workspace-backed schema-version-2 scenario requires both view and navigation.",
                         nameof(view));
                 }
             }
@@ -677,11 +677,17 @@ public sealed record CommittedViewStateDefinition
                 "Committed Library scope requires a query reference.",
                 nameof(libraries));
         }
-        if (subject is null && context?.Kind
-            is not null and not PortableRetainedSubjectContextKind.Package)
+        if (subject is null && context is not null)
         {
             throw new ArgumentException(
-                "A subject-less committed state may retain only Package context.",
+                "A subject-less committed state must omit retained context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Workspace
+            && context is PortableRetainedSubjectContext.Package)
+        {
+            throw new ArgumentException(
+                "A Workspace committed state must omit Package-only context.",
                 nameof(context));
         }
         if (subject is PortableSubjectRequest.Package && context is null)
@@ -878,6 +884,81 @@ public abstract record PortableRetainedSubjectContext
         public PortableLibraryIdentity LibraryIdentity { get; }
 
         public MetadataTypeDefinitionName TypeIdentity { get; }
+
+        public string? MemberAnchor { get; }
+
+        public string? MemberSignature { get; }
+
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Member;
+    }
+
+    internal sealed record EscapedType : PortableRetainedSubjectContext
+    {
+        public EscapedType(
+            PortableLibraryIdentity libraryIdentity,
+            string escapedTypeIdentity)
+        {
+            LibraryIdentity =
+                libraryIdentity
+                ?? throw new ArgumentNullException(nameof(libraryIdentity));
+            EscapedTypeIdentity = DefinitionText.Require(
+                escapedTypeIdentity,
+                nameof(escapedTypeIdentity));
+        }
+
+        public PortableLibraryIdentity LibraryIdentity { get; }
+
+        public string EscapedTypeIdentity { get; }
+
+        public override PortableRetainedSubjectContextKind Kind =>
+            PortableRetainedSubjectContextKind.Type;
+    }
+
+    internal sealed record EscapedMember : PortableRetainedSubjectContext
+    {
+        public EscapedMember(
+            PortableLibraryIdentity libraryIdentity,
+            string escapedTypeIdentity,
+            string? memberAnchor = null,
+            string? memberSignature = null)
+        {
+            LibraryIdentity =
+                libraryIdentity
+                ?? throw new ArgumentNullException(nameof(libraryIdentity));
+            EscapedTypeIdentity = DefinitionText.Require(
+                escapedTypeIdentity,
+                nameof(escapedTypeIdentity));
+            memberAnchor = DefinitionText.NormalizeOptional(
+                memberAnchor,
+                nameof(memberAnchor));
+            memberSignature = DefinitionText.NormalizeOptional(
+                memberSignature,
+                nameof(memberSignature));
+            if ((memberAnchor is null) == (memberSignature is null))
+            {
+                throw new ArgumentException(
+                    "A retained Member requires exactly one of memberAnchor or memberSignature.",
+                    nameof(memberAnchor));
+            }
+            if (memberAnchor is not null
+                && (memberAnchor.Length != 10
+                    || memberAnchor.Any(character =>
+                        character is not (>= '0' and <= '9')
+                            and not (>= 'a' and <= 'f'))))
+            {
+                throw new ArgumentException(
+                    "memberAnchor must contain exactly 10 lowercase hexadecimal digits.",
+                    nameof(memberAnchor));
+            }
+
+            MemberAnchor = memberAnchor;
+            MemberSignature = memberSignature;
+        }
+
+        public PortableLibraryIdentity LibraryIdentity { get; }
+
+        public string EscapedTypeIdentity { get; }
 
         public string? MemberAnchor { get; }
 

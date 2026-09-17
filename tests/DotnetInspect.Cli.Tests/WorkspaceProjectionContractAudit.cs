@@ -142,7 +142,13 @@ internal sealed class WorkspaceProjectionContractAudit
             .Where(property => property.Disposition == WorkspaceProjectionDisposition.Exclude)
             .Select(property => (schema.Source, property.Source, property.Destination, property.Rule))).ToArray();
         Assert.Equal(
-            [(typeof(ResolvedAssemblyReference), "OpenRead", (string?)null, M.OpenReadDenyRule)], excluded);
+            [
+                (typeof(ResolvedAssemblyReference), "OpenRead", (string?)null,
+                    M.OpenReadDenyRule),
+                (typeof(AssemblyResolutionProvenance.PackageAsset), "AssetPath",
+                    (string?)null, M.PackageAssetPathExclusionRule),
+            ],
+            excluded);
         Assert.True(typeof(Delegate).IsAssignableFrom(
             typeof(ResolvedAssemblyReference).GetProperty("OpenRead")!.PropertyType));
         Assert.Equal(

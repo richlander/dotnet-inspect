@@ -59,22 +59,21 @@ public sealed class ProductionFacadeContextTests
         [PackageAssembly] =
         [
             "ActivateWorkspacePackageOccurrence",
-            "CancelPackageChanges",
+            "CancelPackageActivity",
             "CancelPackageQuery",
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
-            "ListPackageChangesPackageSets",
-            "ListPackageAssemblyQueryPatterns",
-            "ListPackageQueryFacets",
+            "ListPackageActivityPackageSets",
+            "ListPackageQueryCatalog",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
             "MatchPackageDependencyCoordinate",
-            "OpenPackageAssemblyQueryResult",
             "PackageCacheStats",
             "PrefetchPlatformPacks",
+            "QueryLibraryApi",
             "QueryMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
@@ -83,8 +82,7 @@ public sealed class ProductionFacadeContextTests
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
-            "RunPackageAssemblyQuery",
-            "RunPackageChanges",
+            "RunPackageActivity",
             "RunPackageQuery",
             "SearchTypes",
         ],
@@ -186,10 +184,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 76 operations, and no operation name in two modules: a move that forgot to delete its
+        // 74 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(76, everyExport.Length);
+        Assert.Equal(74, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

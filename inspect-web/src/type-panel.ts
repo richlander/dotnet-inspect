@@ -21,6 +21,8 @@ const EXACT_TYPE_AMBIGUOUS = 2;
 // relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+
 export interface TypeSummary {
   id: string;
   name: string;
@@ -69,13 +71,7 @@ export interface TypeMetadata {
   inspectionFailures?: readonly string[];
 }
 
-export interface TypeSourceResult {
-  provider: string;
-  provenance: string;
-  url?: string | null;
-  pdbSourceLimitation?: string | null;
-  text: string;
-}
+export type TypeSourceResult = BrowserSource;
 
 type EscapeHtml = (value: unknown) => string;
 
@@ -307,7 +303,7 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   library: string;
-  parentSubject: "package" | "platform" | "library";
+  parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
   filterSummary: string;
   escapeHtml: EscapeHtml;
@@ -335,11 +331,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
           ${renderContentNavigationCloseButton()}
         </div>
       </div>
-      <button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
+      ${parentSubject ? `<button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(library)}</span>
         <small>library</small>
-      </button>
+      </button>` : ""}
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
         <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">
@@ -717,7 +713,7 @@ export function typeSourceSignature(
   ], taste);
 }
 
-export type TypeSourceStateSlice = SourceResultState<TypeSourceResult>;
+export type TypeSourceStateSlice = SourceResultState;
 
 export interface RenderTypeSourceOptions {
   item: TypeSummary;

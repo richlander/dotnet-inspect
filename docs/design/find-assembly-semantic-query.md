@@ -1,17 +1,19 @@
-# Find assembly-semantic query
+# Package assembly-semantic evaluator query
 
 ## Status and owner
 
-This document defines the target host-neutral **Package Assembly-Semantic Find
-Query** tracked by
+This document defines the host-neutral **Package Assembly-Semantic evaluator
+Query**, whose historical CLR type names retain `Find`, tracked by
 [#6767](https://github.com/richlander/dotnet-inspect/issues/6767), under the
 command-boundary composition tracker
 [#6769](https://github.com/richlander/dotnet-inspect/issues/6769).
 
 The owner belongs in `DotnetInspector.PackageQueries` because its first
 candidate domain is an exact source-authorized package coordinate plus the
-package owner's selected assembly. It is an L1 Find query: its primary result
-is body-occurrence evidence, not a package-classification row.
+package owner's selected assembly. Its occurrence-oriented Document is retained
+as evaluator composition evidence, but it is no longer a CLI Find contract.
+Find returns Type Results. The package-grain production adoption is owned by
+[Package Query library-literal qualification](package-query-library-literal.md).
 
 The existing `PackageAssemblyQuery` is the implementation oracle for exact
 package lists. It already supplies serial acquisition and evaluation, typed
@@ -28,11 +30,13 @@ aggregate is a `PackageAssemblySemanticFindDocument`; each independently
 meaningful occurrence is a `PackageAssemblySemanticFindResult`. Candidate
 dispositions remain `PackageAssemblySemanticFindCandidateOutcome` values.
 
-This design transfers one responsibility from
-[the package query CLI](package-query-cli.md): multi-candidate
-assembly-semantic Find execution and its Find-facing result meaning. That
-document retains `package query` package-row gestures, facets, bounds, and
-rendering. The one-candidate
+This design owns multi-candidate occurrence evidence and candidate completion;
+it does not own Package Query's Result grain or rendering.
+[The package query CLI](package-query-cli.md) retains package-row gestures,
+facets, bounds, and rendering, while
+[Package Query library-literal
+qualification](package-query-library-literal.md) owns the package-grain
+adapter. The one-candidate
 [Package Query assembly-pattern evaluator](package-query-assembly-evaluation.md)
 retains package selection, sparse projection, Metadata admission, semantic
 producer invocation, evidence, and candidate-scoped release.
@@ -61,9 +65,10 @@ order and returns one `PackageAssemblySemanticFindDocument` containing:
 - owner-issued resource-free evidence that preserves exact package, selected
   asset, semantic producer, and reopening correspondence.
 
-The query never returns a package facet or package-classification result. A
-package coordinate identifies the source of an occurrence and supplies exact
-reopening; it is not the semantic row.
+The occurrence-oriented query never returns a package facet or
+package-classification result. A package-oriented adapter may consume its
+completed evidence and issue one package Result per matched candidate without
+rerunning the evaluator.
 
 ## Why this owner is needed
 
@@ -71,7 +76,7 @@ Ordinary `find` type search and the existing assembly-semantic route answer
 different questions.
 
 [Find type-search service](find-search-service.md) collects Metadata-owned type
-inventories and applies exact, glob, namespace-prefix, partial, and miss
+inventories and applies direct, glob, namespace-prefix, partial, and miss
 classification. It remains cheap by default and is intentionally CLI-scoped.
 It does not acquire selected implementation bodies or own body-occurrence
 evidence.
@@ -81,12 +86,12 @@ matches one product-issued semantic request. It deliberately does not schedule
 a population, interpret a package prefix, define Find row meaning, or compose
 source and query completion.
 
-The landed `find --literal` route fills that gap procedurally for one to five
-exact packages. Without a focused owner, adding a prefix or another producer
-would force the CLI and Browser to repeat candidate admission, completion,
-failure, row, and cancellation rules around the same evaluator. This owner
-defines that composition once without broadening ordinary type search or
-moving package classification into `find`.
+The shared query fills that gap for one to five authority-bearing package
+candidates. Without a focused owner, exact-ID or prefix population adapters
+and future producers would force the CLI and Browser to repeat candidate
+admission, completion, failure, evidence, and cancellation rules around the
+same evaluator. This owner defines that composition once without broadening
+ordinary type search or moving package classification into Find.
 
 ## Imported owner contracts
 
@@ -100,7 +105,7 @@ moving package classification into `find`.
 | [Metadata assembly inspection](assembly-inspection-query.md) | Managed-image admission and callback-scoped query authority. |
 | `ILInspector.Analysis` decoded string-literal producer | Ordinal `ldstr` substring semantics, traversal budgets, occurrence identity, and typed producer outcomes. |
 | [CLI execution bounds](cli-execution-bounds.md) | `--take` spelling and typed lowering for candidate work, distinct from semantic row selection. |
-| [Semantic row selection](semantic-row-selection.md) | Final occurrence-row Head, Tail, Window, and Top meaning. |
+| [Semantic row selection](semantic-row-selection.md) | Package-result Head, Tail, and Window meaning in the package-grain adapter; occurrence evidence is not independently selected. |
 | [Progressive disclosure](progressive-disclosure.md) | Explicit-cost admission, section selection, Count, and visible operational limits. |
 
 This query consumes those owners' typed values and results. It does not parse
@@ -110,26 +115,26 @@ failure to a process exit code.
 
 ## Demo
 
-The existing exact-package route is the first production witness:
+The package-grain production route is the first production witness:
 
 ```console
-dotnet-inspect find --literal "Unexpected end when reading JSON" \
-  --package Newtonsoft.Json@13.0.3 --tfm net6.0 -v:n
+dotnet-inspect package query Newtonsoft.Json \
+  --library-literal "Unexpected end when reading JSON" --tfm net6.0
 ```
 
-Its match rows identify three decoded `ldstr` occurrences in the selected
-`Newtonsoft.Json.dll` implementation assembly by method-definition token and
-IL offset. The candidate row separately preserves the exact Root reopening
-request.
+Its package row reports the latest eligible listed `Newtonsoft.Json` version.
+Occurrence evidence identifies three decoded `ldstr` uses in the selected
+implementation library by method-definition token and IL offset, while the
+same Result preserves the exact Root reopening request.
 
-The planned first population expansion is a bounded literal prefix:
+The bounded prefix form is:
 
 ```console
-dotnet-inspect find --literal "DefaultAzureCredential" \
-  --package-prefix Azure.Identity --take 5 --tfm net8.0 -n 10 -v:n
+dotnet-inspect package query 'Azure.Identity*' \
+  --library-literal "DefaultAzureCredential" --take 5 --tfm net8.0 -n 2
 ```
 
-The CLI adoption will mean:
+The CLI:
 
 1. ask the authorized package source for at most five ordered candidates whose
    IDs begin with the literal prefix `Azure.Identity`;
@@ -137,11 +142,12 @@ The CLI adoption will mean:
    source owner's policy;
 3. acquire and evaluate the selected primary implementation assembly of each
    admitted coordinate; and
-4. select at most ten final occurrence rows from that completed bounded
-   population.
+4. select at most two final matching package Results from that completed
+   bounded population.
 
-It does **not** mean "download packages until ten matches appear." `--take 5`
-authorizes candidate work; `-n 10` selects semantic rows.
+It does **not** mean "download packages until two matches appear." `--take 5`
+authorizes candidate work; `-n 2` selects matched package Results. Every
+occurrence remains typed evidence on its package Result.
 
 The neighboring cheap query remains unchanged:
 
@@ -150,9 +156,8 @@ dotnet-inspect find "DefaultAzureCredential" \
   --package-prefix Azure.Identity
 ```
 
-Without an explicit assembly-semantic gesture such as `--literal`, `find`
-searches the Metadata type/member inventory and does not crack implementation
-assemblies.
+Find remains a Type-result command. Assembly-semantic package qualification is
+available only through the explicit Package Query gesture.
 
 ## Request boundary
 
@@ -335,12 +340,12 @@ The query does not convert `NotApplicable` to `NoMatch`, a failed candidate to
 an empty match sequence, or an absent completion event to success.
 
 Each `PackageAssemblySemanticFindResult` is one independently meaningful
-decoded-literal occurrence at the Find grain. Results and candidate outcomes
-remain separate typed sequences. The query defines neither host row sets nor
-default presentation. A Find adapter can declare one Result per Matches row
-while a package-oriented Browser experience can retain one candidate card with
-a bounded Result preview. Both consume the same complete producer evidence and
-candidate outcome.
+decoded-literal occurrence at the evaluator grain. Results and candidate
+outcomes remain separate typed sequences. The evaluator defines neither host
+row sets nor default presentation. The package-oriented adapter consumes the
+completed evidence and emits one `PackageAssemblySemanticQueryResult` per
+matched candidate, retaining every occurrence as typed evidence without
+rerunning evaluation.
 
 No top-level Outcome wraps the Document. Every admitted invocation that
 completes can construct a valid Document, including a complete zero-Result
@@ -372,15 +377,15 @@ temporary-working-set, occurrence, and deadline limits. Reaching any limit is
 typed outcome evidence, not a semantic miss.
 
 The query owns a typed maximum-candidate dimension and the invariant that
-semantic row selection cannot authorize candidate acquisition. The planned
-CLI adoption is:
+semantic row selection cannot authorize candidate acquisition. The
+package-grain CLI adoption is:
 
 | Gesture | Meaning |
 | --- | --- |
-| One to five exact `--package ID@VERSION` values | The complete admitted candidate population. |
-| `--package-prefix PREFIX --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
-| `-n N` | Semantic Head over final occurrence rows after the admitted population is evaluated. |
-| `--count` | Count of the selected occurrence row set, available only when the query result is sufficient for that selection. |
+| `package query ID --library-literal TEXT` | The latest eligible listed exact package candidate. |
+| `package query 'PREFIX*' --library-literal TEXT --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
+| `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
+| `--count` | Count of the selected package Result set, available only when population formation and semantic evaluation are complete. |
 
 The `--take` and `-n` spellings and their adoption by literal mode remain owned
 by [CLI execution bounds](cli-execution-bounds.md),
@@ -390,14 +395,15 @@ above. This L1 design does not add an option to those owners.
 
 The first shared implementation evaluates the complete admitted population.
 A host may apply semantic row selection afterward. A future source-delegated
-early stop requires an equivalence gate proving the same selected occurrences
-and completion/failure meaning; it cannot simply stop after observing `N`
-occurrences.
+early stop requires an equivalence gate proving the same selected package
+Results and completion/failure meaning; it cannot simply stop after observing
+`N` matches or occurrences.
 
 The query's `OccurrenceCount` counts all observed occurrences in the admitted
 population; `MatchedCandidateCount` counts candidate outcomes on the Matched
-arm. They are never interchangeable. A CLI Count over `Head(N)` is the count
-of that selected occurrence row set, not either raw aggregate. A prefix result
+arm. They are never interchangeable. The package adapter's Count over
+`Head(N)` is the count of the selected package Result set, not either raw
+aggregate. A prefix result
 may disclose that its Count covers the first five admitted candidates while
 the wider prefix contains more. A source failure that prevents formation of
 the requested population, a candidate failure, or a semantic work limit makes
@@ -455,11 +461,9 @@ occurrence-oriented presentation, but it must not:
 - reconstruct identity or reopening from display text; or
 - run a second semantic evaluator.
 
-The CLI is the first Find-facing consumer. A separately owned CLI adoption
-updates execution-bound and search-scope participation for literal mode,
-decides whether the current Candidates-first default and single-row-format
-projection remain or intentionally change, binds `-n` and Count to the
-occurrence sequence, and uses Sections/Markout for rendering.
+The CLI adoption moved to `package query --library-literal`. Its separately
+owned adapter binds `-n` and Count to matched package Results, keeps
+occurrences as package evidence, and uses Sections/Markout for rendering.
 
 Inspect Web is the second production consumer and already executes the same
 one-candidate evaluator and serial query through its Browser/Wasm managed
@@ -483,25 +487,24 @@ production witness.
 The package-prefix adoption adds a deterministic source fixture with five
 ordered candidates:
 
-1. an applicable semantic miss;
-2. a match with several occurrences;
+1. a match with several occurrences;
+2. an applicable semantic miss;
 3. a package with no implementation counterpart;
-4. an acquisition failure; and
+4. an evaluation failure; and
 5. a later match.
 
-The request uses `--take 5 -n 1`. The required outcome still includes all five
-candidate outcomes and selects only the first occurrence row. This catches the
-plausible but incorrect implementations that treat `-n 1` as one package,
-stop after the first match, erase the later failure, turn non-applicability
-into a miss, or claim the wider prefix was exhausted.
+The request uses `--take 5 --rows tail:1`. The required outcome still includes
+all five candidate outcomes and selects only the later matching package
+Result. This catches plausible but incorrect implementations that count
+occurrences as package rows, stop after the first match, erase a failure, turn
+non-applicability into a miss, or claim the wider prefix was exhausted.
 
 ## Delivery and retirement
 
 The counted delivery path under #6769 is:
 
-1. **Owner lock:** this document establishes the Package Assembly-Semantic Find
-   Query and transfers multi-candidate semantic Find meaning out of the package
-   query CLI owner.
+1. **Owner lock:** this document establishes the occurrence-oriented Package
+   Assembly-Semantic Find Query independently from any host's Result grain.
 2. **Authority-bearing population prerequisite — #6793:** the package/source
    owner exposes the bounded exact-ID/prefix selection handoff as ordered
    `PackageAcquisitionCandidate` values plus typed completion and failures.
@@ -513,11 +516,10 @@ The counted delivery path under #6769 is:
    `PackageAssemblySemanticFindDocument`, name each occurrence as
    `PackageAssemblySemanticFindResult`, and separate the optional nonterminal
    candidate-outcome sink from the authoritative terminal envelope.
-5. **CLI adoption — #6795:** in a focused CLI-owner change, add Gallery-only
-   bounded prefix population, adopt the candidate execution bound, bind
-   semantic row selection and Count to occurrences, decide and classify the
-   Candidates-first default and single-row-format behavior, and render the
-   Document through Sections/Markout.
+5. **CLI adoption:** `package query --library-literal` adds Gallery-only exact
+   and bounded-prefix population, adopts the candidate execution bound, binds
+   semantic row selection and Count to package Results, retains occurrences as
+   evidence, and renders the package-grain Document through Sections/Markout.
 6. **Browser/Wasm adoption — #6796:** in a focused Package Query experience
    change, consume the shared candidate and occurrence counts and typed
    outcomes while retaining package cards and bounded occurrence previews.

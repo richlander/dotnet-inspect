@@ -1,4 +1,8 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -9,6 +13,185 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWireProjection
 {
+    internal static BrowserExactLibraryApiInspection Project(
+        InspectionEnvelope<ExactLibraryApiInspectionResult> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        return new(
+            Project(inspection.Content),
+            inspection.Share switch
+            {
+                InspectionShare.Available available =>
+                    new(
+                        BrowserInspectionShareKind.Available,
+                        available.FullUrl,
+                        available.Packet,
+                        Path: null,
+                        Reason: null),
+                InspectionShare.NonProjectable nonProjectable =>
+                    new(
+                        BrowserInspectionShareKind.NonProjectable,
+                        FullUrl: null,
+                        Packet: null,
+                        nonProjectable.Path,
+                        nonProjectable.Reason.ToString()),
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection Share outcome."),
+            },
+            [
+                .. inspection.Diagnostics.Select(diagnostic =>
+                    new BrowserInspectionDiagnostic(
+                        diagnostic.Code,
+                        diagnostic.Severity.ToString(),
+                        diagnostic.Summary.ToString(),
+                        diagnostic.Correspondence?.ToString())),
+            ]);
+    }
+
+    private static BrowserExactLibraryApiInspectionResult Project(
+        ExactLibraryApiInspectionResult result) =>
+        new(
+            result.Outcome switch
+            {
+                ExactLibraryApiInspectionOutcome.Available =>
+                    BrowserExactLibraryApiInspectionOutcome.Available,
+                ExactLibraryApiInspectionOutcome.NotFound =>
+                    BrowserExactLibraryApiInspectionOutcome.NotFound,
+                ExactLibraryApiInspectionOutcome.Ambiguous =>
+                    BrowserExactLibraryApiInspectionOutcome.Ambiguous,
+                ExactLibraryApiInspectionOutcome.Unavailable =>
+                    BrowserExactLibraryApiInspectionOutcome.Unavailable,
+                _ => throw new InvalidOperationException(
+                    "Unknown exact-Library API inspection outcome."),
+            },
+            result.PackageId,
+            result.PackageVersion,
+            result.RequestedTargetFramework,
+            result.RequestedLibrary,
+            result.Source is null
+                ? null
+                : new BrowserExactLibraryApiSourceCoordinate(
+                    result.Source.PackageId,
+                    result.Source.PackageVersion,
+                    result.Source.Producer,
+                    result.Source.Framework),
+            result.Asset is null
+                ? null
+                : new BrowserExactLibraryApiAsset(
+                    result.Asset.Id,
+                    result.Asset.Path,
+                    result.Asset.AssemblyName,
+                    result.Asset.TargetFramework,
+                    result.Asset.Kind switch
+                    {
+                        PackageCompileAssetKind.Reference =>
+                            BrowserExactLibraryApiAssetKind.Reference,
+                        PackageCompileAssetKind.Library =>
+                            BrowserExactLibraryApiAssetKind.Library,
+                        _ => throw new InvalidOperationException(
+                            "Unknown package compile-asset kind."),
+                    }),
+            result.Assembly is null
+                ? null
+                : new BrowserExactLibraryApiAssemblyIdentity(
+                    Project(result.Assembly.Identity),
+                    result.Assembly.ModuleVersionId),
+            result.Inventory is null
+                ? null
+                : new BrowserExactLibraryApiInventory(
+                    result.Inventory.PublicTypeCount,
+                    result.Inventory.PublicMemberCount,
+                    result.Inventory.PublicMethodCount,
+                    result.Inventory.PublicPropertyCount,
+                    [
+                        .. result.Inventory.TypeKinds.Select(facet =>
+                            new BrowserExactLibraryApiFacet(
+                                facet.Id,
+                                facet.SingularLabel,
+                                facet.PluralLabel,
+                                facet.Weight,
+                                facet.Count,
+                                facet.IsDefault)),
+                    ],
+                    [
+                        .. result.Inventory.Namespaces.Select(@namespace =>
+                            new BrowserExactLibraryApiNamespace(
+                                @namespace.Name,
+                                @namespace.Count)),
+                    ]),
+            result.Truncation is null
+                ? null
+                : new BrowserExactLibraryApiProjectionTruncation(
+                    result.Truncation.Limit switch
+                    {
+                        ApiSurfaceProjectionLimit.Participants =>
+                            BrowserExactLibraryApiProjectionLimit.Participants,
+                        ApiSurfaceProjectionLimit.Types =>
+                            BrowserExactLibraryApiProjectionLimit.Types,
+                        ApiSurfaceProjectionLimit.Members =>
+                            BrowserExactLibraryApiProjectionLimit.Members,
+                        ApiSurfaceProjectionLimit.InspectionFailures =>
+                            BrowserExactLibraryApiProjectionLimit.InspectionFailures,
+                        ApiSurfaceProjectionLimit.TypeForwarders =>
+                            BrowserExactLibraryApiProjectionLimit.TypeForwarders,
+                        ApiSurfaceProjectionLimit.MetadataRows =>
+                            BrowserExactLibraryApiProjectionLimit.MetadataRows,
+                        ApiSurfaceProjectionLimit.RetainedTextCharacters =>
+                            BrowserExactLibraryApiProjectionLimit.RetainedTextCharacters,
+                        _ => throw new InvalidOperationException(
+                            "Unknown API projection limit."),
+                    },
+                    result.Truncation.Bound,
+                    result.Truncation.ProjectedParticipants,
+                    result.Truncation.OmittedParticipants,
+                    result.Truncation.ProjectedTypes,
+                    result.Truncation.ProjectedMembers,
+                    result.Truncation.ProjectedInspectionFailures,
+                    result.Truncation.ProjectedTypeForwarders,
+                    result.Truncation.InspectedMetadataRows,
+                    result.Truncation.ProjectedRetainedTextCharacters),
+            [
+                .. result.Failures.Select(failure =>
+                    new BrowserExactLibraryApiInspectionFailure(
+                        failure.Kind switch
+                        {
+                            ExactLibraryApiInspectionFailureKind.ContextLoad =>
+                                BrowserExactLibraryApiInspectionFailureKind.ContextLoad,
+                            ExactLibraryApiInspectionFailureKind.PackageMismatch =>
+                                BrowserExactLibraryApiInspectionFailureKind.PackageMismatch,
+                            ExactLibraryApiInspectionFailureKind
+                                .CompileSelectionUnavailable =>
+                                    BrowserExactLibraryApiInspectionFailureKind
+                                        .CompileSelectionUnavailable,
+                            ExactLibraryApiInspectionFailureKind.LibraryNotFound =>
+                                BrowserExactLibraryApiInspectionFailureKind.LibraryNotFound,
+                            ExactLibraryApiInspectionFailureKind.LibraryAmbiguous =>
+                                BrowserExactLibraryApiInspectionFailureKind.LibraryAmbiguous,
+                            ExactLibraryApiInspectionFailureKind.ParticipantUnavailable =>
+                                BrowserExactLibraryApiInspectionFailureKind.ParticipantUnavailable,
+                            ExactLibraryApiInspectionFailureKind.InspectionIncomplete =>
+                                BrowserExactLibraryApiInspectionFailureKind.InspectionIncomplete,
+                            ExactLibraryApiInspectionFailureKind.ProjectionTruncated =>
+                                BrowserExactLibraryApiInspectionFailureKind.ProjectionTruncated,
+                            _ => throw new InvalidOperationException(
+                                "Unknown exact-Library API inspection failure."),
+                        },
+                        failure.Detail,
+                        failure.SubjectAssembly is null
+                            ? null
+                            : Project(failure.SubjectAssembly))),
+            ],
+            result.IsComplete,
+            result.IsAvailable);
+
+    private static BrowserExactLibraryApiAssemblyReferenceIdentity Project(
+        AssemblyReferenceIdentity identity) =>
+        new(
+            identity.Name,
+            identity.Version?.ToString(),
+            identity.Culture,
+            identity.PublicKeyToken);
+
     internal static BrowserCompileLibraryAvailability Project(
         BrowserCompileLibraryInfo compileLibrary)
     {

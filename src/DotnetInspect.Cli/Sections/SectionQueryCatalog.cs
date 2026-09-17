@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
@@ -8,7 +9,7 @@ namespace DotnetInspect.Cli.Sections;
 public sealed record SectionQueryDescriptor(
     string Section,
     string Summary,
-    ImmutableArray<SectionQueryFacet> Facets)
+    ImmutableArray<SectionQueryKey> Keys)
 {
     public string QuerySection => $"Query: {Section}";
 }
@@ -41,6 +42,7 @@ public sealed record SectionQueryCatalog(
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
             "package query" => [],
             "find" => [],
+            "graph libraries" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
@@ -49,7 +51,7 @@ public sealed record SectionQueryCatalog(
             queries.Add(new(
                 PackageProfileSections.Packages,
                 PackageQueryOptions.DiscoverySummary,
-                PackageQueryOptions.QueryFacets));
+                PackageQueryOptions.QueryKeys));
         }
         if (command is "library" or "type" or "member")
         {
@@ -57,7 +59,7 @@ public sealed record SectionQueryCatalog(
                 SectionNames.CloneCandidates,
                 "Choose the Workspace participant breadth and candidate-method admission independently. "
                 + "The default is Breadth=Everything and Discovery=SimilarNames.",
-                [.. CloneCandidateQueryOptions.QueryFacets]));
+                [.. CloneCandidateQueryOptions.QueryKeys]));
             string[] performanceSections = command == "library"
                 ? PerformanceKinds.Sections
                 : [SectionNames.PerformanceTriage];
@@ -71,7 +73,7 @@ public sealed record SectionQueryCatalog(
                     + (command == "library"
                         ? "Ranking and --top apply before rows are divided into performance kinds."
                         : "Execution requires a selected type or member."),
-                    PerformanceTriageRowQuery.QueryFacets));
+                    PerformanceTriageRowQuery.QueryKeys));
             }
             foreach (string section in BodyKindQueryOptions.Sections)
             {
@@ -85,11 +87,11 @@ public sealed record SectionQueryCatalog(
                         ? "Other predicates narrow candidate methods before body-shape matching; ordering and --top are not supported."
                         : "Other predicates, ordering, and --top cannot be combined with Kind."),
                     command == "library"
-                        ? [BodyKindQueryOptions.QueryFacet,
-                            .. PerformanceTriageRowQuery.QueryFacets
-                                .Where(facet => facet.Operators.Contains("--where"))
-                                .Select(facet => facet with { Operators = ["--where"] })]
-                        : [BodyKindQueryOptions.QueryFacet]));
+                        ? [BodyKindQueryOptions.QueryKey,
+                            .. PerformanceTriageRowQuery.QueryKeys
+                                .Where(key => key.Operators.Contains("--where"))
+                                .Select(key => key with { Operators = ["--where"] })]
+                        : [BodyKindQueryOptions.QueryKey]));
             }
         }
         if (command == "library")
@@ -107,7 +109,24 @@ public sealed record SectionQueryCatalog(
                     "All integrations are enabled by default. An ecosystem equality predicate narrows "
                     + "ordinary Integration evidence and opportunities; it does not replace full-library presence or Census. "
                     + "This query cannot be combined with Body Shapes or Performance Triage predicates/ranking.",
-                    [IntegrationQueryOptions.QueryFacet]));
+                    [IntegrationQueryOptions.QueryKey]));
+            }
+        }
+        if (command == "graph libraries")
+        {
+            foreach (string section in new[]
+            {
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
+                LibraryCallUseCommand.CallSitesSection,
+            })
+            {
+                queries.Add(new(
+                    section,
+                    "An exact Cluster=... equality predicate scopes the pair occurrence population "
+                    + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
+                    [LibraryCallUseQueryOptions.QueryKey]));
             }
         }
 
@@ -115,6 +134,13 @@ public sealed record SectionQueryCatalog(
         {
             "find" => ["Results", "Members"],
             "package query" => [PackageProfileSections.Packages],
+            "graph libraries" =>
+            [
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
+                LibraryCallUseCommand.CallSitesSection,
+            ],
             _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))
                 .Distinct(StringComparer.OrdinalIgnoreCase)],

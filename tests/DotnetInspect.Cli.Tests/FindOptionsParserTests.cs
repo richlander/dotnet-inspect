@@ -20,43 +20,51 @@ public class FindOptionsParserTests
             return CommandLineBuilder.InvokeAsync(root.Parse(processed), processed);
         });
 
-    [Fact]
-    public void Literal_PreservesRawOperandAndExactPackageSelection()
-    {
-        const string operand = " leading\tliteral\r\n ";
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", operand,
-             "--package", "Example@1.0.0", "--tfm", "net10.0"]);
-
-        Assert.Empty(result.Errors);
-        var option = Assert.IsType<Option<string?>>(
-            result.CommandResult.Command.Options.Single(option => option.Name == "--literal"));
-        Assert.Equal(operand, result.GetValue(option));
-    }
-
     [Theory]
-    [InlineData("Json*", null)]
-    [InlineData("--package-prefix", "Example.")]
-    [InlineData("--library", "Example.dll")]
-    [InlineData("--platform", null)]
-    [InlineData("--extensions", null)]
-    [InlineData("--aspnetcore", null)]
-    [InlineData("--project", "Example.csproj")]
-    [InlineData("--bin", "bin")]
-    [InlineData("--members", null)]
-    [InlineData("--all", null)]
-    [InlineData("--type", "*Json*")]
-    public async Task Literal_RejectsOtherSearchModesBeforeAcquisition(
-        string option,
-        string? value)
+    [InlineData("aspire", "Invalid ecosystem")]
+    [InlineData("ecosystem.Aspire", "Invalid ecosystem")]
+    [InlineData("ecosystem.missing", "Unknown ecosystem")]
+    public async Task Ecosystem_RejectsNonCanonicalOrUnknownIds(
+        string ecosystem,
+        string expectedError)
     {
-        string[] extra = value is null ? [option] : [option, value];
-        var result = await Run([
-            "find", "--literal", "literal",
-            "--package", "Example@1.0.0", "--tfm", "net10.0", .. extra]);
+        var result = await Run(
+            "find", "System.Object",
+            "--ecosystem", ecosystem,
+            "--platform", "System.Runtime",
+            "--tfm", "net10.0");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("cannot be combined", result.Error, StringComparison.Ordinal);
+        Assert.Contains(
+            expectedError,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Ecosystem_RejectsDuplicateIds()
+    {
+        var result = await Run(
+            "find", "System.Object",
+            "--ecosystem", "ecosystem.aspire",
+            "--ecosystem", "ecosystem.aspire",
+            "--platform", "System.Runtime",
+            "--tfm", "net10.0");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "cannot be selected more than once",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ecosystem_RequiresAnId()
+    {
+        ParseResult result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["find", "System.Object", "--ecosystem"]);
+
+        Assert.NotEmpty(result.Errors);
     }
 
     [Theory]
@@ -73,84 +81,6 @@ public class FindOptionsParserTests
             error => error.Message.Contains(
                 option,
                 StringComparison.Ordinal));
-    }
-
-    [Theory]
-    [InlineData("Example")]
-    [InlineData("Example@latest")]
-    [InlineData("Example@[1.0,2.0)")]
-    public async Task Literal_RequiresAnExactPackageVersion(string coordinate)
-    {
-        var result = await Run(
-            "find", "--literal", "literal", "--package", coordinate, "--tfm", "net10.0");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.NotEmpty(result.Error);
-        Assert.DoesNotContain("packageCoordinates", result.Error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Arg_ParamName_Name", result.Error, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Literal_RejectsNormalizedDuplicatesBeforeScopeDeduplication()
-    {
-        var result = await Run(
-            "find", "--literal", "literal",
-            "--package", "Example@1.0.0", "--package", "example@1.0",
-            "--tfm", "net10.0");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains(
-            "An assembly query cannot contain duplicate package coordinates.",
-            result.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Literal_RequiresAnExplicitTargetFramework()
-    {
-        var result = await Run(
-            "find", "--literal", "literal", "--package", "Example@1.0.0");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains(
-            "--literal requires an explicit --tfm (for example --tfm net10.0).",
-            result.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Literal_DoesNotAcquireAnImplicitPlatformScope()
-    {
-        var result = await Run(
-            "find", "--literal", "literal", "--tfm", "net10.0");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains(
-            "An assembly query requires between 1 and 5 explicit ID@VERSION packages.",
-            result.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Literal_DoesNotExposeUnsupportedHostRuntimeSelection()
-    {
-        Command find = Assert.Single(
-            CommandLineBuilder.CreateRootCommand().Subcommands,
-            command => command.Name == FindCommand.Name);
-
-        // Browser navigation cannot preserve a runtime identifier, so no host
-        // exposes one for this query even though the shared evaluator can bind
-        // one for its own contract.
-        Assert.DoesNotContain(
-            find.Options,
-            option => option.Name == "--rid"
-                || option.Aliases.Contains("--rid"));
-
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["find", "--literal", "literal", "--package", "Example@1.0.0",
-             "--tfm", "net10.0", "--rid", "linux-x64"]);
-
-        Assert.NotEmpty(result.Errors);
     }
 
     [Fact]

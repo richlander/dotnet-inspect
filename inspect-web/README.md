@@ -376,22 +376,24 @@ assemblies that receive a .NET platform lookup on click.
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
-single-threaded, and both caches are written for that host: at most 12 packages
-or 128 MB of package content in aggregate, including nupkg arrays retained by
-open scopes, and at most four open workspaces. Evicting a package first retires
-every idle scope that retains it, awaiting each retirement, so cache eviction
-actually releases the archive bytes instead of removing only the cache's
-reference; a workspace with a protected use keeps its archive, and the
+single-threaded, and both caches are written for that host. The managed cache
+retains at most 256 package entries or 128 MB of package content in aggregate,
+including nupkg arrays retained by open scopes, and at most four open
+workspaces. The entry ceiling is the exact envelope for four charged
+realizations at the logical limit of 64 packages each. Evicting a package first
+retires every idle scope that retains it, awaiting each retirement, so cache
+eviction actually releases the archive bytes instead of removing only the
+cache's reference; a workspace with a protected use keeps its archive, and the
 reservation that cannot be satisfied without it visibly rejects. The client
-retains at
-most 12 package models as well, and rejects a shared workspace with more than
-12 tuples or 65,536 encoded characters before it starts package acquisition.
+retains at most 12 package models, and rejects a shared workspace with more
+than 12 tuples or 65,536 encoded characters before it starts package
+acquisition.
 The JavaScript `shared workspaces are bounded before package loading` and
 `workspace package models retain the active and newest coordinates within the
 limit` cases gate those client boundaries. A nupkg response must
 declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
-in the same 12-package/128 MB aggregate while the download is in flight.
+in the same 256-entry/128 MB aggregate while the download is in flight.
 
 A coordinate is validated before it can key the cache or reach the network.
 `PackageCoordinateResolver` owns the same bounded ASCII package-id grammar and
@@ -520,7 +522,7 @@ archive, but does not require two simultaneous probe allowances or another
 download.
 
 Archive bytes and download reservations separately keep the existing
-12-package/128 MiB aggregate. Packages referenced by pending construction,
+256-entry/128 MiB aggregate. Packages referenced by pending construction,
 protected queries, or unfinished retirement remain charged there. Neither a
 scope eviction nor a package-cache removal returns capacity while its owned
 resources are still settling. Ready entries without protected callers are
@@ -601,10 +603,12 @@ selection resolves `net10.0`; Browser explicitly selects that framework, opens
 and activates its occurrence, and reports the matching `IHttpClientFactory`
 and `AddHttpClient` signals. The same network-backed case opens
 `System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
-large-package payload boundary. These coordinates use the live Gallery CDN;
-the lifecycle and malformed-implementation cases use deterministic local
-archive responses. Run the gate after building the frontend and publishing
-`DotnetInspect.Web.csproj` in Release to `artifacts/inspect-web-publish`.
+large-package baseline and `Aspire.Hosting@13.5.4/net8.0` as the pathological
+package that crosses both former transport bounds. These coordinates use the
+live Gallery CDN; the lifecycle and malformed-implementation cases use
+deterministic local archive responses. Run the gate after building the frontend
+and publishing `DotnetInspect.Web.csproj` in Release to
+`artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -732,7 +736,7 @@ keep it from becoming a caller-directed proxy. The function enforces the same
 
 The same managed Function app hosts the separately owned
 [public-evidence bridge](../docs/design/inspect-web-public-evidence-bridge.md)
-for Package Changes. Its Browser transport rewrites only canonical NuGet.org
+for Package Activity. Its Browser transport rewrites only canonical NuGet.org
 service-index/Catalog and GitHub reviewed-advisory requests to fixed
 same-origin routes. The Function reconstructs those requests from closed path
 and query grammars, follows no redirects, forwards no caller credentials or
@@ -969,7 +973,7 @@ shared note explains that target selection is session-local and does not run a
 comparison.
 
 These controls prepare targets only: the Library Diff/Clone result inspectors
-remain follow-on work under #5083. The owner is
+remain follow-on work under #7213. The owner is
 [Browser Diff targets](../docs/design/inspect-web-diff-targets.md) for the
 Diff baseline and Structural Clone Search Scope for the replacement Clone
 breadth and candidate discovery.
@@ -1156,7 +1160,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Changes package-set catalog.
+the product-issued Package Activity package-set catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1351,23 +1355,32 @@ request and reacquires under current source authorization; it does not retain
 the query candidate in the Workspace cache. RID selection and ecosystem-wide
 candidate discovery are outside this first assembly-pattern gesture.
 
-The same `/query` route exposes **Packages** and **Changes** as peer modes.
-Changes discovers product-owned package sets from the managed startup catalog,
-submits the default 42-day interval or one validated paired UTC interval, and
-streams the existing `package-changes` Worker operation. Its bounded row window
+The routed `/activity` surface is the Browser's Package Activity entry beside
+`/query`; neither route renders the retired Packages/Activity peer selector.
+Package Activity discovers product-owned package sets from the managed startup
+catalog, submits the default 42-day interval or one validated paired UTC
+interval, and streams the existing `package-changes` Worker operation. That
+operation name, the same-origin bridge path, and the
+`BrowserPackageChanges*` wire records remain stable internal identifiers. Its bounded row window
 renders typed current-advisory, fixed-version, receipt, security-release,
 provider-failure, source-coverage, and completion evidence without inferring
-meaning from formatted text. Mode changes, route exit, replacement, and
-explicit cancellation stop active work; explicit cancellation retains already
-admitted rows. Saved reports and notifications are not part of this surface.
+meaning from formatted text. Route exit, replacement, and explicit
+cancellation stop active work; explicit cancellation retains already admitted
+rows. Direct load and refresh start from session-local initial state, while
+ordinary in-app navigation preserves the current report. Saved reports and
+notifications are not part of this surface.
 The focused contract is
-[The Package Changes experience](../docs/design/package-changes-experience.md).
+[The Package Activity experience](../docs/design/package-activity-experience.md).
 
 The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
 production page through the existing real-Wasm package-adoption harness.
 Deterministic responses cover blank idle behavior, exact-ID resource selection,
 literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
 and bounded completion.
+
+The same harness's **Package Activity website over real Wasm** scenario enters
+the dedicated `/activity` route directly and through Spotlight, refreshes it,
+and exercises Back/Forward before validating progressive report publication.
 
 The same harness's **Assembly Package Query website over real Wasm** scenario
 uses the cataloged `analysis.string-literals` fixture to exercise all four
@@ -1413,7 +1426,11 @@ Oxlint checks all seven compiler-derived production facade artifact triples and
 the multi-facade and managed-operation canary sources as consumer contracts.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
 exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
-correctness and suspicious rules described below. The checked-in production
+correctness and suspicious rules described below. TypeScript's declaration
+emitter appends `export {};` when an exported opaque type references its
+module-private `unique symbol`; generated declarations therefore disable only
+`unicorn/require-module-specifiers`, whose preferred rewrite would make that
+compiler-owned module marker invalid. The checked-in production
 and canary TypeScript facades are compiled separately against the exact
 SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
 initializer and exercise modules in that same program. TypeScript compilation
@@ -1424,8 +1441,9 @@ configuration disables four non-correctness rules: underscore spelling,
 function relocation, listener API preference, and `Array.prototype.sort`.
 Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
-project targets ES2022. Those four, plus the generated-facade overrides, are
-the *complete* set of disabled rules. The compiler-derived JavaScript disables
+project targets ES2022. Those four, plus the generated-facade and generated-
+declaration overrides, are the *complete* set of disabled rules. The
+compiler-derived JavaScript disables
 the five unsafe-operation rules and the catch-callback annotation rule that
 JavaScript cannot satisfy. The authoritative generated TypeScript facades
 disable those unsafe-operation rules, unsafe type-assertion analysis for
@@ -2142,10 +2160,15 @@ and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
 wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,
-scope/result rendering, selection, and keyboard interaction.
+scope/result rendering, selection, and keyboard interaction. Entering
+`PackageId@Version` produces a direct exact-coordinate package action in both
+the home search and Workspace package picker, including for unlisted versions;
+the coordinate bypasses Gallery discovery and remains subject to ordinary
+package acquisition and framework selection.
 `src/spotlight-package-search.ts` owns debounced NuGet discovery, its
 idle/loading/ready/failed result state, current-loading publication guard,
-successful-result cache, snapshot settlement, and reset state.
+successful-result cache, snapshot settlement, exact-coordinate bypass, and
+reset state.
 `src/command-bar.ts` supplies its typed Commands-scope grammar and results;
 `dotnet-inspect.ts` retains command effects, the NuGet query endpoint, package
 navigation, acquisition, editable Spotlight input, and scope so the components

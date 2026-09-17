@@ -4,7 +4,7 @@
 
 Status: **proposed; not implemented**. This focused pattern is tracked with
 [#6987](https://github.com/richlander/dotnet-inspect/issues/6987), within
-[Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 It owns the selection obligation introduced by a population-creating range:
 
 > Ranges that create a population need an explicit consumer selector.
@@ -68,9 +68,13 @@ Existing CLI behavior provides complementary evidence:
   population-based work.
 
 These precedents are not a claim that this rule is already implemented
-everywhere. In particular, current Diff interprets a source range as an
-endpoint comparison without another selector. Its first adoption intentionally
-removes that default; other command owners are not migrated by this document.
+everywhere. The revised first adopter binds the explicit subject Diff command
+to endpoint comparison and its `--history` mode to bounded temporal evaluation,
+as owned by [Diff History inspection](diff-history.md#explicit-range-consumers).
+The command or mode supplies the consumer; another flag is not required merely
+because its source uses range syntax. This supersedes the first adopter's
+earlier proposed `--endpoints` requirement, not the obligation to select an
+operation. Other command owners are not migrated by this document.
 
 ## First adoption and evidence
 

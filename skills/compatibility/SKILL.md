@@ -34,7 +34,7 @@ the same assembly name, culture, and public-key token; assembly versions may
 differ. The CLI uses the portable Library comparison contract intended for
 website Compare. Type-definition or member changes without a compatibility
 assessment remain visible as **Other API Changes** (`unclassified` in
-`--json` or `-S Changes --jsonl`/`--tsv`). Do not treat them as safe or breaking;
+`-S Changes --json`/`--jsonl`/`--tsv`). Do not treat them as safe or breaking;
 `--breaking` and `--additive` select only their assessed classifications.
 
 An incomplete or rejected comparison returns nonzero and reports **not
@@ -43,6 +43,49 @@ failure evidence. Invalid managed-image inputs report the admission error on
 stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
 packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
 Transitions, and mixed-section requests retain their existing routes.
+
+For a complete shared single-Library API result, use unprojected `--json`.
+It emits `LibraryApiDiffOutcome`: `outcome` is `available`, `unavailable`, or
+`rejected`, with the complete Document or typed non-success endpoint evidence.
+This replaces the former unprojected `{changes: ...}` view. Explicitly
+filtered or sectioned JSON still uses the presentation schema.
+
+Use `--envelope` for the same Content plus Share and diagnostics, with
+`schema_version: 1` and `result_kind: "library-api-diff"`. `--all` is admitted;
+Type/classification filters, sections, explicit verbosity, row/line windows,
+and other Diff modes are not. Add `--compact` to either JSON form for compact
+whitespace; it is rejected with projected or other Diff operations. Share is
+non-projectable for the ordered comparison endpoints.
+This does not add Evidence capture or change the current Browser projection.
+
+## Where did this API coordinate go?
+
+Use subject-owned `--match` when the question is correspondence for one Type or
+Member rather than all API changes:
+
+```bash
+dnx dotnet-inspect -y -- type System.Text.Json.Schema.JsonSchemaExporter \
+  --package System.Text.Json@9.0.0..8.0.6 --match
+dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 --match
+```
+
+The endpoints are two literal versions and remain in caller order. A Member
+selector is resolved at the source only; use a unique name, `Name:N`,
+`Name~digest`, or `--index N`. The destination coordinate comes from API
+correspondence, so do not resolve the same ordinal independently there.
+This operation matches declarations, not accessor bodies. A selector such as
+`Foo:1` or `Foo~digest:1` is refused when the ordinal selects an accessor of a
+singleton Property/Event; omit the accessor ordinal to match the declaration.
+An ordinal selecting among overloaded indexer declarations remains valid.
+`--tfm` selects one API surface, optional `--library` narrows only the source
+Library, and `--all` widens only source selection to the existing IncludeAll
+API scope. Destination declaration matching remains strict and independent of
+ordinary accessibility changes. Use `--json` for complete Content or
+`--envelope` for Content, Share, and diagnostics. Do not combine this mode with
+History, `--at`, row projections, projection filters, sections,
+body/source/Analysis requests, or non-package sources. Root `match` is
+unrelated implementation-clone comparison.
 
 ## Did runtime behavior change? (allocations, exceptions)
 

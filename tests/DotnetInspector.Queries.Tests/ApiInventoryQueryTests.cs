@@ -53,6 +53,44 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
+    public void Namespaces_ReturnOrdinalCountsIncludingGlobalNamespace()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "Global", Kind = "class" },
+                new ApiType
+                {
+                    Name = "Second",
+                    Namespace = "Zeta",
+                    Kind = "class",
+                },
+                new ApiType
+                {
+                    Name = "First",
+                    Namespace = "Alpha",
+                    Kind = "class",
+                },
+                new ApiType
+                {
+                    Name = "Other",
+                    Namespace = "Alpha",
+                    Kind = "struct",
+                },
+            ],
+        };
+
+        Assert.Equal(
+            [
+                new ApiNamespaceDescriptor("", 1),
+                new ApiNamespaceDescriptor("Alpha", 2),
+                new ApiNamespaceDescriptor("Zeta", 1),
+            ],
+            ApiInventoryQuery.Namespaces(surface));
+    }
+
+    [Fact]
     public void Members_RealMetadataShapesHaveProductOwnedFacets()
     {
         using var inspection = AssemblyInspectionSession.Open(

@@ -493,7 +493,7 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
   --skip-pdb
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*LoopRoleNamesAreSynthesized*'
+  --filter-method '*LoopRoleNamesAreSynthesized*'
 ```
 
 Expected with symbols: current output declares and uses both `alpha` and
@@ -805,22 +805,22 @@ lexical-scope-aware allocation gate that can preserve both identities.
 
 ```bash
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
-  -method '*MethodDeclaration_SynthesizesParameterWhenParamRowIsAbsent*'
+  --filter-method '*MethodDeclaration_SynthesizesParameterWhenParamRowIsAbsent*'
 
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
-  -method '*ParameterNameResolution*'
+  --filter-method '*ParameterNameResolution*'
 
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
-  -method '*GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback*'
+  --filter-method '*GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*Import_MissingParameterName_SynthesizesOrdinalName*'
+  --filter-method '*Import_MissingParameterName_SynthesizesOrdinalName*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*Import_SynthesizedParameterName_DoesNotCollideWithArtifactName*'
+  --filter-method '*Import_SynthesizedParameterName_DoesNotCollideWithArtifactName*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter*'
+  --filter-method '*Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter*'
 ```
 
 The metadata gates cover a signature with no Param row and one with a present
@@ -842,10 +842,10 @@ dotnet run --project tests/ILInspector.CSharp.Tests -c Release --no-build -- \
   --filter-method '*HostileMetadataSelfNameIsNotRendered*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*UnspeakableNameFidelityTests*'
+  --filter-method '*UnspeakableNameFidelityTests*'
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*ReusingOuter*'
+  --filter-method '*ReusingOuter*'
 ```
 
 The first synthetic metadata fixture uses legal type identities that C# cannot
@@ -865,7 +865,7 @@ artifact identity and remain collision-resolved across nested scopes.
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss*'
+  --filter-method '*ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss*'
 ```
 
 The synthetic artifact has one IL local slot. Its matching Portable PDB names
@@ -890,7 +890,7 @@ dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   -S "Fidelity Causes; Decompiled Source" --tips q
 
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'
+  --filter-method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'
 ```
 
 The first compiler-produced artifact retains `class` in authenticated iterator
@@ -929,7 +929,7 @@ occurrence would leave the shared-printer rule inconsistent.
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*BodylessUnrepresentableParameter*'
+  --filter-method '*BodylessUnrepresentableParameter*'
 ```
 
 The synthetic metadata fixture defines abstract methods whose exact Param-row

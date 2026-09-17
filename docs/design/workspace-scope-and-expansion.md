@@ -121,6 +121,48 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
+### Navigation operation handoff implementation
+
+Issue [#7256](https://github.com/richlander/dotnet-inspect/issues/7256) implements
+the [operation handoff contract](#pre-effect-operation-handoff) locked in
+[#7262](https://github.com/richlander/dotnet-inspect/pull/7262).
+`InspectionWorkspace` exposes `IssueReplaceScopeRequest`,
+`IssueAddPackagesRequest` (with an optional exact publication-base guard),
+`IssueClearScopeRequest`, and `IssueRemovePackageOccurrenceRequest`, followed
+by explicit `SubmitScopeRequestAsync`. Existing direct mutation entry points
+are no-activation issue/submit adapters.
+
+`WorkspaceScopeRequest.Association` is resource-free pre-effect evidence.
+Every mutation terminal arm retains that same association and exposes its
+original `Operation`; `Superseded` names its superseder separately. Request
+inputs retain missing or foreign expected-revision evidence without replacing
+it with valid current authority. The request itself may borrow Package
+bindings; consumers retain its detached association instead.
+
+`CreateScopePackageTarget` constructs an exact, resource-free target from an
+acquired binding. Add/Replace can request that target, and `Committed` or
+`NoEffect` returns its `WorkspacePackageOccurrenceDescriptor` from the complete
+result snapshot. That descriptor includes realization status; membership
+does not imply Ready or authorize Navigation focus.
+
+`CancelScopePreparationAsync` now returns `WorkspaceScopeCancellationResult`.
+Its `Settled` arm carries the original mutation result, while
+`ObservedNoEffect`, `Rejected`, and `Unavailable` are control observations,
+not mutation settlements. This intentionally replaces the ambiguous shared
+return union; cancellation callers must consume the typed distinction.
+
+The [five Release gates below](#operation-handoff-demo-and-evidence) use
+product Scope construction, including pinned Avalonia and System.Text.Json
+archives. The Scope model checks the shared request/result currency before
+production adoption; it does not prove Navigation's external-effect behavior.
+[#5584](https://github.com/richlander/dotnet-inspect/issues/5584) still owns
+that subsequent interaction model and protected consumer implementation.
+The overall [#7061](https://github.com/richlander/dotnet-inspect/issues/7061)
+six-capability plan retains shared Navigation adoption, CLI retained-result
+adoption, Browser descriptors/controls, and Browser complete-result installation
+after the already delivered policy and correspondence producers. These
+prerequisite slices are not additional capability steps.
+
 ### Inert registration adoption
 
 Issue [#6577](https://github.com/richlander/dotnet-inspect/issues/6577) adds
@@ -583,19 +625,23 @@ does not add:
 The first complex per-Workspace proof is the 44-package
 `Microsoft.Extensions` set from the
 [Package Set Registry](package-set-registry.md). The scope owner therefore
-needs atomic multi-Package edits, visible failures, and a capacity above the
-current 12-package Browser limit. The retained Workspace collection remains a
-host concern, not a Scope composition primitive.
+needs atomic multi-Package edits and visible failures. Artifact Acquisition
+must independently admit the complete candidate and any charged predecessor;
+the retained Workspace collection remains a host concern, not a Scope
+composition primitive.
 
 The [2026-09-15 Workspace budget census](../data/inspect-web-workspace-budget-census-2026-09-15.tsv)
 measures that exact shipped set through product package acquisition, compile
 asset selection, and Workspace role realization. Its 44 archives total
 12.87 MiB, and its shared 44-assembly role retains 5.47 MiB. One realization
 uses one Browser Workspace slot. The current byte, 256-assembly-per-role, and
-four-slot limits therefore admit the scenario independently; the
-12-package-entry limit refuses it before construction. This evidence does not
-choose a replacement entry limit because atomic replacement may need old and
-new coordinate sets to coexist while protected work settles.
+four-slot limits admit the scenario independently. The Browser package cache
+now derives its 256-entry ceiling from this owner's 64-package logical maximum
+and the retained-realization owner's four charged slots. At the measured
+demand, an atomic replacement uses 88 entries and 25.74 MiB of archives; four
+non-sharing charged realizations use 176 entries and 51.47 MiB. Artifact
+Acquisition still owns admission and visible refusal at both the count and byte
+boundaries.
 
 ## Design demo
 
@@ -1149,23 +1195,35 @@ Every operation carries:
 
 - the exact Workspace identity;
 - the exact current base revision identity;
-- one operation identity;
+- one Scope-issued operation identity, available before submission;
 - one complete requested effect;
 - finite operation limits and preparation deadline; and
 - optional user-activation intent naming one exact requested Package.
 
-The result is one closed union:
+Every result carries the same resource-free operation association: exact
+Workspace, original operation identity, requested operation kind, expected
+base revision identity when supplied, and whether explicit activation was
+requested. A missing or foreign base remains request evidence rather than
+being replaced by a current valid base. These are request facts, not proof
+that validation or admission succeeded. The result is one closed union;
+the common `operation` belongs to every arm:
 
 ```text
-WorkspaceScopeOperationResult
+WorkspaceScopeOperationResult(operation)
   = Committed(snapshot, effect, optional requested occurrence, evidence)
   | NoEffect(snapshot, optional requested occurrence, evidence)
   | Rejected(current snapshot, exact reason)
   | Failed(current snapshot, exact failure)
-  | Cancelled(current snapshot, cancelled operation)
+  | Cancelled(current snapshot)
   | Superseded(current snapshot, superseding operation)
   | Unavailable(optional last retained snapshot, exact runtime outcome)
 ```
+
+`Superseded` preserves the original operation in that common association and
+names its superseder separately. Neither a cancellation action nor a newer
+Preparing descriptor substitutes for the original operation. Early
+`Rejected`, `NoEffect`, and `Unavailable` results preserve the association
+even when no preparation was admitted.
 
 Every arm other than `Unavailable` carries the complete current scope snapshot
 observed when the result settles. `Unavailable` is returned only when Artifact
@@ -1219,6 +1277,155 @@ preparation later displaced by a valid Replace or Clear.
 The singular optional occurrence is only the explicit activation-intent target.
 The complete snapshot reports every other retained or added occurrence in a
 batch.
+
+### Pre-effect operation handoff
+
+Scope separates **issuing a request** from **submitting it**. An issued request
+binds one fresh operation identity to one Workspace and one complete frozen
+request, including its expected revision, optional publication-base guard,
+finite limits/deadline, and optional explicit activation target. The caller can
+retain its resource-free operation association before submitting that exact
+request. Issuance alone does not read or refresh current Scope, reserve mutation
+authority, publish Preparing, start a deadline timer or preparation, supersede
+another operation, or alter physical composition. Abandoning an unsubmitted
+request needs no Scope cancellation or settlement.
+
+Issuance grants no freshness, admission, or activation authority. Submission
+through the issuing Workspace performs the existing runtime check and complete
+validation in the order above, using the then-current state. A revision or
+deadline that was valid at issuance may therefore be rejected at submission.
+The request is single-submission: it represents one attempt and one settlement,
+not a reusable mutation recipe. Retrying after rejection or failure issues a
+new operation with its own current inputs and identity.
+
+Transient request inputs may include already-acquired bindings under the
+existing caller-owned lifetime. The retained operation association and every
+terminal result must be resource-free; neither may retain the request, its
+bindings, an execution callback, or the Workspace implementation. An unused
+request owns no provisional Artifact receipt or lease.
+
+This is an ordinary inert-request/explicit-execution boundary, not a second
+transaction coordinator. It adds no host callback to the sealed Scope/Artifact
+publication participant and does not hold the Artifact gate while a consumer
+decides whether to submit. Existing direct mutation APIs may issue and submit
+internally for consumers that do not need the pre-effect handoff, preserving
+their no-activation behavior.
+
+The immediate consumer is
+[Navigation's protected Scope transition](inspection-subject-navigation.md).
+That owner decides whether to accept the operation association before Scope
+submission. Its barrier, refusal, release, stale-work handling, and
+subject/lens installation are not defined here. In particular, issuing a
+request is not evidence that Navigation has accepted it.
+
+### Requested occurrence evidence
+
+In the exact-package profile, only explicit Add and Replace requests may name
+one requested Package for activation. The target must correspond to a Package
+in that request's complete input batch using Artifact Acquisition's exact
+correspondence; a display name, coordinate string, row index, or unrelated
+current Package is insufficient. An invalid target is an operation-specific
+rejection before Busy or supersession. Clear and Remove do not choose a
+successor or accept activation intent in this profile.
+
+On `Committed` or `NoEffect`, a valid explicit target requires the exact
+corresponding occurrence in that result's complete snapshot. Deduplication
+cannot erase the request: duplicate-only Add returns the retained occurrence,
+and a mixed batch may request either its retained or newly admitted occurrence.
+The producer cannot replace an unresolved target with another row or omit it
+while reporting success. No activation intent means no requested occurrence,
+even if the operation adds only one Package. Non-success arms carry no
+requested occurrence; request intent alone is not a successful receipt.
+
+This field proves membership and request association, not Ready realization,
+API correspondence, freshness at a later read, or permission to focus.
+In particular, duplicate-only Add remains no-preparation `NoEffect` when a
+retained occurrence is Pending or Failed; returning that occurrence does not
+repair or relabel its realization. Navigation consumes the complete snapshot
+and its own availability rules. Owner-policy operations never acquire
+activation authority from their effects.
+
+### Cancellation control is not mutation settlement
+
+A cancellation action targets an exact preparing operation; it is not a fresh
+membership or activation request. The original submission retains its own
+terminal result and operation association regardless of cancellation control.
+The control response must distinguish an observation that there is no longer
+matching preparation from an actual settlement of the targeted operation.
+A control-level no-effect observation cannot be reported as that operation's
+`NoEffect` settlement or replace an already committed result.
+
+The producer must make that distinction typed at its public boundary rather
+than relying on callers to remember which API returned the shared union.
+If control returns the targeted operation's settlement, it preserves that
+original result and identity without issuing new activation authority.
+Unavailable control observations retain the existing historical-only boundary;
+they do not fabricate the original mutation's terminal outcome. This separation
+does not change first-observed stop ordering or the parent's commit-wins rule.
+
+### Operation handoff demo and evidence
+
+The motivating replacement is
+[Avalonia 11.3.14 to 12.1.2 / net8.0](forwarded-api-coordinate-correspondence.md):
+`Avalonia.Data.MultiBinding` moves from Markup through an explicit forwarder
+to Base. Scope's part is deliberately smaller than API retention:
+
+```text
+Issue replacement R for the exact destination Package, with explicit target.
+  Scope membership and Preparing remain unchanged.
+Submit R after the consumer accepts its association.
+  Committed(R, complete destination snapshot, requested destination occurrence).
+```
+
+The neighboring case is an already-retained `System.Text.Json` 10.0.0 Package:
+explicit duplicate Add returns `NoEffect(R, snapshot, existing occurrence)`;
+the same Add without activation intent returns `NoEffect(R, snapshot, none)`.
+Neither result depends on inventory position. Both Scope scenarios are
+exercised by `ExplicitScopeTarget_ReturnsExactResultOccurrence` using the
+existing pinned API-matching archives, not manufactured operation results.
+They are not yet website or retained-navigation CLI behavior.
+
+The public Scope call is:
+
+```csharp
+WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
+    current.Revision,
+    [destinationBinding],
+    deadline,
+    workspace.CreateScopePackageTarget(destinationBinding));
+WorkspaceScopeOperationAssociation association = request.Association;
+WorkspaceScopeOperationResult result =
+    await workspace.SubmitScopeRequestAsync(request, cancellationToken);
+```
+
+The consumer can retain `association` and decide whether to submit before
+calling the final line. Protected Navigation admission is separate work, not
+an implicit effect of this call site.
+
+The following PR-fast Release gates are implemented in
+[`WorkspaceScopeTests.OperationHandoff.cs`](../../tests/DotnetInspector.Queries.Tests/WorkspaceScopeTests.OperationHandoff.cs):
+
+| Release gate in `WorkspaceScopeTests` | Required evidence |
+| --- | --- |
+| `IssuedScopeRequest_HasNoEffectsBeforeSubmission` | Issuance/abandonment preserves current membership, publication base, Preparing, and physical epoch; delayed submission still observes current runtime, revision, and deadline validation. |
+| `ScopeSettlement_PreservesOriginalOperationAssociation` | Every terminal arm, including early rejection, duplicate NoEffect, and Unavailable, retains the pre-issued association; supersession also names a distinct exact superseder. |
+| `ExplicitScopeTarget_ReturnsExactResultOccurrence` | Committed, mixed, and duplicate-only requests return the exact requested result occurrence; invalid targets reject before admission and no-intent/non-success results return none. |
+| `ScopeCancellationControl_DistinguishesObservationFromSettlement` | A stale cancellation action cannot manufacture a second mutation outcome; cancellation/commit races retain the original correlated settlement. |
+| `RetainedScopeOperationEvidence_ErasesTransientInputs` | Retaining request associations and terminal results after product retirement does not retain bindings, execution state, or physical resources. |
+
+These gates extend rather than replace existing mutation, validation,
+non-Ready, and retirement outcomes. The complete 97-case Scope selection and
+51 CLI Workspace cases preserve those existing consumers; the five new gates
+each measured below one second in the recorded local Release run.
+
+The [Scope revision/publication model](models/workspace-scope-revisions/README.md#operation-handoff-extension)
+now includes issued requests, all terminal associations, requested-occurrence
+projection, and typed cancellation observations. All 71 configurations reached
+their registered exact verdicts after the documented CI cost correction;
+coverage of all 50 earlier profiles is retained through disjoint partitions. Its named
+Artifact instances recheck imported publication behavior under the extended
+composition. These bounded results do not prove implementation conformance or
+Navigation's future external-effect composition.
 
 ### Mutation authority
 
@@ -1852,6 +2059,9 @@ action, and receipt identities.
    limits, and exact Add, Replace, Remove, and Clear results. This focused slice
    replaces the generalized producer scope proposed by
    [#5583](https://github.com/richlander/dotnet-inspect/issues/5583).
+   Issue #7256 adds the modeled pre-effect operation association and
+   requested-occurrence producer after contract #7262; the narrower
+   #5821/#6151 implementation alone does not supply those prerequisites.
 5. Narrow
    [#5584](https://github.com/richlander/dotnet-inspect/issues/5584) to consume
    these concrete results in Navigation.

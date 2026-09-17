@@ -36,6 +36,14 @@ export interface WorkspaceViewRenderOptions {
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
   platform?: PlatformNavigationState | null;
+  frameworkLibraries?: readonly {
+    name: string;
+    assembly: string;
+    pack: string;
+    version: string;
+    framework: string;
+    source: ".NET" | "ASP.NET Core";
+  }[];
   loading: boolean;
   error: string;
   escapeHtml: (value: unknown) => string;
@@ -51,6 +59,12 @@ export interface WorkspaceSubjectBindingActions {
   onRemove?: (key: string) => void;
   onAddPackage?: () => void;
   onPlatform?: () => void;
+  onFrameworkLibrary?: (
+    assembly: string,
+    pack: string,
+    framework: string,
+    version: string,
+  ) => void;
 }
 
 export interface WorkspaceOccurrenceVisibility {
@@ -59,6 +73,7 @@ export interface WorkspaceOccurrenceVisibility {
   explorerOpen: boolean;
   creditsOpen: boolean;
   packageQueryOpen: boolean;
+  packageActivityOpen: boolean;
   loading: boolean;
   error: string;
   home: boolean;
@@ -81,6 +96,7 @@ export function workspaceOccurrenceActionsAreVisible(
     && !state.explorerOpen
     && !state.creditsOpen
     && !state.packageQueryOpen
+    && !state.packageActivityOpen
     && !state.loading
     && !state.error
     && !state.home
@@ -152,9 +168,23 @@ export function renderWorkspaceView(
       <span>Platform</span><strong>.NET Platform</strong>
       <small>${escapeHtml(platform.version)} · ${escapeHtml(platform.tfm)}</small>
     </button></li>` : "";
+  const frameworkLibraryRows = (options.frameworkLibraries ?? []).map(library =>
+    `<li class="workspace-occurrence-row">
+      <button class="workspace-occurrence" type="button"
+        data-workspace-framework-library="${escapeHtml(library.assembly)}"
+        data-workspace-framework-pack="${escapeHtml(library.pack)}"
+        data-workspace-framework="${escapeHtml(library.framework)}"
+        data-workspace-framework-version="${escapeHtml(library.version)}"
+        aria-label="Inspect ${escapeHtml(library.name)}">
+        <span>${escapeHtml(library.source)} Library</span>
+        <strong>${escapeHtml(library.name)}</strong>
+        <small>${escapeHtml(library.version)} · ${escapeHtml(library.framework)}</small>
+      </button>
+    </li>`).join("");
   const rows = packageRows;
   const packageCount = packages.filter(item => !item.isRuntimePack).length;
-  const coordinateCount = packageCount + (platform ? 1 : 0);
+  const coordinateCount = packageCount + (platform ? 1 : 0)
+    + (options.frameworkLibraries?.length ?? 0);
   const status = loading
     ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
     : error
@@ -182,6 +212,7 @@ export function renderWorkspaceView(
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
+    ${frameworkLibraryRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Libraries</h2></div><ul class="workspace-detail-list loaded">${frameworkLibraryRows}</ul></section>` : ""}
     ${platformRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Platform</h2></div><ul class="workspace-detail-list loaded">${platformRows}</ul></section>` : ""}
   </div>`;
 }
@@ -221,6 +252,18 @@ export function bindWorkspaceSubject(
     ?.addEventListener("click", () => actions.onAddPackage?.());
   root.querySelector<HTMLElement>("[data-workspace-platform]")
     ?.addEventListener("click", () => actions.onPlatform?.());
+  const frameworkLibrary =
+    root.querySelector<HTMLElement>("[data-workspace-framework-library]");
+  frameworkLibrary?.addEventListener("click", () => {
+    const assembly = frameworkLibrary.dataset.workspaceFrameworkLibrary;
+    const pack = frameworkLibrary.dataset.workspaceFrameworkPack;
+    const framework = frameworkLibrary.dataset.workspaceFramework;
+    const version = frameworkLibrary.dataset.workspaceFrameworkVersion;
+    if (assembly !== undefined && pack !== undefined
+      && framework !== undefined && version !== undefined) {
+      actions.onFrameworkLibrary?.(assembly, pack, framework, version);
+    }
+  });
   root.querySelectorAll<HTMLElement>("[data-workspace-remove]").forEach(button =>
     button.addEventListener("click", () => {
       const key = button.dataset.workspaceRemove;

@@ -8,7 +8,7 @@
 # also when a case listed here PASSES (the fix landed; retire the pin). A pin is
 # a dated debt with an owner, not a permanent exemption.
 #
-# Format: one `Namespace.Class.Method [xUnit TestCaseUniqueID]` per line.
+# Format: one `Namespace.Class.Method [MTP TestNodeUid]` per line.
 # Precede each entry with the issue that tracks it and the date it was pinned.
 # Pins are case-granular: pinning one theory row never exempts its siblings.
 #

@@ -2263,7 +2263,8 @@ public static class WorkspaceContextLoader
                     coordinate.PackageId,
                     coordinate.Version,
                     selected.Universe.TargetFramework,
-                    asset.RuntimeIdentifier);
+                    asset.RuntimeIdentifier,
+                    asset.EntryPath);
             try
             {
                 // A package entry that carries no managed metadata is not an
@@ -2394,11 +2395,13 @@ public static class WorkspaceContextLoader
         {
             return new WorkspacePackageRootAcquisitionOutcome.Acquired(
                 sourceProducer is null
-                    ? PackageRootBinding.CreateFromResolved(
+                    ? PackageRootBinding
+                        .CreateFromResolvedWithCompatibleSelection(
                         acquired,
                         framework,
                         member.PackageId)
-                    : PackageRootBinding.CreateFromResolved(
+                    : PackageRootBinding
+                        .CreateFromResolvedWithCompatibleSelection(
                         acquired,
                         framework,
                         member.PackageId,

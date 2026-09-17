@@ -25,9 +25,14 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 ImplicitReferences: 2),
             new(
                 "#4795",
-                "tests/NuGetFetch.Tests/PackageSourceClientTests.cs",
-                ExplicitReferences: 13,
+                "tests/NuGetFetch.Tests/PackageSourceClientTests.Descriptors.cs",
+                ExplicitReferences: 12,
                 ImplicitReferences: 2),
+            new(
+                "#4795",
+                "tests/NuGetFetch.Tests/PackageSourceClientTests.V3.cs",
+                ExplicitReferences: 1,
+                ImplicitReferences: 0),
             new(
                 "#4795",
                 "tests/NuGetFetch.Tests/PackageSourceCustomClientTests.cs",
@@ -60,7 +65,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 ImplicitReferences: 0),
             new(
                 "#4805",
-                "inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.cs",
+                "inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.PackageAcquisition.cs",
                 ExplicitReferences: 20,
                 ImplicitReferences: 0),
         ];

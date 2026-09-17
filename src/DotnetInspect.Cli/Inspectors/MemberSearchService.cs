@@ -11,7 +11,7 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// Searches member names across the same ordered sources as type search through
-/// workspace-backed typed queries. Member search is exact/glob only — there is
+/// workspace-backed typed queries. Member search is direct/glob only — there is
 /// no fuzzy or namespace-prefix fallback — so the collected matches are the
 /// final results. Resolution and streaming early-exit for a result limit are shared via
 /// <see cref="FindSourceCollector"/>.
@@ -49,7 +49,8 @@ internal static class MemberSearchService
                     request,
                     options.Tfm!,
                     logger.Log,
-                    cancellationToken);
+                    cancellationToken,
+                    FindSourceCollector.CreateWorkspacePlan(options));
             List<MemberFindResult> configuredResults =
                 configured is null
                 ? []
@@ -69,7 +70,9 @@ internal static class MemberSearchService
             };
         }
 
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(
+                FindSourceCollector.CreateWorkspacePlan(options));
         return new(
             await CollectMembersAsync(
                 options,
@@ -232,8 +235,8 @@ internal static class MemberSearchService
                     {
                         Pattern = member.Pattern,
                         Match = member.IsGlob
-                            ? MatchKind.Glob
-                            : MatchKind.Exact,
+                            ? MemberFindMatchKind.Glob
+                            : MemberFindMatchKind.Direct,
                         Member = member.MemberName,
                         Kind = member.Kind,
                         DeclaringType = member.DeclaringType,

@@ -197,7 +197,8 @@ SourceHouse, but decompilation remains available when policy or availability
 provides none. It must not discover or open an embedded, adjacent, or ambient
 PDB contrary to the explicit PDB contribution supplied for the request. The
 existing `MemberBodyProducer` is the implementation basis; introducing
-`CSharpDecompilerService` is a separate focused owner step.
+`CSharpDecompilerService` is a separate focused owner step governed by the
+[C# decompiler service](csharp-decompiler-service.md) contract.
 
 ### `SourceFetch`
 
@@ -649,6 +650,14 @@ end-to-end tracker. Its current total is 12 steps:
 Each step changes one owner. Steps 2-9 establish the reusable path; steps 10-12
 migrate production consumers and retire the alternative architecture. A change
 to the count or host coverage requires an explicit tracker update.
+
+The user-approved adapter-first sequence brings the assembly-context portion
+of step 9 ahead of step 5 under
+[#7312](https://github.com/richlander/dotnet-inspect/issues/7312).
+The [Workspace-owned adapter](assembly-context-library-adapter.md) supplies
+Library input for later House adoption; it does not complete step 9's broader
+adoption or the source-query and host migrations. The twelve steps and both
+production hosts remain in scope.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse

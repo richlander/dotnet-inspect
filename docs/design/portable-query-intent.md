@@ -2,13 +2,12 @@
 
 ## Status
 
-**Partly implemented.** `DotnetInspector.PortableQueries` carries the intent
-type, identity texts, semantic orders, and canonical payload codec.
-**Resolution is not implemented**: no vocabulary binds an intent yet, so every
-gate in [Required gates](#required-gates) remains a requirement on that work
-rather than a property enforced today, and statements below about what a
-resolver does, admits, or refuses describe the contract an implementation must
-satisfy, not observed behavior.
+**Implemented substrate; production adoption pending.**
+`DotnetInspector.QueryEngine` carries the intent type, identity texts, semantic
+orders, canonical payload codec, vocabulary abstraction, and atomic resolver
+under the existing `DotnetInspector.PortableQueries` namespace. The Release
+gates in [Required gates](#required-gates) enforce that substrate. No production
+vocabulary binds an intent yet; Package Query is the first planned adopter.
 
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
@@ -146,14 +145,34 @@ A family may instead declare its members **mutually exclusive**: two of them in
 one intent are not a narrower question but a contradiction, and resolution
 refuses the pair. Package Query's dependency group is the existing instance —
 `has dependencies` and `no dependencies` replace each other rather than
-combining — and so is its broad `.NET Tool` term beside a specific tool format.
-Exclusivity, like combination, is declared by the vocabulary and read at
-resolution, not marked on the term.
+combining. Exclusivity, like combination, is declared by the vocabulary and
+read at resolution, not marked on the term.
 
-Because composition is read from the vocabulary rather than the payload, family
-membership — combining or exclusive — is part of that vocabulary's compatibility
-surface: changing which keys combine or exclude changes what an already-shared
-link means, and is governed by the same replay rules as removing a key.
+A vocabulary may additionally declare two **bound terms incompatible** when
+their relationship is not one family. The compatibility relation is symmetric
+and is evaluated over owner-bound terms, so it may use keys, operators, values,
+or the predicates the binders issued; it does not add a second composition
+system. Terms the relation accepts still compose only by their families.
+Package Query's broad `.NET Tool` fact beside a specific tool format is the
+existing instance: `tool-format=v1` and `tool-format=v2` remain a valid
+combining-family OR-union, while either one beside `tool=true` is refused rather
+than silently broadening or redundantly restating the question.
+
+Because composition and compatibility are read from the vocabulary rather than
+the payload, family membership — combining or exclusive — and the compatibility
+relation are part of that vocabulary's compatibility surface: changing which
+terms combine or conflict changes what an already-shared link means, and is
+governed by the same replay rules as removing a key.
+
+A vocabulary may require that an intent contain at least one member of a named
+family. This expresses a required owner choice without adding a privileged
+intent slot or selecting one key as the model's default. Required families are
+checked only after every present term has resolved; an invalid present term
+therefore fails at its own semantic position before an absent family is
+reported. If more than one required family is absent, the family whose identity
+sorts first by the model's scalar order is reported. Its failure is located at
+the next semantic term position and names the missing family.
+
 A **value** is bounded text preserved exactly as supplied. This layer does not
 parse, normalize, case-fold, or interpret it. Interpretation belongs to the
 vocabulary's binder at resolution, and containment belongs to the sink: a value
@@ -179,6 +198,14 @@ one** bound:
 two maxima for one dimension are not a narrower request, they are a
 contradiction. Bounds in different dimensions are independent, so their
 declaration sequence carries no meaning.
+
+A vocabulary may require an execution-bound dimension. Required dimensions are
+checked after every present bound has resolved, so an invalid present bound
+fails before absence is considered. If more than one required dimension is
+absent, scalar identity order selects the first failure. Its location is the
+next semantic bound position and its offender is the missing dimension. A
+required bound is never supplied by a vocabulary default: replay either carries
+the bound that was shared or refuses.
 
 A **selection stage** is owned by
 [semantic row selection](semantic-row-selection.md), which defines an ordered
@@ -226,6 +253,8 @@ the orders live here, and any encoding emits them rather than defining them.
   the key's identity text, the operator's identity text, and the exact value
   token, never a resolved or normalized form.
 - **Bounds** order by dimension identity.
+- **Required term families and required dimensions** each order by their
+  owner-issued identity when absence must choose one failure.
 
 Every text comparison in these orders is by **Unicode scalar value**, which is
 also UTF-8 byte order. It is not UTF-16 code-unit order — the default in .NET's
@@ -245,18 +274,22 @@ the owner's executable plan or one structured failure.
 - Resolution is **atomic**. The first failure returns no plan and no partial
   binding, and which failure is first is fixed by this contract rather than by a
   host's enumeration order: the vocabulary; then terms in their
-  [semantic order](#semantic-order); then bounds in theirs; then the baseline
-  order operation; then the stages in declaration sequence, each ranking stage
-  resolving its own ranking as it is reached — the operation bound to it, else
-  the vocabulary's declared default, else *ranking missing*. Within one element
-  the checks run existence, then admissibility, then binding, then collision —
-  and within collision, exclusivity before duplication, because a contradiction
-  is never collapsible while a duplicate may be — so a term with both an
-  inadmissible operator and a value its binder would reject reports the
-  operator, and a term that is both exclusive with one earlier term and a
-  binder-duplicate of another reports the exclusivity. For an order reference
-  the sequence reads: exists, is orderable, has the purpose its role requires.
-  Two hosts resolving one intent report the same failure.
+  [semantic order](#semantic-order), then missing required term families; then
+  bounds in their semantic order, then missing required dimensions; then the
+  baseline order operation; then the stages in declaration sequence, each
+  ranking stage resolving its own ranking as it is reached — the operation
+  bound to it, else the vocabulary's declared default, else *ranking missing*.
+  Within one element the checks run existence, then admissibility, then binding,
+  then collision — and within collision, vocabulary compatibility and family
+  exclusivity before duplication, because a contradiction is never collapsible
+  while a duplicate may be. Compatibility is checked against every earlier
+  bound term occurrence, including one whose predicate later collapsed
+  idempotently inside its composition context. A term with both an inadmissible
+  operator and a value its binder would reject therefore reports the operator,
+  and a term that is both incompatible with one earlier term and a
+  binder-duplicate of another reports the incompatibility. For an order
+  reference the sequence reads: exists, is orderable, has the purpose its role
+  requires. Two hosts resolving one intent report the same failure.
 
   The part sequence and the stage-local ranking rule are
   [row query and ordering](row-query-order.md)'s own, and a row vocabulary
@@ -307,9 +340,11 @@ hosts produce the same failure and not merely the same reason:
 | Operator not admitted for the key | the term | the operator |
 | Value rejected by the key's binder | the term | the key whose binder rejected it |
 | Duplicate after binding | the later of the two terms in semantic order | the key |
-| Terms incompatible — two bound terms the vocabulary declares mutually exclusive | the later of the two terms in semantic order | its key |
+| Terms incompatible — two bound terms the vocabulary declares incompatible | the later of the two terms in semantic order | its key |
+| Required term family missing | the next semantic term position | the family |
 | Unknown dimension | the bound | the dimension |
 | Maximum outside the dimension's declared range, which may depend on the bound terms | the bound | the dimension |
+| Required dimension missing | the next semantic bound position | the dimension |
 | Stage not admitted | the stage | the stage kind |
 | Unknown order reference | the operation, and the field-term index within a field list | the reference |
 | Order reference not orderable | the operation, and the field-term index within a field list | the reference |
@@ -429,7 +464,7 @@ successor slice.
 | Gate | Contract |
 | --- | --- |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, bound, stage, or order reference returns one structured failure with no plan and no partial binding. |
-| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order: vocabulary, terms in semantic order, bounds in semantic order, the baseline order, then stages in sequence each with its ranking; existence, admissibility, binding, collision within one element; and exclusivity before duplication within collision. A row vocabulary agrees with the row owner's resolver on every bound, baseline, stage, and ranking failure; for terms, the intent's semantic order stands in for the caller's declaration order, and the divergence is witnessed, not hidden. |
+| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure — reason, location, and offender — regardless of host enumeration or construction order: vocabulary, terms in semantic order, bounds in semantic order, the baseline order, then stages in sequence each with its ranking; existence, admissibility, binding, collision within one element; and vocabulary compatibility and family exclusivity before duplication within collision. A row vocabulary agrees with the row owner's resolver on every bound, baseline, stage, and ranking failure; for terms, the intent's semantic order stands in for the caller's declaration order, and the divergence is witnessed, not hidden. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
@@ -439,7 +474,9 @@ successor slice.
 | `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not declare its kind; admission is per kind, so a vocabulary admitting head, tail, and window but not top refuses exactly the top; structural violations are refused at construction or decode and never reach resolution. |
 | `RankingStagesResolveOrFail` | A top stage resolves its ranking when reached in stage sequence — the bound operation, else the declared default, else ranking missing at the stage with no offender — so with two top stages the earlier stage's missing ranking is reported before the later stage's unknown reference; a sequence-purpose named order in a ranking role fails as order not a ranking. |
 | `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate; where one later term is both, exclusivity is reported. |
+| `BoundTermCompatibilityIsVocabularyOwned` | A vocabulary may refuse an owner-defined incompatible pair at the later term in semantic order without changing how accepted terms compose: Package Query's two specific tool formats remain one valid combining-family OR-union, while its broad tool fact beside either format fails as terms incompatible. Every previously bound occurrence participates even when duplicate collapse omits its predicate from the executable plan. |
 | `BoundRangeSeesResolvedTerms` | A dimension whose admissible range depends on bound terms — Package Query's candidate cap with a package-content term — is checked with the terms resolved, at the bound, before any acquisition. |
+| `RequiredQueryPartsFailVisibly` | A vocabulary-required term family or execution-bound dimension that is absent fails after present elements in that part validate, before later parts, plan creation, or acquisition; multiple missing requirements use scalar identity order, and no default silently changes replay. |
 | `FailureReasonUnionIsClosed` | Every failure carries one reason from the table, at that reason's location, with that reason's offender or none; no implementation or vocabulary emits a reason outside it. |
 
 ## Decisions

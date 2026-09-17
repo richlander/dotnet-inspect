@@ -94,6 +94,12 @@ public static class WorkspaceSharePacketTransposer
         WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
             WorkspaceSharePacketCodec.Encode(packet),
             cancellationToken);
+        if (canonical.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
+        {
+            throw new ArgumentException(
+                "Use ToCommittedDefinitions for workspace share format 2.",
+                nameof(packet));
+        }
 
         var contexts = new WorkspaceContextDefinition[canonical.Contexts.Count];
         for (int contextIndex = 0; contextIndex < canonical.Contexts.Count; contextIndex++)
@@ -178,9 +184,164 @@ public static class WorkspaceSharePacketTransposer
         return new WorkspaceSharePacketDefinitionSet(workspace, navigation, view, scenario);
     }
 
+    public static CommittedScenarioDefinitionSet ToCommittedDefinitions(
+        WorkspaceSharePacket packet,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
+            WorkspaceSharePacketCodec.Encode(packet),
+            cancellationToken);
+        if (canonical.FormatVersion != WorkspaceSharePacketCodec.CurrentFormatVersion)
+        {
+            throw new ArgumentException(
+                "Workspace share packet must use format 2.",
+                nameof(packet));
+        }
+
+        WorkspaceContextDefinition[] contexts =
+            ToWorkspaceContexts(canonical);
+        NavigationTabDefinition[] navigationTabs =
+            ToNavigationTabs(canonical);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            WorkspaceId,
+            contexts);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            NavigationId,
+            navigationTabs,
+            canonical.FocusedTabIndex is int focused
+                ? $"t{focused}"
+                : null);
+
+        var states =
+            new CommittedViewStateDefinition[canonical.ViewStates.Count];
+        for (int index = 0; index < canonical.ViewStates.Count; index++)
+        {
+            WorkspaceShareViewState state = canonical.ViewStates[index];
+            states[index] = new CommittedViewStateDefinition(
+                state.TabIndex is int tabIndex ? $"t{tabIndex}" : null,
+                state.Subject,
+                state.Context,
+                state.Facet);
+        }
+
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            ViewId,
+            states);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            ScenarioId,
+            workspace: WorkspaceId,
+            context: $"g{canonical.SelectedContextIndex}",
+            view: ViewId,
+            navigation: NavigationId);
+
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        return AssertVersion2(
+            registry.PreparePacketScenario(ScenarioId));
+    }
+
+    private static WorkspaceContextDefinition[] ToWorkspaceContexts(
+        WorkspaceSharePacket packet)
+    {
+        var contexts =
+            new WorkspaceContextDefinition[packet.Contexts.Count];
+        for (int contextIndex = 0;
+            contextIndex < packet.Contexts.Count;
+            contextIndex++)
+        {
+            WorkspaceShareContext packetContext =
+                packet.Contexts[contextIndex];
+            WorkspaceShareTab first =
+                packet.Tabs[packetContext.TabIndexes[0]];
+            var members = new List<DefinitionMemberCoordinate>();
+            string? subscribe = null;
+
+            foreach (int tabIndex in packetContext.TabIndexes)
+            {
+                WorkspaceShareTab tab = packet.Tabs[tabIndex];
+                if (tab.SourceKind == WorkspaceShareSourceKind.Group)
+                {
+                    subscribe = ToSubscription(tab);
+                    continue;
+                }
+
+                members.Add(
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        tab.Source,
+                        tab.Version,
+                        tab.Framework,
+                        tab.RuntimeIdentifier));
+            }
+
+            contexts[contextIndex] = new WorkspaceContextDefinition(
+                $"g{contextIndex}",
+                first.Framework,
+                first.RuntimeIdentifier,
+                subscribe,
+                members);
+        }
+
+        return contexts;
+    }
+
+    private static NavigationTabDefinition[] ToNavigationTabs(
+        WorkspaceSharePacket packet)
+    {
+        var tabs = new NavigationTabDefinition[packet.Tabs.Count];
+        for (int tabIndex = 0; tabIndex < packet.Tabs.Count; tabIndex++)
+        {
+            WorkspaceShareTab tab = packet.Tabs[tabIndex];
+            tabs[tabIndex] =
+                tab.SourceKind == WorkspaceShareSourceKind.Group
+                    ? new NavigationTabDefinition(
+                        $"t{tabIndex}",
+                        subscribe: ToSubscription(tab),
+                        framework: tab.Framework,
+                        runtimeIdentifier: tab.RuntimeIdentifier)
+                    : new NavigationTabDefinition(
+                        $"t{tabIndex}",
+                        coordinate:
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                tab.Source,
+                                tab.Version,
+                                tab.Framework,
+                                tab.RuntimeIdentifier));
+        }
+
+        return tabs;
+    }
+
+    private static CommittedScenarioDefinitionSet AssertVersion2(
+        InspectionDefinitionScenarioPreparationResult result) =>
+        result switch
+        {
+            InspectionDefinitionScenarioPreparationResult.Version2 version2 =>
+                version2.Definitions,
+            _ => throw new UnreachableException(),
+        };
+
     public static WorkspaceSharePacketProjectionResult ToPacket(
         WorkspaceSharePacketDefinitionSet definitions,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ToPacket(
+            definitions,
+            cancellationToken,
+            canonicalizeFormat1: true);
+
+    private static WorkspaceSharePacketProjectionResult ToPacket(
+        WorkspaceSharePacketDefinitionSet definitions,
+        CancellationToken cancellationToken,
+        bool canonicalizeFormat1)
     {
         ArgumentNullException.ThrowIfNull(definitions);
         cancellationToken.ThrowIfCancellationRequested();
@@ -563,6 +724,9 @@ public static class WorkspaceSharePacketTransposer
             view.Section,
             libraries);
 
+        if (!canonicalizeFormat1)
+            return WorkspaceSharePacketProjectionResult.Success(packet);
+
         try
         {
             WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
@@ -586,9 +750,261 @@ public static class WorkspaceSharePacketTransposer
     {
         ArgumentNullException.ThrowIfNull(definitions);
         cancellationToken.ThrowIfCancellationRequested();
-        return NonProjectable(
-            "schemaVersion",
-            "Schema-version-2 definitions cannot project to WorkspaceSharePacket format 1.");
+
+        WorkspaceDefinition? workspace = definitions.Workspace;
+        CommittedNavigationDefinition? navigation = definitions.Navigation;
+        CommittedViewDefinition? view = definitions.View;
+        ScenarioDefinition scenario = definitions.Scenario;
+        if (workspace is null || navigation is null || view is null)
+        {
+            return InvalidDefinition(
+                "scenario",
+                "Workspace share format 2 requires workspace, navigation, and view records.");
+        }
+
+        WorkspaceSharePacketProjectionResult? failure =
+            ValidateCommittedDefinitionSet(
+                definitions,
+                cancellationToken);
+        if (failure is not null)
+            return failure;
+
+        WorkspaceSharePacketProjectionResult topology =
+            ProjectCommittedTopology(
+                workspace,
+                navigation,
+                scenario,
+                cancellationToken);
+        if (!topology.Succeeded)
+            return topology;
+
+        if (workspace.Title is not null || workspace.Description is not null)
+        {
+            return NonProjectable(
+                "workspace",
+                "Packet format 2 cannot preserve workspace presentation text.");
+        }
+        if (workspace.Groups.Count != 0 || definitions.Catalogs.Count != 0)
+        {
+            return NonProjectable(
+                "workspace.groups",
+                "Packet format 2 cannot preserve authored group declarations.");
+        }
+        if (scenario.Title is not null || scenario.Description is not null)
+        {
+            return NonProjectable(
+                "scenario",
+                "Packet format 2 cannot preserve scenario presentation text.");
+        }
+
+        foreach ((CommittedViewStateDefinition state, int index) in
+            view.States.Select((state, index) => (state, index)))
+        {
+            if (state.Queries.Count != 0 || state.Libraries.Count != 0)
+            {
+                return NonProjectable(
+                    $"view.states[{index}]",
+                    "Query-bearing format-2 projection requires #6971.");
+            }
+        }
+
+        WorkspaceSharePacket basis = topology.Packet
+            ?? throw new UnreachableException();
+        int? focusedTabIndex = null;
+        if (navigation.Focus is not null)
+        {
+            focusedTabIndex = navigation.Tabs
+                .Select((tab, index) => (tab, index))
+                .Where(item => string.Equals(
+                    item.tab.Id,
+                    navigation.Focus,
+                    StringComparison.Ordinal))
+                .Select(item => (int?)item.index)
+                .SingleOrDefault();
+            if (focusedTabIndex is null)
+            {
+                return InvalidDefinition(
+                    "navigation.focus",
+                    "Navigation focus must name one direct Package tab.");
+            }
+        }
+
+        var packetStates =
+            new WorkspaceShareViewState[view.States.Count];
+        for (int index = 0; index < view.States.Count; index++)
+        {
+            CommittedViewStateDefinition state = view.States[index];
+            packetStates[index] = new WorkspaceShareViewState(
+                index == 0 ? null : index - 1,
+                state.Subject,
+                state.Context,
+                state.Facet);
+        }
+
+        var packet = new WorkspaceSharePacket(
+            [.. basis.Tabs],
+            [.. basis.Contexts],
+            focusedTabIndex,
+            basis.SelectedContextIndex,
+            packetStates);
+        try
+        {
+            WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
+                WorkspaceSharePacketCodec.Encode(packet),
+                cancellationToken);
+            return WorkspaceSharePacketProjectionResult.Success(canonical);
+        }
+        catch (WorkspaceSharePacketException ex)
+        {
+            return ex.Kind is
+                WorkspaceSharePacketFailureKind.EncodedLimitExceeded
+                or WorkspaceSharePacketFailureKind.DecodedLimitExceeded
+                or WorkspaceSharePacketFailureKind.JsonValueLimitExceeded
+                ? NonProjectable("$", ex.Message)
+                : InvalidDefinition("$", ex.Message);
+        }
+    }
+
+    private static WorkspaceSharePacketProjectionResult?
+        ValidateCommittedDefinitionSet(
+            CommittedScenarioDefinitionSet definitions,
+            CancellationToken cancellationToken)
+    {
+        foreach (InspectionDefinitionRecord record in definitions.Records)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (record.SchemaVersion != InspectionDefinitionSchema.Version2)
+            {
+                return InvalidDefinition(
+                    record.Kind.ToString().ToLowerInvariant()
+                        + ".schemaVersion",
+                    "Workspace share format 2 requires schema-version-2 records.");
+            }
+
+            try
+            {
+                InspectionDefinitionJson.ValidatePortableRecord(record);
+                if (record is not CommittedViewDefinition)
+                    _ = InspectionDefinitionJson.Serialize(record);
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return InvalidDefinition(
+                    record.Kind.ToString().ToLowerInvariant(),
+                    ex.Message);
+            }
+        }
+
+        WorkspaceSharePacketProjectionResult? groupFailure =
+            ValidateCatalogGroups(
+                definitions.Workspace?.Groups
+                    ?? Array.Empty<CatalogGroupDefinition>(),
+                "workspace.groups",
+                cancellationToken);
+        if (groupFailure is not null)
+            return groupFailure;
+        for (int index = 0; index < definitions.Catalogs.Count; index++)
+        {
+            groupFailure = ValidateCatalogGroups(
+                definitions.Catalogs[index].Groups,
+                $"catalogs[{index}].groups",
+                cancellationToken);
+            if (groupFailure is not null)
+                return groupFailure;
+        }
+
+        CommittedViewDefinition? view = definitions.View;
+        if (view is not null)
+        {
+            view = new CommittedViewDefinition(
+                view.SchemaVersion,
+                view.Id,
+                view.States
+                    .Select(state => new CommittedViewStateDefinition(
+                        state.Navigation,
+                        state.Subject,
+                        state.Context,
+                        state.Facet))
+                    .ToArray());
+        }
+        var queryFreeDefinitions = new CommittedScenarioDefinitionSet(
+            definitions.Scenario,
+            definitions.Workspace,
+            definitions.Navigation,
+            view,
+            definitions.Catalogs,
+            definitions.NavigationTargetMatchMode);
+        var registry = new InspectionDefinitionRegistry();
+        try
+        {
+            foreach (InspectionDefinitionRecord record in
+                queryFreeDefinitions.Records)
+                registry.Add(record);
+            _ = definitions.NavigationTargetMatchMode
+                is NavigationTargetMatchMode.Exact
+                    ? registry.PreparePacketScenario(definitions.Scenario.Id)
+                    : registry.PrepareScenario(definitions.Scenario.Id);
+        }
+        catch (InspectionDefinitionException ex)
+        {
+            return InvalidDefinition("scenario", ex.Message);
+        }
+
+        return null;
+    }
+
+    private static WorkspaceSharePacketProjectionResult
+        ProjectCommittedTopology(
+            WorkspaceDefinition workspace,
+            CommittedNavigationDefinition navigation,
+            ScenarioDefinition scenario,
+            CancellationToken cancellationToken)
+    {
+        string topologyFocus = navigation.Focus ?? navigation.Tabs[0].Id;
+        if (navigation.Focus is not null)
+        {
+            NavigationTabDefinition focusedTab = navigation.Tabs.Single(
+                tab => string.Equals(
+                    tab.Id,
+                    navigation.Focus,
+                    StringComparison.Ordinal));
+            if (focusedTab.Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate)
+            {
+                return InvalidDefinition(
+                    "navigation.focus",
+                    "Workspace share format 2 focus must name one direct Package tab.");
+            }
+        }
+
+        var legacyWorkspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            workspace.Id,
+            workspace.Contexts);
+        var legacyNavigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            navigation.Id,
+            navigation.Tabs,
+            topologyFocus);
+        var legacyView = new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            ViewId);
+        var legacyScenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            scenario.Id,
+            workspace: legacyWorkspace.Id,
+            context: scenario.Context,
+            view: legacyView.Id,
+            navigation: legacyNavigation.Id);
+
+        return ToPacket(
+            new WorkspaceSharePacketDefinitionSet(
+                legacyWorkspace,
+                legacyNavigation,
+                legacyView,
+                legacyScenario),
+            cancellationToken,
+            canonicalizeFormat1: false);
     }
 
     public static WorkspaceSharePacketProjectionResult ToPacket(

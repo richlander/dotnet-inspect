@@ -6,6 +6,7 @@ namespace DotnetInspect.Cli.Options;
 public sealed record LibraryCallUseOptions : IProjectionOptions
 {
     public string[] Libraries { get; init; } = [];
+    public int? Cluster { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }

@@ -1,7 +1,7 @@
 import type {
-  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryCatalog,
   BrowserPackageQueryFacetDescriptor,
-  BrowserPackageAssemblyQueryPattern,
+  BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
@@ -16,16 +16,14 @@ import type {
 import type {
   PackageQueryDataSource,
   QueryAssemblyAssessment,
-  QueryAssemblyPatternDescriptor,
-  QueryAssemblyPatternRequest,
   QueryFacetTerm,
   QueryProgress,
   QueryResultRow,
+  QueryTermDescriptor,
   TerminalQueryCompletion,
 } from "./package-query.ts";
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 
-export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
 export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
 
 type PackageQueryManifestFailureReason = Extract<
@@ -51,6 +49,7 @@ export interface BrowserPackageQueryEngine {
     operationId: string,
     searchText: string,
     facetIdsJson: string,
+    termsJson: string,
     maximumCandidates: number,
     maximumMatches: number,
     includePrerelease: boolean,
@@ -80,22 +79,16 @@ export interface BrowserPackageQueryDataSourceOptions {
   ) => void;
 }
 
-export function packageQueryFacets(
-  catalog: BrowserPackageQueryFacetCatalog,
-): QueryFacetTerm[] {
-  return catalog.facets.map(toQueryFacet);
-}
-
-export function packageQueryAssemblyPatterns(
-  patterns: readonly BrowserPackageAssemblyQueryPattern[],
-): QueryAssemblyPatternDescriptor[] {
-  return patterns.map(pattern => ({
-    id: pattern.id,
-    label: pattern.label,
-    summary: pattern.summary,
-    maximumOperandLength: pattern.maximumOperandLength,
-    maximumPackages: pattern.maximumPackages,
-  }));
+export function packageQueryCatalog(
+  catalog: BrowserPackageQueryCatalog,
+): {
+  readonly facets: QueryFacetTerm[];
+  readonly terms: QueryTermDescriptor[];
+} {
+  return {
+    facets: catalog.facets.map(toQueryFacet),
+    terms: catalog.terms.map(toQueryTermDescriptor),
+  };
 }
 
 function toQueryFacet(
@@ -111,6 +104,21 @@ function toQueryFacet(
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
     displayGroupId: descriptor.displayGroupId,
     displayGroupLabel: descriptor.displayGroupLabel,
+  };
+}
+
+function toQueryTermDescriptor(
+  descriptor: BrowserPackageQueryTermDescriptor,
+): QueryTermDescriptor {
+  return {
+    key: descriptor.key,
+    label: descriptor.label,
+    summary: descriptor.summary,
+    weight: descriptor.weight,
+    tier: toInspectionTier(descriptor.tier),
+    operators: [...descriptor.operators],
+    valueKind: descriptor.valueKind,
+    example: descriptor.example,
   };
 }
 
@@ -229,21 +237,20 @@ export function createBrowserPackageQueryDataSource(
         engine.cancel(operationId, cancellationReason(abortSignal.reason));
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const result = request.assemblyPattern
-          ? await runAssemblyQuery(
-              engine,
-              operationId,
-              request.assemblyPattern,
-              eventSink)
-          : await engine.run(
-              operationId,
-              request.scopeQuery,
-              JSON.stringify(request.facets.map(facet => facet.key)),
-              request.requestedLimit,
-              request.requestedMatchLimit,
-              request.includePrerelease,
-              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-              eventSink);
+        const result = await engine.run(
+          operationId,
+          request.scopeQuery,
+          JSON.stringify(request.facets.map(facet => facet.key)),
+          JSON.stringify(request.terms.map(term => ({
+            key: term.descriptor.key,
+            operator: term.operator,
+            value: term.value,
+          }))),
+          request.requestedLimit,
+          request.requestedMatchLimit,
+          request.includePrerelease,
+          PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+          eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
         if (result.version === 3
@@ -270,35 +277,29 @@ export function createBrowserPackageQueryDataSource(
         }
         if (result.kind === "Canceled") return { kind: "cancelled" };
         if (result.kind === "Failed") {
-          throw unexpectedFailure ?? new Error(
-            result.error ?? "The Browser package query failed without an error.");
+          if (unexpectedFailure) throw unexpectedFailure;
+          const reason =
+            result.error ?? "The Browser package query failed without an error.";
+          onFailure(reason);
+          return { kind: "failed", reason };
         }
         if (result.kind !== "Succeeded") {
           throw new TypeError(
             "The Browser package-query result was not a supported terminal result.");
         }
         if (abortSignal.aborted) return { kind: "cancelled" };
-        let finalEvent: BrowserPackageQueryEventPayload;
-        if (request.assemblyPattern) {
-          if (result.value === null || result.inspection !== null) {
-            throw new TypeError(
-              "The Browser assembly-query result had invalid inspection data.");
-          }
-          finalEvent = result.value;
-        } else {
-          if (result.value !== null || result.inspection === null) {
-            throw new TypeError(
-              "The Browser package-query result did not contain its inspection envelope.");
-          }
-          finalEvent = {
-            kind: "Completed",
-            row: null,
-            failure: null,
-            completion: result.inspection.content.completion,
-            progress: null,
-            assessment: null,
-          };
+        if (result.value !== null || result.inspection === null) {
+          throw new TypeError(
+            "The Browser package-query result did not contain its inspection envelope.");
         }
+        const finalEvent: BrowserPackageQueryEventPayload = {
+          kind: "Completed",
+          row: null,
+          failure: null,
+          completion: result.inspection.content.completion,
+          progress: null,
+          assessment: null,
+        };
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -317,9 +318,7 @@ export function createBrowserPackageQueryDataSource(
               "The Browser package-query stream ended without a completion event.",
           };
         }
-        if (!request.assemblyPattern) {
-          onInspection(result.inspection);
-        }
+        onInspection(result.inspection);
         return completion;
       } catch (error) {
         flushEvents();
@@ -333,26 +332,6 @@ export function createBrowserPackageQueryDataSource(
       }
     },
   };
-}
-
-async function runAssemblyQuery(
-  engine: BrowserPackageQueryEngine,
-  operationId: string,
-  request: QueryAssemblyPatternRequest,
-  eventSink: unknown,
-): Promise<BrowserPackageQueryResult> {
-  if (!engine.runAssembly) {
-    throw new Error(
-      "Assembly-pattern package queries are unavailable in this Browser engine.");
-  }
-  return await engine.runAssembly(
-    operationId,
-    request.patternId,
-    request.operand,
-    JSON.stringify(request.packageCoordinates),
-    request.targetFramework,
-    PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-    eventSink);
 }
 
 function cancellationReason(reason: unknown): string {
@@ -529,6 +508,7 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
         text: stringValue(evidence.text, "package-query evidence text"),
         scope,
         summary: parseEvidenceSummary(evidence.summary),
+        term: parseEvidenceTerm(evidence.term),
       };
     }),
     totalDownloads: nullableNumberValue(
@@ -688,6 +668,20 @@ function parseEvidenceSummary(
     count: countValue(summary.count, "package-query evidence count"),
     preview: summary.preview.map(item =>
       stringValue(item, "package-query evidence preview")),
+  };
+}
+
+function parseEvidenceTerm(
+  value: unknown,
+): BrowserPackageQueryRowPayload["evidence"][number]["term"] {
+  if (value === null) return null;
+  const term = objectValue(value, "package-query evidence term");
+  return {
+    key: stringValue(term.key, "package-query evidence term key"),
+    operator: stringValue(
+      term.operator,
+      "package-query evidence term operator"),
+    value: stringValue(term.value, "package-query evidence term value"),
   };
 }
 
@@ -947,6 +941,13 @@ function toQueryRow(
           count: item.summary.count,
           preview: [...item.summary.preview],
         },
+    ...(item.term === null
+      ? {}
+      : { term: {
+          key: item.term.key,
+          operator: item.term.operator,
+          value: item.term.value,
+        } }),
   }));
   if (!evidence.length || evidence.some(item => item.text.trim().length === 0)) {
     throw new TypeError("A package-query row contained no evidence.");

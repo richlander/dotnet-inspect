@@ -31,10 +31,19 @@ public sealed class WorkspaceRootRequestTests
     [Fact]
     public void RootRequestOption_IsAcceptedAndRejectsPackageSelection()
     {
-        Assert.Empty(
-            CommandLineBuilder.CreateRootCommand()
-                .Parse(["workspace", "--root-request", "pkgroot1.a.b.c.d.e.f.g"])
-                .Errors);
+        var root = CommandLineBuilder.CreateRootCommand();
+        Assert.Empty(root
+            .Parse(["workspace", "--root-request", "pkgroot1.a.b.c.d.e.f.g"])
+            .Errors);
+        var workspace = root.Subcommands.Single(
+            command => command.Name == "workspace");
+        var option = Assert.Single(
+            workspace.Options,
+            option => option.Name == "--root-request");
+        Assert.Contains(
+            "package query ... --library-literal",
+            option.Description,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -77,6 +86,10 @@ public sealed class WorkspaceRootRequestTests
             "must be a package Root reopening token",
             captured.Error,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "package query ... --library-literal",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -98,7 +111,7 @@ public sealed class WorkspaceRootRequestTests
             captured.Output,
             StringComparison.Ordinal);
         Assert.Contains(Version, captured.Output, StringComparison.Ordinal);
-        Assert.Contains(Framework, captured.Output, StringComparison.Ordinal);
+        Assert.Contains("Ready", captured.Output, StringComparison.Ordinal);
         Assert.Empty(captured.Error);
     }
 
@@ -118,8 +131,11 @@ public sealed class WorkspaceRootRequestTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(0, captured.ExitCode);
-        Assert.Contains("\"package\"", captured.Output, StringComparison.Ordinal);
-        Assert.Contains("\"framework\"", captured.Output, StringComparison.Ordinal);
+        Assert.Contains("\"package_id\"", captured.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"requested_target_framework\"",
+            captured.Output,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -144,10 +160,20 @@ public sealed class WorkspaceRootRequestTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
         using JsonDocument document = JsonDocument.Parse(captured.Output);
-        JsonElement root = Assert.Single(document.RootElement.EnumerateArray());
-        Assert.Equal(issued.Coordinate.PackageId, root.GetProperty("package").GetString());
-        Assert.Equal(Version, root.GetProperty("version").GetString());
-        Assert.Equal(Framework, root.GetProperty("framework").GetString());
+        JsonElement root = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            issued.Coordinate.PackageId,
+            root.GetProperty("package_id").GetString());
+        Assert.Equal(
+            Version,
+            root.GetProperty("package_version").GetString());
+        Assert.Equal(
+            Framework,
+            root.GetProperty("requested_target_framework").GetString());
+        Assert.Equal(
+            (int)selectionStatus,
+            root.GetProperty("asset_selection_status").GetInt32());
     }
 
     [Fact]

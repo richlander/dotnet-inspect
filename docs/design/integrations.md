@@ -260,6 +260,28 @@ available, rejected, and failed participant outcomes. Its declared local cost
 is network-free, while the registry exposes the unbounded transitive cost of its
 Integrations prerequisite.
 
+The completed participant-scoped host-neutral boundaries are
+`AssemblyIntegrationsInspection` and
+`AssemblyIntegrationOpportunitiesInspection`. The first returns
+`InspectionEnvelope<AssemblyIntegrationsEntry>`. The second returns
+`InspectionEnvelope<AssemblyIntegrationOpportunitiesInspectionResult>`, whose
+Content preserves both the typed Integrations prerequisite and dependent
+Opportunities outcome for the same acquisition registration. Share remains
+explicitly non-projectable until a canonical Workspace projection exists, and
+supplemental diagnostics remain distinct from the query outcomes.
+
+Both inspections expose a reusable execution form that returns the detached
+envelope without releasing the group, which lets Inspect Web keep its exact
+package workspace alive across exports. Their streaming forms lend the retained
+image to one callback, then return the same detached envelope after release,
+which lets the CLI keep participant-at-a-time package retention. The
+package-backed production consumers are Inspect Web package Integrations and
+Opportunities and CLI package `--all-libraries` Integration sections; their
+package workspaces are acquired through the PackageHouse/package-realization
+paths. Direct local-library CLI queries and Inspect Web platform Integrations
+and Opportunities remain neighboring query consumers and are not claimed by
+these package-backed adoptions.
+
 The section catalog binds each member of the family to its owning query
 definition by object identity and owns a separate group-query registry because
 the queries consume an `AssemblyContextGroup`, not a single-library scanner
@@ -278,6 +300,14 @@ gates typed prerequisite composition and suppression of integrations already
 present.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_OpportunityQueryUsesOneImmutableSnapshot`
 gates reuse of the acquired image across both queries.
+`AssemblyContextIntegrationsQueryTests.IntegrationsInspection_ReturnsDetachedReusableEnvelope`
+and
+`AssemblyContextIntegrationsQueryTests.IntegrationsInspection_StreamingEnvelopeSurvivesRelease`
+gate the Integrations reusable and participant-at-a-time handoffs.
+`AssemblyContextIntegrationsQueryTests.OpportunitiesInspection_ReturnsDetachedReusableEnvelope`
+gates the reusable detached handoff, and
+`AssemblyContextIntegrationsQueryTests.OpportunitiesInspection_StreamingEnvelopeSurvivesRelease`
+gates the participant-at-a-time envelope handoff and release boundary.
 `AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection` gates the
 section-specific structured failure surface. Independently inducing a late
 opportunity metadata-decode failure remains unverified. Cancellation-aware

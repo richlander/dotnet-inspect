@@ -62,6 +62,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiMemberMetadataAnchor", banned);
         Assert.Contains("T:ILInspector.Metadata.ApiSurfaceExtractor", banned);
+        Assert.Contains("T:ILInspector.Metadata.ApiDeclarationCorrespondence", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyIdentityScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.ExtensionMethodScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.MethodClassificationScanner", banned);
@@ -75,6 +76,7 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Decompiler.MemberBodyProducer", banned);
+        Assert.Contains("T:ILInspector.Decompiler.CSharpDecompilerService", banned);
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkService", banned);
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkInspector", banned);
         Assert.Contains("T:ILInspector.Instructions.IlAssemblyDiff", banned);
@@ -218,6 +220,16 @@ public sealed class BrowserEngineLayeringTests
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipantAsync",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Sections.AssemblyIntegrationsInspection.ExecuteAndReleaseAsync",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:DotnetInspector.Sections.AssemblyIntegrationOpportunitiesInspection.ExecuteAndReleaseAsync",
                 StringComparison.Ordinal));
     }
 
@@ -512,6 +524,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Services.PdbSourceHouse",
             "DotnetInspector.Services.ProjectAssetsParser",
             "DotnetInspector.Services.SignatureVerifier",
+            "ILInspector.Metadata.AssemblyResolutionProvenance",
             "ILInspector.Metadata.ApiSurface",
             "ILInspector.Metadata.ResolvedAssemblyReference",
             "ILInspector.SourceLink.SourceLinkResolver",

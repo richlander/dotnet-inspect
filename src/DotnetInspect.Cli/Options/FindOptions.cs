@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
@@ -14,12 +15,12 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 
     internal bool PackagePrefixLimitReached { get; init; }
 
+    internal EcosystemPackId[]? Ecosystems { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>
     public string Pattern { get; init; } = "";
-
-    public string? Literal { get; init; }
 
     /// <summary>
     /// Packages to search (name or name@version). Can specify multiple.

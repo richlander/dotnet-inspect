@@ -170,13 +170,13 @@ public class VerifiedLocalSourceReadTests
 
         Assert.Equal(
             SourceChecksumVerification.Exact,
-            PdbSourceHouse.VerifyChecksum("SHA256", SHA256.HashData(content), content));
+            SourceLinkService.VerifyChecksum("SHA256", SHA256.HashData(content), content));
         Assert.Equal(
             SourceChecksumVerification.Mismatch,
-            PdbSourceHouse.VerifyChecksum("SHA256", SHA256.HashData(content), Encoding.UTF8.GetBytes("other")));
+            SourceLinkService.VerifyChecksum("SHA256", SHA256.HashData(content), Encoding.UTF8.GetBytes("other")));
         Assert.Equal(
             SourceChecksumVerification.Unavailable,
-            PdbSourceHouse.VerifyChecksum(null, SHA256.HashData(content), content));
+            SourceLinkService.VerifyChecksum(null, SHA256.HashData(content), content));
     }
 
     [Theory]
@@ -200,12 +200,12 @@ public class VerifiedLocalSourceReadTests
         // Non-ASCII content makes the encoding observable. A checksum-verified local file may be
         // UTF-8 (with or without BOM) or UTF-16; each must decode correctly, not as raw UTF-8.
         const string text = "héllo wörld";
-        Assert.Equal(text, PdbSourceHouse.DecodeSourceText(Encoding.UTF8.GetBytes(text)));
-        Assert.Equal(text, PdbSourceHouse.DecodeSourceText(
+        Assert.Equal(text, SourceLinkService.DecodeSourceText(Encoding.UTF8.GetBytes(text)));
+        Assert.Equal(text, SourceLinkService.DecodeSourceText(
             [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)]));
-        Assert.Equal(text, PdbSourceHouse.DecodeSourceText(
+        Assert.Equal(text, SourceLinkService.DecodeSourceText(
             [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)]));
-        Assert.Equal(text, PdbSourceHouse.DecodeSourceText(
+        Assert.Equal(text, SourceLinkService.DecodeSourceText(
             [.. Encoding.BigEndianUnicode.GetPreamble(), .. Encoding.BigEndianUnicode.GetBytes(text)]));
     }
 
@@ -225,7 +225,7 @@ public class VerifiedLocalSourceReadTests
             Assert.Equal(utf16, result);
             Assert.Equal(
                 Source.ReplaceLineEndings("\n"),
-                PdbSourceHouse.DecodeSourceText(result).ReplaceLineEndings("\n"));
+                SourceLinkService.DecodeSourceText(result).ReplaceLineEndings("\n"));
         }
         finally
         {

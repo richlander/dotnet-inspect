@@ -475,6 +475,26 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<MethodLeverageSummary>? TopLeverage { get; set; }
 
+    private ImplementationProfilesResult?
+        _implementationProfilesQueryResult;
+
+    /// <summary>Typed whole-assembly method implementation profiles.</summary>
+    [JsonIgnore]
+    public ImplementationProfilesResult? ImplementationProfilesQueryResult
+    {
+        get => _implementationProfilesQueryResult;
+        set
+        {
+            _implementationProfilesQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>CLI-owned member coordinates joined to implementation profiles.</summary>
+    [JsonIgnore]
+    public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
+        ImplementationProfilesDrillMap { get; set; }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -887,6 +907,14 @@ public class LibraryInspection
                     SectionNames.TopLeverage,
                     TopLeverageQuery.Definition.Name,
                     leverageFailure.Error.Message));
+            }
+            if (ImplementationProfilesQueryResult
+                is ImplementationProfilesResult.Failed profileFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.ImplementationProfiles,
+                    ImplementationProfilesQuery.Definition.Name,
+                    profileFailure.Error.Message));
             }
             if (OptimizationOpportunitiesQueryResult
                 is OptimizationOpportunitiesResult.Failed optimizationFailure)

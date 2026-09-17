@@ -241,6 +241,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool DiscoverDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
+    public bool FieldsExplicitlySet { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
@@ -344,6 +345,15 @@ public record MemberOptions : ApiOptions
     /// </summary>
     internal bool MemberSectionsPreResolved { get; init; }
 
+    /// <summary>
+    /// Sections implied by non-selector command options. These may require a narrower target but
+    /// do not make category- or glob-expanded sections exact.
+    /// </summary>
+    internal HashSet<string> ImplicitIncludeSections { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    internal int? SelectedBodyMethodToken { get; init; }
+
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }
@@ -432,13 +442,13 @@ public record MethodSourceContext(
     string? SourceUrl,
     string? ChecksumAlgorithm = null,
     string? Checksum = null,
-    DotnetInspector.Services.SourceChecksumVerification ChecksumVerification =
-        DotnetInspector.Services.SourceChecksumVerification.Unavailable)
+    ILInspector.SourceLink.SourceChecksumVerification ChecksumVerification =
+        ILInspector.SourceLink.SourceChecksumVerification.Unavailable)
 {
     public bool HasChecksumEvidence =>
         !string.IsNullOrWhiteSpace(ChecksumAlgorithm)
         && !string.IsNullOrWhiteSpace(Checksum)
         && ChecksumVerification is
-            DotnetInspector.Services.SourceChecksumVerification.Exact
-            or DotnetInspector.Services.SourceChecksumVerification.LineEndingNormalized;
+            ILInspector.SourceLink.SourceChecksumVerification.Exact
+            or ILInspector.SourceLink.SourceChecksumVerification.LineEndingNormalized;
 }

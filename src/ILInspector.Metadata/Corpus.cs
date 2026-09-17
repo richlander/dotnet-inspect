@@ -416,7 +416,8 @@ public sealed class Corpus
     /// Finds members in the corpus whose name matches any pattern, reusing <see cref="MemberSearch"/>
     /// per member so each match carries the provenance of the specific assembly that supplied it.
     /// </summary>
-    /// <param name="patterns">Member-name patterns (exact case-insensitive, or glob with <c>*</c>/<c>?</c>).</param>
+    /// <param name="patterns">Member-name patterns (direct case-insensitive, including the indexer
+    /// alias, or glob with <c>*</c>/<c>?</c>).</param>
     /// <param name="includeAll">When true, non-public members are included; otherwise public only.</param>
     /// <param name="limit">Optional cap on total results collected across the corpus.</param>
     public CorpusMemberSearchOutcome SearchMembers(

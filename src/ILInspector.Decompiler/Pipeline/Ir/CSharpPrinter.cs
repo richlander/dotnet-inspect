@@ -540,19 +540,7 @@ public sealed partial class CSharpPrinter
     }
 
     DecompilerOptions EffectiveDecompilerOptions()
-        => new()
-        {
-            ReadableLocalNames = _options.ReadableLocalNames,
-            PreferFrameworkTypeImports = true,
-            WrapExpressionBodyArrow = _options.WrapExpressionBodyArrow,
-            WrapSplittableExpressions = _options.WrapSplittableExpressions,
-            DisableOneLinerWrapping = _options.DisableOneLinerWrapping,
-            QualifyFieldAccess = _options.QualifyFieldAccess,
-            QualifyPropertyAccess = _options.QualifyPropertyAccess,
-            QualifyMethodAccess = _options.QualifyMethodAccess,
-            QualifyEventAccess = _options.QualifyEventAccess,
-            EnumCaseLabelOrder = _options.EnumCaseLabelOrder,
-        };
+        => DecompilerOptions.FromPrinterOptions(_options);
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null, string? dedupDiscriminator = null)
     {

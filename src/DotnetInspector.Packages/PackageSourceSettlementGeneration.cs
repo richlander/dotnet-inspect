@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using InertText;
 using NuGetFetch;
 
@@ -197,6 +198,57 @@ internal sealed class PackageSourceSettlementGeneration
             candidates,
             failures,
             PackageAcquisitionPopulationCompletionKind.ExactCoordinates);
+    }
+
+    internal async Task<PackageAcquisitionPopulation>
+        ResolveGalleryExactPopulationAsync(
+        string packageId,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization,
+        NuGetOperationContext operationContext)
+    {
+        ConfiguredPackageAuthority authority =
+            authorization.Authorities[0];
+        IPackageSourceClient client = GetClient(authority);
+        RequireAuthority(client.Source, authority);
+        if (client.Source.TransportKind
+            != PackageSourceKind.NuGetGallery)
+        {
+            throw new InvalidOperationException(
+                "Exact package population selection requires the NuGet Gallery client.");
+        }
+
+        PackageVersionDiscoveryResult discovery =
+            await DiscoverVersionsAsync(
+                packageId,
+                authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration,
+                operationContext).ConfigureAwait(false);
+        PackageVersionSelectionRequest selection = includePrerelease
+            ? new PackageVersionSelectionRequest.LatestPrerelease(packageId)
+            : new PackageVersionSelectionRequest.LatestStable(packageId);
+        PackageVersionResolutionReceipt resolution =
+            PackageVersionSelectionResolver.Resolve(
+                selection,
+                discovery,
+                PackageVersionDiscoveryFreshness.Current);
+        ImmutableArray<PackageAcquisitionCandidate> candidates =
+            resolution is PackageVersionResolutionReceipt.Resolved resolved
+                ? [resolved.Candidate]
+                : [];
+        ImmutableArray<PackageAcquisitionPopulationFailure> failures =
+        [
+            .. discovery.Failures.Select(failure =>
+                PackageAcquisitionPopulationFailure.ForSource(failure)),
+        ];
+
+        return new PackageAcquisitionPopulation(
+            requestedCandidates: 1,
+            candidates,
+            failures,
+            discovery.Failures.Count == 0
+                ? PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
+                : PackageAcquisitionPopulationCompletionKind.SourceFailed);
     }
 
     internal async Task<PackageAcquisitionPopulation>
@@ -489,7 +541,8 @@ internal sealed class PackageSourceSettlementGeneration
         string packageId,
         PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
-        NuGetOperationContext operationContext)
+        NuGetOperationContext operationContext,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -499,7 +552,8 @@ internal sealed class PackageSourceSettlementGeneration
             authorization,
             contract,
             operationContext.CancellationToken,
-            operationContext);
+            operationContext,
+            log);
     }
 
     private async Task<PackageVersionDiscoveryResult>
@@ -508,7 +562,8 @@ internal sealed class PackageSourceSettlementGeneration
         PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
         CancellationToken cancellationToken,
-        NuGetOperationContext operation)
+        NuGetOperationContext operation,
+        Action<string>? log = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var outcomes = new List<
@@ -542,6 +597,8 @@ internal sealed class PackageSourceSettlementGeneration
             IPackageSourceClient client = GetClient(authority);
             RequireAuthority(client.Source, authority);
 
+            log?.Invoke(
+                $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
             PackageSourceOperationResult<PackageVersionResult> outcome;
             try
             {

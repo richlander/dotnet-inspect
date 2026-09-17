@@ -17,11 +17,12 @@ import type {
 } from "../src/facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 
 function source(text: string): BrowserSource {
   return {
     provider: "pdb",
-    provenance: "SourceLink",
+    provenance: inertStringFixture("SourceLink"),
     url: "https://example.test/source.cs",
     pdbSourceLimitation: null,
     text,

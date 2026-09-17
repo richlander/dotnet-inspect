@@ -114,7 +114,6 @@ function createHarness({
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
     packageCount: () => 1,
-    activeFramework: () => "net10.0",
     render: () => {},
     focusAfterDismiss,
     ...(captureFocusAfterDismiss ? { captureFocusAfterDismiss } : {}),
@@ -277,9 +276,7 @@ test("Add package is a named package-only picker without commands or removal", (
       { kind: "command", action: "complete", command: "show", value: "show", hint: "Show", category: "choice" },
       { kind: "pkg-loaded", pkg, ranges: [] },
       { kind: "package-query", prefix: "" },
-      { kind: "rtpack-suggest" },
-      { kind: "rtpack-status", loading: true },
-      { kind: "platform-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] },
+      { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] },
       { kind: "type", pkg, type, ranges: [] },
       { kind: "member", pkg, type, memberKey: "ToString", name: "ToString", ranges: [] },
     ],
@@ -300,6 +297,24 @@ test("Add package is a named package-only picker without commands or removal", (
   assert.match(html, /1\.0\.0 · already in Workspace/);
   assert.equal(html.match(/tabindex="-1"/g)?.length, 3);
   assert.doesNotMatch(html, /data-sl-scope|data-sl-remove|Shift\+Delete|Commands|Platform|Package query/);
+});
+
+test("exact package coordinates are presented as direct listed-or-unlisted opens", () => {
+  const hit: SpotlightPackageResult = {
+    kind: "pkg-nuget",
+    hit: { id: "WrongTurn", version: "0.1.14", exact: true },
+    ranges: [[0, 9]],
+  };
+  const { spotlight } = createHarness({
+    query: "WrongTurn@0.1.14",
+    searchResults: () => [hit],
+  });
+
+  const html = spotlight.inlineHtml(false);
+
+  assert.match(html, /data-sl-pkg-load="WrongTurn"/);
+  assert.match(html, /data-sl-pkg-version="0\.1\.14"/);
+  assert.match(html, /0\.1\.14 · exact coordinate · listed or unlisted/);
 });
 
 test("Add package dispatches rendered loaded, NuGet and recent rows only to Add", () => {
@@ -561,6 +576,18 @@ test("Spotlight renders the package-query action with its seeded prefix identity
   assert.match(html, /Package query/);
   assert.match(html, /Microsoft\.Extensions\./);
   assert.match(html, /data-sl-package-query="1"/);
+});
+
+test("Spotlight renders Package Activity as a routed package action", () => {
+  const { spotlight } = createHarness({
+    searchResults: () => [{ kind: "package-activity" }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Package Activity/);
+  assert.match(html, /Review product package changes over time/);
+  assert.match(html, /data-sl-package-activity="1"/);
 });
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
@@ -842,9 +869,9 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   const pendingHtml = spotlight.inlineHtml(true);
   assert.match(pendingHtml, /class="home-search-content" inert/);
   assert.match(pendingHtml, /id="spotlight-input"/);
-  assert.match(pendingHtml, /package, type, or member…/);
+  assert.match(pendingHtml, /package, type, member, or PackageId@Version…/);
   assert.doesNotMatch(pendingHtml, /or command/);
-  assert.match(pendingHtml, /data-sl-scope="runtime"[^>]*>Platform/);
+  assert.doesNotMatch(pendingHtml, /data-sl-scope="runtime"|>Platform</);
   assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
   assert.doesNotMatch(pendingHtml, /home-search-glint/);
 
@@ -853,6 +880,26 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   assert.match(readyHtml, /class="home-search-glint-glow" pathLength="1"/);
   assert.match(readyHtml, /class="home-search-glint-line" pathLength="1"/);
   assert.doesNotMatch(spotlight.inlineHtml(false), /home-search-glint/);
+});
+
+test("framework assemblies are Library results without a Platform destination", () => {
+  const { spotlight } = createHarness({
+    searchResults: () => [{
+      kind: "framework-lib",
+      assembly: "System.Text.Json",
+      pack: "netcore.app",
+      publicTypes: 42,
+      tfm: "net11.0",
+      version: "11.0.0",
+      ranges: [],
+    }],
+  });
+
+  const html = spotlight.modalHtml();
+  assert.match(html, /class="spotlight-group">Libraries/);
+  assert.match(html, /data-sl-framework-lib="System\.Text\.Json"/);
+  assert.match(html, /\.NET library · net11\.0 · 11\.0\.0 · 42 types/);
+  assert.doesNotMatch(html, /data-sl-scope="runtime"|>Platform</);
 });
 
 test("command queries and command metadata are escaped in Spotlight markup", () => {

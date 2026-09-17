@@ -16,7 +16,8 @@ public static class FindOutputFormatter
         List<TypeFindResult> results,
         string? title = null)
     {
-        var matchCount = results.Count(r => r.Match != MatchKind.NotFound);
+        var matchCount = results.Count(
+            r => r.Match != TypeFindMatchKind.NotFound);
 
         return new FindResultView(
             Field(title ?? "Find Results"),
@@ -25,11 +26,11 @@ public static class FindOutputFormatter
             Matches = matchCount,
             Results = matchCount == 0 ? null : results.Select(r => new FindRow(
                 Field(r.Pattern),
-                Field(r.Match == MatchKind.NotFound ? "-" : r.Type),
-                Field(r.Match == MatchKind.NotFound ? "-" : r.Namespace ?? ""),
-                Field(r.Match == MatchKind.NotFound ? "-" : r.Kind),
-                Field(r.Match == MatchKind.NotFound ? "-" : r.Library),
-                r.Match == MatchKind.NotFound ? Field("-") : Source(r.Source, r.SourceVersion),
+                Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Type),
+                Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Namespace ?? ""),
+                Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Kind),
+                Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Library),
+                r.Match == TypeFindMatchKind.NotFound ? Field("-") : Source(r.Source, r.SourceVersion),
                 Field(r.Match.ToString().ToLowerInvariant()),
                 Field(r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-")
             )).ToList()

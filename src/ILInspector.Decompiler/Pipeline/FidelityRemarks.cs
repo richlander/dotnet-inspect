@@ -46,6 +46,15 @@ public static class FidelityRemarks
 
     static IEnumerable<DecompilerFidelityCause> Enumerate(IrFunction function)
     {
+        if (function.ExceptionFactFailure is { } exceptionFactFailure)
+        {
+            yield return Cause(
+                DiagnosticIds.ExceptionFactsUnavailable,
+                DecompilerFidelityLocation.Unknown,
+                function,
+                exceptionFactFailure);
+        }
+
         var consumedMembers = new List<ConsumedMemberEvidence>();
         var reportedMethods = new HashSet<MethodRef>();
         var reportedFields = new HashSet<FieldRef>();

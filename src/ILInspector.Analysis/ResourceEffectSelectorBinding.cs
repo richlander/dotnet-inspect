@@ -181,19 +181,23 @@ public abstract class ResourceEffectSelectorBinding
             DirectCallDefinitionResolution.Resolved directCall,
             ImmutableArray<ResolvedResourceEffectGenericBinding>
                 genericBindings,
-            ImmutableArray<ResolvedResourceKindReference> resourceKinds)
+            ImmutableArray<ResolvedResourceKindReference> resourceKinds,
+            DirectCallDefinitionOccurrence? declarationOrigin = null)
             : base(declaration, directCall)
         {
             GenericBindings = genericBindings;
             ResourceKinds = resourceKinds;
+            DeclarationOrigin = declarationOrigin ?? directCall.Definition;
         }
 
         public new DirectCallDefinitionResolution.Resolved DirectCall =>
             (DirectCallDefinitionResolution.Resolved)base.DirectCall;
         public ImmutableArray<ResolvedResourceEffectGenericBinding>
-            GenericBindings { get; }
+            GenericBindings
+        { get; }
         public ImmutableArray<ResolvedResourceKindReference> ResourceKinds
             { get; }
+        internal DirectCallDefinitionOccurrence DeclarationOrigin { get; }
     }
 
     public sealed class Unmatched : ResourceEffectSelectorBinding
@@ -368,7 +372,7 @@ public static class ResourceEffectSelectorBinder
             ResourceEffectSelectorBindingGapKind.DirectCallDefinition,
             gap);
 
-    static bool CouldMatch(
+    internal static bool CouldMatch(
         ResourceEffectMemberSelector selector,
         MemberRef member)
     {
@@ -417,7 +421,7 @@ public static class ResourceEffectSelectorBinder
         return TypeNameCouldMatch(selector.DeclaringType, declaring);
     }
 
-    static bool TypeNameCouldMatch(
+    internal static bool TypeNameCouldMatch(
         ResourceTypeExpression.Named selector,
         TypeRef actual)
     {
@@ -636,7 +640,8 @@ public static class ResourceEffectSelectorBinder
                         named.Arguments[i],
                         actualArguments[i],
                         resolution,
-                        bindings);
+                        bindings,
+                        definingAssembly);
                     if (argument.Kind != MatchKind.Match)
                         return argument;
                 }
@@ -649,7 +654,8 @@ public static class ResourceEffectSelectorBinder
                         array.Element,
                         actual.ElementType!,
                         resolution,
-                        bindings)
+                        bindings,
+                        definingAssembly)
                     : MatchResult.NoMatch();
 
             case ResourceTypeExpression.Array array:
@@ -659,7 +665,8 @@ public static class ResourceEffectSelectorBinder
                         array.Element,
                         actual.ElementType!,
                         resolution,
-                        bindings)
+                        bindings,
+                        definingAssembly)
                     : MatchResult.NoMatch();
 
             case ResourceTypeExpression.ByReference reference:
@@ -668,7 +675,8 @@ public static class ResourceEffectSelectorBinder
                         reference.Element,
                         actual.ElementType!,
                         resolution,
-                        bindings)
+                        bindings,
+                        definingAssembly)
                     : MatchResult.NoMatch();
 
             case ResourceTypeExpression.Pointer pointer:
@@ -677,7 +685,8 @@ public static class ResourceEffectSelectorBinder
                         pointer.Element,
                         actual.ElementType!,
                         resolution,
-                        bindings)
+                        bindings,
+                        definingAssembly)
                     : MatchResult.NoMatch();
 
             default:
@@ -695,9 +704,37 @@ public static class ResourceEffectSelectorBinder
         {
             if (IsCoreLibraryFacadeMatch(selector, actual))
                 return MatchResult.Match();
-            return AssemblyMatches(selector, definingAssembly)
-                ? MatchResult.Match()
-                : MatchResult.NoMatch();
+            if (actual.Resolution?.Origin
+                    is TypeReferenceOrigin.AssemblyReference origin
+                && AssemblyMatches(selector, origin.Assembly))
+            {
+                return MatchResult.Match();
+            }
+            if (actual.Resolution?.Origin
+                    is TypeReferenceOrigin.CurrentAssembly current)
+            {
+                return AssemblyMatches(
+                        selector,
+                        current.Assembly ?? definingAssembly)
+                    ? MatchResult.Match()
+                    : MatchResult.NoMatch();
+            }
+            if (resolution.TypeResolutions.TryGet(
+                    actual,
+                    out DirectCallTypeResolutionProjection selectedProjection)
+                && selectedProjection.Kind
+                    == DirectCallTypeResolutionKind.Resolved)
+            {
+                return AssemblyMatches(
+                        selector,
+                        selectedProjection.Assembly!)
+                    ? MatchResult.Match()
+                    : MatchResult.NoMatch();
+            }
+            return actual.Resolution is null
+                && AssemblyMatches(selector, definingAssembly)
+                    ? MatchResult.Match()
+                    : MatchResult.NoMatch();
         }
         if (!resolution.TypeResolutions.TryGet(
                 actual,
@@ -928,6 +965,17 @@ public static class ResourceEffectSelectorBinder
                 element?.Forwarding ?? []);
             return MatchResult.Match();
         }
+        if (IsIntrinsicCoreLibrarySignatureType(definition))
+        {
+            result = new ResolvedResourceEffectType(
+                type,
+                null,
+                null,
+                null,
+                element,
+                arguments.ToImmutable());
+            return MatchResult.Match();
+        }
         if (!resolution.TypeResolutions.TryGet(
                 definition,
                 out DirectCallTypeResolutionProjection projection))
@@ -980,44 +1028,85 @@ public static class ResourceEffectSelectorBinder
         return MatchResult.Match();
     }
 
+    internal static bool IsIntrinsicCoreLibrarySignatureType(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType!
+            : type;
+        if (definition.Kind != TypeRefKind.Definition
+            || definition.Assembly != TypeRef.CoreLibrary
+            || !definition.TrustedFrameworkAssembly)
+        {
+            return false;
+        }
+        if (definition.Resolution?.Origin
+            is TypeReferenceOrigin.IntrinsicCoreLibrary)
+        {
+            return true;
+        }
+        return definition.Resolution is null
+            && definition.Namespace == "System"
+            && definition.Name is
+                "Void"
+                or "Boolean"
+                or "Char"
+                or "SByte"
+                or "Byte"
+                or "Int16"
+                or "UInt16"
+                or "Int32"
+                or "UInt32"
+                or "Int64"
+                or "UInt64"
+                or "IntPtr"
+                or "UIntPtr"
+                or "Single"
+                or "Double"
+                or "String"
+                or "Object"
+                or "TypedReference";
+    }
+
     static bool TryResolveResourceKinds(
         ResourceEffect effect,
         ImmutableArray<ResolvedResourceEffectGenericBinding> bindings,
         out ImmutableArray<ResolvedResourceKindReference> resolvedKinds)
     {
-        ResourceKindReference? kind = EffectKind(effect);
-        if (kind is null)
+        var resolved =
+            ImmutableArray.CreateBuilder<ResolvedResourceKindReference>();
+        foreach (ResourceKindReference kind in EffectKinds(effect)
+            .Distinct())
         {
-            resolvedKinds = [];
-            return true;
-        }
-        var arguments =
-            ImmutableArray.CreateBuilder<ResolvedResourceEffectType>(
-                kind.Arguments.Length);
-        foreach (ResourceEffectGenericVariable variable
-            in kind.Arguments)
-        {
-            ResolvedResourceEffectGenericBinding? binding =
-                bindings.FirstOrDefault(candidate =>
-                    candidate.Variable == variable);
-            if (binding is null)
+            var arguments =
+                ImmutableArray.CreateBuilder<ResolvedResourceEffectType>(
+                    kind.Arguments.Length);
+            foreach (ResourceEffectGenericVariable variable
+                in kind.Arguments)
             {
-                resolvedKinds = [];
-                return false;
+                ResolvedResourceEffectGenericBinding? binding =
+                    bindings.FirstOrDefault(candidate =>
+                        candidate.Variable == variable);
+                if (binding is null)
+                {
+                    resolvedKinds = [];
+                    return false;
+                }
+                arguments.Add(binding.Value);
             }
-            arguments.Add(binding.Value);
-        }
-        resolvedKinds =
-        [
-            new ResolvedResourceKindReference(
+            var candidate = new ResolvedResourceKindReference(
                 kind.Identity,
-                arguments.ToImmutable()),
-        ];
+                arguments.ToImmutable());
+            if (!resolved.Contains(candidate))
+                resolved.Add(candidate);
+        }
+        resolvedKinds = resolved.ToImmutable();
         return true;
     }
 
-    static ResourceKindReference? EffectKind(ResourceEffect effect) =>
-        effect switch
+    static IEnumerable<ResourceKindReference> EffectKinds(
+        ResourceEffect effect)
+    {
+        ResourceKindReference? direct = effect switch
         {
             ResourceEffect.Resource value => value.Kind,
             ResourceEffect.Authority value => value.Kind,
@@ -1029,6 +1118,136 @@ public static class ResourceEffectSelectorBinder
             ResourceEffect.Accept value => value.Kind,
             _ => null,
         };
+        if (direct is not null)
+            yield return direct;
+        foreach (ResourceEffectLocation location in EffectLocations(effect))
+        {
+            foreach (ResourceKindReference kind in LocationKinds(location))
+                yield return kind;
+        }
+    }
+
+    static IEnumerable<ResourceKindReference> LocationKinds(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.OperationSlot operation:
+                if (operation.Kind is not null)
+                    yield return operation.Kind;
+                foreach (ResourceKindReference kind
+                    in LocationKinds(operation.Source))
+                {
+                    yield return kind;
+                }
+                break;
+            case ResourceEffectLocation.StructuralField field:
+                foreach (ResourceKindReference kind
+                    in LocationKinds(field.Root))
+                {
+                    yield return kind;
+                }
+                break;
+        }
+    }
+
+    static IEnumerable<ResourceEffectLocation> EffectLocations(
+        ResourceEffect effect) =>
+        effect switch
+        {
+            ResourceEffect.Authority value => [value.Target],
+            ResourceEffect.Acquire value =>
+                Present(
+                    value.Target,
+                    value.Correspondence,
+                    value.Lender,
+                    CompletionSource(value.When)),
+            ResourceEffect.Move value =>
+                Present(
+                    value.Source,
+                    value.Target,
+                    CompletionSource(value.When)),
+            ResourceEffect.Consume value => [value.Source, value.Target],
+            ResourceEffect.Release value =>
+                Present(
+                    value.Source,
+                    value.Correspondence,
+                    value.Observation,
+                    CompletionSource(value.When)),
+            ResourceEffect.Borrow value =>
+                Present(value.Source, value.Target, value.Lender),
+            ResourceEffect.Derive value =>
+                Present(value.Source, value.Target, GuardSubject(value.Guard)),
+            ResourceEffect.Pass value => [value.Source, value.Target],
+            ResourceEffect.Independent value =>
+                [value.Source, value.Target],
+            ResourceEffect.Callback value => [value.Delegate],
+            ResourceEffect.Accept value =>
+                Present(
+                    value.Source,
+                    value.Target,
+                    CompletionSource(value.When)),
+            ResourceEffect.Operation value =>
+                Present(GuardSubject(value.Guard)),
+            ResourceEffect.Outcome value => [value.Source],
+            _ => [],
+        };
+
+    static ResourceEffectLocation? CompletionSource(
+        ResourceEffectCompletion completion) =>
+        completion is ResourceEffectCompletion.OutcomeCase outcome
+            ? outcome.Source
+            : null;
+
+    static IEnumerable<ResourceEffectLocation> Present(
+        params ResourceEffectLocation?[] locations) =>
+        locations.OfType<ResourceEffectLocation>();
+
+    static ResourceEffectLocation? GuardSubject(
+        ResourceEffectGuard? guard) =>
+        guard is ResourceEffectGuard.ExactRuntimeType exact
+            ? exact.Subject
+            : null;
+
+    internal static MatchResult MatchOccurrenceType(
+        ResourceTypeExpression selector,
+        TypeRef actual,
+        ResourceEffectSelectorBinding.Resolved binding,
+        AssemblyReferenceIdentity? definingAssembly = null)
+    {
+        var bindings = binding.GenericBindings.ToDictionary(
+            item => item.Variable,
+            item => item.Value.Type);
+        return MatchType(
+            selector,
+            actual,
+            binding.DirectCall,
+            bindings,
+            definingAssembly);
+    }
+
+    internal static bool TryGetDefinition(
+        TypeRef type,
+        DirectCallDefinitionResolution.Resolved resolution,
+        out ResolvedTypeDefinition definition)
+    {
+        TypeRef candidate = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType!
+            : type;
+        if (candidate.Kind == TypeRefKind.Definition
+            && resolution.TypeResolutions.TryGet(
+                candidate,
+                out DirectCallTypeResolutionProjection projection)
+            && projection.Outcome
+                is TypeResolutionOutcome.Resolved resolved)
+        {
+            definition = resolved.Definition;
+            return true;
+        }
+
+        definition = null!;
+        return false;
+    }
 
     static bool MemberKindMatches(
         ResourceEffectMemberKind selector,

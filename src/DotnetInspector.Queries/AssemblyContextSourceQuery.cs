@@ -53,6 +53,8 @@ public sealed class AssemblyContextSourceQueryContext
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public bool CacheOnly { get; init; }
     public SymbolAcquisitionLimits? SymbolAcquisitionLimits { get; init; }
+    public int MaxDecompilerBodyProjections { get; init; } =
+        CSharpDecompilerService.DefaultMaxBodyProjections;
 
     /// <summary>
     /// Allows checksum-authenticated reads from absolute paths recorded in the
@@ -236,7 +238,7 @@ public abstract record AssemblyMemberSource(string Text)
 
     public sealed record Decompiled(
         string Text,
-        MemberRenderResult Decompilation,
+        CSharpDecompilationAttempt Decompilation,
         PdbMemberSourceInspection PdbAttempt)
         : AssemblyMemberSource(Text);
 }
@@ -251,7 +253,7 @@ public abstract record AssemblyTypeSource(string Text)
 
     public sealed record Decompiled(
         string Text,
-        DecompilerResult Decompilation,
+        CSharpDecompilationAttempt Decompilation,
         PdbTypeSourceInspection PdbAttempt)
         : AssemblyTypeSource(Text);
 }
@@ -277,7 +279,7 @@ public abstract record AssemblyMemberSourceEntry(
         AssemblyMemberSourceRequest Request,
         AssemblySourceFailure Failure,
         PdbMemberSourceInspection? PdbAttempt = null,
-        MemberRenderResult? DecompiledAttempt = null)
+        CSharpDecompilationAttempt? DecompiledAttempt = null)
         : AssemblyMemberSourceEntry(Subject, Request);
 }
 
@@ -296,13 +298,16 @@ public abstract record AssemblyMemberPdbSourceAttempt
 public abstract record AssemblyMemberDecompiledSourceAttempt
 {
     public sealed record Available(
-        MemberRenderResult Result)
+        CSharpDecompilationAttempt Result)
         : AssemblyMemberDecompiledSourceAttempt;
 
     public sealed record Unavailable(
-        MemberBodyProductionStatus Status,
-        string? FailureDetail)
-        : AssemblyMemberDecompiledSourceAttempt;
+        CSharpDecompilationAttempt Result)
+        : AssemblyMemberDecompiledSourceAttempt
+    {
+        public CSharpDecompilationStatus Status => Result.Status;
+        public string FailureDetail => Result.DiagnosticSummary;
+    }
 }
 
 public abstract record AssemblyMemberSourceComparisonEntry(
@@ -363,7 +368,7 @@ public abstract record AssemblyTypeSourceEntry(
         AssemblyTypeSourceRequest Request,
         AssemblySourceFailure Failure,
         PdbTypeSourceInspection? PdbAttempt = null,
-        DecompilerResult? DecompiledAttempt = null)
+        CSharpDecompilationAttempt? DecompiledAttempt = null)
         : AssemblyTypeSourceEntry(Subject, Request);
 }
 
@@ -701,15 +706,17 @@ public static class AssemblyContextSourceQuery
                     provenance));
         }
 
-        MemberRenderResult decompiled =
+        CSharpDecompilationAttempt decompiled =
             DecompileMember(
                 participant,
                 request,
                 target,
                 retained,
                 bindingPolicyVersion,
+                pdb.PdbImage,
+                context.MaxDecompilerBodyProjections,
                 cancellationToken);
-        if (decompiled.IsComplete
+        if (decompiled.IsAvailable
             && decompiled.Text is { } decompiledText)
         {
             return new AssemblyMemberSourceEntry.Available(
@@ -747,7 +754,8 @@ public static class AssemblyContextSourceQuery
                     context,
                     retained,
                     bindingPolicyVersion,
-                    cancellationToken)
+                    cancellationToken,
+                    retainSymbolsOnSuccess: true)
                 .ConfigureAwait(false);
         AssemblyMemberPdbSourceAttempt pdbAttempt =
             pdb.Inspection.IsComplete
@@ -759,22 +767,23 @@ public static class AssemblyContextSourceQuery
                     : new AssemblyMemberPdbSourceAttempt.Unavailable(
                         pdb.Inspection);
 
-        MemberRenderResult decompiled =
+        CSharpDecompilationAttempt decompiled =
             DecompileMember(
                 participant,
                 request,
                 target,
                 retained,
                 bindingPolicyVersion,
+                pdb.PdbImage,
+                context.MaxDecompilerBodyProjections,
                 cancellationToken);
         AssemblyMemberDecompiledSourceAttempt decompiledAttempt =
-            decompiled.IsComplete
+            decompiled.IsAvailable
                 && decompiled.Text is not null
                     ? new AssemblyMemberDecompiledSourceAttempt.Available(
                         decompiled)
                     : new AssemblyMemberDecompiledSourceAttempt.Unavailable(
-                        decompiled.Status,
-                        decompiled.Text);
+                        decompiled);
 
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
@@ -806,7 +815,8 @@ public static class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retainSymbolsOnSuccess = false)
     {
         var findingSubject = new FindingSubject(
             "member",
@@ -819,6 +829,7 @@ public static class AssemblyContextSourceQuery
                 .ConfigureAwait(false);
         PdbMemberSourceInspection inspection;
         AssemblyPdbSourceProvenance? provenance = null;
+        ImmutableArray<byte>? pdbImage = null;
         if (sourceResult.Source is { } source)
         {
             Exception? disposalFailure = null;
@@ -846,6 +857,12 @@ public static class AssemblyContextSourceQuery
                     bindingPolicyVersion);
                 if (inspection.IsComplete)
                     provenance = PdbProvenance(source);
+                if (retainSymbolsOnSuccess
+                    || !inspection.IsComplete
+                    || inspection.Text is null)
+                {
+                    pdbImage = source.Context.GetPortablePdbImage();
+                }
             }
             finally
             {
@@ -872,15 +889,18 @@ public static class AssemblyContextSourceQuery
 
         return new MemberPdbInspection(
             inspection,
-            provenance);
+            provenance,
+            pdbImage);
     }
 
-    static MemberRenderResult DecompileMember(
+    static CSharpDecompilationAttempt DecompileMember(
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
         (ApiType Type, ApiMember Member) target,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
+        ImmutableArray<byte>? pdbImage,
+        int maxBodyProjections,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -890,13 +910,16 @@ public static class AssemblyContextSourceQuery
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy);
-        MemberRenderResult decompiled =
-            MemberBodyProducer.ProduceMember(
+        CSharpDecompilationAttempt decompiled =
+            CSharpDecompilerService.ProduceMember(
                 target.Type,
                 target.Member,
                 retained.WithoutLocalPath(),
                 bindingPolicy,
-                printerOptions: request.PrinterOptions);
+                pdbImage: pdbImage,
+                printerOptions: request.PrinterOptions,
+                maxBodyProjections: maxBodyProjections,
+                cancellationToken: cancellationToken);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
@@ -925,6 +948,7 @@ public static class AssemblyContextSourceQuery
                     cancellationToken)
                 .ConfigureAwait(false);
         PdbTypeSourceInspection pdbSource;
+        ImmutableArray<byte>? pdbImage = null;
         if (sourceResult.Source is { } source)
         {
             AssemblyTypeSourceEntry.Available? pdbEntry = null;
@@ -962,6 +986,8 @@ public static class AssemblyContextSourceQuery
                                 pdbSource,
                                 PdbProvenance(source)));
                 }
+                if (pdbEntry is null)
+                    pdbImage = source.Context.GetPortablePdbImage();
             }
             finally
             {
@@ -997,19 +1023,22 @@ public static class AssemblyContextSourceQuery
                 participant.BindingPolicy);
         ResolvedAssemblyReference decompilerAssembly =
             retained.WithoutLocalPath();
-        DecompilerResult decompiled =
-            MemberBodyProducer.Project(
+        CSharpDecompilationAttempt decompiled =
+            CSharpDecompilerService.ProduceType(
                 target,
                 decompilerAssembly,
                 bindingPolicy,
-                printerOptions: request.PrinterOptions);
+                pdbImage: pdbImage,
+                printerOptions: request.PrinterOptions,
+                maxBodyProjections: context.MaxDecompilerBodyProjections,
+                cancellationToken: cancellationToken);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
             participant,
             bindingPolicyVersion);
-        if (decompiled.Succeeded
-            && decompiled.Output is { } decompiledText)
+        if (decompiled.IsAvailable
+            && decompiled.Text is { } decompiledText)
         {
             return new AssemblyTypeSourceEntry.Available(
                 subject,
@@ -1153,7 +1182,7 @@ public static class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             FileStream transferred = owned;
             owned = null;
-            source.Context.LoadPdbFromStream(
+            source.LoadPdbFromStream(
                 transferred,
                 pdbLocation: "Standalone",
                 portablePdbPath: path,
@@ -1449,7 +1478,8 @@ public static class AssemblyContextSourceQuery
 
     internal sealed record MemberPdbInspection(
         PdbMemberSourceInspection Inspection,
-        AssemblyPdbSourceProvenance? Provenance);
+        AssemblyPdbSourceProvenance? Provenance,
+        ImmutableArray<byte>? PdbImage);
 
     sealed record TypeInspectionSeed(
         ResolvedAssemblyReference Retained,

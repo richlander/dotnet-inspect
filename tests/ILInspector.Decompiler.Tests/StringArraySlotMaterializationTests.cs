@@ -55,14 +55,12 @@ public class StringArraySlotMaterializationTests
     [Theory]
     [InlineData("generic")]
     [InlineData("rank-one")]
-    [InlineData("rectangular")]
-    public void UnspellableAndNonSzReferenceArrayShapesRemainDeferred(string kind)
+    public void UnspellableReferenceArrayShapesRemainDeferred(string kind)
     {
         var type = kind switch
         {
             "generic" => TypeRef.SzArray(TypeRef.GenericInstance(String, [Int32])),
             "rank-one" => TypeRef.MdArray(String, 1),
-            "rectangular" => TypeRef.MdArray(String, 2),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var function = Function(type,
@@ -185,7 +183,7 @@ public class StringArraySlotMaterializationTests
         var function = RaiseToMaterialization(source, typeof(StringArraySlotMaterializationSamples).FullName!,
             nameof(StringArraySlotMaterializationSamples.SwapArrays));
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStorageSwap);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);

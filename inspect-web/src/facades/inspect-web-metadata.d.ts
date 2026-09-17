@@ -1,8 +1,14 @@
+declare const inertStringBrand: unique symbol;
+export type InertString = string & {
+    readonly [inertStringBrand]: "InertString";
+};
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
+export type BrowserLibraryApiDiffMemberPairKind = "Changed" | "Added" | "Removed" | number;
+export type BrowserLibraryApiDiffMemberRelationRole = "Before" | "After" | "Both" | number;
 export type BrowserLibraryApiDiffMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
 export type BrowserLibraryApiDiffProjectionLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
@@ -14,6 +20,7 @@ export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "Current
 export type ExactTypeInspectionFailureKind = number;
 export type ExactTypeInspectionOutcome = number;
 export type InspectionDiagnosticSeverity = number;
+export type JsonValueKind = number;
 export type MetadataRootMalformedReason = number;
 export type MetadataTypeNameFailureMechanism = number;
 export type TypeDependencyRejectionKind = number;
@@ -128,6 +135,22 @@ export interface BrowserLibraryApiDiffInspectionFailure {
     readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
     readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
+export interface BrowserLibraryApiDiffMember {
+    readonly documentIdentifier: string;
+    readonly pairKind: BrowserLibraryApiDiffMemberPairKind;
+    readonly role: BrowserLibraryApiDiffMemberRelationRole;
+    readonly before: BrowserLibraryApiDiffMemberIdentity | null;
+    readonly after: BrowserLibraryApiDiffMemberIdentity | null;
+}
+export interface BrowserLibraryApiDiffMemberIdentity {
+    readonly declaringTypeIdentifier: string;
+    readonly stableSelector: string;
+    readonly canonicalSignature: string;
+    readonly fingerprint: string;
+    readonly typeFullName: string;
+    readonly memberName: string;
+    readonly display: string;
+}
 export interface BrowserLibraryApiDiffProjectionTruncation {
     readonly limit: BrowserLibraryApiDiffProjectionLimit;
     readonly bound: number;
@@ -166,6 +189,7 @@ export interface BrowserLibraryApiDiffResult {
     readonly error: string | null;
     readonly diagnostic: string | null;
     readonly reason: string | null;
+    readonly inspection: InspectionEnvelope<unknown> | null;
 }
 export interface BrowserLibraryApiDiffSucceeded {
     readonly libraryIdentifier: string;
@@ -186,6 +210,7 @@ export interface BrowserLibraryApiDiffType {
     readonly potentiallyBreakingCount: number;
     readonly before: BrowserLibraryApiDiffTypeIdentity | null;
     readonly after: BrowserLibraryApiDiffTypeIdentity | null;
+    readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
 }
 export interface BrowserLibraryApiDiffTypeIdentity {
     readonly identifier: string;
@@ -467,8 +492,8 @@ export interface ExactTypeParameter {
 export interface InspectionDiagnostic {
     readonly code: string;
     readonly severity: InspectionDiagnosticSeverity;
-    readonly summary: string;
-    readonly correspondence: string | null;
+    readonly summary: InertString;
+    readonly correspondence: InertString | null;
 }
 export interface InspectionEnvelope<T0> {
     readonly content: T0;
@@ -543,3 +568,4 @@ export declare function queryPlatformMemberDeclaration(targetFramework: string, 
 export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
 export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata>;
+export {};

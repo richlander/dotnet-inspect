@@ -5,7 +5,7 @@
 This document owns the Browser Compare experience tracked by
 [#6486](https://github.com/richlander/dotnet-inspect/issues/6486) under the
 end-to-end tracker
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 
 Its normative claim is:
 

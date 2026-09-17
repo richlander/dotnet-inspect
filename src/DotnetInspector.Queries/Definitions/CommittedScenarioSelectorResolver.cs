@@ -486,6 +486,10 @@ public static class CommittedScenarioSelectorResolver
                 type.LibraryIdentity,
             PortableRetainedSubjectContext.Member member =>
                 member.LibraryIdentity,
+            PortableRetainedSubjectContext.EscapedType type =>
+                type.LibraryIdentity,
+            PortableRetainedSubjectContext.EscapedMember member =>
+                member.LibraryIdentity,
             _ => throw new InvalidOperationException(
                 "Unknown portable retained-context kind."),
         };
@@ -531,18 +535,26 @@ public static class CommittedScenarioSelectorResolver
         NavigationLibraryInventory libraryInventory =
             inventory.Libraries.Single(
                 candidate => candidate.Subject == librarySubject);
-        MetadataTypeDefinitionName typeSelector = request switch
+        MetadataTypeDefinitionName? typeSelector = request switch
         {
             PortableRetainedSubjectContext.Type type =>
                 type.TypeIdentity,
             PortableRetainedSubjectContext.Member member =>
                 member.TypeIdentity,
-            _ => throw new InvalidOperationException(
-                "Unknown portable retained-context kind."),
+            _ => null,
+        };
+        string? escapedTypeSelector = request switch
+        {
+            PortableRetainedSubjectContext.EscapedType type =>
+                type.EscapedTypeIdentity,
+            PortableRetainedSubjectContext.EscapedMember member =>
+                member.EscapedTypeIdentity,
+            _ => null,
         };
         if (!TryResolveType(
                 libraryInventory,
                 typeSelector,
+                escapedTypeSelector,
                 stateIndex,
                 navigationId,
                 out NavigationTypeInventoryRow? typeRow,
@@ -553,7 +565,8 @@ public static class CommittedScenarioSelectorResolver
 
         StructuralSubjectIdentity.TypeSubject typeSubject =
             typeRow!.Subject;
-        if (request is PortableRetainedSubjectContext.Type)
+        if (request is PortableRetainedSubjectContext.Type
+            or PortableRetainedSubjectContext.EscapedType)
         {
             context = new NavigationRetainedSubjectContext(
                 packageSubject,
@@ -562,21 +575,37 @@ public static class CommittedScenarioSelectorResolver
             return true;
         }
 
-        var memberSelector =
-            (PortableRetainedSubjectContext.Member)request;
+        string? memberAnchor = request switch
+        {
+            PortableRetainedSubjectContext.Member member =>
+                member.MemberAnchor,
+            PortableRetainedSubjectContext.EscapedMember member =>
+                member.MemberAnchor,
+            _ => throw new InvalidOperationException(
+                "Unknown portable retained-context kind."),
+        };
+        string? memberSignature = request switch
+        {
+            PortableRetainedSubjectContext.Member member =>
+                member.MemberSignature,
+            PortableRetainedSubjectContext.EscapedMember member =>
+                member.MemberSignature,
+            _ => throw new InvalidOperationException(
+                "Unknown portable retained-context kind."),
+        };
         NavigationMemberInventoryRow[] memberMatches =
         [
             .. typeRow.Members.Where(
                 row => row.ContainingType == typeSubject
                     && row.Subject.DeclaringType == typeSubject
-                    && (memberSelector.MemberAnchor is { } anchor
+                    && (memberAnchor is { } anchor
                         ? string.Equals(
                             row.Subject.Identity.Member.Fingerprint,
                             anchor,
                             StringComparison.Ordinal)
                         : string.Equals(
                             row.Subject.Identity.Member.CanonicalSignature,
-                            memberSelector.MemberSignature,
+                            memberSignature,
                             StringComparison.Ordinal))),
         ];
         if (memberMatches.Length != 1)
@@ -612,7 +641,8 @@ public static class CommittedScenarioSelectorResolver
 
     private static bool TryResolveType(
         NavigationLibraryInventory library,
-        MetadataTypeDefinitionName selector,
+        MetadataTypeDefinitionName? selector,
+        string? escapedSelector,
         int stateIndex,
         string navigationId,
         out NavigationTypeInventoryRow? type,
@@ -620,6 +650,11 @@ public static class CommittedScenarioSelectorResolver
     {
         type = null;
         failure = null;
+        if ((selector is null) == (escapedSelector is null))
+        {
+            throw new InvalidOperationException(
+                "A retained Type context requires exactly one selector form.");
+        }
         if (library.Types is NavigationTypeInventoryOutcome.Failed)
         {
             failure = Failure(
@@ -633,7 +668,12 @@ public static class CommittedScenarioSelectorResolver
         NavigationTypeInventoryRow[] matches =
         [
             .. library.Types.Rows.Where(
-                row => row.Subject.Identity.Type == selector),
+                row => selector is not null
+                    ? row.Subject.Identity.Type == selector
+                    : string.Equals(
+                        row.Subject.Identity.Type.ToEscapedFullName(),
+                        escapedSelector,
+                        StringComparison.Ordinal)),
         ];
         if (matches.Length == 1)
         {
@@ -715,7 +755,7 @@ public static class CommittedScenarioSelectorResolver
             selector.Culture,
             selector.PublicKeyToken);
 
-    private static bool MatchesCoordinate(
+    internal static bool MatchesCoordinate(
         DefinitionMemberCoordinate.PackageCoordinate requested,
         WorkspacePackageDescriptor actual)
     {

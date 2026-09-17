@@ -45,6 +45,7 @@ public class DiffOptionsParserTests
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var findingOption = new Option<string?>("--finding");
         var legendOption = new Option<bool>("--legend");
+        var compactOption = new Option<bool>("--compact");
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -68,6 +69,8 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
+        diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -80,7 +83,7 @@ public class DiffOptionsParserTests
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
-            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption);
+            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         return (root, opts, args);
     }

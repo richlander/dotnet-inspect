@@ -377,6 +377,17 @@ internal static class AssemblyContextQueryExecutor
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         Func<AssemblyContextSubject, AssemblyImageSnapshot, TValue> inspect)
+        => ExecuteParticipantOverSnapshot(
+            group,
+            participant,
+            CancellationToken.None,
+            inspect);
+
+    internal static AssemblyContextEntry<TValue> ExecuteParticipantOverSnapshot<TValue>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        CancellationToken cancellationToken,
+        Func<AssemblyContextSubject, AssemblyImageSnapshot, TValue> inspect)
     {
         ArgumentNullException.ThrowIfNull(inspect);
         ValidateParticipant(group, participant);
@@ -386,6 +397,7 @@ internal static class AssemblyContextQueryExecutor
             subject,
             group.UseSnapshot(
                 participant.Assembly,
+                cancellationToken,
                 snapshot => Guarded(subject, () => inspect(subject, snapshot))));
     }
 

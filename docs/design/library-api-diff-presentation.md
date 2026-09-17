@@ -6,7 +6,7 @@ This document defines the `DotnetInspector.Presentation`-owned portable Library
 API diff projection for
 [#6247](https://github.com/richlander/dotnet-inspect/issues/6247), within the
 Inspect Web Diff experience tracked by
-[#5083](https://github.com/richlander/dotnet-inspect/issues/5083) and the
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213) and the
 structured-comparison delivery tracked by
 [#5528](https://github.com/richlander/dotnet-inspect/issues/5528).
 
@@ -489,8 +489,10 @@ Library per endpoint, optionally narrowed by Type or compatibility
 classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
 two groups. Markout renders host views derived from the complete document;
-existing JSON, detailed rows, Type-summary tables, and name-only output remain
-CLI projections, not serialization of the portable envelope.
+explicitly projected JSON, detailed rows, Type-summary tables, and name-only
+output remain CLI projections. Unprojected `--json` now serializes the
+complete Outcome; `--envelope` serializes the service baseline through the
+[common envelope transport](output-shapes.md#envelope-transport).
 
 This changes three observable outcomes on the adopted route:
 
@@ -531,14 +533,24 @@ The #7070 adoption has three steps in one production slice:
 
 Total steps: **3**, delivered together. The old content type and flattened
 Available shape have no compatibility alias or second implementation.
-Comparison algorithms, evidence, ordinary CLI JSON, and the Browser facade
-schema are unchanged.
+That content-kind rename left comparison algorithms, evidence, ordinary CLI
+JSON, and the Browser facade schema unchanged.
 
-This settles the shared Library content kind; it does not expose public CLI
-`--envelope` or complete Browser baseline transport. Those remain explicit
-adoption work in the [subject-owned Diff plan](command-transition-model.md#subject-owned-diff)
-and #6719. Browser's current selected-inventory projection is not relabeled as
-complete envelope delivery.
+The subsequent #6719 CLI transport adoption registers `library-api-diff`
+using `LibraryApiDiffJsonContext`. Unprojected JSON and envelope Content use
+that same complete serializer, including all Outcome and endpoint-issue
+cases. Available empty comparisons remain successful; Unavailable and Rejected
+are serialized before the command returns failure. `--compact` changes only
+whitespace. API scope (`--all`) remains admitted; post-service filters,
+presentation controls, and non-API or multi-Library operations are not admitted
+with `--envelope`. Explicitly projected JSON preserves its prior view.
+
+The [Browser owner](inspect-web-library-api-diff.md#managed-composition)
+delivers the same complete baseline beside its existing selected-inventory
+projection, using the canonical Content serializer. Subject-command cutover
+remains explicit adoption work in the
+[subject-owned Diff plan](command-transition-model.md#subject-owned-diff).
+House acquisition and optional Evidence capture remain separate.
 
 ### Browser consumer and remaining delivery
 
@@ -568,9 +580,9 @@ case is marked Slow; deterministic fixture cases remain PR-fast.
 
 The selected-Library query and Metadata bounds suites retain their own
 extraction gates. The existing Browser adopter calls the shared terminal and
-unwraps the available Document in its bounded wire projection.
+retains its complete baseline beside the bounded wire projection.
 `BrowserLibraryApiDiffOperationTests` gates that consumer's complete changed-Type
-inventory, unchanged serialized shape, empty and typed non-success cases, and
-bound rejection. Browser operation/lifetime and UI navigation remain governed
+inventory, baseline serialization, empty and typed non-success cases, and
+whole-result bound rejection. Browser operation/lifetime and UI navigation remain governed
 and gated by the [Browser owner](inspect-web-library-api-diff.md); this content
 adoption does not redefine them.

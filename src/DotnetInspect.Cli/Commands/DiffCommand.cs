@@ -29,6 +29,37 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
+        string? transportOption = options.EnvelopeOutput ? "--envelope"
+            : options.CompactJson ? "--compact" : null;
+        if (transportOption is not null
+            && (options.HasContentProjection
+                || options.EnvelopeOutput && options.JsonOutput
+                || options.Discover is not null
+                || options.MemberFilter.Count > 0
+                || options.Finding is not null
+                || options.IncludePdbSource
+                || options.SourceRepositories.Length > 0
+                || options.ChangedOnly
+                || options.AllocRegressionsOnly
+                || options.Legend))
+        {
+            CommandError.Write(
+                $"{transportOption} requires an unprojected Library API diff; "
+                + "filters, selected sections, discovery, and other diff operations are not supported.");
+            return 1;
+        }
+        if (options.EnvelopeOutput && options.HasRenderedLineWindow)
+        {
+            CommandError.Write(
+                "--envelope cannot be combined with rendered-line clipping.");
+            return 1;
+        }
+        if (options.CompactJson && !options.JsonOutput && !options.EnvelopeOutput)
+        {
+            CommandError.Write("--compact requires --json or --envelope.");
+            return 1;
+        }
+
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
         SectionCatalog<DiffDiscoveryModel> sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -206,8 +237,22 @@ public class DiffCommand
 
             try
             {
+                if (transportOption is not null && !UsesSharedLibraryApiDiff(inputs, options))
+                {
+                    CommandError.Write(
+                        $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
+                        + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
+                        + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
+                    return 1;
+                }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
+                    if (options.IsContentJson && options.HasRenderedLineWindow)
+                    {
+                        CommandError.Write(
+                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
+                        return 1;
+                    }
                     var comparison = await LibraryApiDiffRunner.ExecuteAsync(
                         inputs.From.AssemblySet.Assemblies[0],
                         inputs.To.AssemblySet.Assemblies[0],
@@ -388,7 +433,7 @@ public class DiffCommand
                             implementation.Local,
                             inputs.FromVersion,
                             inputs.ToVersion,
-                            implementation.SelectedSource);
+                            implementation.SelectedSource?.Content);
                     }
                     if (options.Tabular)
                     {
@@ -1138,7 +1183,7 @@ public class DiffCommand
                         implementation.Local,
                         inputs.FromVersion,
                         inputs.ToVersion,
-                        implementation.SelectedSource);
+                        implementation.SelectedSource?.Content);
             }
         }
 
@@ -1343,7 +1388,8 @@ public class DiffCommand
 
     internal sealed record ImplementationDiffWithSource(
         ImplementationDiffResult Local,
-        AssemblyMemberSourcePairResult? SelectedSource = null);
+        InspectionEnvelope<AssemblyMemberSourcePairResult>?
+            SelectedSource = null);
 
     internal static async Task<ImplementationDiffWithSource> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
@@ -1421,9 +1467,10 @@ public class DiffCommand
                 NuGetSourceOptions = options.SourceOptions,
                 Log = logger.Log,
             };
-            var pair = await AssemblyContextMemberSourcePairQuery.ExecuteAsync(
+            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
+                await MemberSourcePairInspection.ExecuteAsync(
                 beforeGroup, before, afterGroup, after, request, sourceContext);
-            return new(result, pair);
+            return new(result, inspection);
         }
 
         // Broader selections and targets without one exact MethodDef anchor
@@ -3085,6 +3132,10 @@ public record DiffOptions
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
     public bool JsonOutput { get; init; }
+    public bool EnvelopeOutput { get; init; }
+    public bool CompactJson { get; init; }
+    public bool VerbosityExplicitlySet { get; init; }
+    public bool HasRenderedLineWindow { get; init; }
     public bool TabularExplicitlySet { get; init; }
     public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
@@ -3121,5 +3172,15 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Tabular || Jsonl || JsonOutput || NoHeader || NameOnly;
+    public bool IsRawOutput => EnvelopeOutput || Tabular || Jsonl || JsonOutput || NoHeader || NameOnly;
+
+    public bool IsContentJson => JsonOutput && !HasContentProjection;
+
+    public bool HasContentProjection =>
+        TypeFilter.Count > 0
+        || Breaking || Additive
+        || Select is not null || SelectDefault || IncludeSections is not null
+        || Columns is not null || Fields is not null || Rows is not null
+        || Tabular || Tsv || Jsonl || NoHeader || NameOnly || Tree
+        || VerbosityExplicitlySet;
 }

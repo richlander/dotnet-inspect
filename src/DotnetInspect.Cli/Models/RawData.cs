@@ -1,17 +1,28 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Models;
 
 /// <summary>
 /// The kind of match for a type search result.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MatchKind>))]
-public enum MatchKind
+[JsonConverter(typeof(JsonStringEnumConverter<TypeFindMatchKind>))]
+public enum TypeFindMatchKind
 {
-    Exact,
+    Direct,
     Glob,
     Partial,
     NotFound
+}
+
+/// <summary>
+/// The kind of match for a member-name search result.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<MemberFindMatchKind>))]
+public enum MemberFindMatchKind
+{
+    Direct,
+    Glob
 }
 
 /// <summary>
@@ -25,10 +36,10 @@ public record TypeFindResult
     public string Pattern { get; init; } = "";
 
     [JsonPropertyName("match")]
-    public MatchKind Match { get; init; }
+    public TypeFindMatchKind Match { get; init; }
 
     /// <summary>
-    /// Match quality score (0.0-1.0). Exact/glob matches = 1.0, fuzzy matches = similarity score.
+    /// Match quality score (0.0-1.0). Direct/glob matches = 1.0, fuzzy matches = similarity score.
     /// </summary>
     [JsonPropertyName("similarity")]
     public double? Similarity { get; init; }
@@ -55,12 +66,15 @@ public record TypeFindResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }
+
+    [JsonIgnore]
+    internal TypeDeclarationLocatorSectionCandidate? Location { get; init; }
 }
 
 /// <summary>
 /// Raw result from member-name search (<c>find --members</c> / leading-dot shortcut). One record per
 /// matched member. Mirrors <see cref="TypeFindResult"/> for the member lens: services return this flat
-/// model and writers decide presentation. Member search is exact/glob only (no fuzzy fallback), so
+/// model and writers decide presentation. Member search is direct/glob only (no fuzzy fallback), so
 /// there is no similarity score.
 /// </summary>
 public record MemberFindResult
@@ -70,7 +84,7 @@ public record MemberFindResult
     public string Pattern { get; init; } = "";
 
     [JsonPropertyName("match")]
-    public MatchKind Match { get; init; }
+    public MemberFindMatchKind Match { get; init; }
 
     // ─── Member Identity ────────────────────────────────────────────────
     [JsonPropertyName("member")]

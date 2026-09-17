@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using Inspector.Findings;
 using ILInspector.Metadata;
 
@@ -23,33 +24,47 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
 /// The Browser API-surface owner admits at most 100,000 Types and 32,000,000
 /// retained text characters per endpoint. This narrower wire boundary admits
 /// at most 10,000 changed Types and 6,000,000 characters across the repeated
-/// document, display, and structured endpoint Type identities. It then
-/// checks the exact collection-entry population, source-generates the exact
-/// result JSON, and reserves the one-element tuple framing used by the ordinary
-/// Worker. Admission examines the complete producer-ordered inventory before
-/// publication; an excess rejects the whole result and never truncates it.
+/// document, display, structured endpoint Type identities, and exact changed-
+/// Member identities. It admits the complete service baseline before building
+/// the repeated Browser inventory, then checks the final result against the
+/// ordinary Worker's collection-entry and <c>JSON.stringify</c> character
+/// limits. An excess rejects the whole result and never truncates the baseline
+/// or inventory.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserLibraryApiDiffWireProjection
 {
     internal const int MaxChangedTypes = 10_000;
     internal const int MaxTypeTextCharacters = 6_000_000;
-    internal const int MaxOrdinaryWorkerJsonCharacters = 8_388_608;
-    internal const int MaxOrdinaryWorkerCollectionEntries = 262_144;
+    internal const int MaxOrdinaryWorkerJsonCharacters = 16_777_216;
+    internal const int MaxOrdinaryWorkerCollectionEntries = 524_288;
     internal const int OrdinaryWorkerResultTupleOverhead = 2;
 
     internal static BrowserLibraryApiDiffResult Project(
         BrowserLibraryApiDiffRequest request,
-        LibraryApiDiffOutcome outcome,
+        InspectionEnvelope<LibraryApiDiffOutcome> inspection,
         BrowserLibraryApiDiffEndpointContext target,
         BrowserLibraryApiDiffEndpointContext current)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(inspection);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(current);
 
-        BrowserLibraryApiDiffResult projected = outcome switch
+        var wireInspection = new InspectionEnvelope<JsonElement>(
+            JsonSerializer.SerializeToElement(
+                inspection.Content,
+                LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome),
+            inspection.Share,
+            inspection.Diagnostics);
+        BrowserLibraryApiDiffResult? inspectionRejection =
+            AdmitInspectionTransport(request, wireInspection);
+        if (inspectionRejection is not null)
+        {
+            return inspectionRejection;
+        }
+
+        BrowserLibraryApiDiffResult projected = inspection.Content switch
         {
             LibraryApiDiffOutcome.Available available =>
                 ProjectAvailable(request, available.Document, target, current),
@@ -77,7 +92,9 @@ internal static class BrowserLibraryApiDiffWireProjection
             _ => throw new InvalidOperationException(
                 "Unknown Library API diff outcome."),
         };
-        return AdmitTransport(request, projected);
+        return AdmitTransport(
+            request,
+            projected with { Inspection = wireInspection });
     }
 
     static BrowserLibraryApiDiffResult ProjectAvailable(
@@ -149,7 +166,11 @@ internal static class BrowserLibraryApiDiffWireProjection
         BrowserLibraryApiDiffRequest request,
         BrowserLibraryApiDiffResult result)
     {
-        long collectionEntries = CollectionEntries(result);
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        long collectionEntries = OrdinaryWorkerResultTupleOverhead
+            + CollectionEntries(document.RootElement);
         if (collectionEntries > MaxOrdinaryWorkerCollectionEntries)
         {
             return TransportRejected(
@@ -159,13 +180,9 @@ internal static class BrowserLibraryApiDiffWireProjection
                 MaxOrdinaryWorkerCollectionEntries,
                 collectionEntries);
         }
-
-        int serializedCharacters = JsonSerializer.Serialize(
-            result,
-            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
-            .Length;
         long transportedCharacters =
-            (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead;
+            JsonStringifyCharacters(document.RootElement)
+            + OrdinaryWorkerResultTupleOverhead;
         if (transportedCharacters <= MaxOrdinaryWorkerJsonCharacters)
         {
             return result;
@@ -176,6 +193,41 @@ internal static class BrowserLibraryApiDiffWireProjection
             BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
             MaxOrdinaryWorkerJsonCharacters,
             transportedCharacters);
+    }
+
+    static BrowserLibraryApiDiffResult? AdmitInspectionTransport(
+        BrowserLibraryApiDiffRequest request,
+        InspectionEnvelope<JsonElement> inspection)
+    {
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            inspection,
+            BrowserMetadataJsonContext.Default.JsonInspectionEnvelope);
+        long collectionEntries = OrdinaryWorkerResultTupleOverhead
+            + CollectionEntries(document.RootElement);
+        if (collectionEntries > MaxOrdinaryWorkerCollectionEntries)
+        {
+            return TransportRejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .CollectionEntryLimitExceeded,
+                MaxOrdinaryWorkerCollectionEntries,
+                collectionEntries);
+        }
+
+        long transportedCharacters =
+            JsonStringifyCharacters(document.RootElement)
+            + OrdinaryWorkerResultTupleOverhead;
+        if (transportedCharacters > MaxOrdinaryWorkerJsonCharacters)
+        {
+            return TransportRejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .SerializedResultLimitExceeded,
+                MaxOrdinaryWorkerJsonCharacters,
+                transportedCharacters);
+        }
+
+        return null;
     }
 
     static BrowserLibraryApiDiffResult TransportRejected(
@@ -200,12 +252,13 @@ internal static class BrowserLibraryApiDiffWireProjection
             Error: null,
             Diagnostic: null,
             Reason: null);
-        int serializedCharacters = JsonSerializer.Serialize(
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
             result,
-            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
-            .Length;
-        if (CollectionEntries(result) > MaxOrdinaryWorkerCollectionEntries
-            || (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        if (OrdinaryWorkerResultTupleOverhead + CollectionEntries(document.RootElement)
+                > MaxOrdinaryWorkerCollectionEntries
+            || JsonStringifyCharacters(document.RootElement)
+                + OrdinaryWorkerResultTupleOverhead
                 > MaxOrdinaryWorkerJsonCharacters)
         {
             throw new InvalidOperationException(
@@ -215,62 +268,103 @@ internal static class BrowserLibraryApiDiffWireProjection
         return result;
     }
 
-    static long CollectionEntries(BrowserLibraryApiDiffResult result) =>
-        OrdinaryWorkerResultTupleOverhead
-        + 12
-        + (result.Request is null ? 0 : 7)
-        + (result.Value is null ? 0 : CollectionEntries(result.Value))
-        + (result.Unavailable is null
-            ? 0
-            : CollectionEntries(result.Unavailable))
-        + (result.Rejected is null ? 0 : CollectionEntries(result.Rejected));
+    static long CollectionEntries(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => 1 + value.EnumerateObject()
+            .Sum(property => 1 + CollectionEntries(property.Value)),
+        JsonValueKind.Array => 1 + value.EnumerateArray()
+            .Sum(item => 1 + CollectionEntries(item)),
+        _ => 0,
+    };
+    static long JsonStringifyCharacters(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                long count = 2;
+                bool first = true;
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (!first)
+                        count++;
+                    first = false;
+                    count += JsonStringifyStringCharacters(property.Name);
+                    count++;
+                    count += JsonStringifyCharacters(property.Value);
+                }
+                return count;
+            }
+            case JsonValueKind.Array:
+            {
+                long count = 2;
+                bool first = true;
+                foreach (JsonElement item in element.EnumerateArray())
+                {
+                    if (!first)
+                        count++;
+                    first = false;
+                    count += JsonStringifyCharacters(item);
+                }
+                return count;
+            }
+            case JsonValueKind.String:
+                return JsonStringifyStringCharacters(
+                    element.GetString()
+                        ?? throw new InvalidOperationException(
+                            "A JSON string had no value."));
+            case JsonValueKind.Number:
+                return element.GetRawText().Length;
+            case JsonValueKind.True:
+                return 4;
+            case JsonValueKind.False:
+                return 5;
+            case JsonValueKind.Null:
+                return 4;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported JSON value kind {element.ValueKind}.");
+        }
+    }
 
-    static long CollectionEntries(BrowserLibraryApiDiffSucceeded value) =>
-        7
-        + CollectionEntries(value.Target)
-        + CollectionEntries(value.Current)
-        + 8
-        + value.Types.Length + 1
-        + value.Types.Sum(CollectionEntries);
-
-    static long CollectionEntries(BrowserLibraryApiDiffUnavailable value) =>
-        4
-        + CollectionEntries(value.Target)
-        + CollectionEntries(value.Current);
-
-    static long CollectionEntries(BrowserLibraryApiDiffRejected value) =>
-        6
-        + (value.Target is null ? 0 : CollectionEntries(value.Target))
-        + (value.Current is null ? 0 : CollectionEntries(value.Current));
-
-    static long CollectionEntries(BrowserLibraryApiDiffEndpoint endpoint) =>
-        9
-        + 4
-        + 5
-        + endpoint.Issues.Length + 1
-        + endpoint.Issues.Sum(CollectionEntries);
-
-    static long CollectionEntries(BrowserLibraryApiDiffEndpointIssue issue) =>
-        8
-        + (issue.Truncation is null ? 0 : 11)
-        + (issue.InspectionFailures is null
-            ? 0
-            : issue.InspectionFailures.Length + 1
-                + issue.InspectionFailures.Sum(CollectionEntries));
-
-    static long CollectionEntries(
-        BrowserLibraryApiDiffInspectionFailure failure) =>
-        8
-        + (failure.SubjectAssembly is null ? 0 : 5)
-        + (failure.DependencyAssembly is null ? 0 : 5);
-
-    static long CollectionEntries(BrowserLibraryApiDiffType type) =>
-        11
-        + (type.Before is null ? 0 : CollectionEntries(type.Before))
-        + (type.After is null ? 0 : CollectionEntries(type.After));
-
-    static long CollectionEntries(BrowserLibraryApiDiffTypeIdentity identity) =>
-        6 + identity.Segments.Length;
+    static long JsonStringifyStringCharacters(string value)
+    {
+        long count = 2;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (current is '"' or '\\' or '\b' or '\f' or '\n' or '\r' or '\t')
+            {
+                count += 2;
+            }
+            else if (current <= '\u001f')
+            {
+                count += 6;
+            }
+            else if (char.IsHighSurrogate(current))
+            {
+                if (index + 1 < value.Length
+                    && char.IsLowSurrogate(value[index + 1]))
+                {
+                    count += 2;
+                    index++;
+                }
+                else
+                {
+                    count += 6;
+                }
+            }
+            else if (char.IsLowSurrogate(current))
+            {
+                count += 6;
+            }
+            else
+            {
+                count++;
+            }
+        }
+        return count;
+    }
 
     static BrowserLibraryApiDiffResult Rejected(
         BrowserLibraryApiDiffRequest request,
@@ -426,7 +520,8 @@ internal static class BrowserLibraryApiDiffWireProjection
             type.AdditiveCount,
             type.PotentiallyBreakingCount,
             type.Before is null ? null : Project(type.Before),
-            type.After is null ? null : Project(type.After));
+            type.After is null ? null : Project(type.After),
+            [.. type.Members.Select(Project)]);
     }
 
     static BrowserLibraryApiDiffTypeIdentity Project(
@@ -437,21 +532,88 @@ internal static class BrowserLibraryApiDiffWireProjection
             [.. identity.DefinitionName.Segments],
             identity.Display);
 
+    static BrowserLibraryApiDiffMember Project(
+        LibraryApiMemberDiff member) =>
+        new(
+            member.Relation.Identifier,
+            member.Relation.PairKind switch
+            {
+                LibraryApiMemberPairKind.Changed =>
+                    BrowserLibraryApiDiffMemberPairKind.Changed,
+                LibraryApiMemberPairKind.Added =>
+                    BrowserLibraryApiDiffMemberPairKind.Added,
+                LibraryApiMemberPairKind.Removed =>
+                    BrowserLibraryApiDiffMemberPairKind.Removed,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(member),
+                    member.Relation.PairKind,
+                    "Unknown Library API member pair kind."),
+            },
+            member.Role switch
+            {
+                LibraryApiMemberRelationRole.Before =>
+                    BrowserLibraryApiDiffMemberRelationRole.Before,
+                LibraryApiMemberRelationRole.After =>
+                    BrowserLibraryApiDiffMemberRelationRole.After,
+                LibraryApiMemberRelationRole.Both =>
+                    BrowserLibraryApiDiffMemberRelationRole.Both,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(member),
+                    member.Role,
+                    "Unknown Library API member relation role."),
+            },
+            member.Relation.Before is null
+                ? null
+                : Project(member.Relation.Before),
+            member.Relation.After is null
+                ? null
+                : Project(member.Relation.After));
+
+    static BrowserLibraryApiDiffMemberIdentity Project(
+        LibraryApiMemberIdentity identity) =>
+        new(
+            identity.DeclaringType.Identifier,
+            identity.Anchor.StableSelector,
+            identity.Anchor.CanonicalSignature,
+            identity.Anchor.Fingerprint,
+            identity.Anchor.TypeFullName,
+            identity.Anchor.MemberName,
+            identity.Display);
+
     static long TypeTextCharacters(
         ComparisonSubject<LibraryApiTypeDiff> subject)
     {
         long count = subject.Identifier.Length + subject.Display.Length;
-        Add(subject.Comparison.Before);
-        Add(subject.Comparison.After);
+        AddTypeIdentity(subject.Comparison.Before);
+        AddTypeIdentity(subject.Comparison.After);
+        foreach (LibraryApiMemberDiff member in subject.Comparison.Members)
+        {
+            count += member.Relation.Identifier.Length;
+            AddMemberIdentity(member.Relation.Before);
+            AddMemberIdentity(member.Relation.After);
+        }
         return count;
 
-        void Add(LibraryApiTypeIdentity? identity)
+        void AddTypeIdentity(LibraryApiTypeIdentity? identity)
         {
             if (identity is null)
                 return;
             count += identity.Identifier.Length;
             count += identity.DefinitionName.Namespace.Length;
             count += identity.DefinitionName.Segments.Sum(segment => segment.Length);
+            count += identity.Display.Length;
+        }
+
+        void AddMemberIdentity(LibraryApiMemberIdentity? identity)
+        {
+            if (identity is null)
+                return;
+            count += identity.DeclaringType.Identifier.Length;
+            count += identity.Anchor.StableSelector.Length;
+            count += identity.Anchor.CanonicalSignature.Length;
+            count += identity.Anchor.Fingerprint.Length;
+            count += identity.Anchor.TypeFullName.Length;
+            count += identity.Anchor.MemberName.Length;
             count += identity.Display.Length;
         }
     }

@@ -15,8 +15,8 @@ browser history; that model belongs to
 
 This owner defines:
 
-- the application-scope strip that composes the presentation-owned Query route
-  entry with the product-issued Workspace subject entry;
+- the application-scope strip that composes the presentation-owned Query and
+  Activity route entries with the product-issued Workspace subject entry;
 - the Package, Library, Type, and Member subject hierarchy, the Browser-local
   Platform target surface, the inspected-target rendering, and the adaptive
   subject and inspector navigation groups;
@@ -80,11 +80,13 @@ This document consumes, without redefining:
 
 ## Application scopes, subject hierarchy, and target selection
 
-The application-scope strip composes two entries with different semantic
+The application-scope strip composes three entries with different semantic
 owners:
 
 - **Query** is a presentation-owned route entry for package discovery and
   bounded streamed evaluation without an active inspection coordinate.
+- **Activity** is a presentation-owned route entry for the product-issued
+  package activity report without an active inspection coordinate.
 - **Workspace** is the product-issued Workspace subject presented as the entry
   to retained-coordinate management.
 
@@ -111,7 +113,7 @@ Navigation, and inventory behavior together through its own focused contract.
 
 ### Persistent navigation composition
 
-Surface Composition places this owner's two persistent navigation
+Surface Composition places this owner's persistent navigation
 presentations before the primary content:
 
 1. Row one renders the application-scope strip followed by the Slideable
@@ -126,23 +128,26 @@ navigation stay inside the working surface.
 
 ### Application scope strip
 
-The leading application-scope strip renders `Query` and `Workspace` as one
-presentation composition. Query remains semantically separate from Inspection
-Subject Navigation; Workspace retains its product-issued subject identity and
-action even though it is rendered outside the inspection-subject strip. Query
-is selected only on `/query`; Workspace is selected only while
-retained-coordinate management is visible. Neither remains selected merely
-because an inspection coordinate was reached through it.
-The strip is navigation rather than a tablist: the current Query or Workspace
-surface uses `aria-current="page"`, and ordinary Package, Library, Type, or
-Member inspection leaves both entries without `aria-current`.
+The leading application-scope strip renders `Query`, `Activity`, and
+`Workspace` as one presentation composition. Query and Activity remain
+semantically separate from Inspection Subject Navigation; Workspace retains
+its product-issued subject identity and action even though it is rendered
+outside the inspection-subject strip. Query is selected only on `/query`,
+Activity only on `/activity`, and Workspace only while retained-coordinate
+management is visible. None remains selected merely because an inspection
+coordinate was reached through it.
+The strip is navigation rather than a tablist: the current Query, Activity, or
+Workspace surface uses `aria-current="page"`, and ordinary Package, Library,
+Type, or Member inspection leaves all three entries without `aria-current`.
 
 Selecting Query enters the routed query surface through Navigation Consumer's
 history and focus contract. A return without a new seed restores the current
-session's request and outcome rather than resetting them. Selecting Workspace
-submits the product-issued Workspace action and shows retained-coordinate
-management. The Query entry issues no product subject identity, and the strip
-issues no Package, Library, Type, Member, or lens identity.
+session's request and outcome rather than resetting them. Selecting Activity
+enters the routed Package Activity surface and preserves its session-local
+request and outcome. Selecting Workspace submits the product-issued Workspace
+action and shows retained-coordinate management. The Query and Activity
+entries issue no product subject identity, and the strip issues no Package,
+Library, Type, Member, or lens identity.
 
 The application-scope strip uses a quieter treatment than the subject and
 inspector strips. Surface Composition gives it lower responsive priority: it
@@ -778,15 +783,16 @@ Library inspector hierarchy. Existing package-shaped acquisition transport may
 remain internal while Browser target state, controls, history, and presentation
 distinguish Platform from Package.
 
-The production path is Spotlight -> Platform -> Library -> Type -> Member.
-Opening Platform selects its catalog, with no implicit Library or Type.
-Selecting a platform-library search result opens that exact Library with
-Platform as its parent. A search such as `System.Text.Json` can offer both the
-NuGet package and the platform library; source and target labeling distinguish
-the destinations rather than merging names. The
-[Spotlight destination-activation
-owner](inspect-web-spotlight-destination-activation.md) separately supplies
-their current-Workspace or fresh-Workspace effect and opaque action;
+The Platform Workspace path is Platform -> Library -> Type -> Member. Opening
+Platform selects its catalog, with no implicit Library or Type. Spotlight does
+not expose Platform as a scope, component, result, or parent destination.
+Framework assemblies instead appear as ordinary Library results with `.NET` or
+`ASP.NET Core` source disclosure and open that exact Library directly; Platform
+realization remains internal. A search such as `System.Text.Json` can offer
+both the NuGet package and framework Library without merging their identities.
+The [Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) supplies package
+effects while the Browser owns direct framework-Library realization;
 presentation does not infer either from the shared display name.
 
 Platform content owns its target/version control, library-name filter, and

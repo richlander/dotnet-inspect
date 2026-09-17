@@ -352,7 +352,9 @@ public static class MemberCommand
                     actualPipeline.SelectableSectionNames,
                     actualPipeline.InfoSectionNames,
                     ApiMemberSectionPipelines.GetCategoryMap(actualPipeline),
-                    selectDefault: options.SelectDefault);
+                    selectDefault: options.SelectDefault,
+                    exactOnlySections:
+                        ApiMemberSectionPipelines.GetExactOnlySections(options));
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
                 if (actualSelect.Sections != null)
@@ -480,17 +482,12 @@ public static class MemberCommand
                 if (!detailPlanningOptions.MemberSectionsPreResolved)
                 {
                     string[]? resolvedSelectors =
-                        detailPlanningOptions.IncludeSections is { Count: > 0 }
-                            ? [.. detailPlanningOptions.IncludeSections]
-                            : null;
+                        GetDetailReplanSelectors(detailPlanningOptions);
                     detailPlanningOptions = detailPlanningOptions with
                     {
                         IncludeSections = null,
                         ExactIncludeSectionsOverride = null,
-                        Select = resolvedSelectors
-                            ?? detailPlanningOptions.Select,
-                        SelectDefault = resolvedSelectors is null
-                            && detailPlanningOptions.SelectDefault,
+                        Select = resolvedSelectors,
                     };
                 }
                 executionPlan =
@@ -566,7 +563,10 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with
                 {
                     DllPath = detailDllPath,
-                    OverloadIndex = target.Body?.DeclaringOverloadIndex ?? target.DeclaringOverloadIndex
+                    OverloadIndex = target.Body?.DeclaringOverloadIndex
+                        ?? target.DeclaringOverloadIndex,
+                    SelectedBodyMethodToken =
+                        target.Body?.MetadataToken,
                 };
                 if (effectiveOptions.EffectiveDiscovery)
                 {
@@ -723,6 +723,17 @@ public static class MemberCommand
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
+            }
+
+            if (effectiveOptions.OverloadIndex is null
+                && effectiveOptions.IncludeSections?
+                    .Contains(SectionNames.ImplementationProfiles) == true
+                && (apiType.SourceAssemblyPath
+                    ?? runtimeAssemblyPath
+                    ?? apiDllPath) is { } profileDllPath)
+            {
+                effectiveOptions =
+                    effectiveOptions with { DllPath = profileDllPath };
             }
 
             // Enrich with local XML docs only (source info is in the source command)
@@ -1018,10 +1029,9 @@ public static class MemberCommand
 
                 // Supplying a caller scope is an explicit request for the Callers section, so it
                 // renders (with an empty-state note when nothing matches) even at low verbosity.
-                effectiveOptions = effectiveOptions with
+                effectiveOptions = IncludeCallersSection(effectiveOptions) with
                 {
                     CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
-                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
                 };
             }
 
@@ -1359,16 +1369,25 @@ public static class MemberCommand
                 .ToList();
             return sections.Count > 0;
         }
-        if (options.IncludeSections is not { Count: > 0 } includeSections)
+        if (options.IncludeSections is not { Count: > 0 })
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if (!options.MemberSectionsPreResolved
+            && options.ImplicitIncludeSections.Count == 0
             && ((options.SelectDefault && options.Select is null)
                 || IsPureSelector(options.Select, SelectResolver.AllSelector)))
             return false;
 
+        IReadOnlySet<string>? exactIncludeSections =
+            options.ExactIncludeSections;
+        if (exactIncludeSections is null
+            && options.ImplicitIncludeSections.Count == 0)
+            return false;
+
         sections = SingleOverloadSectionNames
-            .Where(includeSections.Contains)
+            .Where(section =>
+                exactIncludeSections?.Contains(section) == true
+                || options.ImplicitIncludeSections.Contains(section))
             .ToList();
         return sections.Count > 0;
     }
@@ -1393,8 +1412,61 @@ public static class MemberCommand
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var implicitSections = new HashSet<string>(
+            options.ImplicitIncludeSections,
+            StringComparer.OrdinalIgnoreCase);
         includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        implicitSections.Add(SectionNames.Callers);
+        return options with
+        {
+            IncludeSections = includeSections,
+            ImplicitIncludeSections = implicitSections,
+        };
+    }
+
+    private static string[]? GetDetailReplanSelectors(MemberOptions options)
+    {
+        if (options.Select is not { Length: > 0 }
+            && !options.SelectDefault)
+        {
+            return options.IncludeSections is { Count: > 0 }
+                ? [.. options.IncludeSections]
+                : null;
+        }
+
+        var inventoryOptions = options with { OverloadIndex = null };
+        var inventoryPipeline =
+            ApiMemberSectionPipelines.Create(inventoryOptions);
+        SelectResult inventorySelection =
+            SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                inventoryPipeline.SelectableSectionNames,
+                inventoryPipeline.InfoSectionNames,
+                ApiMemberSectionPipelines.GetCategoryMap(
+                    inventoryPipeline),
+                options.SelectDefault);
+        HashSet<string> unresolvedSelectors =
+            inventorySelection.Unresolved
+                .Select(static miss => miss.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<string> selectors =
+        [
+            .. options.Select?.Where(
+                selector => !unresolvedSelectors.Contains(selector))
+                ?? [],
+        ];
+
+        HashSet<string> selectedSections =
+            inventorySelection.Sections
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            selectors.AddRange(
+                options.IncludeSections.Where(
+                    section => !selectedSections.Contains(section)));
+        }
+
+        return selectors.Count > 0 ? [.. selectors] : null;
     }
 
     private static readonly string[] SingleOverloadSectionNames =

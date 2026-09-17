@@ -1,12 +1,136 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
 public sealed class PackagePlatformRealPackageTests
 {
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
+        GallerySystemTextJsonMaterializesPairedLibraryAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        var authorization = new TestAuthorization(sources);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "gallery-library");
+        PlatformHouseRequest request = PairedLibraryRequest(
+            adapter,
+            ReadIdentity(
+                typeof(JsonSerializer).Assembly.Location),
+            cancellationToken);
+
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        root.IssueOperationLease(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        root.IssueOperationLease(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1 + implementation.Value.Frameworks.Length,
+            targetCandidates: 0,
+            assemblies:
+                reference.Value.Libraries.Length
+                + implementation.Value.Libraries.Length,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes:
+                reference.Value.Libraries.Sum(
+                    static library => library.ContentLength)
+                + implementation.Value.Libraries.Sum(
+                    static library => library.ContentLength),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
+        var completed = Assert.IsType<
+            PackagePlatformLibraryMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        consumed));
+        LibraryReference library = completed.Library.Value.Reference;
+        Assert.Equal(
+            "ref/net11.0/System.Text.Json.dll",
+            Assert.IsType<PackageReferenceArtifactProvenance>(
+                    Assert.IsType<PlatformLibraryArtifactProvenance>(
+                            library.ApiAssembly.ArtifactReference
+                                .Provenance)
+                        .SourceProvenance)
+                .Path);
+        Assert.Equal(
+            PackagePlatformTestEnvironment
+                .RuntimeImplementationPackageId,
+            Assert.IsType<PackageImplementationArtifactProvenance>(
+                    Assert.IsType<PlatformLibraryArtifactProvenance>(
+                            library.ImplementationAssembly!
+                                .ArtifactReference.Provenance)
+                        .SourceProvenance)
+                .PackageId);
+
+        ValueTask sourceRetirement = root.DisposeAsync();
+        Assert.True(sourceRetirement.IsCompletedSuccessfully);
+        await sourceRetirement;
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        using LibraryOperationLease operation = Assert.IsType<
+                LibraryOperationLeaseIssueOutcome.Issued>(
+                    completed.Library.Owner.IssueOperationLease(
+                        library))
+            .Lease;
+        Assert.Equal(
+            ((byte)'M', (byte)'M'),
+            operation.SnapshotPair(
+                library.ApiAssembly,
+                library.ImplementationAssembly,
+                static (view, _) =>
+                    (view.First.Content[0],
+                        view.Second.Content[0]),
+                cancellationToken));
+        operation.Dispose();
+        await completed.Library.Owner.DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task GalleryReferencePackDiscoveryRealizationAndDetachedLifetime()
@@ -84,6 +208,88 @@ public sealed class PackagePlatformRealPackageTests
         Assert.Equal((byte)'Z', bytes[1]);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task GalleryAspNetRuntimeClosureAndDetachedLifetime()
+    {
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
+        var authorization = new TestAuthorization(sources);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "gallery-runtime");
+        PlatformFamilyTarget target = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse(
+                PackagePlatformTestEnvironment.Version));
+        PlatformHouseRequest request = ImplementationRequest(
+            adapter,
+            target,
+            TestContext.Current.CancellationToken);
+
+        var realized = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        root.IssueOperationLease(
+                            request.CancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+
+        Assert.Equal(
+            [
+                "Microsoft.NETCore.App",
+                "Microsoft.AspNetCore.App",
+            ],
+            realized.Value.Frameworks.Select(
+                static framework => framework.Name.Value));
+        Assert.Equal(
+            [
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment
+                    .AspNetImplementationPackageId,
+            ],
+            realized.Value.Frameworks.Select(
+                static framework => framework.PackageId));
+        PackageImplementationLibrary json = Assert.Single(
+            realized.Value.Libraries,
+            library => library.Identity.Name == "System.Text.Json");
+        Assert.Contains(
+            realized.Value.Libraries,
+            library =>
+                library.Identity.Name
+                == "Microsoft.AspNetCore.Hosting");
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                realized.Contribution);
+        Assert.Equal(
+            PlatformSourceFacet.Implementation,
+            contribution.Facet);
+        Assert.Equal(target, contribution.Target);
+
+        ValueTask close = root.DisposeAsync();
+        Assert.True(close.IsCompletedSuccessfully);
+        await close;
+        byte[] bytes =
+            await PackagePlatformTestData.ReadAllAsync(json);
+        Assert.True(bytes.Length > 0);
+        Assert.Equal((byte)'M', bytes[0]);
+        Assert.Equal((byte)'Z', bytes[1]);
+    }
+
     private static PlatformHouseRequest SelectingRequest(
         PackagePlatformHouseAdapter adapter,
         CancellationToken cancellationToken) =>
@@ -119,6 +325,44 @@ public sealed class PackagePlatformRealPackageTests
             Work(maxBytes: 512L * 1024 * 1024),
             cancellationToken);
 
+    private static PlatformHouseRequest PairedLibraryRequest(
+        PackagePlatformHouseAdapter adapter,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create("gallery-library"),
+            new PlatformTargetDemand.Exact(Target()),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformViewDemand.ReferenceAndImplementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("gallery-library"),
+                PlatformSourcePolicyGeneration.Create(
+                    "gallery-library"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 8,
+                maxTargetCandidates: 0,
+                maxAssemblies: 4096,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 512L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromMinutes(2)),
+            cancellationToken);
+
     private static PlatformHouseRequest ExactRequest(
         PackagePlatformHouseAdapter adapter,
         PlatformFamilyTarget target,
@@ -143,6 +387,29 @@ public sealed class PackagePlatformRealPackageTests
             Work(maxBytes),
             cancellationToken);
 
+    private static PlatformHouseRequest ImplementationRequest(
+        PackagePlatformHouseAdapter adapter,
+        PlatformFamilyTarget target,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create("gallery-runtime"),
+            new PlatformTargetDemand.Exact(target),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Implementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("gallery-runtime"),
+                PlatformSourcePolicyGeneration.Create("gallery-runtime"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]),
+            Work(maxBytes: 512L * 1024 * 1024),
+            cancellationToken);
+
     private static PlatformHouseRequestOrigin Origin() =>
         new PlatformHouseRequestOrigin.Standalone(
             PlatformStandaloneOperationIdentity.Create("gallery-reference"));
@@ -164,4 +431,13 @@ public sealed class PackagePlatformRealPackageTests
             PlatformFamily.DotNetRuntime,
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse(PackagePlatformTestEnvironment.Version));
+
+    private static AssemblyReferenceIdentity ReadIdentity(
+        string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            reader.GetMetadataReader());
+    }
 }

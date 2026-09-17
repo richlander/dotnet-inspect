@@ -39,7 +39,7 @@ The service consumes, but does not redefine, these owner-issued facts:
 - [Source finding producers](source-finding-producers.md) owns the
   source-document census, storage kind, resolved URL, authored path, checksum
   algorithm, and canonical checksum spelling.
-- `PdbSourceHouse.VerifyChecksum` owns SHA1/SHA256 verification and the exact,
+- `SourceLinkService.VerifyChecksum` owns SHA1/SHA256 verification and the exact,
   line-ending-normalized, mismatch, unavailable, and unsupported verdicts.
 - `SourceLinkUrls` owns immutable-content recognition.
 - `SourceFetchOriginValidator` applies the SourceLink provenance rule for
@@ -97,7 +97,7 @@ The service classifies observations in this order:
    verification, classification, or publication.
 7. A changed final origin, unavailable response, transport failure, timeout,
    or oversized body is unverifiable.
-8. `PdbSourceHouse.VerifyChecksum` classifies acquired bytes.
+8. `SourceLinkService.VerifyChecksum` classifies acquired bytes.
 9. Exact and line-ending-normalized results are verified; only the latter
    increments `LineEndingNormalized`.
 10. A mismatch increments `Mismatched` and records the authored document path.
@@ -128,7 +128,7 @@ Metadata recognizes SHA1 and SHA256 and emits their names as `SHA1` or
 `SHA256`; SourceLink findings emit the checksum as canonical uppercase
 hexadecimal.
 
-`PdbSourceHouse.VerifyChecksum` first checks the exact acquired bytes. If that
+`SourceLinkService.VerifyChecksum` first checks the exact acquired bytes. If that
 fails and the content contains line endings, it checks LF and CRLF
 normalizations. A normalized match is useful compatibility evidence but remains
 separately disclosed; it is not relabeled as an exact byte match.

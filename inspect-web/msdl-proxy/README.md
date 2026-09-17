@@ -102,6 +102,9 @@ Run the executable xUnit project:
 dotnet run --project inspect-web/msdl-proxy.Tests -c Release
 ```
 
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections.
+
 Produce the prebuilt managed-API artifact used by deployment:
 
 ```bash

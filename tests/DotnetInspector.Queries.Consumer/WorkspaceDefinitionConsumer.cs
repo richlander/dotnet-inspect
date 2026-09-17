@@ -26,10 +26,6 @@ public static class WorkspaceDefinitionConsumer
         {
             InspectionDefinitionScenarioPreparationResult.Version2 prepared =>
                 prepared.Definitions,
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired =>
-                throw new InvalidOperationException(
-                    "The scenario requires schema-version-1 compatibility execution."),
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 throw new InvalidOperationException(
                     "The scenario is a schema-version-1 composition."),
@@ -48,4 +44,42 @@ public static class WorkspaceDefinitionConsumer
             workspace,
             scope,
             packageFacts);
+
+    public static CompleteRestorationPreparationResult PrepareRestoration(
+        InspectionDefinitionRegistry registry,
+        string scenarioId,
+        ICompleteRestorationIntentAuthority authority) =>
+        CompleteRestorationPreparation.FromDefinition(
+            registry,
+            scenarioId,
+            authority);
+
+    public static CompleteRestorationPreparationResult PrepareRestoration(
+        string packet,
+        ICompleteRestorationIntentAuthority authority) =>
+        CompleteRestorationPreparation.FromPacket(packet, authority);
+
+    public static CompleteRestorationPreparationResult
+        PrepareRestorationWithCancellation(
+        string packet,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken) =>
+        CompleteRestorationPreparation.FromPacket(
+            packet,
+            authority,
+            cancellationToken);
+
+    public static ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken = default) =>
+        CompleteRestorationCoordinator.RestoreAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            cancellationToken);
 }

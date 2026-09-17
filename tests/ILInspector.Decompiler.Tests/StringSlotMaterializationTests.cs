@@ -106,17 +106,10 @@ public class StringSlotMaterializationTests
         AssertRetained(function);
     }
 
-    [Theory]
-    [InlineData("rectangular-array")]
-    [InlineData("foreign-string")]
-    public void OtherExactReferenceTypesRemainDeferred(string kind)
+    [Fact]
+    public void UnresolvedForeignStringRemainsDeferred()
     {
-        var type = kind switch
-        {
-            "rectangular-array" => TypeRef.MdArray(Object, 2),
-            "foreign-string" => TypeRef.Definition("Other", "System", "String"),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-        };
+        var type = TypeRef.Definition("Other", "System", "String");
         var function = Function(type,
             new StoreStackSlot(0, new Constant(null, type)),
             new Return(new LoadStackSlot(0, type)));
@@ -161,7 +154,7 @@ public class StringSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void StringMaterializationPreservesStructuralFoldBoundaries(bool crossBlock)
+    public void StringMaterializationAllowsSingleLoadAndCrossBlockMultiUse(bool crossBlock)
     {
         var first = new Block(0);
         first.Add(new StoreStackSlot(0, new Constant("first", StringType)));
@@ -183,11 +176,15 @@ public class StringSlotMaterializationTests
             new MethodSignature(StringType, [], HasThis: false, GenericParameterCount: 0),
             [], body);
 
-        Assert.Equal(crossBlock
-            ? SlotMaterializationVeto.CrossBlockStoreFold
-            : SlotMaterializationVeto.MultiStoreSingleLoadFold,
+        Assert.Equal(SlotMaterializationVeto.None,
             Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
-        AssertRetained(function);
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        invariant.Check();
+        Assert.Equal(StringType, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Theory]
@@ -215,7 +212,7 @@ public class StringSlotMaterializationTests
             nameof(StringSlotMaterializationSamples.SwapStrings));
 
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStorageSwap);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
         new SwapIdiomPass().Run(function, PassContext.None);

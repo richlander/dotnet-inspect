@@ -7,15 +7,19 @@ authority, and synchronous content-borrowing contract of one realized managed
 Library.
 
 The resource-free `LibraryReference`, `LibraryContentReference`, closed content
-roles, and exact Artifact/Metadata correspondence floor are implemented in
-`DotnetInspector.Libraries`. The live `LibraryContentOwner`,
-`LibraryOperationLease`, scoped borrowing, and asynchronous retirement remain
-design-only for the next implementation slice.
+roles, exact Artifact/Metadata correspondence floor, `LibraryContentOwner`,
+`LibraryOperationLease`, scoped single/pair borrowing, and asynchronous
+retirement are implemented in `DotnetInspector.Libraries`. The compiled-XML
+DocumentationHouse operation now consumes and settles one transferred
+operation lease. PackageHouse, PlatformHouse, Workspace, SourceHouse, and the
+authored DocumentationHouse channel remain planned adopters.
 
 It expands step 15 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
 tracked end to end by
-[#6621](https://github.com/richlander/dotnet-inspect/issues/6621).
+[#6621](https://github.com/richlander/dotnet-inspect/issues/6621); focused
+implementation is tracked by
+[#7033](https://github.com/richlander/dotnet-inspect/issues/7033).
 
 ## Authority and exact claim
 
@@ -208,8 +212,10 @@ carries the obligation to observe settlement. Repeated settlement observes the
 same in-progress or terminal outcome; it does not start a second drain or
 release.
 
-If settlement faults, the owner remains terminal and issues no new leases. The
-failure reports which child obligation did not settle or release; it does not
+If settlement faults, the owner remains terminal and issues no new leases.
+`ReleaseFailures` associates each child-release exception with its exact
+`LibraryContentReference` in attempted reverse acceptance order, while
+`CleanupFailures` preserves the underlying exception sequence. Failure does not
 convert retirement into successful disposal or silently reopen ownership.
 
 `LibraryOperationLease` uses synchronous disposal because settling one
@@ -457,16 +463,22 @@ No House is referenced from `DotnetInspector.Libraries`.
 [#6621](https://github.com/richlander/dotnet-inspect/issues/6621) owns eight
 focused slices:
 
-1. lock this Library ownership and borrowing design;
+1. lock this Library ownership and borrowing design (**implemented**);
 2. implement `DotnetInspector.Libraries` contracts and Release declaration
-   gates over the implemented Artifact content-child floor;
+   gates over the implemented Artifact content-child floor (**implemented**);
 3. implement owner construction, operation transfer, scoped content snapshots,
-   release, and pathological `System.Text.Json` gates;
-4. adopt the contract in PackageHouse;
+   release, and pathological `System.Text.Json` gates (**implemented**);
+4. adopt the contract in PackageHouse (**implemented**): the separately
+   compiled execution adapter binds one exact acquired compile handoff to its
+   live payload generation, publishes selected assembly/XML contents through
+   Artifact and Metadata, and transfers separate Library and Artifact
+   authorities;
 5. adopt it in PlatformHouse;
 6. adopt it in Workspace and the Workspace-owned direct-library adapter;
 7. adopt it in SourceHouse; and
 8. adopt it in DocumentationHouse through both CLI and Browser/Wasm consumers.
+   The host-neutral compiled-XML operation now consumes and settles the lease;
+   source adapters and production hosts remain staged.
 
 Each adoption changes one owner and retires that owner's consumer-specific
 ready wrapper or hidden captured lease. The implementation slices update
@@ -474,10 +486,11 @@ the corresponding #6544 steps 15, 18 through 20, 22, and 23 without combining
 those owners into one PR.
 
 The direct product result is DocumentationHouse reading the compiled XML
-companion of the .NET 11 Platform `System.Text.Json` Library while SourceHouse
-can independently read its implementation assembly and PDB. Both consume
-separate Library operation leases over the same owner-issued reference; neither
-defines a private lifetime wrapper.
+companion of a PackageHouse-materialized `System.Text.Json` Library while
+another consumer can independently read its implementation assembly. Both
+consume separate Library operation leases over the same owner-issued reference;
+neither defines a private lifetime wrapper. The thin PackageHouse-to-
+DocumentationHouse host adoption remains owned by DocumentationHouse slice 8.
 
 ## Evidence plan
 
@@ -500,28 +513,46 @@ gates:
   mismatches are rejected (`Construction_RejectsCrossGenerationContent` and
   `Construction_RejectsUncorrelatedContent`).
 
-Live ownership behavior remains **unverified** until the owner and adoption
-slices add their named Release gates.
+The PackageHouse adopter Release gates use real `System.Text.Json` 10.0.0
+assembly and compiled-XML content. They prove the exact three-content handoff,
+single-content dual assembly roles, optional XML, handoff-generation
+correspondence across byte-identical payloads, visible missing/limit/metadata/
+identity failures, cancellation cleanup, and Library-before-Artifact
+retirement.
 
-The Library contract suite must gate:
+The live owner Release suite gates:
 
-- construction transfers every accepted child exactly once;
-- rejection and partial failure leave no ambiguous ownership;
-- operation issuance rejects released owners and foreign Library references;
-- content access rejects foreign content and absent roles;
-- every operation terminal path settles its lease;
-- single- and multi-content snapshots end every borrow on return or exception;
-- callback results used by product paths are detached or independently owned;
-- asynchronous owner settlement rejects new leases, drains active leases
-  without blocking, releases aggregate children once, and surfaces settlement
-  failures; and
-- no successful result uses a same-named but uncorrelated XML or PDB companion.
+- exact ordered child acceptance and rejection without consumption
+  (`ContentOwner_ConstructionRejectsInvalidChildrenWithoutConsumingThem` and
+  `ContentOwner_ConstructionRejectsReleasedAndForeignChildren`);
+- single, exact assembly/PDB and assembly/XML pair snapshots, ref-like callback
+  state, and survival of Artifact query-policy replacement
+  (`ContentOwner_SnapshotsExactContentAfterQueryPolicyReplacement`);
+- source-distinct package and Platform Library authority
+  (`ContentOwner_RejectsForeignLibraryAndContentReferences`);
+- distinct Library ownership for the two assemblies in the real
+  `Microsoft.Azure.SignalR@1.33.1` package association
+  (`ContentOwner_PreservesMultiLibraryPackageAssociations`);
+- same-content pair rejection, callback failure unwinding, active-snapshot
+  disposal rejection, pre-callback cancellation, and callback-initiated
+  retirement without deadlock
+  (`ContentOwner_PairValidationAndCallbackFailureUnwindBorrows`);
+- the issuance/retirement linearization race
+  (`ContentOwner_IssuanceAndRetirementRaceHasOneWinner`);
+- asynchronous retirement waiting for issued operations and Artifact children
+  (`ContentOwner_RetirementDrainsIssuedOperationsWithoutBlocking`); and
+- reverse acceptance-order release, terminal failure state, exact failed-child
+  correspondence, and preservation of every child-release exception
+  (`ContentOwner_ReleaseFailurePreservesEveryChildFailure`).
+
+Detached callback results remain a consumer obligation until Resource
+Lifecycle Analysis recognizes the Library declarations.
 
 Resource Lifecycle Analysis gates the supported transfer and borrow flows once
 the machine-readable contract model recognizes the Library declarations. It
 reports `Incomplete` rather than claiming safety for unsupported flow.
 
-The adopter suites separately gate their own policy while reusing the Library
-contract fixtures. CLI and Browser/Wasm product tests gate the final Platform
-`System.Text.Json` documentation scenario without making either host the
-Library owner.
+The adopter suites must separately gate their own policy while reusing the
+Library contract fixtures. CLI and Browser/Wasm product tests will gate the
+final Platform `System.Text.Json` documentation scenario without making either
+host the Library owner.

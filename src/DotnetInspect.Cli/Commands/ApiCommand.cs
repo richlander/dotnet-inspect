@@ -275,7 +275,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                "Use -S <Section> to select one, -D to discover what is available, or -S @Surface for the type-list surface.");
             return null;
         }
 
@@ -516,7 +516,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                $"Use -S <Section> to select one, -D to discover what is available, or -S {SectionCategoryNames.Member} for the ordinary member view.");
             return (null!, 1);
         }
 
@@ -612,38 +612,44 @@ public class ApiCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-        (options, string? findingCensusSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.FindingCensus);
-        if (findingCensusSelectionError is not null)
+        foreach (string section in
+                 ApiMemberSectionPipelines.GetExactOnlySections(options))
         {
-            CommandError.Write(findingCensusSelectionError);
-            return (null!, 1);
-        }
-        (options, string? cloneCandidatesSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.CloneCandidates);
-        if (cloneCandidatesSelectionError is not null)
-        {
-            CommandError.Write(cloneCandidatesSelectionError);
-            return (null!, 1);
+            (options, string? selectionError) =
+                NormalizeExactOnlySectionSelection(
+                    options,
+                    memberPipeline.SelectableSectionNames,
+                    section);
+            if (selectionError is not null)
+            {
+                CommandError.Write(selectionError);
+                return (null!, 1);
+            }
         }
         if (options is
             {
                 BodyKindQuery.HasFilter: true,
                 Select: null,
                 SelectDefault: false,
-                Discover: null,
+                Discover: null or { Length: 0 },
                 IncludeSections: null,
             })
         {
+            var bodyShapeSelection = new SelectResult(
+                new HashSet<string>(
+                    [SectionNames.BodyShapes],
+                    StringComparer.OrdinalIgnoreCase),
+                []);
+            if (ApplyBodyShapeSelectionRequirements(
+                    options,
+                    bodyShapeSelection) is { } bodyShapeError)
+            {
+                CommandError.Write(bodyShapeError);
+                return (null!, 1);
+            }
             options = options with
             {
-                IncludeSections = [SectionNames.BodyShapes],
+                IncludeSections = bodyShapeSelection.Sections,
             };
         }
 
@@ -1608,7 +1614,9 @@ public class ApiCommand
                 discover,
                 discoveryScope,
                 infoSections: [],
-                categories);
+                categories,
+                exactOnlySections:
+                    ApiMemberSectionPipelines.GetExactOnlySections(options));
             var discoveredSections = new HashSet<string>(
                 resolved.Sections ?? [],
                 StringComparer.OrdinalIgnoreCase);
@@ -1752,10 +1760,11 @@ public class ApiCommand
         else if (options.Tabular)
         {
             if (ApiOutputFormatter
-                .ShouldRenderSurfaceInspectionFailureTableView(
+                .ShouldRenderSurfaceSectionedTableView(
                     options))
             {
-                var failureRows =
+                string section = options.IncludeSections!.Single();
+                var sectionRows =
                     OutputFormatter.RenderProjectedTable(
                         !options.NoHeader,
                         options.Tsv,
@@ -1765,45 +1774,76 @@ public class ApiCommand
                         (writer, formatter, writerOptions) =>
                         {
                             writerOptions.IncludeSections =
-                                [SectionNames.InspectionFailures];
+                                [section];
                             MarkoutSerializer.Serialize(
                                 view,
                                 writer,
                                 formatter,
                                 ApiViewContext.Default,
                                 writerOptions);
-                        });
-                ProjectionDiagnostics.DiagnoseRendered(
-                    options.Fields ?? options.Columns,
-                    failureRows);
-                if (!TryReportEmptyProjection(
-                        failureRows,
-                        options))
+                        },
+                        options.Rows);
+                RenderedSectionManifest sectionManifest =
+                    OutputFormatter.CaptureProjectedTableManifest(
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                        {
+                            writerOptions.IncludeSections =
+                                [section];
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions);
+                        },
+                        ApiViewContext.Default
+                            .GetSchemaInfo<CliApiSurface>()!
+                            .ToDocumentSchema(),
+                        options.Rows,
+                        rootSection: section);
+                if (!DiagnoseProjection(
+                        sectionManifest,
+                        options,
+                        sections: [section]))
                 {
                     return 1;
                 }
-                Console.Out.Write(
-                    OutputFormatter.LimitRenderedTableRows(
-                        failureRows,
-                        options.Rows,
-                        !options.NoHeader));
+                Console.Out.Write(sectionRows);
                 return successExitCode;
             }
 
             if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
             {
-                // Deliberately the same machinery as the fall-through below -- projection,
-                // diagnostics, and row limiting all included -- differing only in WHAT is
-                // serialized. Writing straight to the console here instead skipped
-                // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
-                // the same projection against `Type Info` and `Library Info` reported that the
-                // field does not exist.
                 var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
-                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
-                if (!TryReportEmptyProjection(factRows, options))
+                RenderedSectionManifest factManifest =
+                    OutputFormatter.CaptureProjectedTableManifest(
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Columns,
+                        options.Fields,
+                        (writer, formatter, writerOptions) =>
+                            MarkoutSerializer.Serialize(
+                                view.ApiInfo!,
+                                writer,
+                                formatter,
+                                ApiViewContext.Default,
+                                writerOptions),
+                        ApiViewContext.Default
+                            .GetSchemaInfo<CliApiSurface>()!
+                            .ToDocumentSchema(),
+                        options.Rows,
+                        rootSection: SectionNames.ApiInfo);
+                if (!DiagnoseProjection(
+                        factManifest,
+                        options,
+                        sections: [SectionNames.ApiInfo]))
                     return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return successExitCode;
@@ -1814,8 +1854,31 @@ public class ApiCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
-            ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
-            if (!TryReportEmptyProjection(rendered, options))
+            RenderedSectionManifest tableManifest =
+                OutputFormatter.CaptureProjectedTableManifest(
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions),
+                    ApiViewContext.Default
+                        .GetSchemaInfo<CliApiSurface>()!
+                        .ToDocumentSchema(),
+                    options.Rows,
+                    rootSection: options.IncludeSections is { Count: 1 }
+                        ? options.IncludeSections.Single()
+                        : null,
+                    lockRootScope: true);
+            if (!DiagnoseProjection(
+                    tableManifest,
+                    options,
+                    sections: options.IncludeSections))
                 return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
@@ -1823,6 +1886,39 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+            DocumentSchema schema = ApiViewContext.Default
+                .GetSchemaInfo<CliApiSurface>()!
+                .ToDocumentSchema();
+            RenderedSectionManifest manifest = RenderManifestFormatter.Capture(
+                view,
+                ApiViewContext.Default,
+                writerOptions,
+                schema);
+            if (options.Columns is { Length: > 0 }
+                && options.Fields is { Length: > 0 })
+            {
+                var fieldOptions = options with { Columns = null };
+                MarkoutWriterOptions fieldWriterOptions =
+                    ApiOutputFormatter.BuildWriterOptions(
+                        api,
+                        fieldOptions);
+                fieldWriterOptions.RowWindow =
+                    RowWindow.ToMarkout(options.Rows);
+                manifest.MergeRenderedFieldTablesFrom(
+                    RenderManifestFormatter.Capture(
+                        view,
+                        ApiViewContext.Default,
+                        fieldWriterOptions,
+                        schema));
+            }
+
+            if (!DiagnoseProjection(
+                    manifest,
+                    options,
+                    schema,
+                    options.IncludeSections))
+                return 1;
+
             if (options.PlainText)
             {
                 // Buffered rather than written straight to the console so the empty-render gate
@@ -1831,8 +1927,6 @@ public class ApiCommand
                 var plain = new StringWriter();
                 MarkoutSerializer.Serialize(view, plain, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
                 var plainText = plain.ToString();
-                if (!TryReportEmptyProjection(plainText, options))
-                    return 1;
                 Console.Out.Write(plainText);
             }
             else
@@ -1841,8 +1935,6 @@ public class ApiCommand
                 MarkoutSerializer.Serialize(
                     view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
                 var markdown = markdownWriter.ToString().TrimEnd();
-                if (!TryReportEmptyProjection(markdown, options))
-                    return 1;
                 OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
@@ -1997,12 +2089,6 @@ public class ApiCommand
     /// that survives regardless of which section is selected. The candidates below include the
     /// product-owned fact-table columns when API Info is selected.
     /// </remarks>
-    private static bool TryReportEmptyProjection(
-        string rendered,
-        ApiOptions options,
-        DocumentSchema? schema = null)
-        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
-
     private static bool ProjectionIncludesSection(
         DocumentSchema schema,
         string section,
@@ -2062,33 +2148,7 @@ public class ApiCommand
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
-        var candidates = new List<string>();
-        if (string.Equals(
-                wantedKind,
-                "column",
-                StringComparison.OrdinalIgnoreCase)
-            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
-        {
-            candidates.Add("Field");
-            candidates.Add("Value");
-        }
-
-        foreach (var section in schema.SectionNames)
-        {
-            foreach (var item in schema.Discover(section) ?? [])
-            {
-                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                // Name only, never StableName. The stable name is the schema's internal
-                // identifier and markout does not project by it -- `--fields Assembly`, the
-                // stable name of `Library`, renders nothing on base and on head. Accepting it
-                // here would let a name the user cannot actually project by satisfy the gate
-                // (found by MAI-Code). Of the whole schema only `Library`/`Assembly`,
-                // `TFM`/`Tfm`, and `Target Library`/`TargetLibrary` differ at all.
-                candidates.Add(item.Name);
-            }
-        }
+        List<string> candidates = GetProjectionCandidates(schema, options, wantedKind);
 
         // Matched by markout's own projection matcher rather than by set membership, because
         // projection names may be wildcards: `--fields "Ver*"` legitimately selects `Version`,
@@ -2104,6 +2164,68 @@ public class ApiCommand
         var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
         CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");
         return false;
+    }
+
+    internal static bool DiagnoseProjection(
+        RenderedSectionManifest manifest,
+        ApiOptions options,
+        DocumentSchema? schema = null,
+        IReadOnlyCollection<string>? sections = null,
+        bool requireMatchedProjection = true)
+    {
+        string[]? requested = options.Fields ?? options.Columns;
+        if (requested is not { Length: > 0 })
+            return true;
+
+        schema ??= ApiViewContext.Default
+            .GetSchemaInfo<CliApiSurface>()!
+            .ToDocumentSchema();
+        string wantedKind = options.Fields is { Length: > 0 }
+            ? "field"
+            : "column";
+
+        ProjectionDiagnostics.DiagnoseProjected(
+            requested,
+            manifest,
+            schema,
+            wantedKind,
+            sections,
+            fieldSectionsAsColumns: true);
+
+        return !requireMatchedProjection || TryReportEmptyProjection(
+            manifest.HasAnyData,
+            options,
+            schema);
+    }
+
+    private static List<string> GetProjectionCandidates(
+        DocumentSchema schema,
+        ApiOptions options,
+        string wantedKind)
+    {
+        var candidates = new List<string>();
+        if (string.Equals(
+                wantedKind,
+                "column",
+                StringComparison.OrdinalIgnoreCase)
+            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
+        {
+            candidates.Add("Field");
+            candidates.Add("Value");
+        }
+
+        foreach (string section in schema.SectionNames)
+        {
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                candidates.Add(item.Name);
+            }
+        }
+
+        return candidates;
     }
 
     // ===== Method Source Resolution =====
@@ -2249,12 +2371,12 @@ public class ApiCommand
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     localBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(localBytes));
+                    SourceLinkService.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -2264,12 +2386,12 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                checksumVerification = PdbSourceHouse.VerifyChecksum(
+                checksumVerification = SourceLinkService.VerifyChecksum(
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum,
                     repoBytes);
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.PdbSourceHouse.DecodeSourceText(repoBytes));
+                    SourceLinkService.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
@@ -2605,6 +2727,14 @@ public class ApiCommand
             && !sourceDocumentJson && !findingCensusJson)
         {
             if (GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Implementation Profiles analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+                return 1;
+            }
+            if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
@@ -2794,6 +2924,30 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+            }
+
+            if (options.DllPath is not null
+                && GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(options)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(options);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            options)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (options as MemberOptions)?
+                            .SelectedBodyMethodToken);
             }
 
             // Source code (already resolved in command layer)
@@ -3003,6 +3157,21 @@ public class ApiCommand
                 return 1;
             }
 
+            var projectionManifest = new RenderedSectionManifest();
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                view.MemberCode?.CallGraphRenderedFieldEvidence.GraphFields
+                    ?? CallGraphRenderedFieldEvidence.Empty.GraphFields);
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    GetTypeDocumentSchema(options),
+                    options.IncludeSections,
+                    requireMatchedProjection: false))
+            {
+                return 1;
+            }
+
             if (graph.IsEmpty)
             {
                 sink.WriteLine("No inbound callers or outbound calls found for this method.");
@@ -3038,11 +3207,16 @@ public class ApiCommand
 
         if (options.Tabular)
         {
+            var renderedWriter = new StringWriter { NewLine = "\n" };
+            RenderedSectionManifest projectionManifest;
+            IEnumerable<CallGraphField> callGraphRenderedFields = [];
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
                 var writerOpts = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
                 OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(sink, !options.NoHeader,
+                callGraphRenderedFields =
+                    GetCallGraphEdgeTableRenderedFields(view, writerOpts);
+                OutputFormatter.WriteTable(renderedWriter, !options.NoHeader,
                     (writer, formatter) =>
                     {
                         var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
@@ -3051,61 +3225,241 @@ public class ApiCommand
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
                     }, options.Rows);
+
+                writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
+                var formatter = new RenderManifestFormatter(
+                    GetTypeDocumentSchema(options));
+                formatter.BeginDocument(writerOpts);
+                var manifestWriter = new MarkoutWriter(
+                    TextWriter.Null,
+                    formatter,
+                    writerOpts);
+                ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, manifestWriter);
+                manifestWriter.Flush();
+                projectionManifest = formatter.Manifest;
+                if (options.Columns is { Length: > 0 }
+                    && options.Fields is { Length: > 0 })
+                {
+                    MarkoutWriterOptions fieldWriterOptions =
+                        ApiOutputFormatter.BuildTypeWriterOptions(
+                            type,
+                            options with { Columns = null });
+                    OutputFormatter.ConfigureTableWriterOptions(
+                        fieldWriterOptions,
+                        options.Tsv,
+                        options.Jsonl);
+                    fieldWriterOptions.RowWindow =
+                        RowWindow.ToMarkout(options.Rows);
+                    var fieldFormatter = new RenderManifestFormatter(
+                        GetTypeDocumentSchema(options));
+                    fieldFormatter.BeginDocument(fieldWriterOptions);
+                    var fieldManifestWriter = new MarkoutWriter(
+                        TextWriter.Null,
+                        fieldFormatter,
+                        fieldWriterOptions);
+                    ApiOutputFormatter.SerializeTypeDocument(
+                        view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                        explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
+                    fieldManifestWriter.Flush();
+                    projectionManifest.MergeRenderedFieldTablesFrom(
+                        fieldFormatter.Manifest);
+                }
             }
             else
             {
                 var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, options);
-                OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
+                OutputFormatter.WriteProjectedTable(
+                    renderedWriter,
+                    !options.NoHeader,
+                    options.Tsv,
+                    options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
                     options.Rows);
+                projectionManifest = OutputFormatter.CaptureProjectedTableManifest(
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions),
+                    GetTypeDocumentSchema(options),
+                    options.Rows,
+                    options.IncludeSections is { Count: 1 }
+                        ? options.IncludeSections.Single()
+                        : null,
+                    lockRootScope: true);
             }
+
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                callGraphRenderedFields);
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    GetTypeDocumentSchema(options),
+                    options.IncludeSections))
+                return 1;
+
+            sink.Write(renderedWriter.ToString());
         }
         else
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            if (options.PlainText)
+            if (SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }))
             {
-                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
-                ApiOutputFormatter.SerializeTypeDocument(
-                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
+                var pipeline = ApiMemberSectionPipelines.Create(options);
+                writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
             }
-            else
+            else if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }))
             {
-                if (SelectResolver.IsActiveAllSelector(
-                    options.Select,
-                    options.IncludeSections,
-                    options is MemberOptions { MemberSectionsPreResolved: true }))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
-                }
-                else if (SelectResolver.IsActiveInfoSelector(
-                    options.SelectDefault,
-                    options.IncludeSections,
-                    options is MemberOptions { MemberSectionsPreResolved: true }))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
-                }
+                var pipeline = ApiMemberSectionPipelines.Create(options);
+                writerOptions.SectionOrder = pipeline.InfoSectionNames;
+            }
 
-                var sw = new StringWriter { NewLine = "\n" };
-                var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
+            DocumentSchema schema = GetTypeDocumentSchema(options);
+            var manifestFormatter = new RenderManifestFormatter(schema);
+            manifestFormatter.BeginDocument(writerOptions);
+            var manifestWriter = new MarkoutWriter(
+                TextWriter.Null,
+                manifestFormatter,
+                writerOptions);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, manifestWriter);
+            manifestWriter.Flush();
+            RenderedSectionManifest projectionManifest =
+                manifestFormatter.Manifest;
+            MergeCallGraphRenderedFields(
+                projectionManifest,
+                options.PlainText
+                || options.EmbeddedMermaid
+                    ? view.MemberCode?.CallGraphRenderedFieldEvidence.GraphFields
+                        ?? CallGraphRenderedFieldEvidence.Empty.GraphFields
+                    : GetCallGraphEdgeTableRenderedFields(view, writerOptions));
+
+            if (options.Columns is { Length: > 0 }
+                && options.Fields is { Length: > 0 })
+            {
+                MarkoutWriterOptions fieldWriterOptions =
+                    ApiOutputFormatter.BuildTypeWriterOptions(
+                        type,
+                        options with { Columns = null });
+                fieldWriterOptions.RowWindow =
+                    RowWindow.ToMarkout(options.Rows);
+                fieldWriterOptions.SectionOrder = writerOptions.SectionOrder;
+                var fieldFormatter = new RenderManifestFormatter(schema);
+                fieldFormatter.BeginDocument(fieldWriterOptions);
+                var fieldManifestWriter = new MarkoutWriter(
+                    TextWriter.Null,
+                    fieldFormatter,
+                    fieldWriterOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-                writer.Flush();
-                var markdown = sw.ToString().TrimEnd();
-                OutputFormatter.WriteLfLine(sink, markdown);
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, fieldManifestWriter);
+                fieldManifestWriter.Flush();
+                projectionManifest.MergeRenderedFieldTablesFrom(
+                    fieldFormatter.Manifest);
             }
+
+            if (!DiagnoseProjection(
+                    projectionManifest,
+                    options,
+                    schema,
+                    options.IncludeSections,
+                    requireMatchedProjection:
+                        options.IncludeSections is not { Count: > 0 }))
+                return 1;
+
+            var renderedWriter = new StringWriter { NewLine = "\n" };
+            var writer = new MarkoutWriter(
+                renderedWriter,
+                options.CreateFormatter(),
+                writerOptions);
+            ApiOutputFormatter.SerializeTypeDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
+            writer.Flush();
+            string rendered = renderedWriter.ToString();
+            if (options.PlainText)
+                sink.Write(rendered);
+            else
+                OutputFormatter.WriteLfLine(sink, rendered.TrimEnd());
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
+    }
+
+    private static void MergeCallGraphRenderedFields(
+        RenderedSectionManifest manifest,
+        IEnumerable<CallGraphField> fields)
+    {
+        manifest.RecordFields(
+            SectionNames.CallGraph,
+            fields.SelectMany(CallGraphFieldSelection.NamesFor));
+    }
+
+    private static IEnumerable<CallGraphField> GetCallGraphEdgeTableRenderedFields(
+        TypeView view,
+        MarkoutWriterOptions writerOptions)
+    {
+        if (view.MemberCode is not
+            {
+                CallGraph: { } graph,
+                CallGraphRenderedFieldEvidence: { } evidence,
+            })
+        {
+            return [];
+        }
+
+        MarkoutProjection? projection = writerOptions.Projection;
+        if (projection?.IncludeColumns is null)
+            return evidence.GraphFields;
+
+        var table = GraphLowering.ToEdgeTable(graph);
+        if (!projection.TryResolveColumns(
+                table.Headers.AsSpan(),
+                out ColumnProjectionResolution resolution))
+        {
+            return [];
+        }
+
+        bool includesFrom = resolution.ColumnMap.Any(index =>
+            index >= 0
+            && index < table.Headers.Length
+            && table.Headers[index].Equals(
+                "From",
+                StringComparison.OrdinalIgnoreCase));
+        bool includesTo = resolution.ColumnMap.Any(index =>
+            index >= 0
+            && index < table.Headers.Length
+            && table.Headers[index].Equals(
+                "To",
+                StringComparison.OrdinalIgnoreCase));
+
+        return (includesFrom, includesTo) switch
+        {
+            (true, true) => evidence.GraphFields,
+            (true, false) => evidence.FromFields,
+            (false, true) => evidence.ToFields,
+            _ => [],
+        };
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
@@ -3533,10 +3887,13 @@ public class ApiCommand
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
-            ? options is MemberOptions { OverloadIndex: not null }
+            ? options.BodyKindQuery.HasFilter
+                ? effective
+                : options is MemberOptions { OverloadIndex: not null }
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : (IReadOnlyCollection<string>?)null;
+            : [.. GetRequestedMemberSections(filteredType, options)
+                .Where(section => !unprobed.Contains(section))];
         var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         if (bodyFilteredType is not null)
         {
@@ -3568,6 +3925,15 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
+        IReadOnlySet<string> catalogHiddenSections =
+            memberPipeline.GetCatalogHiddenSections();
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            catalogHiddenSections = catalogHiddenSections
+                .Where(section =>
+                    !options.IncludeSections.Contains(section))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
         var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
             queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
@@ -3586,7 +3952,11 @@ public class ApiCommand
                 options),
             fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline));
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
+            catalogHiddenSections: catalogHiddenSections,
+            listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
+            exactOnlySections:
+                ApiMemberSectionPipelines.GetExactOnlySections(options));
     }
 
     /// <summary>
@@ -3846,6 +4216,31 @@ public class ApiCommand
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
+            }
+
+            if (renderOptions.DllPath is not null
+                && GetRequestedMemberSections(type, renderOptions)
+                    .Contains(SectionNames.ImplementationProfiles))
+            {
+                bool restrictImplementationProfiles =
+                    ApiMemberSectionPipelines
+                        .UsesDetailPipeline(renderOptions)
+                    || ApiMemberSectionPipelines
+                        .UsesOverloadInventoryPipeline(
+                            renderOptions);
+                ApiOutputFormatter.PopulateImplementationProfiles(
+                    view,
+                    restrictImplementationProfiles
+                        ? BuildFilteredTypeForBodyShapes(
+                            type,
+                            renderOptions)
+                        : type,
+                    TypeAnalysisIndex(),
+                    restrictToModelMembers:
+                        restrictImplementationProfiles,
+                    selectedMethodToken:
+                        (renderOptions as MemberOptions)?
+                            .SelectedBodyMethodToken);
             }
         }
 
@@ -4207,9 +4602,14 @@ public class ApiCommand
             AssemblyMemberDecompiledSourceAttempt.Available =>
                 "available",
             AssemblyMemberDecompiledSourceAttempt.Unavailable unavailable =>
-                unavailable.Status == Decompiler.MemberBodyProductionStatus.Absent
-                    ? "the member has no renderable body"
-                    : "decompilation failed",
+                unavailable.Status switch
+                {
+                    Decompiler.CSharpDecompilationStatus.Absent =>
+                        "the member has no renderable body",
+                    Decompiler.CSharpDecompilationStatus.Incomplete =>
+                        $"decompilation incomplete: {unavailable.FailureDetail}",
+                    _ => $"decompilation failed: {unavailable.FailureDetail}",
+                },
             _ => throw new InvalidOperationException(
                 "Unknown decompiled source attempt."),
         };

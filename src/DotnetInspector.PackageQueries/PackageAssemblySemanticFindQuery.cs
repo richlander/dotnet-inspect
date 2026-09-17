@@ -420,28 +420,11 @@ internal static class PackageAssemblySemanticFindQuery
     {
         using (sourceOperation)
         {
-            ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(payloadAcquisition);
-            if (payloadAcquisition.Limits is not null)
-            {
-                throw new ArgumentException(
-                    "The semantic Find request owns payload limits; its acquisition plan must not declare another limit set.",
-                    nameof(payloadAcquisition));
-            }
-            if (sourceOperation.OperationTimeout
-                != request.Budget.MaximumDuration)
-            {
-                throw new ArgumentException(
-                    "The Package Source operation deadline must match the semantic Find request.",
-                    nameof(sourceOperation));
-            }
-            if (cancellationToken != default
-                && cancellationToken != sourceOperation.CancellationToken)
-            {
-                throw new ArgumentException(
-                    "The Package Source operation and semantic Find execution must carry the same caller cancellation.",
-                    nameof(cancellationToken));
-            }
+            ValidateExecution(
+                request,
+                sourceOperation,
+                payloadAcquisition,
+                cancellationToken);
 
             CancellationToken callerCancellation =
                 sourceOperation.CancellationToken;
@@ -559,6 +542,37 @@ internal static class PackageAssemblySemanticFindQuery
                 sourceOperation.ThrowIfExpired();
                 operationCancellation.ThrowIfCancellationRequested();
             }
+        }
+    }
+
+    internal static void ValidateExecution(
+        PackageAssemblySemanticFindRequest request,
+        PackageSourceOperationLease sourceOperation,
+        PackagePayloadAcquisitionPlan payloadAcquisition,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        ArgumentNullException.ThrowIfNull(payloadAcquisition);
+        if (payloadAcquisition.Limits is not null)
+        {
+            throw new ArgumentException(
+                "The semantic Find request owns payload limits; its acquisition plan must not declare another limit set.",
+                nameof(payloadAcquisition));
+        }
+        if (sourceOperation.OperationTimeout
+            != request.Budget.MaximumDuration)
+        {
+            throw new ArgumentException(
+                "The Package Source operation deadline must match the semantic Find request.",
+                nameof(sourceOperation));
+        }
+        if (cancellationToken != default
+            && cancellationToken != sourceOperation.CancellationToken)
+        {
+            throw new ArgumentException(
+                "The Package Source operation and semantic Find execution must carry the same caller cancellation.",
+                nameof(cancellationToken));
         }
     }
 

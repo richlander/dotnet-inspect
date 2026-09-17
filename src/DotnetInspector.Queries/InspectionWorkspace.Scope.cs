@@ -36,9 +36,52 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
-            requirePublicationBase: false, packages, deadline,
-            WorkspaceScopeOperationKind.Replace, cancellationToken);
+        SubmitScopeRequestAsync(
+            IssueReplaceScopeRequest(expectedRevision, packages, deadline),
+            cancellationToken);
+
+    /// <summary>
+    /// Issues an inert complete Scope replacement request. The returned
+    /// association is available before explicit submission.
+    /// </summary>
+    public WorkspaceScopeRequest IssueReplaceScopeRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        ImmutableArray<PackageRootBinding> packages,
+        DateTimeOffset deadline,
+        WorkspaceScopePackageTarget? target = null) =>
+        IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Replace,
+            target,
+            occurrence: null,
+            realizationOptions: null);
+
+    internal ValueTask<WorkspaceScopeOperationResult>
+        ReplaceScopeWithRealizationOptionsAsync(
+            WorkspaceScopeRevision expectedRevision,
+            ImmutableArray<PackageRootBinding> packages,
+            PackageAssemblyContextRealizationOptions realizationOptions,
+            DateTimeOffset deadline,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(realizationOptions);
+        realizationOptions.Validate();
+        return SubmitScopeRequestAsync(IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Replace,
+            target: null,
+            occurrence: null,
+            realizationOptions),
+            cancellationToken);
+    }
 
     /// <summary>
     /// Commits a fresh empty closed revision and supersedes current preparation
@@ -48,9 +91,27 @@ public sealed partial class InspectionWorkspace
         WorkspaceScopeRevision expectedRevision,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
-            requirePublicationBase: false, [], deadline,
-            WorkspaceScopeOperationKind.Clear, cancellationToken);
+        SubmitScopeRequestAsync(
+            IssueClearScopeRequest(expectedRevision, deadline),
+            cancellationToken);
+
+    /// <summary>
+    /// Issues an inert complete Scope clear request. Clear has no activation
+    /// target in the exact-Package profile.
+    /// </summary>
+    public WorkspaceScopeRequest IssueClearScopeRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        DateTimeOffset deadline) =>
+        IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            [],
+            deadline,
+            WorkspaceScopeOperationKind.Clear,
+            target: null,
+            occurrence: null,
+            realizationOptions: null);
 
     /// <summary>
     /// Appends one all-or-failure batch of distinct already-acquired Packages,
@@ -62,9 +123,29 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
-            requirePublicationBase: false, packages, deadline,
-            WorkspaceScopeOperationKind.Add, cancellationToken);
+        SubmitScopeRequestAsync(
+            IssueAddPackagesRequest(expectedRevision, packages, deadline),
+            cancellationToken);
+
+    /// <summary>
+    /// Issues an inert all-or-failure Package addition request, optionally
+    /// naming one exact requested Package occurrence for activation.
+    /// </summary>
+    public WorkspaceScopeRequest IssueAddPackagesRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        ImmutableArray<PackageRootBinding> packages,
+        DateTimeOffset deadline,
+        WorkspaceScopePackageTarget? target = null) =>
+        IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Add,
+            target,
+            occurrence: null,
+            realizationOptions: null);
 
     /// <summary>
     /// Appends one all-or-failure batch against an exact current Scope
@@ -76,9 +157,34 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, expectedPublicationBase,
-            requirePublicationBase: true, packages, deadline,
-            WorkspaceScopeOperationKind.Add, cancellationToken);
+        SubmitScopeRequestAsync(
+            IssueAddPackagesRequest(
+                expectedRevision,
+                expectedPublicationBase,
+                packages,
+                deadline),
+            cancellationToken);
+
+    /// <summary>
+    /// Issues an inert all-or-failure Package addition request against one
+    /// exact Scope publication base.
+    /// </summary>
+    public WorkspaceScopeRequest IssueAddPackagesRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
+        ImmutableArray<PackageRootBinding> packages,
+        DateTimeOffset deadline,
+        WorkspaceScopePackageTarget? target = null) =>
+        IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase,
+            requirePublicationBase: true,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Add,
+            target,
+            occurrence: null,
+            realizationOptions: null);
 
     /// <summary>
     /// Removes one exact current occurrence without choosing a successor or
@@ -89,20 +195,93 @@ public sealed partial class InspectionWorkspace
         WorkspacePackageOccurrenceIdentity occurrence,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
-            requirePublicationBase: false, [], deadline,
-            WorkspaceScopeOperationKind.Remove, cancellationToken, occurrence);
+        SubmitScopeRequestAsync(
+            IssueRemovePackageOccurrenceRequest(
+                expectedRevision,
+                occurrence,
+                deadline),
+            cancellationToken);
+
+    /// <summary>
+    /// Issues an inert request to remove one exact current occurrence. Remove
+    /// has no activation target in the exact-Package profile.
+    /// </summary>
+    public WorkspaceScopeRequest IssueRemovePackageOccurrenceRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        WorkspacePackageOccurrenceIdentity? occurrence,
+        DateTimeOffset deadline) =>
+        IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            [],
+            deadline,
+            WorkspaceScopeOperationKind.Remove,
+            target: null,
+            occurrence,
+            realizationOptions: null);
+
+    /// <summary>
+    /// Creates resource-free explicit activation intent for the exact Package
+    /// request represented by an already-acquired binding.
+    /// </summary>
+    public WorkspaceScopePackageTarget CreateScopePackageTarget(
+        PackageRootBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return new(new(_identity, PackageArtifactRootRequest.From(binding)));
+    }
+
+    /// <summary>
+    /// Submits one issued request through this Workspace. A request identity
+    /// can be submitted only once.
+    /// </summary>
+    public ValueTask<WorkspaceScopeOperationResult> SubmitScopeRequestAsync(
+        WorkspaceScopeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!request.TryBeginSubmission())
+        {
+            throw new InvalidOperationException(
+                "The Scope request has already been submitted.");
+        }
+        return MutateScopeAsync(request, cancellationToken);
+    }
+
+    WorkspaceScopeRequest IssueScopeRequest(
+        WorkspaceScopeRevision? expectedRevision,
+        WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
+        bool requirePublicationBase,
+        ImmutableArray<PackageRootBinding> packages,
+        DateTimeOffset deadline,
+        WorkspaceScopeOperationKind kind,
+        WorkspaceScopePackageTarget? target,
+        WorkspacePackageOccurrenceIdentity? occurrence,
+        PackageAssemblyContextRealizationOptions? realizationOptions) =>
+        new(
+            _identity,
+            expectedRevision,
+            expectedPublicationBase,
+            requirePublicationBase,
+            packages,
+            deadline,
+            kind,
+            target,
+            occurrence,
+            realizationOptions);
 
     /// <summary>
     /// Requests cancellation of the exact preparing operation and awaits its
-    /// complete settlement. An action for a no-longer-preparing operation has no effect.
+    /// complete settlement. A no-longer-preparing action returns a typed
+    /// control observation rather than a mutation result.
     /// </summary>
-    public async ValueTask<WorkspaceScopeOperationResult> CancelScopePreparationAsync(
+    public async ValueTask<WorkspaceScopeCancellationResult> CancelScopePreparationAsync(
         WorkspaceScopeCancellationAction action)
     {
         var read = await ReadArtifactRootCompositionAsync(_identity).ConfigureAwait(false);
         if (read is ArtifactRootResult<ArtifactRootCompositionReadLease>.Rejected rejected)
-            return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, rejected.Failure);
+            return new WorkspaceScopeCancellationResult.Unavailable(_scopeSnapshot, rejected.Failure);
         ScopePreparation operation;
         using (var lease =
             ((ArtifactRootResult<ArtifactRootCompositionReadLease>.Available)read).Value)
@@ -110,15 +289,17 @@ public sealed partial class InspectionWorkspace
             lock (_gate)
             {
                 if (RootWorkspaceFailure(_identity) is { } unavailable)
-                    return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, unavailable);
+                    return new WorkspaceScopeCancellationResult.Unavailable(_scopeSnapshot, unavailable);
                 WorkspaceScopeSnapshot current = ObserveScope(lease);
                 if (action is null)
-                    return new WorkspaceScopeOperationResult.Rejected(current, WorkspaceScopeRejection.Malformed);
+                    return new WorkspaceScopeCancellationResult.Rejected(
+                        current, WorkspaceScopeRejection.Malformed);
                 if (!ReferenceEquals(action.Workspace, _identity))
-                    return new WorkspaceScopeOperationResult.Rejected(current, WorkspaceScopeRejection.ForeignWorkspace);
+                    return new WorkspaceScopeCancellationResult.Rejected(
+                        current, WorkspaceScopeRejection.ForeignWorkspace);
                 if (_scopePreparation is not { } preparing
                     || !ReferenceEquals(preparing.Identity, action.Operation))
-                    return new WorkspaceScopeOperationResult.NoEffect(current);
+                    return new WorkspaceScopeCancellationResult.ObservedNoEffect(current);
                 operation = preparing;
                 if (!operation.Stop.IsCancellationRequested)
                 {
@@ -128,22 +309,19 @@ public sealed partial class InspectionWorkspace
                 }
             }
         }
-        return await operation.Completion.ConfigureAwait(false);
+        return new WorkspaceScopeCancellationResult.Settled(
+            await operation.Completion.ConfigureAwait(false));
     }
 
     async ValueTask<WorkspaceScopeOperationResult> MutateScopeAsync(
-        WorkspaceScopeRevision expectedRevision,
-        WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
-        bool requirePublicationBase,
-        ImmutableArray<PackageRootBinding> packages,
-        DateTimeOffset deadline,
-        WorkspaceScopeOperationKind kind,
-        CancellationToken cancellationToken,
-        WorkspacePackageOccurrenceIdentity? occurrence = null)
+        WorkspaceScopeRequest request,
+        CancellationToken cancellationToken)
     {
+        WorkspaceScopeOperationAssociation association = request.Association;
         var read = await ReadArtifactRootCompositionAsync(_identity).ConfigureAwait(false);
         if (read is ArtifactRootResult<ArtifactRootCompositionReadLease>.Rejected rejected)
-            return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, rejected.Failure);
+            return new WorkspaceScopeOperationResult.Unavailable(
+                association, _scopeSnapshot, rejected.Failure);
 
         ScopePreparation operation;
         ImmutableArray<ScopeRequestedPackage> requested;
@@ -153,46 +331,73 @@ public sealed partial class InspectionWorkspace
             lock (_gate)
             {
                 if (RootWorkspaceFailure(_identity) is { } unavailable)
-                    return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, unavailable);
+                    return new WorkspaceScopeOperationResult.Unavailable(
+                        association, _scopeSnapshot, unavailable);
                 WorkspaceScopeSnapshot current = ObserveScope(lease);
                 WorkspaceScopeRejection? failure =
                     ValidateScopeSubmission(
-                        expectedRevision,
-                        expectedPublicationBase,
-                        requirePublicationBase,
-                        deadline,
+                        request.ExpectedRevision,
+                        request.ExpectedPublicationBase,
+                        request.RequirePublicationBase,
+                        request.Deadline,
+                        request.Limits,
+                        association,
                         current);
                 if (failure is { } invalid)
-                    return new WorkspaceScopeOperationResult.Rejected(current, invalid);
-                if (packages.IsDefault || packages.Any(static package => package is null))
                     return new WorkspaceScopeOperationResult.Rejected(
-                        current, WorkspaceScopeRejection.Malformed);
+                        association, current, invalid);
+                if (request.Packages.IsDefault
+                    || request.Packages.Any(static package => package is null))
+                    return new WorkspaceScopeOperationResult.Rejected(
+                        association, current, WorkspaceScopeRejection.Malformed);
 
-                if (kind == WorkspaceScopeOperationKind.Remove)
+                if (association.Kind == WorkspaceScopeOperationKind.Remove)
                 {
-                    if (occurrence is null)
+                    if (request.Occurrence is null)
                         return new WorkspaceScopeOperationResult.Rejected(
-                            current, WorkspaceScopeRejection.Malformed);
-                    if (!ReferenceEquals(occurrence.WorkspaceIdentity, _identity))
+                            association, current, WorkspaceScopeRejection.Malformed);
+                    if (!ReferenceEquals(
+                        request.Occurrence.WorkspaceIdentity,
+                        _identity))
+                    {
                         return new WorkspaceScopeOperationResult.Rejected(
-                            current, WorkspaceScopeRejection.ForeignWorkspace);
-                    if (!current.Packages.Any(row => ReferenceEquals(row.Occurrence.Identity, occurrence)))
+                            association, current, WorkspaceScopeRejection.ForeignWorkspace);
+                    }
+                    if (!current.Packages.Any(row => ReferenceEquals(
+                        row.Occurrence.Identity,
+                        request.Occurrence)))
+                    {
                         return new WorkspaceScopeOperationResult.Rejected(
-                            current, WorkspaceScopeRejection.OccurrenceNotCurrent);
+                            association, current, WorkspaceScopeRejection.OccurrenceNotCurrent);
+                    }
                 }
 
-                ImmutableArray<WorkspacePackageOccurrenceDescriptor> survivors = kind switch
+                if (request.Target is { } target
+                    && !request.Packages.Any(binding =>
+                        target.Correspondence.Equals(
+                            new PackageArtifactRootCorrespondence(
+                                _identity,
+                                PackageArtifactRootRequest.From(binding)))))
+                {
+                    return new WorkspaceScopeOperationResult.Rejected(
+                        association, current, WorkspaceScopeRejection.Malformed);
+                }
+
+                ImmutableArray<WorkspacePackageOccurrenceDescriptor> survivors =
+                    association.Kind switch
                 {
                     WorkspaceScopeOperationKind.Add => current.Packages,
                     WorkspaceScopeOperationKind.Remove =>
-                        [.. current.Packages.Where(row => !ReferenceEquals(row.Occurrence.Identity, occurrence))],
+                        [.. current.Packages.Where(row => !ReferenceEquals(
+                            row.Occurrence.Identity,
+                            request.Occurrence))],
                     _ => [],
                 };
                 var unique = new HashSet<ArtifactRootCorrespondence>();
                 foreach (WorkspacePackageOccurrenceDescriptor survivor in survivors)
                     unique.Add(survivor.Occurrence.Correspondence);
                 var candidates = ImmutableArray.CreateBuilder<ScopeRequestedPackage>();
-                foreach (PackageRootBinding binding in packages)
+                foreach (PackageRootBinding binding in request.Packages)
                 {
                     ArtifactRootCorrespondence correspondence =
                         CreatePackageArtifactRootCorrespondence(binding);
@@ -206,21 +411,39 @@ public sealed partial class InspectionWorkspace
                 }
                 if (candidates.Count > current.Revision.Limits.MaxPackages - survivors.Length)
                     return new WorkspaceScopeOperationResult.Rejected(
-                        current, WorkspaceScopeRejection.PackageCapacityExceeded);
-                if (kind is WorkspaceScopeOperationKind.Add or WorkspaceScopeOperationKind.Remove
+                        association, current, WorkspaceScopeRejection.PackageCapacityExceeded);
+                if (association.Kind
+                        is WorkspaceScopeOperationKind.Add
+                        or WorkspaceScopeOperationKind.Remove
                     && _scopePreparation is not null)
-                    return new WorkspaceScopeOperationResult.Rejected(current, WorkspaceScopeRejection.Busy);
+                {
+                    return new WorkspaceScopeOperationResult.Rejected(
+                        association, current, WorkspaceScopeRejection.Busy);
+                }
 
-                operation = new(_identity, kind, deadline, cancellationToken, current);
+                operation = new(
+                    _identity,
+                    association,
+                    request.Target?.Correspondence,
+                    request.Deadline,
+                    cancellationToken,
+                    current);
                 if (operation.Stop.IsCancellationRequested)
                 {
                     operation.Dispose();
-                    return new WorkspaceScopeOperationResult.Cancelled(current, operation.Identity);
+                    return new WorkspaceScopeOperationResult.Cancelled(
+                        association, current);
                 }
-                if (kind == WorkspaceScopeOperationKind.Add && candidates.Count == 0)
+                if (association.Kind == WorkspaceScopeOperationKind.Add
+                    && candidates.Count == 0)
                 {
                     operation.Dispose();
-                    return new WorkspaceScopeOperationResult.NoEffect(current);
+                    return new WorkspaceScopeOperationResult.NoEffect(
+                        association,
+                        current,
+                        FindRequestedOccurrence(
+                            current,
+                            request.Target?.Correspondence));
                 }
                 var complete = ImmutableArray.CreateBuilder<ScopeRequestedPackage>(survivors.Length + candidates.Count);
                 foreach (WorkspacePackageOccurrenceDescriptor survivor in survivors)
@@ -229,15 +452,20 @@ public sealed partial class InspectionWorkspace
                     {
                         operation.Dispose();
                         return new WorkspaceScopeOperationResult.Failed(
-                            current, ArtifactRootFailure.ArtifactGenerationMismatch);
+                            association,
+                            current,
+                            ArtifactRootFailure.ArtifactGenerationMismatch);
                     }
                     complete.Add(new ScopeRequestedPackage.Retain(survivor.Occurrence, ready.Generation));
                 }
                 complete.AddRange(candidates);
                 requested = complete.MoveToImmutable();
                 var next = WithScopePreparation(current,
-                    new(_identity, operation.Identity, kind,
-                        kind == WorkspaceScopeOperationKind.Remove ? 1 : candidates.Count, deadline));
+                    new(_identity, operation.Identity, association.Kind,
+                        association.Kind == WorkspaceScopeOperationKind.Remove
+                            ? 1
+                            : candidates.Count,
+                        request.Deadline));
                 if (_scopePreparation is { } displaced)
                 {
                     // Preserve a cancellation or deadline that won before displacement.
@@ -252,14 +480,19 @@ public sealed partial class InspectionWorkspace
             }
         }
 
-        Task<WorkspaceScopeOperationResult> execution = ExecuteScopeMutationAsync(operation, requested);
+        Task<WorkspaceScopeOperationResult> execution =
+            ExecuteScopeMutationAsync(
+                operation,
+                requested,
+                request.RealizationOptions);
         operation.Started.SetResult(execution);
         return await execution.ConfigureAwait(false);
     }
 
     async Task<WorkspaceScopeOperationResult> ExecuteScopeMutationAsync(
         ScopePreparation operation,
-        ImmutableArray<ScopeRequestedPackage> requested)
+        ImmutableArray<ScopeRequestedPackage> requested,
+        PackageAssemblyContextRealizationOptions? realizationOptions)
     {
         ArtifactRootPreparationReceipt? receipt = null;
         WorkspaceScopeOperationResult? result = null;
@@ -271,7 +504,9 @@ public sealed partial class InspectionWorkspace
             if (!unmatched.IsEmpty)
             {
                 var prepared = await PreparePackageArtifactRootsAsync(
-                    operation.Authority, unmatched).ConfigureAwait(false);
+                    operation.Authority,
+                    unmatched,
+                    realizationOptions).ConfigureAwait(false);
                 if (prepared is ArtifactRootResult<ArtifactRootPreparationReceipt>.Rejected failed)
                     physicalFailure = failed.Failure;
                 else
@@ -332,18 +567,28 @@ public sealed partial class InspectionWorkspace
     }
 
     WorkspaceScopeRejection? ValidateScopeSubmission(
-        WorkspaceScopeRevision expected,
+        WorkspaceScopeRevision? expected,
         WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
         bool requirePublicationBase,
         DateTimeOffset deadline,
+        WorkspaceScopeLimits limits,
+        WorkspaceScopeOperationAssociation association,
         WorkspaceScopeSnapshot current)
     {
         if (expected is null
             || requirePublicationBase && expectedPublicationBase is null
-            || !FiniteDeadline(deadline))
+            || !FiniteDeadline(deadline)
+            || limits.MaxPackages <= 0
+            || !Enum.IsDefined(association.Kind)
+            || association.HasExplicitTarget
+                && association.Kind
+                    is not WorkspaceScopeOperationKind.Add
+                    and not WorkspaceScopeOperationKind.Replace)
             return WorkspaceScopeRejection.Malformed;
         if (deadline <= _rootTime.GetUtcNow())
             return WorkspaceScopeRejection.DeadlineExpired;
+        if (!ReferenceEquals(association.Workspace, _identity))
+            return WorkspaceScopeRejection.ForeignWorkspace;
         if (!ReferenceEquals(expected.Workspace, _identity))
             return WorkspaceScopeRejection.ForeignWorkspace;
         if (!ReferenceEquals(expected.Identity, current.Revision.Identity))
@@ -403,7 +648,10 @@ public sealed partial class InspectionWorkspace
             {
                 if (ReferenceEquals(_scopePreparation, operation))
                     _scopePreparation = null;
-                return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, unavailable.Failure);
+                return new WorkspaceScopeOperationResult.Unavailable(
+                    operation.Association,
+                    _scopeSnapshot,
+                    unavailable.Failure);
             }
         }
         using var lease =
@@ -414,7 +662,10 @@ public sealed partial class InspectionWorkspace
             {
                 if (ReferenceEquals(_scopePreparation, operation))
                     _scopePreparation = null;
-                return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, closing);
+                return new WorkspaceScopeOperationResult.Unavailable(
+                    operation.Association,
+                    _scopeSnapshot,
+                    closing);
             }
             WorkspaceScopeSnapshot current = ObserveScope(lease);
             if (ReferenceEquals(_scopePreparation, operation))
@@ -424,11 +675,23 @@ public sealed partial class InspectionWorkspace
                 _scopePreparation = null;
             }
             if (operation.SupersededBy is { } superseding)
-                return new WorkspaceScopeOperationResult.Superseded(current, superseding);
+            {
+                return new WorkspaceScopeOperationResult.Superseded(
+                    operation.Association,
+                    current,
+                    superseding);
+            }
             if (RootCancellationFailure(operation.Authority) is not null
                 || failure is ArtifactRootFailure.Cancelled or ArtifactRootFailure.DeadlineExpired)
-                return new WorkspaceScopeOperationResult.Cancelled(current, operation.Identity);
-            return new WorkspaceScopeOperationResult.Failed(current, failure);
+            {
+                return new WorkspaceScopeOperationResult.Cancelled(
+                    operation.Association,
+                    current);
+            }
+            return new WorkspaceScopeOperationResult.Failed(
+                operation.Association,
+                current,
+                failure);
         }
     }
 
@@ -476,6 +739,32 @@ public sealed partial class InspectionWorkspace
         WorkspaceScopePreparationDescriptor? preparing) =>
         new(current.Revision, current.PhysicalComposition, current.Packages, current.Closure, preparing);
 
+    static WorkspacePackageOccurrenceDescriptor? FindRequestedOccurrence(
+        WorkspaceScopeSnapshot snapshot,
+        ArtifactRootCorrespondence? target)
+    {
+        if (target is null)
+            return null;
+
+        WorkspacePackageOccurrenceDescriptor? match = null;
+        foreach (WorkspacePackageOccurrenceDescriptor package in snapshot.Packages)
+        {
+            if (!package.Occurrence.Correspondence.Equals(target))
+                continue;
+            if (match is not null)
+            {
+                throw new WorkspaceScopeInvariantException(
+                    snapshot,
+                    ArtifactRootFailure.CompositionMismatch);
+            }
+            match = package;
+        }
+        return match
+            ?? throw new WorkspaceScopeInvariantException(
+                snapshot,
+                ArtifactRootFailure.CompositionMismatch);
+    }
+
     abstract record ScopeRequestedPackage
     {
         private protected ScopeRequestedPackage() { }
@@ -494,20 +783,24 @@ public sealed partial class InspectionWorkspace
     {
         internal ScopePreparation(
             InspectionWorkspaceIdentity workspace,
-            WorkspaceScopeOperationKind kind,
+            WorkspaceScopeOperationAssociation association,
+            ArtifactRootCorrespondence? requestedTarget,
             DateTimeOffset deadline,
             CancellationToken cancellation,
             WorkspaceScopeSnapshot initial)
         {
-            Kind = kind;
+            Association = association;
+            RequestedTarget = requestedTarget;
             Initial = initial;
             Stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             Authority = new(workspace, new(), deadline, Stop.Token);
             Completion = Started.Task.Unwrap();
         }
 
-        internal WorkspaceScopePublicationOperationIdentity Identity { get; } = new();
-        internal WorkspaceScopeOperationKind Kind { get; }
+        internal WorkspaceScopeOperationAssociation Association { get; }
+        internal WorkspaceScopePublicationOperationIdentity Identity =>
+            Association.Operation;
+        internal ArtifactRootCorrespondence? RequestedTarget { get; }
         internal WorkspaceScopeSnapshot Initial { get; }
         internal ArtifactRootPreparationAuthority Authority { get; }
         internal CancellationTokenSource Stop { get; }
@@ -558,7 +851,13 @@ public sealed partial class InspectionWorkspace
             var snapshot = new WorkspaceScopeSnapshot(revision, candidateComposition,
                 rows, new(revision.Identity), null);
             var result = new ScopeCommittedResult(
-                new(snapshot, preparation.Kind, preparation.Identity));
+                new(
+                    preparation.Association,
+                    snapshot,
+                    preparation.Association.Kind,
+                    FindRequestedOccurrence(
+                        snapshot,
+                        preparation.RequestedTarget)));
             return new ArtifactRootResult<WorkspaceScopePreparedCommit>.Available(
                 new ScopeCommit(owner, snapshot, result));
         }

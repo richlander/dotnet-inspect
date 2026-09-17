@@ -1,11 +1,16 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using Markout;
@@ -16,16 +21,6 @@ namespace DotnetInspect.Cli.Commands;
 public static class WorkspaceCommand
 {
     public const string Name = "workspace";
-
-    static readonly ApiSurfaceProjectionLimits NavigationSurfaceLimits =
-        new(
-            maxParticipants: WorkspaceScopeLimits.DefaultMaxPackages,
-            maxTypes: 10_000,
-            maxMembers: 100_000,
-            maxInspectionFailures: 1_000,
-            maxTypeForwarders: 10_000,
-            maxMetadataRows: 1_000_000,
-            maxRetainedTextCharacters: 8_000_000);
 
     public static async Task<int> ExecuteAsync(
         WorkspaceOptions options,
@@ -75,95 +70,551 @@ public static class WorkspaceCommand
             CommandError.Write(optionError);
             return 1;
         }
-        await using var workspace = new InspectionWorkspace();
-        WorkspaceScopeReadResult read =
-            await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
-        if (read is WorkspaceScopeReadResult.Unavailable unavailable)
+
+        if (options.Packet is not null)
+        {
+            return await ExecutePacketAsync(
+                options,
+                loadOptions,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        WorkspacePlan plan;
+        WorkspaceMemberCoordinate[] directMembers = [];
+        if (!TryCreateRegistrations(options, out var registrations))
+            return 1;
+        if (options.Packages.Length != 0
+            && !InspectionGraphCommand.TryCreateMembers(
+                options.Packages,
+                out directMembers))
+        {
+            return 1;
+        }
+        try
+        {
+            plan = new WorkspacePlan(registrations);
+        }
+        catch (ArgumentException ex)
         {
             CommandError.Write(
-                "The Workspace package inventory is unavailable.",
-                [unavailable.RuntimeFailure.ToString()]);
+                "The Workspace registration set is invalid.",
+                [ex.Message]);
             return 1;
         }
 
-        WorkspaceScopeSnapshot snapshot =
-            ((WorkspaceScopeReadResult.Available)read).Snapshot;
-        if (options.RootRequest is not null)
-        {
-            return await ExecuteRootRequestAsync(
-                options,
-                workspace,
-                snapshot,
-                loadOptions,
-                payloadProvider,
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidateStartResult start =
+            await coordinator.BeginCandidateAsync(
+                plan,
                 cancellationToken).ConfigureAwait(false);
+        if (start
+            is not WorkspaceRealizationCandidateStartResult.Prepared prepared)
+        {
+            CommandError.Write(
+                "The Workspace realization could not be prepared.",
+                [
+                    start switch
+                    {
+                        WorkspaceRealizationCandidateStartResult.Closed =>
+                            "The realization coordinator is closed.",
+                        WorkspaceRealizationCandidateStartResult.Superseded =>
+                            "The realization request was superseded.",
+                        _ => "The realization request returned an unsupported result.",
+                    },
+                ]);
+            return 1;
         }
 
         IReadOnlyList<PackageRootBinding> committedBindings = [];
-        if (options.Packages.Length != 0)
+        using (WorkspaceRealizationConstructionLease construction =
+            prepared.Candidate.EnterConstruction())
         {
-            if (!InspectionGraphCommand.TryCreateMembers(
-                    options.Packages,
-                    out WorkspaceMemberCoordinate[] members))
+            WorkspaceScopeReadResult read =
+                await construction.Workspace.GetScopeSnapshotAsync()
+                    .ConfigureAwait(false);
+            if (read is WorkspaceScopeReadResult.Unavailable unavailable)
             {
+                CommandError.Write(
+                    "The Workspace package inventory is unavailable.",
+                    [unavailable.RuntimeFailure.ToString()]);
+                await AbandonCandidateAsync(
+                    coordinator,
+                    prepared.Candidate).ConfigureAwait(false);
                 return 1;
             }
-            var packageBindings =
-                new List<PackageRootBinding>(members.Length);
-            foreach (WorkspaceMemberCoordinate member in members)
+
+            WorkspaceScopeSnapshot snapshot =
+                ((WorkspaceScopeReadResult.Available)read).Snapshot;
+            if (options.RootRequest is not null)
             {
-                WorkspacePackageRootAcquisitionOutcome outcome =
-                    await WorkspaceContextLoader.AcquirePackageRootAsync(
-                        new WorkspaceContextInput
-                        {
-                            Framework = options.Tfm,
-                            Members = [member],
-                        },
+                PackageRootBinding? root =
+                    await AcquireRootRequestAsync(
+                        options,
                         loadOptions,
+                        payloadProvider,
                         cancellationToken).ConfigureAwait(false);
-                if (outcome is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+                if (root is null)
                 {
-                    CommandError.Write(
-                        "The Workspace package inventory could not be loaded.",
-                        [
-                            .. failed.Failures.Select(static failure =>
-                                $"{failure.Kind}: {failure.Message}"),
-                        ]);
+                    await AbandonCandidateAsync(
+                        coordinator,
+                        prepared.Candidate).ConfigureAwait(false);
                     return 1;
                 }
+                committedBindings = [root];
+            }
+            else if (directMembers.Length != 0)
+            {
+                var packageBindings =
+                    new List<PackageRootBinding>(directMembers.Length);
+                foreach (WorkspaceMemberCoordinate member in directMembers)
+                {
+                    WorkspacePackageRootAcquisitionOutcome outcome =
+                        await WorkspaceContextLoader.AcquirePackageRootAsync(
+                            new WorkspaceContextInput
+                            {
+                                Framework = options.Tfm,
+                                Members = [member],
+                            },
+                            loadOptions,
+                            cancellationToken).ConfigureAwait(false);
+                    if (outcome
+                        is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+                    {
+                        CommandError.Write(
+                            "The Workspace package inventory could not be loaded.",
+                            [
+                                .. failed.Failures.Select(static failure =>
+                                    $"{failure.Kind}: {failure.Message}"),
+                            ]);
+                        await AbandonCandidateAsync(
+                            coordinator,
+                            prepared.Candidate).ConfigureAwait(false);
+                        return 1;
+                    }
 
-                packageBindings.Add(
-                    ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome).Root);
+                    packageBindings.Add(
+                        ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome)
+                            .Root);
+                }
+
+                committedBindings =
+                [
+                    .. packageBindings.DistinctBy(
+                        static binding =>
+                            binding.CreateReacquisitionRequest()),
+                ];
             }
 
-            WorkspaceScopeSnapshot? committed =
-                await AddAcquiredPackagesAsync(
-                    workspace,
+            if (committedBindings.Count != 0
+                && await AddAcquiredPackagesAsync(
+                    construction.Workspace,
                     snapshot,
-                    packageBindings,
-                    cancellationToken).ConfigureAwait(false);
-            if (committed is null)
+                    committedBindings,
+                    cancellationToken).ConfigureAwait(false) is null)
+            {
+                await AbandonCandidateAsync(
+                    coordinator,
+                    prepared.Candidate).ConfigureAwait(false);
                 return 1;
-            snapshot = committed;
-            committedBindings =
-            [
-                .. packageBindings.DistinctBy(
-                    static binding =>
-                        binding.CreateReacquisitionRequest()),
-            ];
+            }
         }
 
-        WorkspaceNavigationCommandResult? result =
-            await EvaluateNavigationAsync(
-                workspace,
-                snapshot,
-                committedBindings,
-                options,
+        WorkspaceRealizationCandidateCompletionResult completion =
+            await coordinator.CompleteCandidateAsync(
+                prepared.Candidate,
                 cancellationToken).ConfigureAwait(false);
-        if (result is null)
+        if (completion
+            is not WorkspaceRealizationCandidateCompletionResult.Ready ready)
+        {
+            CommandError.Write(
+                "The Workspace realization did not become ready.",
+                [
+                    completion switch
+                    {
+                        WorkspaceRealizationCandidateCompletionResult.Rejected
+                            rejected =>
+                            rejected.RuntimeFailure is null
+                                ? rejected.Reason.ToString()
+                                : $"{rejected.Reason}: {rejected.RuntimeFailure}",
+                        _ => "The completion returned an unsupported result.",
+                    },
+                ]);
+            await AbandonCandidateAsync(
+                coordinator,
+                prepared.Candidate).ConfigureAwait(false);
             return 1;
-        Write(result, options);
-        return result.IsSuccess ? 0 : 1;
+        }
+
+        WorkspaceTopLevelInventoryShareBasis shareBasis =
+            WorkspaceTopLevelInventoryShareBasis
+                .CreateRealizedWorkspace(ready.Definition);
+
+        WorkspaceRealizationCutoverResult cutover =
+            coordinator.CutOver(prepared.Candidate);
+        if (cutover is not WorkspaceRealizationCutoverResult.Activated)
+        {
+            CommandError.Write(
+                "The Workspace realization did not become active.",
+                [
+                    cutover is WorkspaceRealizationCutoverResult.Rejected rejected
+                        ? rejected.Reason.ToString()
+                        : "The cutover returned an unsupported result.",
+                ]);
+            return 1;
+        }
+
+        WorkspaceRealizationOperationAdmission admission =
+            await coordinator.EnterOperationAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            CommandError.Write(
+                "The active Workspace realization did not admit the inventory operation.",
+                [
+                    admission switch
+                    {
+                        WorkspaceRealizationOperationAdmission.Unavailable
+                            unavailable =>
+                            unavailable.Reason.ToString(),
+                        _ => "Operation admission returned an unsupported result.",
+                    },
+                ]);
+            return 1;
+        }
+
+        using WorkspaceRealizationOperationLease authority = admitted.Lease;
+        WorkspaceTopLevelInventoryRequest request =
+            options.InventoryKinds.Length == 0
+                ? WorkspaceTopLevelInventoryRequest.All
+                : new WorkspaceTopLevelInventoryRequest(
+                    new WorkspaceTopLevelInventoryKindFilter(
+                        options.InventoryKinds));
+        WorkspaceTopLevelInventoryExecution inventory =
+            WorkspaceTopLevelInventoryOperation.Execute(
+                authority,
+                request,
+                shareBasis);
+
+        if (options.ActivePackage is not null)
+        {
+            WorkspaceNavigationCommandResult? result =
+                await EvaluateNavigationAsync(
+                    authority,
+                    inventory,
+                    committedBindings,
+                    options,
+                    cancellationToken).ConfigureAwait(false);
+            if (result is null)
+                return 1;
+            Write(result, options);
+            return result.IsSuccess ? 0 : 1;
+        }
+
+        int exitCode = WriteInventory(inventory, options);
+        if (exitCode == 0 && options.ShareFormat is { } shareFormat)
+        {
+            exitCode = WorkspaceShareOutput.Write(
+                inventory.Inspection.Share,
+                shareFormat);
+        }
+        return exitCode;
+    }
+
+    static async Task<int> ExecutePacketAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        CancellationToken cancellationToken)
+    {
+        var intent = new WorkspaceCommandRestorationIntent(cancellationToken);
+        CompleteRestorationPreparationResult preparation =
+            CompleteRestorationPreparation.FromPacket(
+                options.Packet!,
+                intent,
+                cancellationToken);
+        await using var host = new WorkspaceCommandRestorationHost();
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetAvailabilitySnapshot executableEntries =
+            CurrentCatalogEntriesExecutable(registry);
+        CompleteRestorationResult<WorkspaceRealizationOperationLease> result =
+            await CompleteRestorationCoordinator.RestoreAsync(
+                preparation,
+                intent,
+                host,
+                new CompleteRestorationExecutionOptions
+                {
+                    ContextLoad = loadOptions,
+                    ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
+                    Facets = registry,
+                    FacetAvailability = (_, _) => executableEntries,
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (result
+            is not CompleteRestorationResult<
+                WorkspaceRealizationOperationLease>.Activated activated)
+        {
+            CommandError.Write(
+                "The Workspace packet could not be restored.",
+                result switch
+                {
+                    CompleteRestorationResult<
+                        WorkspaceRealizationOperationLease>.Failed failed =>
+                        RestorationFailureDetails(failed.Failure),
+                    CompleteRestorationResult<
+                        WorkspaceRealizationOperationLease>.Superseded =>
+                        ["The restoration request was superseded."],
+                    _ => ["The restoration returned an unsupported result."],
+                });
+            return 1;
+        }
+
+        using WorkspaceRealizationOperationLease authority =
+            activated.Activation;
+        WorkspaceTopLevelInventoryRequest request =
+            options.InventoryKinds.Length == 0
+                ? WorkspaceTopLevelInventoryRequest.All
+                : new WorkspaceTopLevelInventoryRequest(
+                    new WorkspaceTopLevelInventoryKindFilter(
+                        options.InventoryKinds));
+        WorkspaceTopLevelInventoryExecution inventory =
+            WorkspaceTopLevelInventoryOperation.Execute(
+                authority,
+                request,
+                WorkspaceTopLevelInventoryShareBasis
+                    .CreateCompleteRestoration(activated.Workspace));
+        int exitCode = WriteInventory(inventory, options);
+        if (exitCode == 0 && options.ShareFormat is { } shareFormat)
+        {
+            exitCode = WorkspaceShareOutput.Write(
+                inventory.Inspection.Share,
+                shareFormat);
+        }
+        return exitCode;
+    }
+
+    static string[] RestorationFailureDetails(
+        CompleteRestorationFailure failure) =>
+        failure switch
+        {
+            CompleteRestorationFailure.ContextLoadFailed
+            {
+                Outcome: WorkspaceContextLoadOutcome.Failed failed,
+            } =>
+            [
+                failure.Message,
+                .. failed.Failures.Select(static item =>
+                    $"{item.Kind}: {item.Message}"),
+            ],
+            CompleteRestorationFailure.ScopeMutationFailed scope =>
+                [failure.Message, scope.Outcome.ToString() ?? "Unknown Scope outcome."],
+            _ => [failure.Message],
+        };
+
+    static Task AbandonCandidateAsync(
+        WorkspaceRealizationCoordinator coordinator,
+        WorkspaceRealizationCandidate candidate)
+    {
+        _ = coordinator.AbandonCandidate(candidate);
+        return Task.CompletedTask;
+    }
+
+    static bool TryCreateRegistrations(
+        WorkspaceOptions options,
+        out ImmutableArray<WorkspaceRegistration> registrations)
+    {
+        var builder = ImmutableArray.CreateBuilder<WorkspaceRegistration>();
+        try
+        {
+            foreach (string value in options.RegisteredLibraries)
+            {
+                builder.Add(
+                    new WorkspaceRegistration.ExactLibrary(
+                        ParseExactPackageLibrary(value)));
+            }
+            foreach (string value in options.RegisteredPackagePrefixes)
+            {
+                builder.Add(
+                    new WorkspaceRegistration.PackagePrefix(
+                        new PackagePrefixDeclaration(value)));
+            }
+            foreach (string value in options.RegisteredEcosystems)
+            {
+                string canonical = value.StartsWith(
+                    "ecosystem.",
+                    StringComparison.Ordinal)
+                        ? value
+                        : $"ecosystem.{value}";
+                if (!EcosystemPackId.TryCreate(
+                    canonical,
+                    out EcosystemPackId? id))
+                {
+                    throw new ArgumentException(
+                        $"'{value}' is not a canonical ecosystem identity.");
+                }
+
+                EcosystemWorkspaceRegistrationSelectionResult selected =
+                    EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+                if (selected
+                    is not EcosystemWorkspaceRegistrationSelectionResult.Known
+                        known)
+                {
+                    throw new ArgumentException(
+                        selected switch
+                        {
+                            EcosystemWorkspaceRegistrationSelectionResult
+                                .Unavailable =>
+                                $"Ecosystem '{canonical}' has no Workspace registration.",
+                            EcosystemWorkspaceRegistrationSelectionResult
+                                .Unknown =>
+                                $"Ecosystem '{canonical}' is not registered.",
+                            _ => "The ecosystem registration returned an unsupported result.",
+                        });
+                }
+                builder.Add(
+                    new WorkspaceRegistration.Ecosystem(known.Declaration));
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                "A Workspace registration option is invalid.",
+                [ex.Message]);
+            registrations = default;
+            return false;
+        }
+
+        registrations = builder.ToImmutable();
+        return true;
+    }
+
+    static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
+        string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        int separator = value.IndexOf('/');
+        if (separator <= 0 || separator == value.Length - 1)
+        {
+            throw new ArgumentException(
+                $"Invalid exact Library '{value}'. Expected package@version/assembly@assembly-version.");
+        }
+
+        string packageText = value[..separator];
+        string assemblyText = value[(separator + 1)..];
+        (string packageId, string? packageVersion) =
+            DotnetInspector.Packages.PackageExtractor.ParsePackageReference(
+                packageText);
+        int assemblyVersionSeparator = assemblyText.LastIndexOf('@');
+        if (string.IsNullOrWhiteSpace(packageId)
+            || string.IsNullOrWhiteSpace(packageVersion)
+            || assemblyVersionSeparator <= 0
+            || assemblyVersionSeparator == assemblyText.Length - 1
+            || !Version.TryParse(
+                assemblyText[(assemblyVersionSeparator + 1)..],
+                out Version? assemblyVersion))
+        {
+            throw new ArgumentException(
+                $"Invalid exact Library '{value}'. Expected package@version/assembly@assembly-version.");
+        }
+
+        string assemblyName = assemblyText[..assemblyVersionSeparator];
+        if (assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            assemblyName = assemblyName[..^4];
+        if (string.IsNullOrWhiteSpace(assemblyName)
+            || assemblyName.Contains('/')
+            || assemblyName.Contains('\\'))
+        {
+            throw new ArgumentException(
+                $"Invalid managed assembly name in exact Library '{value}'.");
+        }
+
+        return new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create(packageId, packageVersion),
+            new ManagedMetadataIdentity.Assembly(
+                new AssemblyReferenceIdentity(
+                    assemblyName,
+                    assemblyVersion,
+                    Culture: null,
+                    PublicKeyToken: null)));
+    }
+
+    static async Task<PackageRootBinding?> AcquireRootRequestAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageRootPayloadProvider? payloadProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!PackageRootReacquisitionRequest.TryDecode(
+                options.RootRequest!,
+                out PackageRootReacquisitionRequest? request))
+        {
+            CommandError.Write(
+                "--root-request must be a package Root reopening token issued by this tool.",
+                [
+                    $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
+                    + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
+                    + "Root column of 'package query ... --library-literal'.",
+                ]);
+            return null;
+        }
+
+        PackageRootBinding binding;
+        PackagePayloadOrigin origin;
+        if (payloadProvider is null)
+        {
+            PackageRootAcquisitionOutcome outcome =
+                await PackageRootAcquisition.AcquireAsync(
+                    request,
+                    loadOptions,
+                    cancellationToken).ConfigureAwait(false);
+            if (outcome is PackageRootAcquisitionOutcome.Failed failed)
+                return Failure(failed.Kind, failed.Message);
+
+            var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
+            binding = acquired.Binding;
+            origin = acquired.Payload.Origin;
+        }
+        else
+        {
+            PackageRootPayloadResult payload =
+                await payloadProvider.GetPayloadAsync(
+                    PackageSourceCoordinate.Create(
+                        request.Coordinate.PackageId,
+                        request.Coordinate.Version),
+                    request.Coordinate.Producer,
+                    loadOptions.PayloadLimits,
+                    cancellationToken).ConfigureAwait(false);
+            if (payload is PackageRootPayloadResult.Unavailable unavailable)
+                return Failure(unavailable.FailureKind, unavailable.Message);
+
+            var available = (PackageRootPayloadResult.Available)payload;
+            PackageRootRebindingOutcome rebound =
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    available.Payload);
+            if (rebound is PackageRootRebindingOutcome.Failed failed)
+                return Failure(failed.Kind, failed.Message);
+
+            binding = ((PackageRootRebindingOutcome.Bound)rebound).Binding;
+            origin = available.Payload.Origin;
+        }
+
+        loadOptions.Log?.Invoke(
+            $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "
+            + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
+            + $"compile {request.CompileTargetFramework ?? "(none)"}, "
+            + $"implementation {request.SelectionTargetFramework ?? "(none)"} "
+            + $"resolved {binding.Root.AssetSelection.Status}.");
+        return binding;
+
+        PackageRootBinding? Failure(
+            PackageRootAcquisitionFailureKind kind,
+            string message)
+        {
+            CommandError.Write(
+                $"The package Root named by --root-request could not be reopened: {request}.",
+                [$"{kind}: {message}"]);
+            return null;
+        }
     }
 
     /// <summary>
@@ -211,168 +662,76 @@ public static class WorkspaceCommand
         return null;
     }
 
-    /// <summary>
-    /// Reopens the exact package Root an owner-issued reopening token names,
-    /// under this host's own source authorization and package store.
-    /// </summary>
-    /// <remarks>
-    /// The token is the whole opening intent. A decode failure, an
-    /// unauthorized pinned producer, or content that no longer reproduces the
-    /// exact logical Root is reported as the owner's typed failure; none of
-    /// them falls back to opening the package id and version by themselves,
-    /// because that would open a different Root while claiming to have
-    /// repeated this one. Root-only and explicit-empty compile selections stay
-    /// reportable Roots here, exactly as the Scope owner reports them for an
-    /// explicit <c>--package</c> selection.
-    /// </remarks>
-    static async Task<int> ExecuteRootRequestAsync(
-        WorkspaceOptions options,
-        InspectionWorkspace workspace,
-        WorkspaceScopeSnapshot snapshot,
-        WorkspaceContextLoadOptions loadOptions,
-        IPackageRootPayloadProvider? payloadProvider,
-        CancellationToken cancellationToken)
-    {
-        if (options.Packages.Length > 0 || options.Tfm is not null)
-        {
-            CommandError.Write(
-                "--root-request opens the exact Root its token names and cannot be combined with --package or --tfm.");
-            return 1;
-        }
-
-        if (!PackageRootReacquisitionRequest.TryDecode(
-                options.RootRequest,
-                out PackageRootReacquisitionRequest? request))
-        {
-            CommandError.Write(
-                "--root-request must be a package Root reopening token issued by this tool.",
-                [
-                    $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
-                    + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
-                    + "Root column of 'find --literal'.",
-                ]);
-            return 1;
-        }
-
-        PackageRootBinding binding;
-        PackagePayloadOrigin origin;
-        if (payloadProvider is null)
-        {
-            PackageRootAcquisitionOutcome outcome =
-                await PackageRootAcquisition.AcquireAsync(
-                    request,
-                    loadOptions,
-                    cancellationToken).ConfigureAwait(false);
-            if (outcome is PackageRootAcquisitionOutcome.Failed failed)
-            {
-                return Failure(failed.Kind, failed.Message);
-            }
-
-            var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
-            binding = acquired.Binding;
-            origin = acquired.Payload.Origin;
-        }
-        else
-        {
-            PackageRootPayloadResult payload =
-                await payloadProvider.GetPayloadAsync(
-                    PackageSourceCoordinate.Create(
-                        request.Coordinate.PackageId,
-                        request.Coordinate.Version),
-                    request.Coordinate.Producer,
-                    loadOptions.PayloadLimits,
-                    cancellationToken).ConfigureAwait(false);
-            if (payload is PackageRootPayloadResult.Unavailable unavailable)
-                return Failure(unavailable.FailureKind, unavailable.Message);
-
-            var available = (PackageRootPayloadResult.Available)payload;
-            PackageRootRebindingOutcome rebound =
-                PackageRootAcquisition.BindReacquired(
-                    request,
-                    available.Payload);
-            if (rebound is PackageRootRebindingOutcome.Failed failed)
-                return Failure(failed.Kind, failed.Message);
-
-            binding = ((PackageRootRebindingOutcome.Bound)rebound).Binding;
-            origin = available.Payload.Origin;
-        }
-
-        loadOptions.Log?.Invoke(
-            $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "
-            + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
-            + $"compile {request.CompileTargetFramework ?? "(none)"}, "
-            + $"implementation {request.SelectionTargetFramework ?? "(none)"} "
-            + $"resolved {binding.Root.AssetSelection.Status}.");
-
-        // The acquired binding is committed as-is, so the reported Root is the
-        // one this reopening produced rather than a coordinate reconstructed
-        // from archive bytes, a display framework, or a store path.
-        WorkspaceScopeSnapshot? committed =
-            await AddAcquiredPackagesAsync(
-                workspace,
-                snapshot,
-                [binding],
-                cancellationToken).ConfigureAwait(false);
-        if (committed is null)
-            return 1;
-
-        WorkspaceNavigationCommandResult? result =
-            await EvaluateNavigationAsync(
-                workspace,
-                committed,
-                [binding],
-                options,
-                cancellationToken).ConfigureAwait(false);
-        if (result is null)
-            return 1;
-        Write(result, options);
-        return result.IsSuccess ? 0 : 1;
-
-        int Failure(
-            PackageRootAcquisitionFailureKind kind,
-            string message)
-        {
-            CommandError.Write(
-                $"The package Root named by --root-request could not be reopened: {request}.",
-                [$"{kind}: {message}"]);
-            return 1;
-        }
-    }
-
     static async Task<WorkspaceNavigationCommandResult?>
         EvaluateNavigationAsync(
-        InspectionWorkspace workspace,
-        WorkspaceScopeSnapshot scope,
+        WorkspaceRealizationOperationLease authority,
+        WorkspaceTopLevelInventoryExecution inventory,
         IReadOnlyList<PackageRootBinding> bindings,
         WorkspaceOptions options,
         CancellationToken cancellationToken)
     {
+        WorkspaceScopeSnapshot scope = authority.Scope;
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot executableEntries =
             CurrentCatalogEntriesExecutable(registry);
         NavigationFacetAvailabilityProvider availability =
             (_, _) => executableEntries;
-        if (options.ActivePackage is null)
+        if (inventory.Inspection.Content
+            is not WorkspaceTopLevelInventoryOutcome.Available available)
         {
-            NavigationWorkspaceSnapshot workspaceSnapshot =
-                NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                    new NavigationWorkspaceSnapshotRequest
-                    {
-                        Scope = scope,
-                    },
-                    registry,
-                    availability);
-            return new(
-                workspaceSnapshot,
-                Descendant: null,
-                Selector: null);
+            WriteInventoryFailure(inventory.Inspection);
+            return null;
         }
 
-        int index = options.ActivePackage.Value - 1;
-        if (index < 0 || index >= scope.Packages.Length)
+        int requestedOrder = options.ActivePackage!.Value;
+        WorkspaceTopLevelPackageEntry? entry =
+            available.Document.Entries
+                .OfType<WorkspaceTopLevelPackageEntry>()
+                .SingleOrDefault(candidate =>
+                    candidate.SourceOrder == requestedOrder);
+        if (entry is null)
+        {
+            int packageCount = available.Document.Entries.Count(
+                static candidate =>
+                    candidate.Kind
+                        == WorkspaceTopLevelInventoryEntryKind.Package);
+            CommandError.Write(
+                $"--active-package {requestedOrder} is outside the committed occurrence range 1..{packageCount}.");
+            return null;
+        }
+
+        WorkspaceTopLevelInventorySelectionResolution resolution =
+            inventory.Selection.Resolve(authority, entry.Key);
+        if (resolution
+            is not WorkspaceTopLevelInventorySelectionResolution.Selected
+            {
+                Selection: WorkspaceTopLevelInventorySelection.Package selected,
+            })
         {
             CommandError.Write(
-                $"--active-package {options.ActivePackage.Value} is outside the committed occurrence range 1..{scope.Packages.Length}.");
+                $"Package occurrence {requestedOrder} could not be selected from the Workspace inventory receipt.",
+                [
+                    resolution switch
+                    {
+                        WorkspaceTopLevelInventorySelectionResolution.Stale =>
+                            "The inventory receipt is stale for the active Workspace definition.",
+                        WorkspaceTopLevelInventorySelectionResolution.Absent =>
+                            "The inventory receipt does not contain the requested Package.",
+                        _ => "The inventory receipt returned an unsupported selection.",
+                    },
+                ]);
+            return null;
+        }
+
+        int index = selected.SourceIndex;
+        if (index < 0
+            || index >= scope.Packages.Length
+            || !ReferenceEquals(
+                selected.Occurrence,
+                scope.Packages[index].Occurrence.Identity))
+        {
+            CommandError.Write(
+                "The Workspace inventory receipt did not retain the exact Package occurrence.");
             return null;
         }
         if (bindings.Count != scope.Packages.Length)
@@ -404,13 +763,13 @@ public static class WorkspaceCommand
 
         PackageRootBinding binding = bindings[index];
         ArtifactRootResult<NavigationPackageEvaluation> query =
-            await workspace.ExecutePackageRootQueryAsync(
+            await authority.Workspace.ExecutePackageRootQueryAsync(
                 (PackageArtifactRootCorrespondence)
                     occurrence.Occurrence.Correspondence,
                 ready.Generation,
                 (realization, token) =>
                     ValueTask.FromResult(
-                        EvaluatePackage(
+                        NavigationPackageEvaluationFactory.Create(
                             occurrence,
                             binding,
                             realization,
@@ -443,51 +802,6 @@ public static class WorkspaceCommand
             options,
             registry,
             availability);
-    }
-
-    static NavigationPackageEvaluation EvaluatePackage(
-        WorkspacePackageOccurrenceDescriptor occurrence,
-        PackageRootBinding binding,
-        PackageAssemblyContextRealization realization,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!realization.HasAssemblyContexts)
-        {
-            return new NavigationPackageEvaluation(
-                occurrence,
-                binding,
-                [],
-                new AssemblyContextApiSurfaceResult(
-                    new AssemblyContextResult<AssemblyApiSurface>([]),
-                    [],
-                    Truncation: null));
-        }
-
-        RealizedMemberCoordinate.Package coordinate =
-            occurrence.Occurrence.Package.Coordinate;
-        ImmutableArray<NavigationLibraryEvaluation> libraries =
-        [
-            .. realization.SurfaceParticipants.Select(participant =>
-                new NavigationLibraryEvaluation(
-                    coordinate,
-                    participant)),
-        ];
-        AssemblyContextApiSurfaceResult surface =
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                realization.SurfaceGroup,
-                ApiSurfaceScope.Public,
-                NavigationSurfaceLimits,
-                [
-                    .. libraries.Select(
-                        static library =>
-                            library.Library.Participant),
-                ]);
-        return new NavigationPackageEvaluation(
-            occurrence,
-            binding,
-            libraries,
-            surface);
     }
 
     static WorkspaceNavigationCommandResult? SelectDestination(
@@ -712,64 +1026,217 @@ public static class WorkspaceCommand
             return;
         }
 
-        if (options.ActivePackage is not null)
+        WriteNavigation(
+            WorkspaceNavigationProjection.Create(
+                result,
+                occurrences),
+            options);
+    }
+
+    static int WriteInventory(
+        WorkspaceTopLevelInventoryExecution execution,
+        WorkspaceOptions options)
+    {
+        if (execution.Inspection.Content
+            is not WorkspaceTopLevelInventoryOutcome.Available available)
         {
-            WriteNavigation(
-                WorkspaceNavigationProjection.Create(
-                    result,
-                    occurrences),
-                options);
-            return;
+            WriteInventoryFailure(execution.Inspection);
+            return 1;
         }
 
-        var view = new WorkspacePackageOccurrenceView
+        WorkspaceTopLevelInventoryDocument document = available.Document;
+        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries =
+            RowWindow.Apply(options.Rows, document.Entries);
+        if (options.Count)
         {
-            Packages =
-            [
-                .. occurrences.Select(static descriptor =>
-                    new WorkspacePackageOccurrenceRow(
-                        descriptor.Occurrence.Package.PackageId,
-                        descriptor.Occurrence.Package.PackageVersion,
-                        descriptor.Occurrence.Package.Coordinate.Framework
-                            ?? descriptor.Occurrence.Package.TargetFramework
-                            ?? "")),
-            ],
-        };
+            CountOutput.WriteCount(entries.Count);
+            return 0;
+        }
+
+        WorkspaceTopLevelInventoryDocument outputDocument =
+            options.Rows is null
+                ? document
+                : document with { Entries = [.. entries] };
         switch (options.Format)
         {
             case OutputFormat.Json:
                 Console.WriteLine(
                     JsonSerializer.Serialize(
-                        view.Packages.ToArray(),
+                        outputDocument,
                         WorkspaceCommandJsonContext.Default
-                            .WorkspacePackageOccurrenceRowArray));
+                            .WorkspaceTopLevelInventoryDocument));
+                break;
+            case OutputFormat.Jsonl:
+                foreach (WorkspaceTopLevelInventoryEntry entry in entries)
+                {
+                    Console.WriteLine(
+                        JsonSerializer.Serialize(
+                            entry,
+                            WorkspaceCommandJsonContext.Default
+                                .WorkspaceTopLevelInventoryEntry));
+                }
                 break;
             case OutputFormat.Table:
             case OutputFormat.Tsv:
-            case OutputFormat.Jsonl:
                 MarkoutSerializer.Serialize(
-                    view,
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     new TableFormatter(!options.NoHeader),
                     WorkspaceViewContext.Default,
                     OutputFormatter.CreateTableWriterOptions(
                         tsv: options.Format == OutputFormat.Tsv,
-                        jsonl: options.Format == OutputFormat.Jsonl));
+                        jsonl: false));
                 break;
             case OutputFormat.PlainText:
                 MarkoutSerializer.Serialize(
-                    view,
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     new PlainTextFormatter(),
                     WorkspaceViewContext.Default);
                 break;
             default:
                 MarkoutSerializer.Serialize(
-                    view,
+                    CreateInventoryView(document, entries, options.Verbose),
                     Console.Out,
                     WorkspaceViewContext.Default);
                 break;
         }
+        return 0;
+    }
+
+    static WorkspaceTopLevelInventoryView CreateInventoryView(
+        WorkspaceTopLevelInventoryDocument document,
+        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries,
+        bool verbose)
+    {
+        string? description = document.Filter is null
+            ? entries.Count == 0
+                ? "No top-level entries."
+                : null
+            : $"Filter: {string.Join(", ", document.Filter.Kinds.Select(KindText))}"
+                + Environment.NewLine
+                + $"Selected: {document.SelectedEntryCount} of {document.TotalEntryCount}";
+        return new WorkspaceTopLevelInventoryView
+        {
+            Description = description,
+            Entries =
+            [
+                .. entries.Select(entry =>
+                    new WorkspaceTopLevelInventoryRow(
+                        KindText(entry.Kind),
+                        LocationText(entry, verbose),
+                        StateText(entry))),
+            ],
+        };
+    }
+
+    static string KindText(WorkspaceTopLevelInventoryEntryKind kind) =>
+        kind switch
+        {
+            WorkspaceTopLevelInventoryEntryKind.Package => "Package",
+            WorkspaceTopLevelInventoryEntryKind.ExactLibrary =>
+                "Exact Library",
+            WorkspaceTopLevelInventoryEntryKind.PackagePrefix =>
+                "Package Prefix",
+            WorkspaceTopLevelInventoryEntryKind.Ecosystem => "Ecosystem",
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace inventory entry kind."),
+        };
+
+    static string LocationText(
+        WorkspaceTopLevelInventoryEntry entry,
+        bool verbose) =>
+        entry switch
+        {
+            WorkspaceTopLevelPackageEntry package =>
+                PackageLocation(package, verbose),
+            WorkspaceTopLevelExactLibraryEntry library =>
+                ExactLibraryLocation(library.Coordinate),
+            WorkspaceTopLevelPackagePrefixEntry prefix =>
+                prefix.Prefix.Prefix,
+            WorkspaceTopLevelEcosystemEntry ecosystem => ecosystem.Id,
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace inventory entry arm."),
+        };
+
+    static string PackageLocation(
+        WorkspaceTopLevelPackageEntry package,
+        bool verbose)
+    {
+        string location = $"{package.PackageId}@{package.PackageVersion}";
+        if (!verbose)
+            return location;
+
+        string[] details =
+        [
+            $"producer {package.Producer}",
+            $"requested {package.RequestedTargetFramework ?? "(none)"}",
+            $"selected {package.SelectedTargetFramework ?? "(none)"}",
+            $"effective {package.EffectiveTargetFramework ?? "(none)"}",
+            $"rid {package.RuntimeIdentifier ?? "(none)"}",
+            $"assets {package.AssetSelectionStatus}",
+        ];
+        return $"{location} ({string.Join("; ", details)})";
+    }
+
+    static string ExactLibraryLocation(
+        WorkspaceTopLevelExactLibraryCoordinate coordinate) =>
+        coordinate switch
+        {
+            WorkspaceTopLevelExactLibraryCoordinate.Package package =>
+                $"{package.PackageId}@{package.PackageVersion}/"
+                + $"{package.LibraryIdentity.Name}.dll",
+            WorkspaceTopLevelExactLibraryCoordinate.Platform platform =>
+                $"platform:{platform.Population.Family}/"
+                + $"{platform.LibraryIdentity.Name}.dll",
+            WorkspaceTopLevelExactLibraryCoordinate.Project project =>
+                $"project:{project.LibraryIdentity.Name}.dll",
+            WorkspaceTopLevelExactLibraryCoordinate.Local local =>
+                $"local:{local.LibraryIdentity.Name}.dll",
+            _ => throw new InvalidOperationException(
+                "Unknown exact Library coordinate arm."),
+        };
+
+    static string StateText(WorkspaceTopLevelInventoryEntry entry) =>
+        entry switch
+        {
+            WorkspaceTopLevelPackageEntry
+            {
+                State: WorkspaceTopLevelPackageState.Ready,
+            } => "Ready",
+            WorkspaceTopLevelPackageEntry
+            {
+                State: WorkspaceTopLevelPackageState.Pending,
+            } => "Pending",
+            WorkspaceTopLevelPackageEntry
+            {
+                State: WorkspaceTopLevelPackageState.Failed failed,
+            } => $"Failed: {failed.Failure}",
+            WorkspaceTopLevelExactLibraryEntry
+                or WorkspaceTopLevelPackagePrefixEntry
+                or WorkspaceTopLevelEcosystemEntry => "Registered",
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace inventory entry state."),
+        };
+
+    static void WriteInventoryFailure(
+        InspectionEnvelope<WorkspaceTopLevelInventoryOutcome> inspection)
+    {
+        string summary = inspection.Content switch
+        {
+            WorkspaceTopLevelInventoryOutcome.Rejected rejected =>
+                $"Workspace inventory rejected: {rejected.Reason}.",
+            WorkspaceTopLevelInventoryOutcome.Unavailable unavailable =>
+                $"Workspace inventory unavailable: {unavailable.Reason}.",
+            _ => "Workspace inventory did not produce an available document.",
+        };
+        CommandError.Write(
+            summary,
+            [
+                .. inspection.Diagnostics.Select(
+                    static diagnostic =>
+                        $"{diagnostic.Code}: {diagnostic.Summary}"),
+            ]);
     }
 
     static void WriteNavigation(
@@ -831,6 +1298,25 @@ public static class WorkspaceCommand
 
     static string? NavigationOptionError(WorkspaceOptions options)
     {
+        if (options.RootRequest is not null
+            && (options.Packages.Length != 0 || options.Tfm is not null))
+        {
+            return "--root-request opens the exact Root its token names and "
+                + "cannot be combined with --package or --tfm.";
+        }
+
+        bool hasDirectConstruction =
+            options.Packages.Length != 0
+            || options.Tfm is not null
+            || options.RootRequest is not null
+            || options.RegisteredLibraries.Length != 0
+            || options.RegisteredPackagePrefixes.Length != 0
+            || options.RegisteredEcosystems.Length != 0;
+        if (options.Packet is not null && hasDirectConstruction)
+        {
+            return "--packet cannot be combined with --package, --tfm, "
+                + "--root-request, or --register-* construction options.";
+        }
         if (options.ActivePackage is <= 0)
         {
             return "--active-package must be a one-based positive occurrence order.";
@@ -841,6 +1327,24 @@ public static class WorkspaceCommand
             || options.Type is not null
             || options.Member is not null
             || options.Lens is not null;
+        if (options.ShareFormat is not null
+            && (options.ActivePackage is not null || hasNavigationSelector))
+        {
+            return "--share reports top-level Workspace inventory and cannot "
+                + "be combined with Package Navigation options.";
+        }
+        if (options.Packet is not null
+            && (options.ActivePackage is not null || hasNavigationSelector))
+        {
+            return "Workspace packet restoration currently supports inventory "
+                + "only and cannot be combined with Navigation options.";
+        }
+        if (options.InventoryKinds.Length != 0
+            && (options.ActivePackage is not null || hasNavigationSelector))
+        {
+            return "--kind filters Workspace inventory and cannot be combined "
+                + "with Package Navigation options.";
+        }
         if (hasNavigationSelector && options.ActivePackage is null)
         {
             return "--library, --all-libraries, --type, --member, and --lens "
@@ -882,6 +1386,28 @@ public static class WorkspaceCommand
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(WorkspacePackageOccurrenceRow[]))]
+[JsonSerializable(typeof(WorkspaceTopLevelInventoryDocument))]
+[JsonSerializable(typeof(WorkspaceTopLevelInventoryEntry))]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelExactLibraryCoordinate.Package),
+    TypeInfoPropertyName = "WorkspaceInventoryExactLibraryPackage")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelExactLibraryCoordinate.Platform),
+    TypeInfoPropertyName = "WorkspaceInventoryExactLibraryPlatform")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelExactLibraryCoordinate.Project),
+    TypeInfoPropertyName = "WorkspaceInventoryExactLibraryProject")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelExactLibraryCoordinate.Local),
+    TypeInfoPropertyName = "WorkspaceInventoryExactLibraryLocal")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelEcosystemPopulation.ExactLibrary),
+    TypeInfoPropertyName = "WorkspaceInventoryEcosystemExactLibrary")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelEcosystemPopulation.Platform),
+    TypeInfoPropertyName = "WorkspaceInventoryEcosystemPlatform")]
+[JsonSerializable(
+    typeof(WorkspaceTopLevelEcosystemPopulation.PackagePrefix),
+    TypeInfoPropertyName = "WorkspaceInventoryEcosystemPackagePrefix")]
 [JsonSerializable(typeof(WorkspaceNavigationView))]
 internal partial class WorkspaceCommandJsonContext : JsonSerializerContext;

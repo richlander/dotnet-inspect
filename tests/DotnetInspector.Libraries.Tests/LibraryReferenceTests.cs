@@ -9,7 +9,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Libraries.Tests;
 
-public sealed class LibraryReferenceTests
+public sealed partial class LibraryReferenceTests
 {
     [Fact]
     public async Task
@@ -266,21 +266,42 @@ public sealed class LibraryReferenceTests
     private sealed class ArtifactFixture : IAsyncDisposable
     {
         private readonly ArtifactSetSession _session;
-        private readonly ArtifactQueryLease _queryLease;
+        private ArtifactQueryAuthorization _queryAuthorization;
+        private ArtifactQueryLease _queryLease;
         private readonly IReadOnlyList<ArtifactContentReference> _references;
 
         private ArtifactFixture(
             ArtifactSetSession session,
+            ArtifactQueryAuthorization queryAuthorization,
             ArtifactQueryLease queryLease,
             IReadOnlyList<ArtifactContentReference> references)
         {
             _session = session;
+            _queryAuthorization = queryAuthorization;
             _queryLease = queryLease;
             _references = references;
         }
 
         public ArtifactContentReference this[int index] =>
             _references[index];
+
+        public ArtifactContentLease IssueContentLease(int index) =>
+            _session.IssueContentLease(
+                _references[index],
+                _queryLease);
+
+        public Task BeginSessionRetirement() =>
+            _session.DisposeAsync().AsTask();
+
+        public void ReplaceQueryPolicy()
+        {
+            ArtifactQueryAuthorization replacement =
+                _session.ReplaceQueryAuthorization(
+                    _queryAuthorization);
+            _queryLease.Dispose();
+            _queryAuthorization = replacement;
+            _queryLease = _session.IssueLease(replacement);
+        }
 
         public static async Task<ArtifactFixture> CreateAsync(int count)
         {
@@ -312,8 +333,10 @@ public sealed class LibraryReferenceTests
 
                 Assert.IsType<ArtifactSetPublicationOutcome.Published>(
                     await session.SealAsync(cancellationToken));
-                ArtifactQueryLease queryLease = session.IssueLease(
-                    session.CreateQueryAuthorization());
+                ArtifactQueryAuthorization queryAuthorization =
+                    session.CreateQueryAuthorization();
+                ArtifactQueryLease queryLease =
+                    session.IssueLease(queryAuthorization);
                 IReadOnlyList<ArtifactContentReference> references =
                     session.GetCatalog(queryLease)
                         .Select(
@@ -323,6 +346,7 @@ public sealed class LibraryReferenceTests
                         .ToArray();
                 return new ArtifactFixture(
                     session,
+                    queryAuthorization,
                     queryLease,
                     references);
             }

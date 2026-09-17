@@ -56,6 +56,7 @@ function recordingActions(calls: string[]): LibraryControlBindingActions {
   return {
     onAccessibilityChipSelect: value =>
       calls.push(`accessibility:${value}`),
+    onLibraryApiRetry: () => calls.push("library-api-retry"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
     onPlatformLibrarySelect: (name, pack) =>
@@ -79,6 +80,8 @@ test("library controls decode every rendered selector without eager work", () =>
     libraryChip,
     defaultLibraryChip);
   root.addAll("[data-access-chip]", accessChip, allAccessChip);
+  const libraryApiRetry = new FakeElement();
+  root.addAll("[data-library-api-retry]", libraryApiRetry);
 
   const libraryJump = root.add("#library-jump", new FakeElement());
   libraryJump.value = "System.Collections";
@@ -122,6 +125,7 @@ test("library controls decode every rendered selector without eager work", () =>
   defaultLibraryChip.dispatch("click");
   accessChip.dispatch("click");
   allAccessChip.dispatch("click");
+  libraryApiRetry.dispatch("click");
   libraryJump.dispatch("change");
   libraryJump.value = "";
   libraryJump.dispatch("change");
@@ -139,6 +143,7 @@ test("library controls decode every rendered selector without eager work", () =>
     "library-chip:",
     "accessibility:public",
     "accessibility:",
+    "library-api-retry",
     "library-jump:System.Collections",
     "library-jump:",
     "platform:System.Private.CoreLib:netcore.app",

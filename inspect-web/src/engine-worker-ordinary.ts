@@ -36,7 +36,6 @@ type PackageOperationName =
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
-  | "listPackageAssemblyQueryPatterns"
   | "matchPackageDependencyCoordinate"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
@@ -44,10 +43,10 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
-  | "openPackageAssemblyQueryResult"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
+  | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPackageDependencies"
   | "queryPackagePruning"
@@ -126,9 +125,9 @@ export interface EngineWorkerOrdinaryClient {
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 8_388_608;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 16_777_216;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 262_144;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 524_288;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [name: string]: JsonValue };
@@ -714,16 +713,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["getPlatformVersions"]>
       ) => facades.package.getPlatformVersions(...args),
     ),
-    listPackageAssemblyQueryPatterns: valueOperation(
-      "ordinary-package-list-assembly-query-patterns",
-      0,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["listPackageAssemblyQueryPatterns"]
-        >
-      ) => facades.package.listPackageAssemblyQueryPatterns(...args),
-    ),
     matchPackageDependencyCoordinate: valueOperation(
       "ordinary-package-match-dependency-coordinate",
       3,
@@ -786,16 +775,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackage"]>
       ) => facades.package.queryPackage(...args),
     ),
-    openPackageAssemblyQueryResult: valueOperation(
-      "ordinary-package-open-assembly-query-result",
-      1,
-      (
-        facades,
-        ...args: Parameters<
-          PackageFacade["openPackageAssemblyQueryResult"]
-        >
-      ) => facades.package.openPackageAssemblyQueryResult(...args),
-    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -827,6 +806,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryMemberDocumentation"]>
       ) => facades.package.queryMemberDocumentation(...args),
+    ),
+    queryLibraryApi: valueOperation(
+      "ordinary-package-query-library-api",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryLibraryApi"]>
+      ) => facades.package.queryLibraryApi(...args),
     ),
     queryPackageDependencies: valueOperation(
       "ordinary-package-query-dependencies",
@@ -1214,10 +1201,6 @@ export function bindEngineWorkerOrdinaryClient(
       getPlatformVersions: bind(
         engineWorkerOrdinaryOperations.package.getPlatformVersions,
       ),
-      listPackageAssemblyQueryPatterns: bind(
-        engineWorkerOrdinaryOperations.package
-          .listPackageAssemblyQueryPatterns,
-      ),
       matchPackageDependencyCoordinate: bind(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
@@ -1242,10 +1225,6 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,
       ),
-      openPackageAssemblyQueryResult: bind(
-        engineWorkerOrdinaryOperations.package
-          .openPackageAssemblyQueryResult,
-      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -1257,6 +1236,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryMemberDocumentation: bind(
         engineWorkerOrdinaryOperations.package.queryMemberDocumentation,
+      ),
+      queryLibraryApi: bind(
+        engineWorkerOrdinaryOperations.package.queryLibraryApi,
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
