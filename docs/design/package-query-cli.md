@@ -180,6 +180,36 @@ requires at least one `depends` or `dependencies` term, applies to all such
 terms in the query, and does not traverse, resolve version ranges, or select
 package assets.
 
+## Adaptive result section
+
+Package Query settles package population before choosing its default rendered
+section. Its host-neutral `PackageQueryDocument` always retains Results,
+Failures, Summary, and the derived `HasPackages` decision. CLI and Browser
+consume that same document; a host must not reconstruct the decision from
+display text.
+
+Without `-S`, the CLI selects exactly one section after execution:
+
+- `Packages` when `PackageQueryDocument.HasPackages` is true;
+- `Query Summary` otherwise.
+
+The selection happens before format lowering, so Markdown, table, TSV, JSONL,
+and projected JSON make the same choice. `Query Summary` is one row with
+independent `Candidates`, `Matches`, `Evaluation Failures`, and `Status`
+columns. Predicate false is a nonmatch, not an evaluation failure. Thus a
+missing exact package reports zero candidates, while an existing package
+rejected by a predicate reports one candidate and zero matches.
+
+Explicit selection is non-adaptive. `-S Packages` retains the package schema
+even when it has no rows, and `-S "Query Summary"` retains the settlement row
+even when packages matched. Markdown and JSON can select both in declared
+order, with `Packages` first; table, TSV, and JSONL keep their existing
+one-section requirement.
+
+`--count` remains a semantic reduction over matched package rows rather than a
+count of whichever adaptive section rendered. It therefore supports the
+`Packages` section only.
+
 Matching dependency evidence identifies each declaration's manifest group,
 package ID, and declared range, subject to the bounded evidence preview.
 
