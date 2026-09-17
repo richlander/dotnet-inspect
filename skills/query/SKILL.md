@@ -118,6 +118,7 @@ evidence unless a category is named.
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
+| `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -131,7 +132,9 @@ overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
 by exact name. Project `@Project` composes restored dependency `Skills` and
-`Package README file` inventories. `Switches` is a section. There are no
+`Package README file` inventories. Vocabulary `@Vocabulary` composes the
+complete product-owned vocabulary document; use `@API` or `@Decompiler` for
+the corresponding query family. `Switches` is a section. There are no
 user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
