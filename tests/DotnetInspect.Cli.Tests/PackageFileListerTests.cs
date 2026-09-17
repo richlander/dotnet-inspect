@@ -240,6 +240,8 @@ public class PackageFileListerTests
             "OSMFEULA.txt",
             "LICENSE.md",
             "licenses/Dependency.txt",
+            "licenses/NOTICE.txt",
+            "license/THIRD-PARTY-NOTICES.md",
             "THIRD-PARTY-NOTICES.TXT",
             "content/driving-license.png",
             "lib/License.dll");
@@ -258,6 +260,25 @@ public class PackageFileListerTests
                 files.Where(file => file.IsLicense)
                     .Select(file => file.Path)
                     .ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListAll_DeclaredLicenseWinsForNoticeName()
+    {
+        var root = CreateExtractDir("licenses/NOTICE.txt");
+        try
+        {
+            PackageFile file = Assert.Single(
+                PackageFileLister.ListAll(
+                    root,
+                    declaredLicense: "licenses/NOTICE.txt"));
+
+            Assert.True(file.IsLicense);
         }
         finally
         {

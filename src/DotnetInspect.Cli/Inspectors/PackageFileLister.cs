@@ -152,6 +152,9 @@ public static class PackageFileLister
         }
 
         string fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+        if (fileName.Contains("notice", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         int extensionStart = fileName.LastIndexOf('.');
         string extension = extensionStart >= 0
             ? fileName[extensionStart..]
