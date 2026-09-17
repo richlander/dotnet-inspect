@@ -1643,8 +1643,9 @@ workspace only after selection and any graph rendering succeed. Failure or
 supersession publishes no partial replacement. These frontend boundaries are
 gated by `product-home-demos.test.ts`,
 `saved-workspace-navigation.test.ts`, the home-demo source contract in
-`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
-production-composition cases in `library-hierarchy.spec.ts`.
+`composition-root-workspace-navigation.test.ts`, and the package/Platform
+Methods and Call Graph production-composition cases in
+`library-hierarchy.spec.ts`.
 
 The System.Text.Json and Microsoft.Extensions migrations are gated by two
 independent exact facts: `PlatformPrunePolicy` reports that each former package
