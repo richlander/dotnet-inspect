@@ -1583,6 +1583,19 @@ public partial class CommandExecutionTests
         Assert.Contains("Section '*Transitions' not found", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-S", "*Transitions", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No sections match '*Transitions'.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("missing-old.dll", error, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("@All")]
     [InlineData("@Default")]

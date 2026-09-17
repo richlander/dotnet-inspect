@@ -77,6 +77,18 @@ public class DiffCommand
             exactOnlySections: DiffSections.ExactOnlySections);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
+        if (options.Select is { Length: > 0 } selectors
+            && selectResult.Sections is null)
+        {
+            SelectOutput.WriteUnresolved(
+                new SelectResult(
+                    null,
+                    selectors
+                        .Select(selector =>
+                            new SelectMiss(selector, [], IsGlob: true))
+                        .ToArray()));
+            return 1;
+        }
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
         if (options.Finding is not null && options.IncludeSections is null)
