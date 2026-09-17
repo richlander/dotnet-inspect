@@ -53,9 +53,28 @@ public sealed record DependencyInspectionEvidenceDocument
                 nameof(failedRootOccurrences));
         }
 
+        foreach (DependencyRootOccurrenceIdentity occurrence
+            in admittedRootOccurrences)
+        {
+            if (occurrence.Value < 1)
+            {
+                throw new ArgumentException(
+                    "Root occurrences must be one-based.",
+                    nameof(admittedRootOccurrences));
+            }
+        }
+
         for (int index = 0; index < failedRootOccurrences.Length; index++)
         {
-            if (failedRootOccurrences[index] is null
+            DependencyRootOccurrenceIdentity? occurrence =
+                failedRootOccurrences[index];
+            if (occurrence is { } value && value.Value < 1)
+            {
+                throw new ArgumentException(
+                    "Root occurrences must be one-based.",
+                    nameof(failedRootOccurrences));
+            }
+            if (occurrence is null
                 && packageInputs.FailedRoots[index]
                     is not PackageDependencyEvidenceRootFailure.PackageProfile)
             {

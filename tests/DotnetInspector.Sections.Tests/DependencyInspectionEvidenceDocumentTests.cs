@@ -129,6 +129,32 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             () => new DependencyRootOccurrenceIdentity(0));
     }
 
+    [Fact]
+    public void ConstructionRejectsDefaultRootOccurrenceIdentity()
+    {
+        ArgumentException admittedFailure = Assert.Throws<ArgumentException>(
+            () => new DependencyInspectionEvidenceDocument(
+                Outcome(admittedRoots: 1),
+                [default(DependencyRootOccurrenceIdentity)],
+                []));
+
+        Assert.Equal(
+            "admittedRootOccurrences",
+            admittedFailure.ParamName);
+
+        ArgumentException failedFailure = Assert.Throws<ArgumentException>(
+            () => new DependencyInspectionEvidenceDocument(
+                Outcome(
+                    failedRoots:
+                    [
+                        AcquisitionFailure(),
+                    ]),
+                [],
+                [default(DependencyRootOccurrenceIdentity)]));
+
+        Assert.Equal("failedRootOccurrences", failedFailure.ParamName);
+    }
+
     private static PackageDependencyEvidenceOutcome Outcome(
         int admittedRoots = 0,
         ImmutableArray<PackageDependencyEvidenceRootFailure> failedRoots =
