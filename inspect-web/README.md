@@ -55,12 +55,23 @@ selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates
-   the package id. An exact pin bypasses discovery; an omitted version uses the
-   NuGet Gallery search endpoint and accepts only the exact package ID's listed
-   stable result. Neither path requests the NuGet.org v3 service index. The
-   Browser adapter then selects one target framework — never "whatever the
-   package happens to ship".
+1. **Settle an exact identity.**
+   `PackageVersionSettlementInspection` validates and settles the request
+   through `PackageHouse`. An exact pin bypasses discovery; an omitted version
+   refreshes the Gallery's authoritative version and listing evidence and
+   selects the latest listed stable result. The shared result carries the
+   centrally normalized request. Exact settlement authorizes its coordinate
+   but does not claim that the package exists; payload acquisition establishes
+   that separately. Neither path requests the NuGet.org v3 service index.
+   Framework is request context outside version settlement. The package facade
+   returns a request-specific load result containing the complete settlement
+   envelope and a nullable rich package surface. A settled result carries both
+   values; `NotSettled` carries the failure Content, Share, and diagnostics to
+   TypeScript with no fabricated surface. The application then reports that
+   typed failure, while payload or Workspace failures retain their existing
+   rejected-operation contract. Settlement evidence is not stored on a
+   reusable exact workspace. The Browser adapter then selects one target
+   framework — never "whatever the package happens to ship".
 2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
@@ -90,8 +101,8 @@ selected assembly set.
    its coordinate/asset provenance adapter; it does not select package assets,
    decode identities, mint descriptors, or compose groups.
    The Browser adapter places one 30-second operation deadline around coordinate
-   resolution and payload acquisition. The deadline token flows through the
-   shared resolver, retry, response-body, archive-validation, and store paths;
+   settlement and payload acquisition. The deadline token flows through the
+   shared House, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
    Gallery version enumeration joins the flat-container list with bounded

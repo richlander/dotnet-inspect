@@ -779,13 +779,10 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Empty(rootScope.SurfaceParticipants);
         Assert.Empty(rootScope.ImplementationParticipants);
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net11.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
 
         Assert.Equal(
             BrowserCompileLibraryStatus.NoCompileAssets,
@@ -851,13 +848,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     ("lib/net11.0/Empty.Compile.Group.dll", [0x01])),
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net11.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
 
         Assert.Equal(
             BrowserCompileLibraryStatus.EmptyCompileGroup,
@@ -890,13 +884,10 @@ public sealed partial class BrowserEngineBoundaryTests
                             typeof(BrowserEngineBoundaryTests).Assembly.Location))),
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net9.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net9.0");
 
         Assert.Equal("net9.0", surface.ActiveFramework);
         Assert.Equal(
@@ -922,13 +913,10 @@ public sealed partial class BrowserEngineBoundaryTests
                             typeof(BrowserEngineBoundaryTests).Assembly.Location))),
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net10.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net10.0");
 
         Assert.Equal(
             BrowserCompileLibraryStatus.NoMatchingTargetFramework,
@@ -972,13 +960,10 @@ public sealed partial class BrowserEngineBoundaryTests
                             typeof(BrowserEngineBoundaryTests).Assembly.Location))),
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net11.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
 
         Assert.Equal("net11.0", surface.ActiveFramework);
         Assert.Equal(
@@ -1019,7 +1004,7 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             Package(image, $"lib/net11.0/{packageId}.dll"));
 
-        string json = await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
+        string json = await QueryPackageSurfaceJson(
             packageId,
             "1.0.0",
             "net11.0");
@@ -1461,13 +1446,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 nupkg,
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net8.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net8.0");
 
         Assert.Equal("net8.0", surface.ActiveFramework);
         Assert.Contains("net8.0", surface.Frameworks);
@@ -1999,7 +1981,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
+        string surfaceJson = await QueryPackageSurfaceJson(
             PackageId,
             "1.0.0",
             "net11.0");

@@ -236,6 +236,98 @@ internal static class BrowserPackageWireProjection
             surface.InspectionError);
     }
 
+    internal static BrowserPackageVersionSettlementInspection Project(
+        InspectionEnvelope<PackageVersionSettlementOutcome> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        return new(
+            Project(inspection.Content),
+            Project(inspection.Share),
+            [.. inspection.Diagnostics.Select(Project)]);
+    }
+
+    static BrowserPackageVersionSettlementOutcome Project(
+        PackageVersionSettlementOutcome outcome) =>
+        outcome switch
+        {
+            PackageVersionSettlementOutcome.Settled settled =>
+                new(
+                    BrowserPackageVersionSettlementOutcomeKind.Settled,
+                    new(
+                        Project(settled.Result.Request),
+                        new(
+                            settled.Result.Coordinate.PackageId,
+                            settled.Result.Coordinate.Version),
+                        settled.Result.IncludePrerelease,
+                        settled.Result.Freshness?.ToString(),
+                        [
+                            .. settled.Result.Listings.Select(listing =>
+                                new BrowserPackageVersionSettlementListing(
+                                    listing.Version,
+                                    listing.Listed)),
+                        ],
+                        [
+                            .. settled.Result.SourceListings.Select(listing =>
+                                new BrowserPackageVersionSettlementSourceListing(
+                                    listing.Version,
+                                    listing.Feed,
+                                    listing.Listed)),
+                        ]),
+                    Failure: null),
+            PackageVersionSettlementOutcome.NotSettled notSettled =>
+                new(
+                    BrowserPackageVersionSettlementOutcomeKind.NotSettled,
+                    Result: null,
+                    new(
+                        Project(notSettled.Failure.Request),
+                        notSettled.Failure.Kind.ToString(),
+                        notSettled.Failure.Reason.ToString(),
+                        notSettled.Failure.OperationTimedOut,
+                        [
+                            .. notSettled.Failure.AuthorityFailures.Select(failure =>
+                                new BrowserPackageVersionSettlementAuthorityFailure(
+                                    failure.Authority.ToString(),
+                                    failure.Kind.ToString(),
+                                    failure.Message.ToString(),
+                                    failure.TimeoutKind?.ToString())),
+                        ])),
+            _ => throw new InvalidOperationException(
+                "Unknown package version settlement outcome."),
+        };
+
+    static BrowserPackageVersionSettlementRequest Project(
+        PackageCoordinate request) =>
+        new(request.PackageId, request.Version);
+
+    internal static BrowserInspectionShare Project(InspectionShare share) =>
+        share switch
+        {
+            InspectionShare.Available available =>
+                new(
+                    BrowserInspectionShareKind.Available,
+                    available.FullUrl,
+                    available.Packet,
+                    Path: null,
+                    Reason: null),
+            InspectionShare.NonProjectable nonProjectable =>
+                new(
+                    BrowserInspectionShareKind.NonProjectable,
+                    FullUrl: null,
+                    Packet: null,
+                    nonProjectable.Path,
+                    nonProjectable.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "Unknown inspection Share outcome."),
+        };
+
+    internal static BrowserInspectionDiagnostic Project(
+        InspectionDiagnostic diagnostic) =>
+        new(
+            diagnostic.Code,
+            diagnostic.Severity.ToString(),
+            diagnostic.Summary.ToString(),
+            diagnostic.Correspondence?.ToString());
+
     internal static BrowserAssemblySurface Project(BrowserAssemblySurfaceInfo assembly) =>
         new(
             assembly.Id,
