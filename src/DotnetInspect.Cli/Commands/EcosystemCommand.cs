@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Markout;
@@ -150,23 +152,49 @@ public static class EcosystemCommand
         {
             if (selected.Length == 1)
             {
-                CountOutput.WriteCount(
-                    RowWindow.Apply(options.Rows, selected[0].Rows).Count);
+                if (!TryApplyRowSelection(
+                        selected,
+                        options.RowSelection,
+                        options.Rows,
+                        out EcosystemSection[] singleRowSelected))
+                {
+                    return 1;
+                }
+
+                CountOutput.WriteCount(singleRowSelected[0].Rows.Length);
             }
             else
             {
-                string[] ordered = [.. selected.Select(section => section.Name)];
+                string[] ordered =
+                [
+                    .. selected.Select(section => section.Name),
+                ];
                 if (!CountOutput.ValidateMapFormat(options.Format, ordered))
                     return 1;
 
+                EcosystemSection[] renderedSections =
+                [
+                    .. selected.Where(
+                        section => renderedNames.Contains(section.Name)),
+                ];
+                if (!TryApplyRowSelection(
+                        renderedSections,
+                        options.RowSelection,
+                        options.Rows,
+                        out EcosystemSection[] countRowSelected))
+                {
+                    return 1;
+                }
+                var selectedCounts = countRowSelected.ToDictionary(
+                    section => section.Name,
+                    section => section.Rows.Length,
+                    StringComparer.OrdinalIgnoreCase);
                 var projection = new CountProjection();
                 foreach (EcosystemSection section in selected)
                 {
                     projection.SetRows(
                         section.Name,
-                        renderedNames.Contains(section.Name)
-                            ? RowWindow.Apply(options.Rows, section.Rows).Count
-                            : 0);
+                        selectedCounts.GetValueOrDefault(section.Name));
                 }
                 CountOutput.Write(
                     projection,
@@ -213,11 +241,19 @@ public static class EcosystemCommand
                 or OutputFormat.Json;
         EcosystemSection[] renderSelected =
         [
-            .. selected.Where(section => renderedNames.Contains(section.Name)),
+            .. selected.Where(
+                section => renderedNames.Contains(section.Name)),
         ];
+        if (!TryApplyRowSelection(
+                renderSelected,
+                options.RowSelection,
+                options.Rows,
+                out EcosystemSection[] rowSelected))
+        {
+            return 1;
+        }
         EcosystemSection[] rendered = PrepareRenderSections(
-            renderSelected,
-            options.Rows,
+            rowSelected,
             structuredEmptyRows);
 
         if (options.Format == OutputFormat.Json)
@@ -729,16 +765,14 @@ public static class EcosystemCommand
 
     private static EcosystemSection[] PrepareRenderSections(
         IEnumerable<EcosystemSection> sections,
-        RowWindow? rows,
         bool structuredEmptyRows) =>
         [
             .. sections.Select(section =>
             {
                 string[][] sectionRows = section.Rows;
-                string[][] renderedRows =
-                    [.. RowWindow.Apply(rows, sectionRows)];
+                string[][] renderedRows = sectionRows;
                 if (structuredEmptyRows
-                    && sectionRows.Length == 0
+                    && section.WasLogicallyEmpty
                     && section.StructuredEmptyRow is { } emptyRow)
                 {
                     renderedRows = [emptyRow];
@@ -747,10 +781,49 @@ public static class EcosystemCommand
                 return section with
                 {
                     RowSource = new Lazy<string[][]>(renderedRows),
-                    WasLogicallyEmpty = sectionRows.Length == 0,
                 };
             }),
         ];
+
+    private static bool TryApplyRowSelection(
+        EcosystemSection[] sections,
+        RowSelectionIntent<string>? rowSelection,
+        RowWindow? legacyRows,
+        out EcosystemSection[] selectedSections)
+    {
+        var selected = new List<EcosystemSection>(sections.Length);
+        foreach (EcosystemSection section in sections)
+        {
+            string[][] originalRows = section.Rows;
+            if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                    rowSelection,
+                    legacyRows,
+                    originalRows,
+                    section.Name,
+                    FormatRowSelectionFailure,
+                    out IReadOnlyList<string[]> selectedRows))
+            {
+                selectedSections = [];
+                return false;
+            }
+
+            selected.Add(section with
+            {
+                RowSource = new Lazy<string[][]>([.. selectedRows]),
+                WasLogicallyEmpty = originalRows.Length == 0,
+            });
+        }
+
+        selectedSections = [.. selected];
+        return true;
+    }
+
+    private static string FormatRowSelectionFailure(
+        RowsCohortSemanticFailure<string> failure) =>
+        $"Ecosystem row selection stage {failure.Failure.StageNumber} "
+        + $"for '{failure.Identity}' requires row "
+        + $"{failure.Failure.RequiredPosition}, but only "
+        + $"{failure.Failure.AvailableCount} rows are available.";
 
     private static void WriteDocument(
         MarkoutWriter writer,
