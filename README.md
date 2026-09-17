@@ -349,7 +349,7 @@ have not adopted this transport.
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
-| Limit rows | `--rows`, `-n`, `--head`, `--tail` |
+| Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
@@ -359,6 +359,13 @@ have not adopted this transport.
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
+
+`-n N` selects the command's declared items. That normally means semantic rows.
+For `skill` and focused skill-document commands, text lines are the only item
+domain, so bare `-n` selects rendered lines. Other commands without a
+semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
+lines or `--tail-lines` for the last N. Rendered-line clipping is not available
+with JSON document output.
 
 Useful discovery and projection patterns:
 

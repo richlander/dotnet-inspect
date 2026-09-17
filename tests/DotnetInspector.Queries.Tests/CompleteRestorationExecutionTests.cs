@@ -434,15 +434,20 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Theory]
-    [InlineData("package.unknown")]
-    [InlineData("workspace.overview")]
-    public async Task InactiveInvalidFacet_FailsBeforeConstruction(string facet)
+    [InlineData(InspectionDefinitionSchema.Version2, "package.unknown")]
+    [InlineData(InspectionDefinitionSchema.Version2, "workspace.overview")]
+    [InlineData(InspectionDefinitionSchema.Version3, "package.unknown")]
+    [InlineData(InspectionDefinitionSchema.Version3, "workspace.overview")]
+    public async Task InactiveInvalidFacet_FailsBeforeConstruction(
+        int schemaVersion,
+        string facet)
     {
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
                 WorkspaceDefinitionConsumer.PrepareRestoration(
-                    Version2PackageRegistry(
+                    PackageRegistry(
+                        schemaVersion,
                         new CommittedViewStateDefinition(
                             "package",
                             new PortableSubjectRequest.Package(),
@@ -1032,19 +1037,30 @@ public sealed class CompleteRestorationExecutionTests
     private static InspectionDefinitionRegistry Version2PackageRegistry(
         CommittedViewStateDefinition? packageState = null,
         bool duplicateContexts = false,
+        string? focus = "package") =>
+        PackageRegistry(
+            InspectionDefinitionSchema.Version2,
+            packageState,
+            duplicateContexts,
+            focus);
+
+    private static InspectionDefinitionRegistry PackageRegistry(
+        int schemaVersion,
+        CommittedViewStateDefinition? packageState = null,
+        bool duplicateContexts = false,
         string? focus = "package")
     {
         var registry = new InspectionDefinitionRegistry();
         registry.Add(PackageWorkspace(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             duplicateContexts));
         registry.Add(new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "navigation",
             [new NavigationTabDefinition("package", coordinate: Package())],
             focus));
         registry.Add(new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "view",
             [
                 new CommittedViewStateDefinition(
@@ -1058,7 +1074,7 @@ public sealed class CompleteRestorationExecutionTests
                         facet: "package.overview"),
             ]));
         registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "scenario",
             workspace: "workspace",
             context: "context",

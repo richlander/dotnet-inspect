@@ -72,6 +72,8 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(opts.Rows);
         command.Options.Add(opts.Head);
         command.Options.Add(opts.Tail);
+        command.Options.Add(opts.Lines);
+        command.Options.Add(opts.TailLines);
         command.Options.Add(opts.Tips);
         command.Options.Add(opts.Info);
         command.Options.Add(opts.Verbosity);
@@ -117,7 +119,11 @@ public static class PackageChangesCommandDefinitions
                 }
             }
 
-            if (result.GetValue(opts.Limit) is int maximumRows
+            bool renderedLineSelection =
+                IsExplicit(result, opts.Lines)
+                || IsExplicit(result, opts.TailLines);
+            if (!renderedLineSelection
+                && result.GetValue(opts.Limit) is int maximumRows
                 && maximumRows is < 1
                     or > EcosystemChangeReportRequest
                         .DefaultMaximumCandidateEvents)
@@ -148,8 +154,6 @@ public static class PackageChangesCommandDefinitions
                 opts.Tree,
                 opts.Count,
                 opts.Rows,
-                opts.Head,
-                opts.Tail,
                 opts.Tips,
                 opts.Info,
                 opts.Verbosity,
@@ -161,6 +165,12 @@ public static class PackageChangesCommandDefinitions
                         $"{option.Name} is not supported with package activity.");
                 }
             }
+            if (!renderedLineSelection
+                && IsExplicit(result, opts.Tail))
+            {
+                result.AddError(
+                    "--tail is not supported with semantic package activity rows.");
+            }
 
             var acceptedParentOptions = new HashSet<Option>
             {
@@ -168,6 +178,10 @@ public static class PackageChangesCommandDefinitions
                 opts.Markdown,
                 opts.PlainText,
                 opts.Limit,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines,
                 opts.Verbose,
             };
             Option? unsupportedParentOption =
@@ -209,8 +223,10 @@ public static class PackageChangesCommandDefinitions
                 ThroughInclusive = through,
                 SecurityOnly = parseResult.GetValue(securityOnlyOption),
                 MaximumRows =
-                    parseResult.GetValue(opts.Limit)
-                    ?? EcosystemChangeReportRequest.DefaultMaximumRows,
+                    UsesRenderedLineSelection(parseResult, opts)
+                        ? EcosystemChangeReportRequest.DefaultMaximumRows
+                        : parseResult.GetValue(opts.Limit)
+                            ?? EcosystemChangeReportRequest.DefaultMaximumRows,
                 Format = opts.ResolveFormat(parseResult),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
@@ -221,8 +237,33 @@ public static class PackageChangesCommandDefinitions
                 cancellationToken).ConfigureAwait(false);
         });
 
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return command;
     }
+
+    private static bool UsesRenderedLineSelection(
+        ParseResult parseResult,
+        SharedOptions opts) =>
+        parseResult.GetResult(opts.Lines) is { Implicit: false }
+        || parseResult.GetResult(opts.TailLines) is { Implicit: false };
 
     private static bool IsExplicit(
         CommandResult result,
