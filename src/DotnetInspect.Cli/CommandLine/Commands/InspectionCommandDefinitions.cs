@@ -415,9 +415,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Subcommands.Add(
             LibraryCoordinateCommandDefinitions.Create(
                 opts,
-                ilOffsetOption,
-                ilOffsetsOption,
-                heapOption));
+                assemblyCommand,
+                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {

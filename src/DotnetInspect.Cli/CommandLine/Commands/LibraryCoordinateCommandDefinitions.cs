@@ -11,9 +11,8 @@ internal static class LibraryCoordinateCommandDefinitions
 {
     internal static Command Create(
         SharedOptions opts,
-        Option<string?> parentIlOffsetOption,
-        Option<string?> parentIlOffsetsOption,
-        Option<string?> parentHeapOption)
+        Command parentCommand,
+        Argument<string?> parentSourceArgument)
     {
         var command = new Command(
             "coordinate",
@@ -103,20 +102,25 @@ internal static class LibraryCoordinateCommandDefinitions
         opts.AddShapeProjectionOptionsTo(command);
         opts.AddNuGetOptionsTo(command);
 
+        var acceptedParentOptions = new HashSet<Option>(command.Options);
         command.Validators.Add(result =>
         {
-            foreach (Option option in new Option[]
+            if (result.GetValue(parentSourceArgument) is { Length: > 0 })
             {
-                parentIlOffsetOption,
-                parentIlOffsetsOption,
-                parentHeapOption,
-            })
+                result.AddError(
+                    "A Library inspection source cannot precede library coordinate; "
+                    + "place 'coordinate' immediately after 'library'.");
+            }
+
+            Option? unsupportedParentOption =
+                parentCommand.Options.FirstOrDefault(
+                    option => !acceptedParentOptions.Contains(option)
+                        && result.GetResult(option) is { Implicit: false });
+            if (unsupportedParentOption is not null)
             {
-                if (result.GetResult(option) is { Implicit: false })
-                {
-                    result.AddError(
-                        $"{option.Name} cannot be combined with library coordinate.");
-                }
+                result.AddError(
+                    $"{unsupportedParentOption.Name} cannot be combined with "
+                    + "library coordinate.");
             }
         });
 

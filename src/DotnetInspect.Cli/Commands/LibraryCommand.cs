@@ -3545,7 +3545,25 @@ public class LibraryCommand
             return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
-        // --tfm <specific>: find assembly by TFM
+        if (!string.IsNullOrEmpty(assemblyName))
+        {
+            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
+            if (matchedAssembly == null)
+            {
+                CommandError.Write($"Library '{assemblyName}' not found in package.");
+                CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            if (matchedTfm != null)
+                logger.Log($"Using TFM: {matchedTfm}");
+
+            logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
+            return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        }
+
+        // --tfm <specific>: find the package-primary assembly by TFM
         if (!string.IsNullOrEmpty(tfm))
         {
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
@@ -3566,41 +3584,23 @@ public class LibraryCommand
         }
 
         // No --tfm and no assembly name: select the highest-priority TFM (default)
-        if (string.IsNullOrEmpty(assemblyName))
+        var defaultCandidates = TfmSelector.GetPackageAssemblies(extractPath);
+        if (defaultCandidates.Count == 0)
         {
-            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
-            if (candidates.Count == 0)
-            {
-                CommandError.Write("No DLLs found in package.");
-                DeleteTempDir(tempDir);
-                return null;
-            }
-
-            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath, resolution.PackageName);
-            if (selectedPath == null)
-            {
-                // No TFM structure found, fall back to first DLL
-                return ([candidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-            }
-
-            logger.Log($"Using TFM: {selectedTfm}");
-            return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-        }
-
-        var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
-        if (matchedAssembly == null)
-        {
-            CommandError.Write($"Library '{assemblyName}' not found in package.");
-            CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+            CommandError.Write("No DLLs found in package.");
             DeleteTempDir(tempDir);
             return null;
         }
 
-        if (matchedTfm != null)
-            logger.Log($"Using TFM: {matchedTfm}");
+        var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(defaultCandidates, extractPath, resolution.PackageName);
+        if (selectedPath == null)
+        {
+            // No TFM structure found, fall back to first DLL
+            return ([defaultCandidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        }
 
-        logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
-        return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        logger.Log($"Using TFM: {selectedTfm}");
+        return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
     private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);

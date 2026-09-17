@@ -1850,6 +1850,61 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_UsesExplicitPackageLibraryWithinTfm()
+    {
+        var openMethod = typeof(AssemblyInspectionSession).GetMethod(
+            nameof(AssemblyInspectionSession.Open),
+            [typeof(string)])!;
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-coordinate-package-tfm-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(
+            content,
+            "lib",
+            "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libraryDirectory, "Coordinate.Package.dll"));
+        File.Copy(
+            typeof(AssemblyInspectionSession).Assembly.Location,
+            Path.Combine(libraryDirectory, "Alternate.dll"));
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                $"0x{openMethod.MetadataToken:X8}+0x0",
+                "--package",
+                packagePath,
+                "--library",
+                "lib/net11.0/Alternate.dll",
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("# Alternate.dll (net11.0)", output);
+            Assert.Contains("| Assembly | ILInspector.Metadata |", output);
+            Assert.Contains(
+                "| Member | ILInspector.Metadata.AssemblyInspectionSession.Open |",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_InvalidCoordinateFailsBeforeAcquisition()
     {
         string missingLibrary = Path.Combine(
@@ -2028,6 +2083,82 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             $"{parentOption} cannot be combined with library coordinate",
+            error);
+        Assert.DoesNotContain(missingLibrary, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_RejectsParentPositionalSource()
+    {
+        string parentSource = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-parent-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            parentSource,
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "A Library inspection source cannot precede library coordinate",
+            error);
+        Assert.DoesNotContain(parentSource, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_RejectsParentSourceOption()
+    {
+        string parentPackage = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-parent-package-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--package",
+            parentPackage,
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--package cannot be combined with library coordinate",
+            error);
+        Assert.DoesNotContain(parentPackage, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_RejectsParentOperation()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--references",
+            "coordinate",
+            "0x06000001+0x0",
+            "--library",
+            missingLibrary,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--references cannot be combined with library coordinate",
             error);
         Assert.DoesNotContain(missingLibrary, error);
     }
