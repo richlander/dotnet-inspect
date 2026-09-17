@@ -654,6 +654,112 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Versions_WithRange_EnvelopePreservesTheCompletePopulation()
+    {
+        var result = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--envelope");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "package-version-population",
+            root.GetProperty("result_kind").GetString());
+        JsonElement content = root.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("kind").GetString());
+        JsonElement document = content.GetProperty("document");
+        Assert.Equal(
+            "system.text.json",
+            document.GetProperty("request").GetProperty("packageId").GetString());
+        Assert.Equal(
+            ["8.0.0", "8.0.1", "8.0.2", "8.0.3", "8.0.4", "8.0.5"],
+            document.GetProperty("versions").EnumerateArray()
+                .Select(row => row.GetProperty("version").GetString()));
+        Assert.Equal(
+            ["#1", "#2", "#3", "#4", "#5", "#6"],
+            document.GetProperty("versions").EnumerateArray()
+                .Select(row => row.GetProperty("selector").GetString()));
+        Assert.Equal(JsonValueKind.Null, content.GetProperty("count").ValueKind);
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Versions_WithRange_CountSupportsScalarJsonAndCompleteEnvelope()
+    {
+        var scalar = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--count");
+        var scalarJson = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "--json");
+        var envelope = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "--envelope");
+
+        Assert.Equal((0, "6", ""), (
+            scalar.Exit,
+            scalar.Output.Trim(),
+            scalar.Error));
+        Assert.Equal((0, "6", ""), (
+            scalarJson.Exit,
+            scalarJson.Output.Trim(),
+            scalarJson.Error));
+        Assert.Equal(0, envelope.Exit);
+        Assert.Empty(envelope.Error);
+        using JsonDocument json = JsonDocument.Parse(envelope.Output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(6, content.GetProperty("document")
+            .GetProperty("versions").GetArrayLength());
+        JsonElement count = content.GetProperty("count");
+        Assert.Equal("completed", count.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Versions",
+            count.GetProperty("result").GetProperty("cohort").GetString());
+        Assert.Equal(
+            6,
+            count.GetProperty("result").GetProperty("value").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--table")]
+    [InlineData("--rows")]
+    [InlineData("--latest-version")]
+    public async Task RangeEnvelope_RejectsIncompatibleShapeBeforeExecution(
+        string incompatible)
+    {
+        string[] value = incompatible == "--rows" ? ["1..2"] : [];
+        string[] args =
+        [
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--envelope",
+            incompatible,
+            .. value,
+        ];
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("--envelope cannot be combined", result.Error);
+    }
+
+    [Fact]
     public async Task Type_WithRange_RequiresAnExplicitAddress()
     {
         var root = CommandLineBuilder.CreateRootCommand();

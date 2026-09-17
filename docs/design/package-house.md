@@ -365,18 +365,34 @@ adoption uses the same host-neutral contract in a later slice.
 The original #7115 slice did not migrate current API-range or top-level
 `timeline` consumers. [#7410](https://github.com/richlander/dotnet-inspect/issues/7410)
 later adopts only online `package Package@A..B --versions` listing as a direct
-population consumer. That command retains its existing CLI-owned rendering and
-maps the closed House terminal family to visible command failure; it does not
-select or execute population cells.
+population consumer.
+[Issue #7434](https://github.com/richlander/dotnet-inspect/issues/7434)
+completes that leaf as
+`InspectionEnvelope<PackageVersionPopulationOutcome>`. Its available Content
+contains a detached `PackageVersionPopulationDocument` with the normalized
+request, direction-preserving ordinal and selector addresses, listing state,
+and ordered source rows. The closed House terminal family becomes typed
+non-available Content with inert reason text, timeout state, and credential-safe
+authority failures. Neighboring source failures on an available population are
+ordered envelope diagnostics.
+
+Count is an optional semantic component of the same available Content. Its
+request names either the version or version/source cohort and applies the
+already-bound semantic row selection before returning a typed Count result.
+Ordinary `--count` projects that result as the existing scalar; `--count
+--envelope` preserves both the complete population Document and Count
+component. The CLI's ordinary version, feed, JSON, JSONL, and TSV renderers
+remain projections over the shared Document. Neither the inspection nor the
+command selects or executes population cells.
 
 This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History and metadata-only
-package version Count under
+production consumer remains subject-owned Diff History under
 [Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior.
+`timeline` behavior; the metadata-only package version Count is now the
+resource-free CLI consumer described above.
 
 ## Package target context
 

@@ -924,6 +924,63 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RangeVersionCount_EnumeratesOnceWithoutAcquiringPayload(
+        bool envelope)
+    {
+        string packageName = $"HouseRangeCount{Guid.NewGuid():N}";
+        string[] versions = ["1.0.0", "1.1.0", "2.0.0"];
+        string[] format = envelope ? ["--envelope"] : [];
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                versions,
+                [
+                    "package",
+                    $"{packageName}@1.0.0..2.0.0",
+                    "--count",
+                    .. format,
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        if (envelope)
+        {
+            using JsonDocument json = JsonDocument.Parse(output);
+            JsonElement content = json.RootElement.GetProperty("content");
+            Assert.Equal(
+                3,
+                content.GetProperty("document")
+                    .GetProperty("versions").GetArrayLength());
+            Assert.Equal(
+                3,
+                content.GetProperty("count")
+                    .GetProperty("result")
+                    .GetProperty("value").GetInt32());
+        }
+        else
+        {
+            Assert.Equal("3", output.Trim());
+        }
+
+        string versionIndex =
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json";
+        Assert.Equal(
+            1,
+            requests.Count(request => request.Equals(
+                versionIndex,
+                StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public async Task RangeVersionListing_ReportsTheMissingEndpoint()
     {
@@ -943,6 +1000,42 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("does not contain range endpoint 3.0.0", error);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task RangeVersionEnvelope_PreservesTypedMissingEndpointFailure()
+    {
+        string packageName = $"HouseRangeEnvelopeMissing{Guid.NewGuid():N}";
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..3.0.0",
+                    "--versions",
+                    "--envelope",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(
+            "notAvailable",
+            content.GetProperty("kind").GetString());
+        JsonElement failure = content.GetProperty("failure");
+        Assert.Equal("NoMatch", failure.GetProperty("kind").GetString());
+        Assert.Contains(
+            "does not contain range endpoint 3.0.0",
+            failure.GetProperty("reason").GetRawText());
         Assert.DoesNotContain(
             requests,
             request => request.EndsWith(
@@ -1951,10 +2044,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
         {
             var cases = new TheoryData<string, string, string, bool>();
             foreach (string selector in new[] { "--versions", "--versions-with-feed" })
-            foreach (string package in new[] { "System.CommandLine", "2", "true", "false" })
-            foreach (string limit in new[] { "-n", "-2", "-n2" })
-            foreach (bool implicitCommand in new[] { false, true })
-                cases.Add(selector, package, limit, implicitCommand);
+                foreach (string package in new[] { "System.CommandLine", "2", "true", "false" })
+                    foreach (string limit in new[] { "-n", "-2", "-n2" })
+                        foreach (bool implicitCommand in new[] { false, true })
+                            cases.Add(selector, package, limit, implicitCommand);
             return cases;
         }
     }

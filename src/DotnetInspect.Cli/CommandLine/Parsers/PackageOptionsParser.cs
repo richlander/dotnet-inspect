@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -128,6 +129,17 @@ public static class PackageOptionsParser
             parseResult.GetValue(args.VersionsWithFeedOption);
         bool showVersionList =
             parseResult.GetValue(args.VersionsOption);
+        bool countRange = false;
+        if (parseResult.GetValue(opts.Count)
+            && packageArgs is [var packageReference])
+        {
+            countRange =
+                PackageVersionRange.TryParse(
+                    packageReference,
+                    out _,
+                    out string? countRangeError)
+                && countRangeError is null;
+        }
         bool showPluralVersions =
             showVersionsWithFeed
             || showVersionList;
@@ -144,7 +156,8 @@ public static class PackageOptionsParser
         bool showVersions =
             bareVersion
             || showLatestVersion
-            || showPluralVersions;
+            || showPluralVersions
+            || countRange;
         RowSelectionIntent<string>? versionRowSelection = null;
         if (showPluralVersions
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -252,6 +265,7 @@ public static class PackageOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
             Rows = showPluralVersions
                 ? null
                 : opts.ParseRows(parseResult),

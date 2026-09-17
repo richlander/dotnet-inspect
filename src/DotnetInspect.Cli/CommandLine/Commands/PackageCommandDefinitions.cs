@@ -129,6 +129,16 @@ public static class PackageCommandDefinitions
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
+        opts.AddEnvelopeOptionTo(
+            packageCommand,
+            opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+            opts.Rows, opts.Limit, opts.Head, opts.Tail,
+            linesOption, tailLinesOption,
+            dependenciesOption, layoutOption, pathOption, pathMatchOption,
+            skipEmptyOption, tfmsOption, libOption, toolsOption,
+            libraryOption, allLibrariesOption,
+            contentOption, frontmatterOption, bodyOption, outOption,
+            tfmOption, typeFilterOption, versionOption, latestVersionOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
@@ -143,6 +153,28 @@ public static class PackageCommandDefinitions
                 result.AddError(
                     "--lines and --tail-lines are available with "
                     + "--versions or --versions-with-feed.");
+            }
+
+            if (result.GetValue(opts.Envelope))
+            {
+                string[] packageReferences =
+                    result.GetValue(packageNameArg) ?? [];
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || result.GetValue(opts.Count);
+                bool isRange =
+                    packageReferences is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null;
+                if (!hasPopulationGesture || !isRange)
+                {
+                    result.AddError(
+                        "--envelope on package requires one Package@A..B "
+                        + "range and --versions, --versions-with-feed, or --count.");
+                }
             }
 
         });
