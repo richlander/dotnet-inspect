@@ -3895,6 +3895,17 @@ public class LibraryCommand
                     libraryResolution.IdentityFailurePaths ?? []);
             }
             else if (libraryResolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus
+                    .EmptyCompileGroup)
+            {
+                CommandError.Write(
+                    $"Package '{resolution.PackageName ?? packageSource}' "
+                    + "declares an empty compile group"
+                    + (libraryResolution.Tfm is null
+                        ? "."
+                        : $" for TFM '{libraryResolution.Tfm}'."));
+            }
+            else if (libraryResolution.Status
                 == TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound)
             {
                 CommandError.Write(

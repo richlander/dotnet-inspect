@@ -376,6 +376,16 @@ public partial class PackageCommand
         }
         else if (resolution.Status
                  == TfmSelector.PackageLibraryResolutionStatus
+                     .EmptyCompileGroup)
+        {
+            CommandError.Write(
+                $"Package '{packageName}' declares an empty compile group"
+                + (resolution.Tfm is null
+                    ? "."
+                    : $" for TFM '{resolution.Tfm}'."));
+        }
+        else if (resolution.Status
+                 == TfmSelector.PackageLibraryResolutionStatus
                      .NamesakeIdentityUnavailable)
         {
             CommandError.Write(

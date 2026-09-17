@@ -249,6 +249,30 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_BareRequest_SkipsNonAssemblyCandidates()
+    {
+        var namesake = WriteAssembly(
+            "lib/net8.0/Renamed.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string placeholder =
+            WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(
+            placeholder,
+            "not a managed assembly");
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            packageId,
+            requestedLibrary: "");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([namesake], result.Paths);
+        Assert.Empty(result.IdentityFailurePaths ?? []);
+    }
+
+    [Fact]
     public void SelectPackageLibrary_RequestedLibraryNotFound_ReturnsTfmCandidates()
     {
         var candidate = WriteDll("lib/net8.0/Actual.dll");
@@ -285,6 +309,59 @@ public class TfmSelectorTests : IDisposable
         Assert.False(result.IsSelected);
         Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework, result.Status);
         Assert.Equal("net6.0", result.Tfm);
+        Assert.Empty(result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_EmptyReferenceGroupSuppressesLibraryFallback()
+    {
+        var implementation =
+            WriteDll("lib/net8.0/Implementation.dll");
+        WriteDll("ref/net8.0/_._");
+
+        var result = TfmSelector.SelectPackageLibraries(
+            _tempDir,
+            "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .EmptyCompileGroup,
+            result.Status);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Empty(result.Paths);
+        Assert.Contains(
+            implementation,
+            result.CandidatePaths);
+
+        var defaultResult =
+            TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.False(defaultResult.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .EmptyCompileGroup,
+            defaultResult.Status);
+        Assert.Equal("net8.0", defaultResult.Tfm);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_EmptyReferenceGroupSuppressesExactLibrary()
+    {
+        WriteDll("lib/net8.0/Implementation.dll");
+        WriteDll("ref/net8.0/_._");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "Package",
+            "Implementation.dll",
+            "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .EmptyCompileGroup,
+            result.Status);
         Assert.Empty(result.Paths);
     }
 

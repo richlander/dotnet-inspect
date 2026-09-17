@@ -1003,6 +1003,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeCommand_NamesakeSkipsNonAssemblyPlaceholder()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithNamesakeAndPlaceholder();
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                "--package", packagePath,
+                "--namesake-library",
+                "--markdown", "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                result.Output);
+            Assert.Empty(result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCommand_EmptyReferenceGroupSuppressesLibraryFallback()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithEmptyReferenceGroup();
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                "--package", packagePath,
+                "--tfm", "net8.0",
+                "--markdown", "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "declares an empty compile group for TFM 'net8.0'",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryAndPackageCommands_AllTfmsNarrowEachFramework()
     {
         var (packagePath, tempDir) =
@@ -1127,6 +1179,58 @@ public partial class CommandExecutionTests
         string packagePath = Path.Combine(
             tempDir,
             "Aggregate.Participant.Sample.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreatePackageWithNamesakeAndPlaceholder()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDir, "Renamed.dll"));
+        File.WriteAllText(
+            Path.Combine(libDir, "Text.dll"),
+            "not a managed assembly");
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "DotnetInspect.Cli.Tests.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreatePackageWithEmptyReferenceGroup()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDir, "Implementation.dll"));
+        string refDir = Path.Combine(packageRoot, "ref", "net8.0");
+        Directory.CreateDirectory(refDir);
+        File.WriteAllText(
+            Path.Combine(refDir, "_._"),
+            "");
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Empty.Reference.Group.1.0.0.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);

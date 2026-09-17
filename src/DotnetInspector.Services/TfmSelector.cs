@@ -25,6 +25,7 @@ public static class TfmSelector
         Selected,
         NoAssemblies,
         NoMatchingTargetFramework,
+        EmptyCompileGroup,
         RequestedLibraryNotFound,
         Ambiguous,
         NamesakeIdentityUnavailable
@@ -419,6 +420,9 @@ public static class TfmSelector
         {
             PackageLibraryResolution candidates =
                 SelectPackageLibraries(extractPath, tfm);
+            if (!candidates.IsSelected)
+                return candidates;
+
             var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
                 candidates.Paths,
                 extractPath,
@@ -437,6 +441,16 @@ public static class TfmSelector
         var packageNameMatches = resolution.Paths
             .Where(path =>
             {
+                PackageLibraryImageKind imageKind =
+                    ClassifyPackageLibraryImage(path);
+                if (imageKind == PackageLibraryImageKind.NonAssembly)
+                    return false;
+                if (imageKind == PackageLibraryImageKind.Unreadable)
+                {
+                    identityFailures.Add(path);
+                    return false;
+                }
+
                 string? assemblyName =
                     TryReadAssemblySimpleName(path);
                 if (assemblyName is null)
@@ -497,6 +511,37 @@ public static class TfmSelector
         if (candidates.Count == 0)
             return new PackageLibraryResolution([], null, PackageLibraryResolutionStatus.NoAssemblies, []);
 
+        if (!string.Equals(
+            tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            var content = new FileSystemPackageContent(
+                extractPath,
+                nupkgPath: null,
+                fromCache: false,
+                producerKey: "package-library-selection");
+            PackageCompileAssetSelection canonicalSelection =
+                PackageCompileAssetSelector.Select(
+                    content,
+                    packageId: "package",
+                    tfm);
+            if (canonicalSelection.Status
+                == PackageCompileAssetSelectionStatus
+                    .EmptyCompileGroup)
+            {
+                return new PackageLibraryResolution(
+                    [],
+                    canonicalSelection.TargetFramework,
+                    PackageLibraryResolutionStatus
+                        .EmptyCompileGroup,
+                    GetCandidateLibraries(
+                        extractPath,
+                        canonicalSelection.TargetFramework
+                            ?? tfm));
+            }
+        }
+
         var (selected, selectedTfm) =
             SelectHighestAssemblies(candidates, extractPath, tfm);
 
@@ -508,6 +553,14 @@ public static class TfmSelector
                 StringComparer.OrdinalIgnoreCase)
             .SelectMany(group =>
             {
+                if (group.Key is not null
+                    && HasEmptyReferenceGroup(
+                        extractPath,
+                        group.Key))
+                {
+                    return [];
+                }
+
                 string[] referenceAssemblies =
                 [
                     .. group.Where(path =>
@@ -524,8 +577,34 @@ public static class TfmSelector
         var ordered = compileLibraries
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
+        if (ordered.Count == 0)
+        {
+            return new PackageLibraryResolution(
+                [],
+                selectedTfm,
+                PackageLibraryResolutionStatus.EmptyCompileGroup,
+                GetCandidateLibraries(
+                    extractPath,
+                    selectedTfm));
+        }
+
         return new PackageLibraryResolution(ordered, selectedTfm, PackageLibraryResolutionStatus.Selected, ordered);
     }
+
+    private static bool HasEmptyReferenceGroup(
+        string extractPath,
+        string tfm)
+        => Directory
+            .EnumerateFiles(
+                extractPath,
+                "_._",
+                SearchOption.AllDirectories)
+            .Any(path => Path
+                .GetRelativePath(extractPath, path)
+                .Replace('\\', '/')
+                .Equals(
+                    $"ref/{tfm}/_._",
+                    StringComparison.OrdinalIgnoreCase));
 
     public static PackageLibraryImageKind ClassifyPackageLibraryImage(
         string path)

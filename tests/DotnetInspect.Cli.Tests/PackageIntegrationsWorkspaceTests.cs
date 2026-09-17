@@ -833,7 +833,6 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Theory]
-    [InlineData("empty-compile", 1)]
     [InlineData("all-frameworks", 2)]
     [InlineData("nested", 2)]
     [InlineData("tools", 1)]

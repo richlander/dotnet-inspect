@@ -288,9 +288,16 @@ internal static class ApiSourceResolver
                     if (!aggregate.IsSelected)
                     {
                         CommandError.Write(
-                            string.IsNullOrWhiteSpace(options.Tfm)
-                                ? "No compatible libraries found in package."
-                                : $"No library found for TFM '{options.Tfm}'.");
+                            aggregate.Status
+                                == TfmSelector.PackageLibraryResolutionStatus
+                                    .EmptyCompileGroup
+                                ? "Package declares an empty compile group"
+                                  + (aggregate.Tfm is null
+                                      ? "."
+                                      : $" for TFM '{aggregate.Tfm}'.")
+                                : string.IsNullOrWhiteSpace(options.Tfm)
+                                    ? "No compatible libraries found in package."
+                                    : $"No library found for TFM '{options.Tfm}'.");
                         return (null!, 1);
                     }
                     selectedTfm = aggregate.Tfm;
