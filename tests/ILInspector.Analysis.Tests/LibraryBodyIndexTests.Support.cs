@@ -3662,6 +3662,15 @@ public partial class LibraryBodyIndexTests
                 parameters => parameters.AddParameter().Type()
                     .SZArray().Type(parameterAliasType, isValueType: false))
             : emptyMethodSignature;
+        BlobHandle moduleAliasCallerSignature =
+            AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: false,
+                parameterCount: 1,
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .Int32());
         var varArgTargetSignature = new BlobBuilder();
         new BlobEncoder(varArgTargetSignature)
             .MethodSignature(
@@ -3746,6 +3755,36 @@ public partial class LibraryBodyIndexTests
                 localSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle moduleAliasTarget =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                callTarget
+                    == MemorySafetyCallTarget
+                        .ModuleReferenceBodilessAttributeOnly
+                    ? MethodImplAttributes.Runtime
+                    : MethodImplAttributes.IL,
+                metadata.GetOrAddString("ModuleAlias"),
+                localSignature,
+                callTarget
+                    == MemorySafetyCallTarget
+                        .ModuleReferenceBodilessAttributeOnly
+                    ? -1
+                    : bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        if (callTarget
+            == MemorySafetyCallTarget
+                .AmbiguousLocalTypeReferenceAttributeOnly)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("AttributeOnly"),
+                localSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
         MethodDefinitionHandle varArgAttributeOnly =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -3768,10 +3807,21 @@ public partial class LibraryBodyIndexTests
                         metadata.GetOrAddString("Target")),
                     metadata.GetOrAddString("AttributeOnly"),
                     emptyMethodSignature),
-            MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
+            MemorySafetyCallTarget
+                .AmbiguousLocalTypeReferenceAttributeOnly =>
+                metadata.AddMemberReference(
+                    metadata.AddTypeReference(
+                        module,
+                        metadata.GetOrAddString("Samples"),
+                        metadata.GetOrAddString("Target")),
+                    metadata.GetOrAddString("AttributeOnly"),
+                    emptyMethodSignature),
+            MemorySafetyCallTarget.ModuleReferenceAttributeOnly
+                or MemorySafetyCallTarget
+                    .ModuleReferenceBodilessAttributeOnly =>
                 metadata.AddMemberReference(
                     moduleAliasType,
-                    metadata.GetOrAddString("AttributeOnly"),
+                    metadata.GetOrAddString("ModuleAlias"),
                     aliasSignature),
             MemorySafetyCallTarget.AssemblyReferenceAttributeOnly
                 when assemblyAlias is { Version: { } aliasVersion } =>
@@ -3859,7 +3909,13 @@ public partial class LibraryBodyIndexTests
                         .LocalTypeReferenceAttributeOnly =>
                             "CallsLocalAlias",
                     MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
-                        "CallsModuleAlias",
+                        "ModuleAlias",
+                    MemorySafetyCallTarget
+                        .ModuleReferenceBodilessAttributeOnly =>
+                            "CallsBodilessModuleAlias",
+                    MemorySafetyCallTarget
+                        .AmbiguousLocalTypeReferenceAttributeOnly =>
+                            "CallsAmbiguousAlias",
                     MemorySafetyCallTarget.AssemblyReferenceAttributeOnly =>
                         "CallsAssemblyAlias",
                     MemorySafetyCallTarget
@@ -3870,9 +3926,14 @@ public partial class LibraryBodyIndexTests
                             "CallsVarArgAttributeOnly",
                     _ => throw new InvalidOperationException(),
                 }),
-            callTarget == MemorySafetyCallTarget.PointerOnly
-                ? pointerMethodSignature
-                : emptyMethodSignature,
+            callTarget switch
+            {
+                MemorySafetyCallTarget.PointerOnly =>
+                    pointerMethodSignature,
+                MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
+                    moduleAliasCallerSignature,
+                _ => emptyMethodSignature,
+            },
             callerBodyOffset,
             MetadataTokens.ParameterHandle(1));
 
@@ -3921,6 +3982,11 @@ public partial class LibraryBodyIndexTests
 
         metadata.AddCustomAttribute(
             attributeOnly,
+            requiresUnsafeConstructor,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        metadata.AddCustomAttribute(
+            moduleAliasTarget,
             requiresUnsafeConstructor,
             metadata.GetOrAddBlob(
                 new byte[] { 0x01, 0x00, 0x00, 0x00 }));

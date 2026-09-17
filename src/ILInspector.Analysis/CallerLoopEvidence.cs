@@ -42,11 +42,21 @@ public static class CallerLoopEvidenceAnalysis
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> directCalls,
         int maxDepth = int.MaxValue)
+        => FindNearest(
+            methods,
+            directCalls,
+            maxDepth,
+            MethodDefinitionMap.Create(methods));
+
+    internal static ImmutableDictionary<int, CallerLoopEvidence> FindNearest(
+        ImmutableArray<MethodIdentity> methods,
+        ImmutableArray<DirectCall> directCalls,
+        int maxDepth,
+        MethodDefinitionMap methodMap)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 1);
 
         var methodByToken = methods.ToDictionary(static method => method.MetadataToken);
-        var methodMap = MethodDefinitionMap.Create(methods);
         if (maxDepth == 1)
         {
             return directCalls

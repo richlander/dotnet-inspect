@@ -381,7 +381,11 @@ Constructed parameter and return views do not replace that identity. Generic
 variables in a declaring TypeSpec and optional vararg arguments belong to the
 caller's scope; variables in the open return and required-parameter signature
 belong to the target's scope. Nested function-pointer signatures retain their
-enclosing type and method generic scope.
+enclosing type and method generic scope. A constructed declaring type must
+supply exactly the generic arity declared by its canonical metadata-name
+segments; full analysis leaves malformed correspondence unresolved, while the
+bounded presence query fails visibly rather than using an argument count as a
+substitute for declaration arity.
 
 Call-contract composition uses the primary image's declared module name to
 recognize same-module `ModuleRef` aliases, including aliases nested in signature
@@ -391,6 +395,15 @@ compare ordinally ignoring case; foreign module scopes do not bind to
 primary-image definitions.
 Data-only method maps without that module identity retain their conservative
 unresolved result for these aliases.
+
+The body index retains two module-aware maps. The body map admits only
+definitions with analyzable bodies and backs traversal, propagation,
+allocation, repeated-scan, and caller-loop consumers. The declaration map
+admits every MethodDef and backs identity, ambiguity, implementation profiles,
+overload relationships, leverage, fan-in, inbound resolution, and root paths.
+Outbound call trees resolve identity through declarations and body availability
+through the body map, so a matching alias to an abstract, interface, extern, or
+runtime declaration is `Bodiless`, not `External`.
 
 Candidate lookup preserves `TypeRef` identity: assembly names compare
 ordinally ignoring case, while namespace, type, and member names remain
@@ -420,7 +433,10 @@ alias provenance.
 `SameImageCalls_ModuleReferenceAliasesMatchPresence` gates full-index and
 presence agreement for matching, case-variant, and foreign module scopes,
 including local array-element aliases and a foreign signature under a local
-declaring type. These tiny generated-image cases are PR-fast, not corpus scans.
+declaring type. The same rows gate downstream overload relationships,
+implementation profiles, leverage, and outbound call-tree identity.
+`BuildCallTree_ClassifiesModuleAliasBodilessCallee` gates the declaration/body
+separation. These tiny generated-image cases are PR-fast, not corpus scans.
 `SameImageCalls_AssemblyReferenceAliasesPreserveIdentity` gates equivalent
 case-variant assembly aliases against different assembly names, versions,
 cultures, and keys, plus case-sensitive namespace/type/member neighbors.
@@ -441,6 +457,16 @@ resolved local declaring type, compares candidate names without materializing
 them, decodes only same-name signatures, charges operand and candidate metadata
 rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
 rejects malformed or ambiguous matches.
+`UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
+`UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
+ambiguity rather than successful absence.
+`MethodDefinitionMap_MalformedConstructedDeclaringTypeArityDoesNotBind`,
+`MethodDefinitionMap_OutOfRangeDeclaringTypeParameterDoesNotBind`, and
+`UnsafeEvidencePresence_MalformedConstructedDeclaringTypeArityFailsVisibly`
+gate exact declaration arity in full and bounded paths.
+`UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset` gates resolution
+against the complete declaration population before the unsafe subset is
+ranked.
 `SameImageCalls_ResolveMethodDefinitionParentVarArg` gates the authoritative
 MethodDef-parent form used by same-module vararg call sites, and
 `UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly` gates malformed

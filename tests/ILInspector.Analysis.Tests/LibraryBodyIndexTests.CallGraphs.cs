@@ -331,6 +331,7 @@ public partial class LibraryBodyIndexTests
             "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
+            "_declaredMethodMap",
             "_methodMap",
             "_overloadRelationships",
             "_projectedImplementationProfiles",

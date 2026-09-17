@@ -82,6 +82,15 @@ internal sealed class MethodDefinitionMap
             declaring.Kind == TypeRefKind.GenericInstance
                 ? declaring.TypeArguments
                 : [];
+        if (!TryGetDeclaringTypeParameterCount(
+                definition,
+                out int declaringTypeParameterCount)
+            || (declaring.Kind == TypeRefKind.GenericInstance
+                && typeArguments.Length
+                    != declaringTypeParameterCount))
+        {
+            return 0;
+        }
         if (!_methodsByDeclaringTypeAndName.TryGetValue(
                 (definition, callee.Name),
                 out List<MethodIdentity>? candidates))
@@ -94,7 +103,7 @@ internal sealed class MethodDefinitionMap
         {
             if (!SignatureMatches(
                     candidate,
-                    typeArguments,
+                    declaringTypeParameterCount,
                     callee))
             {
                 continue;
@@ -109,14 +118,12 @@ internal sealed class MethodDefinitionMap
 
     bool SignatureMatches(
         MethodIdentity candidate,
-        ImmutableArray<TypeRef> typeArguments,
+        int declaringTypeParameterCount,
         MemberRef callee)
         => SignatureMatches(
             candidate.ParameterTypes,
             candidate.ReturnType,
-            typeArguments.IsDefaultOrEmpty
-                ? int.MaxValue
-                : typeArguments.Length,
+            declaringTypeParameterCount,
             candidate.GenericArity,
             candidate.IsStatic,
             candidate.SignatureHeader,
@@ -202,4 +209,21 @@ internal sealed class MethodDefinitionMap
         => type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
             : type;
+
+    static bool TryGetDeclaringTypeParameterCount(
+        TypeRef type,
+        out int count)
+    {
+        count = 0;
+        foreach (MetadataNameComponent component
+            in MetadataNameArity.EnumerateComponents(
+                Definition(type).Name,
+                dotIsBoundary: false))
+        {
+            if (component.Arity > int.MaxValue - count)
+                return false;
+            count += component.Arity;
+        }
+        return true;
+    }
 }

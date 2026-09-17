@@ -826,6 +826,70 @@ public class MemberIdentityValueEqualityTests
 
     [Fact]
     public void
+        UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner");
+        var unsafeTarget = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true,
+            CallerUnsafeMode:
+                CallerUnsafeMode.Explicit);
+        var safeCollision = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Route",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "Route",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create(
+                [unsafeTarget, safeCollision, caller]);
+
+        UnsafeMethodLeverage leverage = Assert.Single(
+            UnsafeLeverage.Top(
+                [call],
+                [unsafeTarget],
+                count: 1,
+                methodMap: map));
+
+        Assert.Equal(0, leverage.DirectCallerCount);
+    }
+
+    [Fact]
+    public void
         MethodDefinitionMap_MalformedUnsupportedSignatureDoesNotBind()
     {
         TypeRef owner =
@@ -859,6 +923,114 @@ public class MemberIdentityValueEqualityTests
                 owner,
                 "M",
                 [unsupported],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
+        MethodDefinitionMap_OutOfRangeDeclaringTypeParameterDoesNotBind()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner`1");
+        TypeRef malformed =
+            TypeRef.GenericParameter(1);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [malformed],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "M",
+                [malformed],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0,
+            MethodDefinitionMap.Create(
+                    [target, caller])
+                .Resolve(call));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void
+        MethodDefinitionMap_MalformedConstructedDeclaringTypeArityDoesNotBind(
+            int argumentCount)
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Owner`1");
+        TypeRef constructed = TypeRef.GenericInstance(
+            owner,
+            [
+                .. Enumerable.Range(0, argumentCount)
+                    .Select(_ =>
+                        TypeRef.CoreLib(
+                            "System",
+                            "Int32")),
+            ]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                constructed,
+                "M",
+                [],
                 TypeRef.CoreLib("System", "Void"),
                 MemberKind.Method),
             0,

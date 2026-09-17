@@ -160,6 +160,18 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             return null;
         }
+        if (member.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+            && member.DeclaringType.TypeArguments.Length
+                != _reader
+                    .GetTypeDefinition(typeHandle)
+                    .GetGenericParameters()
+                    .Count)
+        {
+            throw new BadImageFormatException(
+                "Constructed declaring-type arity does not match "
+                    + "the resolved local type definition.");
+        }
 
         MethodDefinitionHandle target =
             ResolveSameImageMethodDefinition(
@@ -849,10 +861,20 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     () => BuildPresenceLocalTypeDefinitions(
                         decoder,
                         workBudget));
-        return definitions.TryGetValue(
+        if (!definitions.TryGetValue(
                 targetName,
-                out typeHandle)
-            && !typeHandle.IsNil;
+                out typeHandle))
+        {
+            return false;
+        }
+        if (typeHandle.IsNil)
+        {
+            throw new InvalidDataException(
+                "Unsafe evidence presence is incomplete because a local "
+                    + "type reference has ambiguous declaring-type "
+                    + "correspondence.");
+        }
+        return true;
     }
 
     Dictionary<
@@ -951,7 +973,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 continue;
             }
             if (!resolved.IsNil)
-                return default;
+            {
+                throw new InvalidDataException(
+                    "Unsafe evidence presence is incomplete because a local "
+                        + "member reference has ambiguous MethodDef "
+                        + "correspondence.");
+            }
             resolved = methodHandle;
         }
 

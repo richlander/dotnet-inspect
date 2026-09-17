@@ -313,10 +313,12 @@ public partial class LibraryBodyIndexTests
             File.WriteAllBytes(path, image);
             LibraryBodyIndex index = LibraryBodyIndex.Open(
                 path,
-                LibraryBodyAnalysisFeatures.MethodEvidence);
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles);
             DirectCall call = Assert.Single(
                 index.DirectCalls,
-                candidate => candidate.Caller.Name == "CallsModuleAlias");
+                candidate => candidate.Caller.Name == "ModuleAlias");
 
             Assert.Equal(
                 expected,
@@ -329,9 +331,50 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(
                 expected,
                 index.UnsafeEvidence.Any(evidence =>
-                    evidence.Member.Name == "CallsModuleAlias"
+                    evidence.Member.Name == "ModuleAlias"
                     && evidence.Reason == "Unsafe call"
                     && evidence.OperandToken == call.OperandToken));
+            MethodIdentity target = Assert.Single(
+                index.Methods,
+                method =>
+                    method.Name == "ModuleAlias"
+                    && method.MetadataToken
+                        != call.Caller.MetadataToken);
+            Assert.Equal(
+                expected,
+                index.OverloadRelationships().Any(
+                    relationship =>
+                        relationship.Caller.MetadataToken
+                            == call.Caller.MetadataToken
+                        && relationship.Callee.MetadataToken
+                            == target.MetadataToken));
+            Assert.Equal(
+                expected ? 1 : 0,
+                Assert.Single(
+                    index.ImplementationProfiles(
+                        method =>
+                            method.MetadataToken
+                                == target.MetadataToken))
+                    .IncomingOverloadCallerCount);
+            Assert.Equal(
+                expected ? 1 : 0,
+                Assert.Single(
+                    index.TopLeverage(
+                        count: int.MaxValue,
+                        scope: method =>
+                            method.MetadataToken
+                                == target.MetadataToken))
+                    .DirectCallerCount);
+            Assert.Equal(
+                expected
+                    ? CallTreeStatus.Leaf
+                    : CallTreeStatus.External,
+                Assert.Single(
+                    index.BuildCallTree(
+                        call.Caller.MetadataToken,
+                        maxDepth: 2,
+                        maxNodes: 10).Children)
+                    .Status);
         }
         finally
         {
@@ -409,6 +452,69 @@ public partial class LibraryBodyIndexTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_RejectsAmbiguousSameImageCorrespondence()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget
+                    .AmbiguousLocalTypeReferenceAttributeOnly);
+
+        Assert.Throws<InvalidDataException>(
+            () => LibraryBodyIndex.HasUnsafeEvidence(
+                "AnalysisMemorySafety.dll",
+                ImmutableArray.Create(image)));
+    }
+
+    [Fact]
+    public void
+        BuildCallTree_ClassifiesModuleAliasBodilessCallee()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget
+                    .ModuleReferenceBodilessAttributeOnly);
+        string path = Path.Combine(
+            "artifacts",
+            $"analysis-bodiless-module-alias-{Guid.NewGuid():N}.dll");
+        try
+        {
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+            MethodIdentity caller = Assert.Single(
+                index.Methods,
+                method =>
+                    method.Name
+                        == "CallsBodilessModuleAlias");
+
+            CallTreeNode child = Assert.Single(
+                index.BuildCallTree(
+                    caller.MetadataToken,
+                    maxDepth: 2,
+                    maxNodes: 10).Children);
+
+            Assert.Equal(
+                CallTreeStatus.Bodiless,
+                child.Status);
+            Assert.Equal(
+                "ModuleAlias",
+                child.Member.Name);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
         SameImageCalls_ResolveMethodDefinitionParentVarArg()
     {
         byte[] image = BuildMemorySafetyContractImage(
@@ -460,6 +566,8 @@ public partial class LibraryBodyIndexTests
         AttributeOnly,
         LocalTypeReferenceAttributeOnly,
         ModuleReferenceAttributeOnly,
+        ModuleReferenceBodilessAttributeOnly,
+        AmbiguousLocalTypeReferenceAttributeOnly,
         AssemblyReferenceAttributeOnly,
         ExternalSameNameAttributeOnly,
         MethodDefinitionParentVarArgAttributeOnly,
