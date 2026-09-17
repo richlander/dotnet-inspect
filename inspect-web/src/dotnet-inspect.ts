@@ -2133,15 +2133,12 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.taste);
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
-    const findingEvidence =
-      result.annotatedSource.findingEvidence.map(evidence => {
-        const evidenceDocument = evidence.document;
-        if (evidenceDocument !== null) {
-          validateAnnotatedSourceDocument(evidenceDocument);
-        }
+    const findingEvidenceDocuments =
+      result.annotatedSource.findingEvidenceDocuments.map(entry => {
+        validateAnnotatedSourceDocument(entry.document);
         return {
-          ...evidence,
-          document: evidenceDocument,
+          ...entry,
+          document: entry.document,
         };
       });
     return {
@@ -2149,7 +2146,7 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       annotatedSource: {
         ...result.annotatedSource,
         document,
-        findingEvidence,
+        findingEvidenceDocuments,
       },
     };
   },
