@@ -1783,12 +1783,16 @@ public class ApiCommand
                     options))
             {
                 string section = options.IncludeSections!.Single();
+                string[]? sectionProjectedColumns =
+                    ApiOutputFormatter
+                        .PreserveProducerLibraryColumn(
+                            options);
                 var sectionRows =
                     OutputFormatter.RenderProjectedTable(
                         !options.NoHeader,
                         options.Tsv,
                         options.Jsonl,
-                        options.Columns,
+                        sectionProjectedColumns,
                         options.Fields,
                         (writer, formatter, writerOptions) =>
                         {
@@ -1806,7 +1810,7 @@ public class ApiCommand
                     OutputFormatter.CaptureProjectedTableManifest(
                         options.Tsv,
                         options.Jsonl,
-                        options.Columns,
+                        sectionProjectedColumns,
                         options.Fields,
                         (writer, formatter, writerOptions) =>
                         {
@@ -1869,15 +1873,19 @@ public class ApiCommand
             }
 
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
+            string[]? projectedColumns =
+                ApiOutputFormatter
+                    .PreserveProducerLibraryColumn(
+                        options);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
-                options.Columns, options.Fields,
+                projectedColumns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
             RenderedSectionManifest tableManifest =
                 OutputFormatter.CaptureProjectedTableManifest(
                     options.Tsv,
                     options.Jsonl,
-                    options.Columns,
+                    projectedColumns,
                     options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(

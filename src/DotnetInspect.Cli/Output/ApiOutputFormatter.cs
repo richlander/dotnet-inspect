@@ -3498,6 +3498,24 @@ public static class ApiOutputFormatter
         return (view, truncated);
     }
 
+    internal static string[]? PreserveProducerLibraryColumn(
+        ApiOptions options)
+    {
+        string[]? columns = options.Columns;
+        if (!ShowsProducerLibrary(options)
+            || columns is not { Length: > 0 }
+            || columns.Any(
+                static column =>
+                    TypeMatcher.MatchesGlob(
+                        "Library",
+                        column)))
+        {
+            return columns;
+        }
+
+        return [.. columns, "Library"];
+    }
+
     private static bool ShowsProducerLibrary(ApiOptions options) =>
         options.PackagePath is not null
         && string.IsNullOrWhiteSpace(options.AssemblyPath)

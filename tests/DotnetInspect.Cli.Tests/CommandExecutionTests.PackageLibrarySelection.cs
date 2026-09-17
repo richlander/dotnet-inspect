@@ -278,6 +278,34 @@ public partial class CommandExecutionTests
                 "-t", "CommandExecutionTests",
                 "--table", "--columns", "Type,Library",
                 "--tips", "q");
+            var projected = await RunAppAsync(
+                "type", packagePath,
+                "-t", "CommandExecutionTests",
+                "--tsv", "--columns", "Type",
+                "--tips", "q");
+            var projectedTable = await RunAppAsync(
+                "type", packagePath,
+                "-t", "CommandExecutionTests",
+                "--table", "--columns", "Type",
+                "--tips", "q");
+            var projectedJsonl = await RunAppAsync(
+                "type", packagePath,
+                "-t", "CommandExecutionTests",
+                "--jsonl", "--columns", "Type",
+                "--tips", "q");
+            var projectedSection = await RunAppAsync(
+                "type", packagePath,
+                "-t", "CommandExecutionTests",
+                "-S", "Classes",
+                "--tsv", "--columns", "Type",
+                "--tips", "q");
+            var exactListing = await RunAppAsync(
+                "type",
+                "--package", packagePath,
+                "--library", "Latest.One.dll",
+                "-t", "CommandExecutionTests",
+                "--tsv", "--columns", "Type",
+                "--tips", "q");
             var exact = await RunAppAsync(
                 "type", packagePath,
                 "DotnetInspect.Cli.Tests.CommandExecutionTests",
@@ -286,6 +314,39 @@ public partial class CommandExecutionTests
             Assert.Equal(0, listing.Exit);
             Assert.Contains("Latest.One.dll", listing.Output);
             Assert.Contains("Latest.Two.dll", listing.Output);
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(projected.Error);
+            Assert.StartsWith("type\tlibrary\n", projected.Output);
+            Assert.Contains("Latest.One.dll", projected.Output);
+            Assert.Contains("Latest.Two.dll", projected.Output);
+            Assert.Equal(0, projectedTable.Exit);
+            Assert.Empty(projectedTable.Error);
+            Assert.Contains("Library", projectedTable.Output);
+            Assert.Contains("Latest.One.dll", projectedTable.Output);
+            Assert.Contains("Latest.Two.dll", projectedTable.Output);
+            Assert.Equal(0, projectedJsonl.Exit);
+            Assert.Empty(projectedJsonl.Error);
+            Assert.Contains("\"library\":", projectedJsonl.Output);
+            Assert.Contains("Latest.One.dll", projectedJsonl.Output);
+            Assert.Contains("Latest.Two.dll", projectedJsonl.Output);
+            Assert.Equal(0, projectedSection.Exit);
+            Assert.Empty(projectedSection.Error);
+            Assert.StartsWith(
+                "type\tlibrary\n",
+                projectedSection.Output);
+            Assert.Contains(
+                "Latest.One.dll",
+                projectedSection.Output);
+            Assert.Contains(
+                "Latest.Two.dll",
+                projectedSection.Output);
+            Assert.Equal(0, exactListing.Exit);
+            Assert.Empty(exactListing.Error);
+            Assert.StartsWith("type\n", exactListing.Output);
+            Assert.DoesNotContain(
+                "\tlibrary",
+                exactListing.Output,
+                StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, exact.Exit);
             Assert.Empty(exact.Output);
             Assert.Contains(
@@ -444,12 +505,25 @@ public partial class CommandExecutionTests
                 "--package", packagePath,
                 "--markdown", "-v:n",
                 "--tips", "q");
+            var listing = await RunAppAsync(
+                "type",
+                "--package", packagePath,
+                "-t", "TfmSelector",
+                "--tsv",
+                "--columns", "Type,Description,Library",
+                "--tips", "q");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
             Assert.Contains(
                 "Defining Library documentation.",
                 result.Output);
+            Assert.Equal(0, listing.Exit);
+            Assert.Empty(listing.Error);
+            Assert.Contains(
+                "Defining Library documentation.",
+                listing.Output);
+            Assert.Contains("Z.Services.dll", listing.Output);
         }
         finally
         {
@@ -477,6 +551,65 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Defining Library member documentation.",
                 result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCommand_AggregateSourceUsesDefiningLibrary()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithDefiningLibraryDocumentation();
+        try
+        {
+            var result = await RunAppAsync(
+                "member",
+                "DotnetInspector.Services.TfmSelector",
+                "NormalizeTfm:1",
+                "--package", packagePath,
+                "-S", "PDB Source",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("## PDB Source", result.Output);
+            Assert.Contains(
+                "public static string NormalizeTfm",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCommand_AggregateCallerScopeUsesDefiningLibrary()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithDefiningLibraryDocumentation();
+        string callerDirectory = Path.Combine(
+            tempDir,
+            "callers");
+        Directory.CreateDirectory(callerDirectory);
+        try
+        {
+            var result = await RunAppAsync(
+                "member",
+                "DotnetInspector.Services.TfmSelector",
+                "NormalizeTfm",
+                "--package", packagePath,
+                "--bin", callerDirectory,
+                "-S", "Callers",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("## Callers", result.Output);
+            Assert.Contains("GetTfmPriority", result.Output);
         }
         finally
         {
@@ -1012,12 +1145,22 @@ public partial class CommandExecutionTests
         File.Copy(
             TestAssemblyPath,
             Path.Combine(libDir, "A.Healthy.dll"));
+        string servicesAssembly =
+            typeof(DotnetInspector.Services.TfmSelector)
+                .Assembly.Location;
         string definingLibrary =
             Path.Combine(libDir, "Z.Services.dll");
         File.Copy(
-            typeof(DotnetInspector.Services.TfmSelector)
-                .Assembly.Location,
+            servicesAssembly,
             definingLibrary);
+        string servicesPdb =
+            Path.ChangeExtension(servicesAssembly, ".pdb");
+        if (File.Exists(servicesPdb))
+        {
+            File.Copy(
+                servicesPdb,
+                Path.ChangeExtension(definingLibrary, ".pdb"));
+        }
         File.WriteAllText(
             Path.ChangeExtension(definingLibrary, ".xml"),
             """

@@ -266,6 +266,11 @@ public static class MemberCommand
             var apiType = lookupResult.Type!;
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
+            string selectedTypeAssemblyPath =
+                apiType.SourceAssemblyPath
+                ?? sourceAssembly?.Path
+                ?? runtimeAssemblyPath
+                ?? apiDllPath;
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
@@ -798,9 +803,7 @@ public static class MemberCommand
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath =
-                    apiType.SourceAssemblyPath
-                    ?? runtimeAssemblyPath
-                    ?? apiDllPath;
+                    selectedTypeAssemblyPath;
                 if (dllPath != null && effectiveOptions.ShowDocs)
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
@@ -808,7 +811,11 @@ public static class MemberCommand
             if (apiDllPath != null
                 && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
-                var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
+                var locationDllPath =
+                    loaded.IsPackageAggregate
+                        ? selectedTypeAssemblyPath
+                        : apiType.SourceAssemblyPath
+                            ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
                     apiType,
                     locationDllPath,
@@ -858,7 +865,9 @@ public static class MemberCommand
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
                 string methodSourceAssemblyPath =
-                    apiType.IsForwarded
+                    loaded.IsPackageAggregate
+                        ? selectedTypeAssemblyPath
+                        : apiType.IsForwarded
                         && sourceAssembly?.Path is { } supplierPath
                             ? supplierPath
                             : pdbLookupPath;
@@ -1071,7 +1080,13 @@ public static class MemberCommand
             // open the member's own assembly index for aggregated callers across all overloads.
             if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
             {
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with
+                {
+                    DllPath =
+                        loaded.IsPackageAggregate
+                            ? selectedTypeAssemblyPath
+                            : apiDllPath,
+                };
             }
 
             // Expand --bin/--directory, --project, and --caller-package into assemblies

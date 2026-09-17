@@ -315,8 +315,37 @@ public static class TypeCommand
                 if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
                     listOptions = options with { ShowDocs = true };
 
-                if (pdbLookupPath != null && listOptions.ShowDocs)
-                    SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, listOptions, logger);
+                if (listOptions.ShowDocs)
+                {
+                    if (loaded.IsPackageAggregate)
+                    {
+                        foreach (var definingLibrary in api.Types.GroupBy(
+                            type =>
+                                type.SourceAssemblyPath
+                                ?? loaded
+                                    .TryGetSourceAssembly(type)?
+                                    .Path
+                                ?? pdbLookupPath,
+                            LibraryMetadataService
+                                .ReferenceTreePathComparer(
+                                    OperatingSystem.IsWindows())))
+                        {
+                            SourceEnricher.EnrichFromLocalXmlDocs(
+                                definingLibrary,
+                                definingLibrary.Key,
+                                listOptions,
+                                logger);
+                        }
+                    }
+                    else if (pdbLookupPath != null)
+                    {
+                        SourceEnricher.EnrichFromLocalXmlDocs(
+                            api.Types,
+                            pdbLookupPath,
+                            listOptions,
+                            logger);
+                    }
+                }
 
                 if (options.EffectiveDiscovery)
                 {
