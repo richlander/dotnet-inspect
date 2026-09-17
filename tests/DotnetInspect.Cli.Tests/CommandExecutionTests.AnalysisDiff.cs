@@ -1502,7 +1502,7 @@ public partial class CommandExecutionTests
         var range = $"{oldPath}..{newPath}";
 
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
-            "diff", "--library", range, "-D", "--tips", "q");
+            "diff", "--library", range, "-D", "--schema", "--tips", "q");
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
             "diff", "--library", range,
             "-t", "DiffFixtureSample.DiffSample",
@@ -1515,5 +1515,74 @@ public partial class CommandExecutionTests
         Assert.Empty(selectError);
         Assert.Contains("PairFinding.Present", selectOutput);
         Assert.Contains("DiffFixtureSample.DiffSample", selectOutput);
+    }
+
+    [Fact]
+    public async Task Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles()
+    {
+        var bare = await RunAppAsync(
+            "diff", "-D", "--table", "--tips", "q");
+        var category = await RunAppAsync(
+            "diff", "-D", SectionCategoryNames.Diff, "--schema", "--table",
+            "--tips", "q");
+
+        Assert.Equal(0, bare.Exit);
+        Assert.Empty(bare.Error);
+        Assert.StartsWith(SectionCategoryNames.Diff, bare.Output, StringComparison.Ordinal);
+        Assert.Contains(DiffSections.Changes.Name, bare.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            DiffSections.AnalysisDiff.Name,
+            bare.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            DiffSections.ImplementationDiff.Name,
+            bare.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("@All", bare.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Default", bare.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Hidden", bare.Output, StringComparison.Ordinal);
+
+        Assert.Equal(0, category.Exit);
+        Assert.Empty(category.Error);
+        Assert.Contains(DiffSections.Changes.Name, category.Output, StringComparison.Ordinal);
+        Assert.Contains(DiffSections.AnalysisDiff.Name, category.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            DiffSections.ImplementationDiff.Name,
+            category.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            DiffSections.FindingTransitions.Name,
+            category.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_SchemaRequiresDiscovery()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--schema", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--schema requires -D/--discover.", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("@Default")]
+    [InlineData("@Hidden")]
+    public async Task Diff_ComputedCategoryPolesAreRejected(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-S", selector, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Select value '{selector}' not found.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("missing-old.dll", error, StringComparison.Ordinal);
     }
 }

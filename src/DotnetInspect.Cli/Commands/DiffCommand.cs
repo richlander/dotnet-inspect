@@ -59,6 +59,11 @@ public class DiffCommand
             CommandError.Write("--compact requires --json or --envelope.");
             return 1;
         }
+        if (options.Schema && options.Discover is null)
+        {
+            CommandError.Write("--schema requires -D/--discover.");
+            return 1;
+        }
 
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
         SectionCatalog<DiffDiscoveryModel> sectionCatalog = catalog.Sections;
@@ -103,7 +108,10 @@ public class DiffCommand
                     options.TabularExplicitlySet,
                     options.NoHeader),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap());
+                sectionCategories: pipeline.GetCategoryMap(),
+                catalogHiddenSections:
+                    options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
@@ -141,7 +149,9 @@ public class DiffCommand
                     || !sections.Contains(DiffSections.FindingTransitions.Name)))
             {
                 CommandError.Write(
-                    "Finding Transitions must be selected by itself because it is a focused endpoint-confirmation lens; select comparison sections explicitly instead of using @All.");
+                    "Finding Transitions must be selected by itself because it is a " +
+                    "focused endpoint-confirmation lens; use @Diff for composable " +
+                    "comparison sections.");
                 return 1;
             }
             if (options.Finding is null
@@ -3148,6 +3158,7 @@ public record DiffOptions
     public string? Finding { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
+    public bool Schema { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
 

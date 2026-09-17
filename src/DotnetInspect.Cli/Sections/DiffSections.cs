@@ -90,10 +90,17 @@ public static class DiffSections
         SectionPipeline<DiffDiscoveryModel> pipeline)
     {
         pipeline
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
-            .Add<FindingTransitions>();
+            .Add<FindingTransitions>()
+            .AddBaseCategory(
+                SectionCategoryNames.Diff,
+                Changes.Name,
+                AnalysisDiff.Name,
+                ImplementationDiff.Name);
     }
 
     public static InspectionQueryRegistry<DiffQueryContext> CreateQueryRegistry()
