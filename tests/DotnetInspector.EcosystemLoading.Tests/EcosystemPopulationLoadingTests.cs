@@ -234,6 +234,40 @@ public sealed class EcosystemPopulationLoadingTests
     }
 
     [Fact]
+    public async Task OwnerBatchRetirementFailureRemainsVisible()
+    {
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        OwnerWithChild owned =
+            artifacts.CreateOwnerWithChild("Contoso.BatchFailure");
+        TestInputs inputs = new(LoadMode.CompletedMembers)
+        {
+            Owner = owned.Owner,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        Task retirement = WhileBorrowed(
+            owned.Child,
+            () => outcome.Owners.DisposeAsync().AsTask());
+        await Assert.ThrowsAsync<AggregateException>(() => retirement);
+
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.RetirementFailed,
+            outcome.Owners.State);
+        Assert.Equal(
+            LibraryContentOwnerState.ReleaseFailed,
+            owned.Owner.State);
+        owned.Child.Dispose();
+    }
+
+    [Fact]
     public async Task CancellationAfterReplyRetiresUntransferredOwners()
     {
         await using ArtifactFixture artifacts =
@@ -256,6 +290,38 @@ public sealed class EcosystemPopulationLoadingTests
 
         Assert.Equal(1, inputs.InvocationCount);
         Assert.Equal(LibraryContentOwnerState.Released, owner.State);
+    }
+
+    [Fact]
+    public async Task CancellationCleanupFailureRemainsVisible()
+    {
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        OwnerWithChild owned =
+            artifacts.CreateOwnerWithChild("Contoso.CancelledFailure");
+        using var cancellation = new CancellationTokenSource();
+        TestInputs inputs = new(LoadMode.CancelAfterCompletedReply)
+        {
+            Owner = owned.Owner,
+            Cancellation = cancellation,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+
+        Task operation = WhileBorrowed(
+            owned.Child,
+            () => EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(inputs, cancellation.Token))
+                .AsTask());
+        OperationCanceledException failure =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => operation);
+
+        Assert.IsType<AggregateException>(failure.InnerException);
+        Assert.Equal(
+            LibraryContentOwnerState.ReleaseFailed,
+            owned.Owner.State);
+        owned.Child.Dispose();
     }
 
     [Fact]
@@ -449,6 +515,49 @@ public sealed class EcosystemPopulationLoadingTests
                 .AsTask());
 
         Assert.Equal(LibraryContentOwnerState.Released, owner.State);
+    }
+
+    [Fact]
+    public async Task ForeignReplyCleanupFailureRemainsVisible()
+    {
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        OwnerWithChild owned =
+            artifacts.CreateOwnerWithChild("Contoso.ForeignFailure");
+        EcosystemPopulationLoaderBinding<TestInputs> binding = Binding();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(binding);
+        TestInputs firstInputs = new(LoadMode.ForeignReply);
+        TestInputs secondInputs = new(LoadMode.CompletedMembers);
+        EcosystemPopulationLoadRequest<TestInputs> first =
+            workspace.Request(
+                firstInputs,
+                TestContext.Current.CancellationToken);
+        EcosystemPopulationLoadRequest<TestInputs> second =
+            workspace.Request(
+                secondInputs,
+                TestContext.Current.CancellationToken);
+        firstInputs.ForeignReply = second.Completed(
+            second.Completion(
+                EcosystemPopulationCompletionIdentity.Create(
+                    "test.foreign-failure"),
+                EcosystemPopulationCompletionKind.Satisfied),
+            [CompletedChild(second, owned.Owner)]);
+
+        Task operation = WhileBorrowed(
+            owned.Child,
+            () => EcosystemPopulationLoadOperation
+                .InvokeAsync(first)
+                .AsTask());
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => operation);
+
+        Assert.IsType<AggregateException>(failure.InnerException);
+        Assert.Equal(
+            LibraryContentOwnerState.ReleaseFailed,
+            owned.Owner.State);
+        owned.Child.Dispose();
     }
 
     [Fact]
@@ -723,6 +832,15 @@ public sealed class EcosystemPopulationLoadingTests
                 $"{name}.receipt"));
     }
 
+    static Task WhileBorrowed(
+        ArtifactContentLease child,
+        Func<Task> operation) =>
+        Assert.IsType<ArtifactContentAccessOutcome<Task>.Accessed>(
+            child.WithContent(
+                (_, _) => operation(),
+                TestContext.Current.CancellationToken))
+            .Value;
+
     static WorkspaceEcosystemRegistrationDeclaration Declaration(
         string id) =>
         new(
@@ -884,6 +1002,9 @@ public sealed class EcosystemPopulationLoadingTests
         }
 
         public LibraryContentOwner CreateOwner(string name)
+            => CreateOwnerWithChild(name).Owner;
+
+        public OwnerWithChild CreateOwnerWithChild(string name)
         {
             ManagedMetadataIdentity.Assembly identity =
                 new(
@@ -898,9 +1019,13 @@ public sealed class EcosystemPopulationLoadingTests
                     identity,
                     _reference,
                     identity));
-            return new LibraryContentOwner(
-                library,
-                [_session.IssueContentLease(_reference, _queryLease)]);
+            ArtifactContentLease child =
+                _session.IssueContentLease(_reference, _queryLease);
+            return new OwnerWithChild(
+                new LibraryContentOwner(
+                    library,
+                    [child]),
+                child);
         }
 
         public async ValueTask DisposeAsync()
@@ -911,6 +1036,9 @@ public sealed class EcosystemPopulationLoadingTests
     }
 
     sealed record Provenance(string Name) : IArtifactProvenance;
+    readonly record struct OwnerWithChild(
+        LibraryContentOwner Owner,
+        ArtifactContentLease Child);
     readonly record struct ChildEvidence(
         EcosystemPopulationChildRequestIdentity Request,
         EcosystemPopulationChildReceiptIdentity Receipt);
