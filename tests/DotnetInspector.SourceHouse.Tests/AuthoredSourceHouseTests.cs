@@ -15,8 +15,8 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.SourceHouse.Tests;
 
-// PR-fast: bounded settlement over this repository's real production assemblies,
-// portable PDBs, and authored source files.
+// PR-fast unless individually tagged: bounded settlement over this repository's
+// real production assemblies, portable PDBs, and authored source files.
 public sealed class AuthoredSourceHouseTests
 {
     private static readonly ApiSurfaceExtractionBounds s_targetBounds =
@@ -1260,6 +1260,77 @@ public sealed class AuthoredSourceHouseTests
 
         Assert.Fail(
             "Scheduling expired before source verification in every attempt.");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
+        DeadlineDuringMappingWithoutCapabilities_IsIncomplete()
+    {
+        string assemblyPath =
+            typeof(SourceLinkService).Assembly.Location;
+        SourceHouseTarget.TypeTarget target =
+            TypeTarget(assemblyPath, typeof(SourceLinkService).FullName!);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assemblyPath,
+                Path.ChangeExtension(assemblyPath, ".pdb"));
+
+        double shortestMilliseconds = double.PositiveInfinity;
+        for (int warmup = 0; warmup < 5; warmup++)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            SourceHouseOutcome.Unavailable unavailable =
+                Assert.IsType<SourceHouseOutcome.Unavailable>(
+                    await ExecuteAsync(library, Request(library, target, [])));
+            shortestMilliseconds = Math.Min(
+                shortestMilliseconds,
+                stopwatch.Elapsed.TotalMilliseconds);
+            Assert.NotNull(unavailable.AuthoredAttempt.Mapping);
+            Assert.Empty(unavailable.AuthoredAttempt.SourceAttempts);
+        }
+
+        // Calibrate to native work, not a machine-specific fixed duration.
+        // Only a retained mapping proves expiry reached the settlement boundary.
+        for (int step = 0; step < 96; step++)
+        {
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMilliseconds(
+                shortestMilliseconds * (0.25 + step / 64d));
+            LibraryOperationLease operation = library.IssueOperation();
+            SourceHouseOutcome outcome =
+                await SourceHouse.ExecuteAuthoredAsync(
+                    Request(library, target, [], deadline: deadline),
+                    operation,
+                    TestContext.Current.CancellationToken);
+            AssertOperationSettled(operation, library.Reference.ApiAssembly);
+            if (outcome is SourceHouseOutcome.Unavailable)
+                continue;
+
+            SourceHouseOutcome.Incomplete incomplete =
+                Assert.IsType<SourceHouseOutcome.Incomplete>(outcome);
+            Assert.Equal(
+                SourceHouseIncompleteBoundary.Deadline,
+                incomplete.Boundary);
+            if (incomplete.AuthoredAttempt.Mapping is null)
+                continue;
+
+            Assert.True(DateTimeOffset.UtcNow >= deadline);
+            Assert.IsType<SourceHouseAuthoredMapping.Type>(
+                incomplete.AuthoredAttempt.Mapping);
+            Assert.Equal(
+                SourceHousePdbContributionKind.SuppliedCompanion,
+                incomplete.PdbContribution.Kind);
+            Assert.True(incomplete.Work.DocumentsObserved > 0);
+            Assert.True(incomplete.Work.TargetMappingsObserved > 0);
+            Assert.Equal(0, incomplete.Work.CandidateAttempts);
+            Assert.Equal(0, incomplete.Work.SourceBytesObserved);
+            Assert.Equal(0, incomplete.Work.SourceTextCharactersObserved);
+            Assert.Empty(incomplete.AuthoredAttempt.SourceAttempts);
+            return;
+        }
+
+        Assert.Fail(
+            "No deadline-limited settlement retained the completed native mapping.");
     }
 
     [Fact]

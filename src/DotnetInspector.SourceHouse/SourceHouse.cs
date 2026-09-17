@@ -910,13 +910,6 @@ public static class SourceHouse
         SourceHouseFailure? observedFailure = null;
         IReadOnlyList<ISourceHouseSourceCapability> capabilities =
             request.Plan.Capabilities;
-        if (capabilities.Count == 0)
-        {
-            return Unavailable(
-                prepared.PdbContribution,
-                prepared.Work,
-                prepared.Mapping);
-        }
 
         await using DeadlineCancellation operationDeadline =
             DeadlineCancellation.Start(

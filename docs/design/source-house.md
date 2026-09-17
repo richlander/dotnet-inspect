@@ -92,6 +92,9 @@ Deadline expiry must cooperatively stop an outstanding source read and settle
 returns is insufficient: a stalled, cancellation-aware source must not require
 unrelated caller cancellation to release the operation. Caller cancellation
 remains distinct from deadline expiry.
+An empty source-capability plan has the same deadline settlement rule after
+native mapping as an exhausted nonempty plan. Authorizing no source capabilities
+does not exempt completed mapping work from its finite operation bound.
 
 An unreadable SourceLink map remains producer failure evidence when it prevents
 authorized remote-source resolution. If no permitted candidate succeeds, that
@@ -757,7 +760,9 @@ implementation steps are complete.
 ### Implemented authored-delivery gate
 
 Run `dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release`.
-The PR-fast suite runs in the ordinary CI contracts shard:
+The suite runs in the ordinary CI contracts shard. The calibrated native-mapping
+deadline regression is tagged `Speed=Slow` (measured at 2.50 seconds in isolation)
+and remains included in this focused pre-merge gate; the other cases are PR-fast.
 
 | Property | Named cases |
 | --- | --- |
@@ -766,7 +771,7 @@ The PR-fast suite runs in the ordinary CI contracts shard:
 | Embedded PDB use and bounded expansion accounting | `EmbeddedPdb_ReturnsSourceAndChargesExpandedBytes`, `EmbeddedPdb_UsesStricterHouseLimitAndChargesDeclaredBytes` |
 | Correspondence rejection versus producer uncertainty | `ForeignLease_IsRejectedAndSettled`, `MismatchedClaimedPdb_RejectsOwnerCorrespondence`, `ExactTargetMismatch_IsRejected`, `TargetMissingUnderInspectionFailure_IsFailedNotRejected` |
 | Candidate-local failure and retained incomplete evidence | `CapabilityFailures_AreRetainedAndLaterCandidateCanSucceed`, `FiniteBoundary_ReturnsIncomplete`, `CandidateAttemptBoundary_PreservesMappingAndEarlierAttempt`, `SourceByteBoundary_PreservesRejectedAttemptAndObservedBytes`, `DeadlineAfterCapability_RecordsCompletedAttemptAndWork` |
-| Cooperative deadline settlement, final checksum rejection, exception parity and long finite deadlines | `DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete`, `DeadlineDuringFinalChecksumRejection_IsIncomplete`, `LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete`, `DeadlineBeyondSingleTimerRange_CanCompleteNormally` |
+| Cooperative deadline settlement, empty capabilities after mapping, final checksum rejection, exception parity and long finite deadlines | `DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete`, `DeadlineDuringMappingWithoutCapabilities_IsIncomplete`, `DeadlineDuringFinalChecksumRejection_IsIncomplete`, `LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete`, `DeadlineBeyondSingleTimerRange_CanCompleteNormally` |
 | SourceLink-map failure relevance and successful independent fallback | `UnusableSourceLinkMap_RemoteExhaustionIsFailed`, `UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed`, `UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable` |
 | Transferred ownership and detached outcomes | `NullRequest_StillSettlesTransferredLease`, `CancellationDuringCapability_SettlesLease`, `UnexpectedCapabilityException_PropagatesAfterSettlement`, `OwnerAndArtifactRetirement_DrainIssuedOperation`, `PublicOutcomeClosureRetainsNoLiveAuthority` |
 
