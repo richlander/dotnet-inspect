@@ -183,7 +183,12 @@ Navigation effect authority remain separate owner-issued currencies.
    canonical View Facet Registry ID field, and no browser lens, member-section,
    label, or CLI alias. Only direct Package coordinates carry structural state
    in this version; other coordinate kinds remain undecorated dormant entries.
-7. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+7. **Portable Workspace registrations begin at definition schema version 3 and
+   packet format 3.** Versions 1 and 2 remain immutable source contracts.
+   Version 3 adds one ordered registration vector beside contexts, permits zero
+   contexts only when that vector is nonempty, and projects the same complete
+   registration state into the packet.
+8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -196,9 +201,10 @@ Navigation effect authority remain separate owner-issued currencies.
 ## Definition-first Workspace interchange
 
 The durable Workspace is a portable definition. The `workspace` command
-authors or transforms that definition and produces its canonical packet or
-URL. A live Workspace is temporary execution authority that may be used only to
-derive owner-issued facts represented in the resulting portable definition.
+authors or transforms that definition and exposes its canonical packet or URL
+when projectable, with a visible typed refusal otherwise. A live Workspace is
+temporary execution authority that may be used only to derive owner-issued
+facts represented in the resulting portable definition.
 
 This is the normative owner and exact claim for #7379. Supporting designs have
 separate roles:
@@ -286,23 +292,86 @@ resource-free transform   authorized realization
         derived portable definition
                    |
                    v
-            packet or URL
+  definition | packet or URL | typed refusal
 ```
 
 A transformation may normalize, compose, filter, or enrich a definition. The
-durable result is the derived definition and its canonical packet projection,
-not the temporary realization or an inventory of runtime objects. A host may
-also render a summary or typed inventory, but that observation does not replace
-the portable output.
+durable result is the derived definition, not the temporary realization or an
+inventory of runtime objects. Its canonical packet or URL is the ordinary
+bounded interchange projection; a valid definition outside that projection is
+reported through the typed non-projectable outcome. A host may also render a
+summary or typed inventory, but that observation does not replace the portable
+output.
 
-Exact CLI option spelling, stdout/stderr placement, and whether packet or URL
-is the default scalar belong to CLI adoption. The semantic command must
-nevertheless make its durable result available without requiring the user to
-hand-author packet JSON.
+Exact CLI option spelling, stdout/stderr placement, and whether definition,
+packet, or URL is the default scalar belong to CLI adoption. The semantic
+command must nevertheless make its durable result available without requiring
+the user to hand-author packet JSON.
 
 The command does not own Library, Type, Member, or other noun inspection
 queries. Users do not restate those subjects through a second Workspace
 grammar.
+
+### Schema-version-3 registration-bearing Workspaces
+
+Schema version 3 adds required `registrations` to a `workspace` record beside
+required `contexts`. Both are ordered arrays. Either may be empty, but not both:
+
+```json
+{
+  "schemaVersion": 3,
+  "kind": "workspace",
+  "id": "serializer-discovery",
+  "contexts": [],
+  "registrations": [
+    {
+      "kind": "packagePrefix",
+      "prefix": "Microsoft.Extensions."
+    }
+  ]
+}
+```
+
+Every context retains its existing invariant: it has at least one group
+subscription or inline member. Schema versions 1 and 2 retain their existing
+requirement for at least one context and reject the unknown `registrations`
+property. Schema version 3 instead requires at least one context or one
+registration. It never manufactures an empty synthetic context to carry
+registration state.
+
+`registrations` is the ordered closed portable counterpart of
+`WorkspacePlan.Registrations`:
+
+```text
+registration
+  = ExactLibrary(ExactLibrarySourceCoordinate)
+  | PackagePrefix(PackagePrefixDeclaration)
+  | Ecosystem(WorkspaceEcosystemRegistrationDeclaration)
+```
+
+Each arm retains its source owner's canonical portable value. The enclosing
+record uses `kind` values `exactLibrary`, `packagePrefix`, and `ecosystem`;
+arm-specific payloads are `coordinate`, `prefix`, and `declaration`
+respectively. Unknown arms and properties are typed load failures. Duplicate
+Exact Library coordinates, Package Prefix declarations, or Ecosystem
+registration IDs are typed definition failures matching
+`WorkspacePlan.ValidateRegistrations`; overlap among different arms remains
+valid.
+
+An Ecosystem declaration's optional
+`EcosystemIntegrationScannerBinding` is executable in-process capability, not
+portable data. A scanner-free declaration can use the schema-version-3
+Ecosystem arm directly. A scanner-bearing declaration is `NonProjectable`
+until the Integration owner supplies a stable portable scanner vocabulary and
+resolution contract in a separately scoped design; Workspace Definitions does
+not serialize a delegate, silently remove the scanner, or rediscover it from
+display text.
+
+Lowering a valid registration-only definition produces one `WorkspacePlan`
+with the exact ordered registrations and zero contexts. Plan invocation creates
+one empty-membership live Workspace with that complete inert registration
+revision. No Package, Library, prefix, or Ecosystem population is acquired
+merely because it is present in the definition.
 
 ### Realization-backed portable transformation
 
@@ -391,11 +460,26 @@ packet family therefore requires representation for:
 - the context, target, focus, view, query, and Navigation state separately
   owned by existing scenario composition.
 
-This requirement does not select the next wire property names or mutate packet
-formats 1 and 2. This owner must introduce a versioned canonical projection
-whose validation, capacity, migration, and Browser support cover the new
-definition arms. Until that version exists, direct definitions using an
-unrepresentable arm fail Share visibly rather than dropping it.
+This requirement does not mutate packet formats 1 and 2. Packet format 3 adds
+one ordered registration vector beside the coordinate and context tables. It
+transposes schema-version-3 registration arms one-for-one without
+deduplication, reordering, expansion, or display-text reconstruction.
+
+Format 3 permits empty coordinate and context tables only when its registration
+vector is nonempty. In that case active focus and selected context are both
+`null`, and the view table contains only the leading Workspace state.
+Registrations are not coordinate tabs, do not receive per-registration view
+states, and cannot become focus through an integer slot. When contexts are
+present, selected context retains format 2's exact index semantics.
+
+Packet-to-record transposition creates one schema-version-3 Workspace with the
+exact ordered registration vector. Record-to-packet projection validates the
+complete composition and emits the same vector. Format 3 retains the existing
+encoded, decoded, depth, and JSON-value limits and adds a maximum of 24
+registration entries; a valid longer definition is `NonProjectable`. Until the
+format-3 codec exists, schema-version-3 input is `UnsupportedVersion`, and
+direct definitions using an unrepresentable arm fail Share visibly rather than
+dropping it.
 
 ### Relationship to typed inventory
 
@@ -431,7 +515,7 @@ $ dotnet-inspect workspace \
     --register-library \
       System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
     --register-package-prefix Microsoft.Extensions. \
-    --register-ecosystem aspire \
+    --register-ecosystem platform \
     --share packet
 ey...
 ```
@@ -455,8 +539,10 @@ $ dotnet-inspect type System.Text.Json.JsonSerializer \
 https://dotnet-inspect.net/?w=ey...scenario...
 ```
 
-The neighboring registration-only case also emits a packet; it does not need
-Package acquisition merely to survive process exit.
+The neighboring Exact Library and Package Prefix registration-only case also
+emits a packet; it does not need Package acquisition merely to survive process
+exit. A scanner-bearing Ecosystem remains visibly non-projectable under the
+separate owner boundary above.
 
 ### Adoption and evidence
 
@@ -464,10 +550,11 @@ Implementation proceeds in focused slices:
 
 1. **Contract correction.** Lock this owner and align CLI Workspace Sharing,
    command cardinality, and typed inventory boundaries.
-2. **Complete packet projection.** Extend the versioned definition/packet
-   family for Package membership and every supported registration arm, with
-   canonical .NET/TypeScript round trips and visible unsupported-version
-   behavior.
+2. **Complete packet projection.** Implement schema version 3 and packet format
+   3 for Package membership and every portable registration arm, with canonical
+   .NET/TypeScript round trips, registration-only restoration, and visible
+   unsupported-version behavior. A scanner-bearing Ecosystem requires the
+   separately owned portable scanner contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
    realization when no transformation needs it.
@@ -487,7 +574,11 @@ Implementation proceeds in focused slices:
 Required evidence includes:
 
 - exact canonical round trips for Package, Exact Library, Package Prefix, and
-  Ecosystem-only definitions;
+  scanner-free Ecosystem-only definitions;
+- registration-only lowering to one plan with zero contexts and exact ordered
+  registrations, plus rejection when both arrays are empty;
+- visible non-projectability for a scanner-bearing Ecosystem until its owner
+  supplies a portable scanner vocabulary;
 - direct-input and packet-input semantic equivalence;
 - no-acquisition packet authoring for resource-free definitions;
 - realization-backed dependency promotion with deterministic portable output;
@@ -698,7 +789,14 @@ Field semantics:
   `rid` target constraints, `subscribe` — a group expression (see the
   grammar below) — and `members`, additional inline coordinates overlaid on
   the subscription. A context must have at least one of `subscribe` and
-  `members`; a workspace must have at least one context.
+  `members`. Schema versions 1 and 2 require at least one context. Schema
+  version 3 permits an empty context array only when `registrations` is
+  nonempty.
+- `registrations` — required on schema-version-3 Workspace records and unknown
+  on earlier versions. It is the ordered closed Exact Library, Package Prefix,
+  or Ecosystem union defined by
+  [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
+  A version-3 Workspace must have at least one context or registration.
 - `query` records — named query presets. Schema version 1 carries only an
   optional product query ID. Version 2 additionally carries the canonical
   payload for one `PortableQueryIntent`; the `queryId` supplies the intent's

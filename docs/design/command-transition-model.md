@@ -350,12 +350,16 @@ The target primary result contracts are:
 | `find` | Multiple | Type or Member, selected by mode | Vector |
 | `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
 | `package query` | Multiple | Package | Vector |
-| `workspace` inventory | Multiple top-level inputs; no implied evaluation | Workspace inventory entry | Vector |
+| `workspace` definition | Multiple top-level inputs; no implied evaluation | Workspace definition | Scalar |
 
 The table classifies the command's primary semantic answer. Observations below
 that focus may contain other typed populations. Package files and versions,
 Library dependencies, Type members, and attached Findings do not change the
 primary identity merely because they render rows.
+
+Workspace inventory is one optional observation below the Workspace-definition
+result. Its closed entry union and vector cardinality describe that observation,
+not the `workspace` command's primary semantic answer.
 
 Package version ranges remain address spaces under
 [A version range is an address space](#a-version-range-is-an-address-space).
