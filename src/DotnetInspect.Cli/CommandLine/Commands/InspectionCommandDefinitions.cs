@@ -414,6 +414,11 @@ public static class InspectionCommandDefinitions
         opts.AddPrintOptionTo(assemblyCommand);
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
+        assemblyCommand.Subcommands.Add(
+            LibraryCoordinateCommandDefinitions.Create(
+                opts,
+                assemblyCommand,
+                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
