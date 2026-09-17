@@ -357,6 +357,20 @@ public class QueryDiscoveryTests
         Assert.Equal(
             "nuspec license expression, file, or URL",
             facets[1].GetProperty("value_kind").GetString());
+        string summary = json.RootElement.GetProperty("sections")[0]
+            .GetProperty("summary").GetString()!;
+        Assert.Contains(
+            "package.query.has-license and license=<value> remain valid with --nuspec-only.",
+            summary,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Selecting a package-content facet authorizes package content",
+            summary,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Selecting an initial CLI facet authorizes package content",
+            summary,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -74,7 +74,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         + "Independent facet selections are ANDed; compatible tool-format alternatives are ORed. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
-        + "Selecting an initial CLI facet authorizes package content and at most "
+        + "package.query.has-license and license=<value> remain valid with --nuspec-only. "
+        + "Selecting a package-content facet authorizes package content and at most "
         + PackageQuery.MaximumPackageContentCandidates
         + " candidates; --nuspec-only rejects those facets. "
         + "Ordering and --top are not supported.";

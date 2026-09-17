@@ -504,6 +504,44 @@ public sealed class PackageQueryTests
         Assert.Equal("License file: OSMFEULA.txt.", evidence.Value);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_LicenseTermMatchesLiteralEscapeLikePathWithoutPackageContent()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.Escape")],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.escape@1.0.0"] = Manifest(
+                    "Contoso.Escape",
+                    license: @"<license type=""file"">legal\u202E.txt</license>"),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                facetIds: null,
+                terms:
+                [
+                    new(
+                        PackageQuery.LicenseTermKey,
+                        PortableQueryOperator.Equal,
+                        @"legal\u202E.txt"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Contoso.Escape", match.Package.PackageId);
+        Assert.Single(source.ManifestRequests);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
     [Theory]
     [InlineData("", PackageQueryRequestFailureReason.InvalidPrefix)]
     [InlineData(" Contoso.", PackageQueryRequestFailureReason.InvalidPrefix)]

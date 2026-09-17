@@ -1345,7 +1345,7 @@ public static partial class PackageQuery
                 match.RequiredManifest.LicenseDeclaration;
             if (declaration is null
                 || !declaration.Value.Equals(
-                    term.Value.ToString(),
+                    term.Term.Value,
                     StringComparison.OrdinalIgnoreCase))
             {
                 evidence = null!;
