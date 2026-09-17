@@ -548,7 +548,7 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { facets: [], terms: [] }; }
+      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }

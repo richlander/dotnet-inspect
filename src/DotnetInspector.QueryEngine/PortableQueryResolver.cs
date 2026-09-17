@@ -191,17 +191,23 @@ public static class PortableQueryResolver
                     }
                 }
 
+                bool repeatedComposition =
+                    key.Family is { } repeatedFamily
+                    && compositionOccurrences.Contains(
+                        (repeatedFamily, binding.PredicateIdentity));
                 if (key.Family is { } family
                     && key.FamilyKind is PortableQueryFamilyKind.Exclusive
-                    && families.ContainsKey(family))
+                    && families.ContainsKey(family)
+                    && !(vocabulary.CollapsesDuplicateBindings
+                        && repeatedComposition))
                 {
                     return Failure(PortableQueryFailureReason.TermsIncompatible, at, term.Key);
                 }
 
                 // The term bound, so its family membership and compatibility
                 // occurrence stand whatever happens to its predicate next.
-                // Recording either after duplicate handling would let a
-                // collapse hide a later contradiction.
+                // An equivalent occurrence in the same exclusive family may
+                // collapse, but it still participates in later compatibility.
                 if (key.Family is { } declared) families[declared] = key.FamilyKind;
                 boundOccurrences.Add(resolved);
 
