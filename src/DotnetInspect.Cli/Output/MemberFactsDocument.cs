@@ -28,7 +28,7 @@ internal sealed record MemberFactDocument(
     string Conditionality,
     string? CensusReceipt,
     int? InstanceKey,
-    MemberFactRemoteEvidenceDocument? RemoteEvidence)
+    MemberFactCalleeEvidenceDocument? CalleeEvidence)
 {
     internal static MemberFactDocument Create(
         ResearchViews.FactRow fact)
@@ -44,16 +44,16 @@ internal sealed record MemberFactDocument(
             fact.InstanceKey?.Value,
             fact.Evidence is null
                 ? null
-                : MemberFactRemoteEvidenceDocument.Create(
+                : MemberFactCalleeEvidenceDocument.Create(
                     fact.Evidence));
 }
 
-internal sealed record MemberFactRemoteEvidenceDocument(
+internal sealed record MemberFactCalleeEvidenceDocument(
     MemberFactMethodDocument Subject,
     string State,
     ImmutableArray<MemberFactEvidenceLocationDocument> Locations)
 {
-    internal static MemberFactRemoteEvidenceDocument Create(
+    internal static MemberFactCalleeEvidenceDocument Create(
         ResearchFindingEvidence evidence)
         => new(
             MemberFactMethodDocument.Create(evidence.Subject),

@@ -1917,7 +1917,7 @@ public static class ApiOutputFormatter
                 ? MarkoutInline.Code(FormatMethod(evidence.Subject))
                 : null,
             fact.Evidence is { } stateEvidence
-                ? MemberFactRemoteEvidenceDocument.StateName(
+                ? MemberFactCalleeEvidenceDocument.StateName(
                     stateEvidence.State)
                 : null,
             fact.Evidence is { } locationEvidence

@@ -22,6 +22,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
+  property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
@@ -678,12 +680,12 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
-### Member Finding remote evidence
+### Member Finding callee evidence
 
 The explicit member `Facts` section keeps one row per Research Finding. Its
 `Member`, `IL`, `Cs Line`, and `Anchor` fields describe where the Finding is
 presented in the selected member. For `semantics.callee`, `safety.callee`, and
-`cost.callee`, three additional fields describe the remote evidence without
+`cost.callee`, three additional fields describe the callee evidence without
 moving that caller-side relationship anchor:
 
 - `Evidence Subject` names the producer-owned callee subject.
@@ -698,8 +700,8 @@ JSONL, and projected JSON. They are display text, not the typed interchange
 contract.
 
 Exact singleton `member ... -S Facts --json` selects the complete typed Facts
-document. Each Finding retains its caller anchor and optional remote evidence.
-Remote evidence contains the producer-owned subject plus ordered physical
+document. Each Finding retains its caller anchor and optional `callee_evidence`.
+Callee evidence contains the producer-owned subject plus ordered physical
 locations. A physical method is identified by assembly, module version id,
 MethodDef token, declaring type, name, parameter types, return type, generic
 arity, and static shape; each location adds a nullable numeric IL offset.
@@ -717,7 +719,7 @@ before serialization; it never clips the rendered JSON text.
 Release CLI gates cover:
 
 - caller relationship IL remaining distinct from callee instruction evidence;
-- method-level `cost.callee` evidence retaining a null remote offset;
+- method-level `cost.callee` evidence retaining a null callee offset;
 - `safety.callee` retaining an explicit unavailable state when the producer has
   no supported instruction coordinate;
 - exact Facts JSON retaining the typed subject and physical method identities;

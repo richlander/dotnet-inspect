@@ -2840,7 +2840,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_FactsTable_DistinguishesCallerFromRemoteEvidence()
+    public async Task Member_FactsTable_DistinguishesCallerFromCalleeEvidence()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!,
@@ -2877,7 +2877,8 @@ public partial class CommandExecutionTests
             candidate =>
                 candidate.GetProperty("id").GetString()
                     == "safety.callee");
-        JsonElement evidence = fact.GetProperty("remote_evidence");
+        Assert.False(fact.TryGetProperty("remote_evidence", out _));
+        JsonElement evidence = fact.GetProperty("callee_evidence");
         Assert.Equal(
             nameof(CostOverlayFixture.Stackalloc),
             evidence.GetProperty("subject").GetProperty("name").GetString());
@@ -2920,7 +2921,7 @@ public partial class CommandExecutionTests
             candidate =>
                 candidate.GetProperty("id").GetString()
                     == "cost.callee");
-        JsonElement evidence = fact.GetProperty("remote_evidence");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
         Assert.Equal("method", evidence.GetProperty("state").GetString());
         JsonElement location = Assert.Single(
             evidence.GetProperty("locations").EnumerateArray());
@@ -2948,7 +2949,7 @@ public partial class CommandExecutionTests
             candidate =>
                 candidate.GetProperty("id").GetString()
                     == "safety.callee");
-        JsonElement evidence = fact.GetProperty("remote_evidence");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
         Assert.Equal(
             "instruction-unavailable",
             evidence.GetProperty("state").GetString());
