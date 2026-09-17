@@ -9,7 +9,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
-public sealed class PackageHouseExecutionTests
+public sealed partial class PackageHouseExecutionTests
 {
     private const string PackageId = "microsoft.extensions.logging";
     private const string Version = "10.0.0";

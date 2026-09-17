@@ -207,6 +207,47 @@ public class EhStructuringPassTests
         };
     }
 
+    static IrFunction LeaveToDedicatedReturnBlock()
+    {
+        var body = new BlockContainer();
+
+        var tryBlock = new Block(0x0010);
+        tryBlock.Add(new Leave(0x0050));
+        body.Add(tryBlock);
+
+        var finallyBlock = new Block(0x0020);
+        finallyBlock.Add(new EndFinally());
+        body.Add(finallyBlock);
+
+        var continuation = new Block(0x0030);
+        continuation.Add(new Return(new Constant(0, Int32)));
+        body.Add(continuation);
+
+        var dedicatedReturn = new Block(0x0050);
+        dedicatedReturn.Add(new Return(new Constant(1, Int32)));
+        body.Add(dedicatedReturn);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            Regions =
+            [
+                new HandlerRegion(
+                    HandlerKind.Finally,
+                    TryOffset: 0x0010,
+                    TryLength: 0x0010,
+                    HandlerOffset: 0x0020,
+                    HandlerLength: 0x0010,
+                    FilterOffset: 0,
+                    CatchType: null),
+            ],
+        };
+    }
+
     static IrFunction FilterRegion()
     {
         var body = new BlockContainer();
@@ -2061,6 +2102,29 @@ public class EhStructuringPassTests
 
         Assert.NotEmpty(function.Regions);
         Assert.Empty(function.Descendants.OfType<TryFinally>());
+    }
+
+    [Fact]
+    public void LeaveToDedicatedReturnBlock_InlinesReturnInsideTry()
+    {
+        var function = LeaveToDedicatedReturnBlock();
+
+        new EhStructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var returnInsideTry = Assert.Single(
+            tryFinally.TryBody.Descendants.OfType<Return>());
+        Assert.Equal(1, Assert.IsType<Constant>(returnInsideTry.Value).Value);
+        Assert.Empty(tryFinally.TryBody.Descendants.OfType<Leave>());
+
+        var continuation = Assert.Single(
+            function.Body.Blocks,
+            block => block.StartOffset == 0x0030);
+        Assert.Single(continuation.Children.OfType<Return>());
+        Assert.DoesNotContain(
+            function.Body.Blocks,
+            block => block.StartOffset == 0x0050);
     }
 
     [Fact]
