@@ -138,7 +138,10 @@ public abstract record CompiledDocumentationOutcome(
 
     public sealed record Absent(
         CompiledDocumentationSubject Subject,
-        CompiledDocumentationSource? Source)
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool SourcesTruncated)
         : CompiledDocumentationOutcome(Subject);
 
     public sealed record Unavailable(
@@ -277,9 +280,7 @@ public static class CompiledDocumentationQuery
                     Snapshot(available.Selected),
                     Snapshot(available.Documentation)),
             DocumentationCompiledXmlAttempt.Absent absent =>
-                new CompiledDocumentationOutcome.Absent(
-                    subject,
-                    SnapshotOptional(absent.Selected)),
+                Absent(subject, absent),
             DocumentationCompiledXmlAttempt.Unavailable unavailable =>
                 Unavailable(subject, unavailable.Contributions),
             DocumentationCompiledXmlAttempt.Ambiguous ambiguous =>
@@ -299,6 +300,21 @@ public static class CompiledDocumentationQuery
             _ => throw new InvalidOperationException(
                 "Unknown compiled-XML attempt."),
         };
+
+    private static CompiledDocumentationOutcome.Absent Absent(
+        CompiledDocumentationSubject subject,
+        DocumentationCompiledXmlAttempt.Absent absent)
+    {
+        IEnumerable<CompiledXmlContribution> applicableContributions =
+            absent.Selected is { } selected
+                ? [selected]
+                : absent.Contributions;
+        (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
+            bool truncated) =
+            TakeDistinct(
+                applicableContributions.Select(SnapshotEvidence));
+        return new(subject, sources, truncated);
+    }
 
     private static CompiledDocumentationOutcome.Unavailable Unavailable(
         CompiledDocumentationSubject subject,
@@ -388,10 +404,6 @@ public static class CompiledDocumentationQuery
             Snapshot(contribution.Source.Kind),
             contribution.Source.Name,
             contribution.Precedence);
-
-    private static CompiledDocumentationSource? SnapshotOptional(
-        CompiledXmlContribution? contribution) =>
-        contribution is null ? null : Snapshot(contribution);
 
     private static CompiledDocumentationSourceEvidence SnapshotEvidence(
         CompiledXmlContribution contribution) =>

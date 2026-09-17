@@ -49,7 +49,8 @@ public sealed class CompiledDocumentationQueryTests
             (
                 typeof(CompiledDocumentationOutcome.Absent),
                 "absent",
-                [nameof(CompiledDocumentationOutcome.Absent.Source),
+                [nameof(CompiledDocumentationOutcome.Absent.Sources),
+                    nameof(CompiledDocumentationOutcome.Absent.SourcesTruncated),
                     nameof(CompiledDocumentationOutcome.Subject)]),
             (
                 typeof(CompiledDocumentationOutcome.Unavailable),
@@ -481,14 +482,22 @@ public sealed class CompiledDocumentationQueryTests
         CompiledDocumentationOutcome.Absent absentContent =
             Assert.IsType<CompiledDocumentationOutcome.Absent>(
                 absent.Content);
-        Assert.NotNull(absentContent.Source);
+        CompiledDocumentationSourceEvidence absentEvidence =
+            Assert.Single(absentContent.Sources);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Candidate,
+            absentEvidence.Kind);
+        Assert.Equal(
+            "direct-library:System.Text.Json",
+            absentEvidence.Source.Name);
+        Assert.False(absentContent.SourcesTruncated);
         using JsonDocument absentJson =
             JsonDocument.Parse(Serialize(absent.Content));
         AssertPropertyNames(
             absentJson.RootElement,
             "kind",
             "subject",
-            "source");
+            "sources");
 
         await using LibraryFixture malformedLibrary =
             await LibraryFixture.CreateAsync(
@@ -521,6 +530,75 @@ public sealed class CompiledDocumentationQueryTests
             "subject",
             "source",
             "reason");
+    }
+
+    [Fact]
+    public async Task
+        AuthoritativePackageAbsencePreservesSourceProvenance()
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync();
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution absentContribution =
+            CompiledXmlContribution.Absent(
+                subject,
+                library.Reference,
+                library.Reference.ApiAssembly,
+                DocumentationSourceReference.Create(
+                    DocumentationSourceKind.Package,
+                    "package:System.Text.Json@10.0.0"));
+
+        CompiledDocumentationQueryResult result =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(subject, [absentContribution]),
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        DocumentationHouseOutcome.Completed completed =
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                result.Outcome);
+        DocumentationCompiledXmlAttempt.Absent houseAbsent =
+            Assert.IsType<DocumentationCompiledXmlAttempt.Absent>(
+                completed.CompiledXmlAttempt);
+        Assert.Null(houseAbsent.Selected);
+
+        CompiledDocumentationOutcome.Absent content =
+            Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                result.Content);
+        CompiledDocumentationSourceEvidence evidence =
+            Assert.Single(content.Sources);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Absent,
+            evidence.Kind);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Package,
+            evidence.Source.Kind);
+        Assert.Equal(
+            "package:System.Text.Json@10.0.0",
+            evidence.Source.Name);
+        Assert.False(content.SourcesTruncated);
+
+        await library.RetireAsync();
+        byte[] payload = Serialize(result.Content);
+        Assert.True(
+            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
+            $"Absent payload was {payload.Length} UTF-8 bytes.");
+        using JsonDocument document = JsonDocument.Parse(payload);
+        AssertPropertyNames(
+            document.RootElement,
+            "kind",
+            "subject",
+            "sources");
+        JsonElement sourceEvidence =
+            Assert.Single(
+                document.RootElement
+                    .GetProperty("sources")
+                    .EnumerateArray());
+        AssertPropertyNames(sourceEvidence, "kind", "source");
+        AssertPropertyNames(
+            sourceEvidence.GetProperty("source"),
+            "kind",
+            "name");
     }
 
     [Fact]
