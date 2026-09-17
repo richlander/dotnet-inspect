@@ -74,17 +74,17 @@ public class ProjectionDiagnosticsTests
     }
 
     [Theory]
-    [InlineData("| Signed | Yes |", false)]
-    [InlineData("| Authors | Example |", true)]
-    public async Task DiagnoseRendered_WildcardUsesResolvedNames(
-        string rendered,
+    [InlineData("Signed", false)]
+    [InlineData(null, true)]
+    public async Task DiagnoseProjected_WildcardUsesResolvedNames(
+        string? presentName,
         bool expectsMissingNote)
     {
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            ProjectionDiagnostics.DiagnoseRendered(
+            ProjectionDiagnostics.DiagnoseProjected(
                 ["Sign*"],
-                rendered,
+                presentName is null ? [] : [presentName],
                 ["Signed", "Status"]);
             return Task.FromResult(0);
         });
@@ -95,22 +95,53 @@ public class ProjectionDiagnosticsTests
     }
 
     [Fact]
-    public async Task DiagnoseRendered_OverlappingPatternsUseResolvedNames()
+    public async Task DiagnoseProjected_OverlappingPatternsUseResolvedNames()
     {
-        const string rendered =
-            "| Field | Value |\n"
-            + "| --- | --- |\n"
-            + "| Authors | Example |\n";
-
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            ProjectionDiagnostics.DiagnoseRendered(
+            ProjectionDiagnostics.DiagnoseProjected(
                 ["Field", "*"],
-                rendered,
+                ["Field", "Value"],
                 ["Field", "Value"]);
             return Task.FromResult(0);
         });
 
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task DiagnoseProjected_DoesNotUseAnotherSectionsEvidence()
+    {
+        var schema = new DocumentSchema()
+            .Add("Expected", "field", "Status")
+            .Add("Other", "field", "Status");
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(
+            TextWriter.Null,
+            2,
+            "Other",
+            context: null);
+        formatter.FormatFields(
+            TextWriter.Null,
+            [new MarkoutField("Status", "available")],
+            bold: false);
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseProjected(
+                ["Status"],
+                formatter.Manifest,
+                schema,
+                "field",
+                ["Expected"],
+                fieldSectionsAsColumns: false);
+            return Task.FromResult(0);
+        });
+
+        Assert.Contains(
+            "Note: 1 field has no data: Status",
+            error,
+            StringComparison.Ordinal);
     }
 }

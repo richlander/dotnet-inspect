@@ -1316,9 +1316,6 @@ public class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-            var diagnosticCandidates = hasProjection
-                ? GetPackageProjectionNames(options)
-                : null;
             if (options.Tabular)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
@@ -1348,10 +1345,46 @@ public class PackageCommand
                             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                             MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
                         });
-                    ProjectionDiagnostics.DiagnoseRendered(
+                    var manifest = RenderManifestFormatter.Capture(
+                        view,
+                        InspectionContext.Default,
+                        writerOpts,
+                        PackageDiscoverySchema(),
+                        writerOpts.IncludeSections?.SingleOrDefault());
+                    if (options.Columns is { Length: > 0 }
+                        && options.Fields is { Length: > 0 })
+                    {
+                        var fieldOptions = options with { Columns = null };
+                        MarkoutWriterOptions fieldWriterOptions =
+                            OutputFormatter.BuildWriterOptions(
+                                result,
+                                fieldOptions,
+                                pipeline);
+                        fieldWriterOptions.RowWindow =
+                            RowWindow.ToMarkout(options.Rows);
+                        OutputFormatter.ConfigureTableWriterOptions(
+                            fieldWriterOptions,
+                            options.Tsv,
+                            options.Jsonl);
+                        manifest.MergeRenderedFieldTablesFrom(
+                            RenderManifestFormatter.Capture(
+                                view,
+                                InspectionContext.Default,
+                                fieldWriterOptions,
+                                PackageDiscoverySchema(),
+                                fieldWriterOptions.IncludeSections?
+                                    .SingleOrDefault()));
+                    }
+                    string itemKind = options.Fields is not null
+                        ? "field"
+                        : "column";
+                    ProjectionDiagnostics.DiagnoseProjected(
                         options.Fields ?? options.Columns,
-                        rendered,
-                        diagnosticCandidates!);
+                        manifest,
+                        PackageDiscoverySchema(),
+                        itemKind,
+                        writerOpts.IncludeSections,
+                        fieldSectionsAsColumns: true);
                     Console.Out.Write(rendered);
                 }
                 else
@@ -1366,10 +1399,46 @@ public class PackageCommand
 
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
-                    ProjectionDiagnostics.DiagnoseRendered(
+                {
+                    var view = new InspectionResultView(
+                        result,
+                        includeTitleVersion: false);
+                    MarkoutWriterOptions writerOptions =
+                        OutputFormatter.BuildPackageDocumentWriterOptions(
+                            result,
+                            options,
+                            pipeline);
+                    var manifest = RenderManifestFormatter.Capture(
+                        view,
+                        InspectionContext.Default,
+                        writerOptions,
+                        PackageDiscoverySchema());
+                    if (options.Columns is { Length: > 0 }
+                        && options.Fields is { Length: > 0 })
+                    {
+                        MarkoutWriterOptions fieldWriterOptions =
+                            OutputFormatter.BuildPackageDocumentWriterOptions(
+                                result,
+                                options with { Columns = null },
+                                pipeline);
+                        manifest.MergeRenderedFieldTablesFrom(
+                            RenderManifestFormatter.Capture(
+                                view,
+                                InspectionContext.Default,
+                                fieldWriterOptions,
+                                PackageDiscoverySchema()));
+                    }
+                    string itemKind = options.Fields is not null
+                        ? "field"
+                        : "column";
+                    ProjectionDiagnostics.DiagnoseProjected(
                         options.Fields ?? options.Columns,
-                        output,
-                        diagnosticCandidates!);
+                        manifest,
+                        PackageDiscoverySchema(),
+                        itemKind,
+                        writerOptions.IncludeSections,
+                        fieldSectionsAsColumns: true);
+                }
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
                     File.WriteAllText(options.OutputPath, output);
@@ -3615,21 +3684,6 @@ public class PackageCommand
                 .Add(PackageSections.PackageInfo, "field", "Signed")
                 .ValidateProjection(PackageSections.PackageInfo, selectors)
                 .Resolved.Length > 0;
-
-    private static string[] GetPackageProjectionNames(
-        InspectionOptions options)
-    {
-        string itemKind =
-            options.Fields is { Length: > 0 } ? "field" : "column";
-        var schema = PackageDiscoverySchema();
-        return schema.SectionNames
-            .Select(schema.GetSection)
-            .Where(section => section?.ItemKind.Equals(
-                itemKind, StringComparison.OrdinalIgnoreCase) == true)
-            .SelectMany(section => section!.Items.Select(item => item.Name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
 
     private static string[] VersionListingColumns(InspectionOptions options)
         => options.IncludeUnlisted
