@@ -279,7 +279,7 @@ grep -o 'Kind\|Name\|Return Type\|Detail' | wc -l | tr -d ' '
 ### 5a. Detailed verbosity (with descriptions)
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --lines --tips q
 ```
 
 ```expect
@@ -503,7 +503,7 @@ Methods
 ### 10b. Filter to specific sections
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S Interfaces,Baseclass -n 15 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S Interfaces,Baseclass -n 15 --lines --tips q
 ```
 
 ```expect
@@ -558,7 +558,7 @@ Arguments
 > Goal: View where source code for a type can be found.
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S "Source Files" -n 10 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -v:d -S "Source Files" --rows 1..10 --tips q
 ```
 
 ```expect

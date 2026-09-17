@@ -234,6 +234,28 @@ public sealed class CliRowSelectionLoweringTests
             CliLineSelectionDirection.Tail,
             lineOnly.LineIntent.Direction);
 
+        CliRowSelectionLoweringResult<string> inferredLines =
+            CliRowSelectionLowerer.Lower(
+                [Limit(0, "3"), Tail(1)],
+                CliRowSelectionCapabilities.Lines,
+                CliRowSelectionDefaultUnit.RenderedLines);
+        Assert.True(inferredLines.IsSuccess);
+        Assert.Empty(inferredLines.Value!.SemanticIntent.Operations);
+        Assert.Equal(3, inferredLines.Value.LineIntent!.Count);
+        Assert.Equal(
+            CliLineSelectionDirection.Tail,
+            inferredLines.Value.LineIntent.Direction);
+
+        CliRowSelectionLoweringResult<string> inferredWithoutCount =
+            CliRowSelectionLowerer.Lower<string>(
+                [],
+                CliRowSelectionCapabilities.Lines,
+                CliRowSelectionDefaultUnit.RenderedLines);
+        Assert.True(inferredWithoutCount.IsSuccess);
+        Assert.Empty(
+            inferredWithoutCount.Value!.SemanticIntent.Operations);
+        Assert.Null(inferredWithoutCount.Value.LineIntent);
+
         CliRowSelectionLowering<string> exact =
             Success(
                 CliRowSelectionCapabilities.Window

@@ -157,6 +157,82 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task TimelineRange_ExplicitLinesClipRenderedOutput()
+    {
+        const string Id = "range.timeline.lines";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "all",
+                "-S", "Evaluations",
+                "-n", "2",
+                "--lines",
+                "--tsv",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            3,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Equal(
+            2,
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task TimelineRange_LinesRejectDocumentJsonBeforeAcquisition()
+    {
+        const string Id = "range.timeline.lines-json";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "all",
+                "-n", "2",
+                "--lines",
+                "--json",
+                "--tips", "q"
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
+        Assert.Empty(requests);
+    }
+
+    [Fact]
     public async Task TimelineRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy()
     {
         const string Id = "range.timeline.replay";

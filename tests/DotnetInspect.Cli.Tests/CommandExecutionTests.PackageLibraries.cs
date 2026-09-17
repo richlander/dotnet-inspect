@@ -547,12 +547,12 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown",
-                "-n", "2", "--tips", "q");
+                "--lines", "-n", "2", "--tips", "q");
             var windowedFile = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown",
-                "-n", "2", "--out", outputPath, "--tips", "q");
+                "--lines", "-n", "2", "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, windowed.Exit);
             Assert.Equal(2, windowed.Output.Count(character => character == '\n'));
@@ -2292,13 +2292,13 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "3" },
-                         ["-n", "3", "--tail"]
+                         new[] { "-n", "3", "--lines" },
+                         ["-n", "3", "--tail-lines"]
                      })
             {
                 string outputPath = Path.Combine(
                     tempDir,
-                    lineWindow.Contains("--tail") ? "tail.txt" : "head.txt");
+                    lineWindow.Contains("--tail-lines") ? "tail.txt" : "head.txt");
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
                     [
@@ -2409,13 +2409,13 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "1" },
-                         ["-n", "1", "--tail"]
+                         new[] { "-n", "1", "--lines" },
+                         ["-n", "1", "--tail-lines"]
                      })
             {
                 string outputPath = Path.Combine(
                     tempDir,
-                    lineWindow.Contains("--tail") ? "count-tail.jsonl" : "count-head.jsonl");
+                    lineWindow.Contains("--tail-lines") ? "count-tail.jsonl" : "count-head.jsonl");
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
                     [
