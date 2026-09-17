@@ -1,0 +1,319 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type {
+  BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspaceDeactivationResult,
+  BrowserRetainedWorkspaceInstallation,
+  BrowserRetainedWorkspaceSettlementResult,
+} from "../src/facades/inspect-web-catalog.d.ts";
+import {
+  createRetainedWorkspaceActivationController,
+  MAX_RETAINED_WORKSPACE_DEFINITIONS,
+  type RetainedWorkspaceActivationClient,
+} from "../src/retained-workspace-activation.ts";
+
+function installation(
+  retainedDefinitionId: string,
+  realizationId: string,
+  settlementId: string | null = null,
+): BrowserRetainedWorkspaceInstallation {
+  return {
+    retainedDefinitionId,
+    label: retainedDefinitionId,
+    canonicalLocation: `/inspect/${retainedDefinitionId}`,
+    canonicalPacket: `packet-${retainedDefinitionId}`,
+    realizationId,
+    publicationOrdinal: Number(realizationId.split("-").at(-1)),
+    navigation: {
+      activeStateIndex: null,
+      states: [],
+    },
+    predecessor: settlementId === null
+      ? null
+      : {
+        settlementId,
+        reason: "Replaced",
+      },
+  };
+}
+
+class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly activations: Array<{
+    promise: Promise<BrowserRetainedWorkspaceActivationResult>;
+    resolve(value: BrowserRetainedWorkspaceActivationResult): void;
+  }> = [];
+  readonly settlements: string[] = [];
+  readonly deactivations: string[] = [];
+
+  activateRetainedWorkspaceDefinition():
+  Promise<BrowserRetainedWorkspaceActivationResult> {
+    let resolve!: (value: BrowserRetainedWorkspaceActivationResult) => void;
+    const promise =
+      new Promise<BrowserRetainedWorkspaceActivationResult>(accept => {
+        resolve = accept;
+      });
+    const activation = { promise, resolve };
+    this.activations.push(activation);
+    return activation.promise;
+  }
+
+  deactivateRetainedWorkspaceDefinition(
+    retainedDefinitionId: string,
+  ): Promise<BrowserRetainedWorkspaceDeactivationResult> {
+    this.deactivations.push(retainedDefinitionId);
+    return Promise.resolve({
+      status: "deactivated",
+      settlement: {
+        succeeded: true,
+        reason: "CoordinatorClosed",
+        failure: null,
+      },
+      message: null,
+    });
+  }
+
+  observeRetainedWorkspaceSettlement(
+    settlementId: string,
+  ): Promise<BrowserRetainedWorkspaceSettlementResult> {
+    this.settlements.push(settlementId);
+    return Promise.resolve({
+      status: "settled",
+      settlement: {
+        succeeded: true,
+        reason: "Replaced",
+        failure: null,
+      },
+    });
+  }
+}
+
+function createFixture() {
+  const client = new ActivationClient();
+  const installed: BrowserRetainedWorkspaceInstallation[] = [];
+  const settled: BrowserRetainedWorkspaceSettlementResult[] = [];
+  let clears = 0;
+  const controller = createRetainedWorkspaceActivationController(client, {
+    install: value => installed.push(value),
+    clear: () => clears++,
+    predecessorSettled: value => settled.push(value),
+    predecessorObservationFailed: error => {
+      throw error;
+    },
+  });
+  return {
+    client,
+    controller,
+    installed,
+    settled,
+    clears: () => clears,
+  };
+}
+
+test("superseded activation cannot install over the latest selection", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[0]!.resolve({
+    status: "superseded",
+    installation: null,
+    failure: null,
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(
+      second.id,
+      "realization-2",
+      "settlement-1",
+    ),
+    failure: null,
+  });
+  await Promise.all([selectFirst, selectSecond]);
+  await Promise.resolve();
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-2"],
+  );
+  assert.deepEqual(fixture.client.settlements, ["settlement-1"]);
+  assert.equal(fixture.settled.length, 1);
+});
+
+test("publication order rejects a late response from an older cutover", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-2"],
+  );
+});
+
+test("failed activation preserves the incumbent definition", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "failed",
+    installation: null,
+    failure: {
+      kind: "InvalidPacket",
+      message: "Packet format 1 is unsupported.",
+    },
+  });
+  await selectSecond;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Packet format 1 is unsupported.",
+  );
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-1"],
+  );
+});
+
+test("active deletion activates the next definition before removal", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await deletion;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+});
+
+test("deleting the sole active definition drains managed state", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  await fixture.controller.delete(first.id);
+
+  assert.deepEqual(fixture.client.deactivations, [first.id]);
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+  assert.equal(fixture.clears(), 1);
+});
+
+test("retained definitions are resource-free, bounded, and stable", () => {
+  const fixture = createFixture();
+  const ids: string[] = [];
+  for (
+    let index = 0;
+    index < MAX_RETAINED_WORKSPACE_DEFINITIONS;
+    index++
+  ) {
+    ids.push(fixture.controller.retain({
+      label: `Workspace ${index}`,
+      canonicalLocation: `/workspace/${index}`,
+      canonicalPacket: `packet-${index}`,
+    }).id);
+  }
+
+  assert.deepEqual(ids, [
+    "workspace-definition-1",
+    "workspace-definition-2",
+    "workspace-definition-3",
+    "workspace-definition-4",
+  ]);
+  assert.throws(
+    () => fixture.controller.retain({
+      label: "Workspace 5",
+      canonicalLocation: "/workspace/5",
+      canonicalPacket: "packet-5",
+    }),
+    /at most 4 Workspace definitions/,
+  );
+});

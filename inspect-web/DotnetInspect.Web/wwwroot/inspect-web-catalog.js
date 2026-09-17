@@ -38,6 +38,30 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Catalog");
         value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "ActivateRetainedWorkspaceDefinition.1579276339");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition.1579276339\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "DeactivateRetainedWorkspaceDefinition.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.DeactivateRetainedWorkspaceDefinition.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
         value = $ownDataProperty(value, "DecodeWorkspaceShareState.304094707");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.DecodeWorkspaceShareState.304094707\u0027 is not callable.");
@@ -77,6 +101,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "ListVocabulary.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListVocabulary.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Catalog");
+        value = $ownDataProperty(value, "CatalogExports");
+        value = $ownDataProperty(value, "ObserveRetainedWorkspaceSettlement.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ObserveRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
         }
     }
     {
@@ -128,6 +164,16 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export async function activateRetainedWorkspaceDefinition(retainedDefinitionId, label, canonicalLocation, canonicalPacket) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinition.1579276339"](retainedDefinitionId, label, canonicalLocation, canonicalPacket);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function deactivateRetainedWorkspaceDefinition(retainedDefinitionId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["DeactivateRetainedWorkspaceDefinition.976702342"](retainedDefinitionId);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function decodeWorkspaceShareState(encoded) {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["DecodeWorkspaceShareState.304094707"](encoded);
     const $parsed = JSON.parse($result);
@@ -145,6 +191,11 @@ export function listHomeDemos() {
 }
 export function listVocabulary() {
     const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListVocabulary.1310674786"]();
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function observeRetainedWorkspaceSettlement(settlementId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ObserveRetainedWorkspaceSettlement.976702342"](settlementId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

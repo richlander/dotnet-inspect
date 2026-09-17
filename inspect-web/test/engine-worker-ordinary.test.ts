@@ -134,11 +134,17 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    activateRetainedWorkspaceDefinition: () =>
+      unexpected("activateRetainedWorkspaceDefinition"),
+    deactivateRetainedWorkspaceDefinition: () =>
+      unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
     encodeWorkspaceShareState: () =>
       unexpected("encodeWorkspaceShareState"),
+    observeRetainedWorkspaceSettlement: () =>
+      unexpected("observeRetainedWorkspaceSettlement"),
     runHomeDemo: () => unexpected("runHomeDemo"),
   },
 };
@@ -760,8 +766,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "activateRetainedWorkspaceDefinition",
+      "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
+      "observeRetainedWorkspaceSettlement",
       "resolveHomeDemo",
       "runHomeDemo",
     ],
@@ -778,7 +787,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 57);
 
   const state = fixture();
   const groups = [
