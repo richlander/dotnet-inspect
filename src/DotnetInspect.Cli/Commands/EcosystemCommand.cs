@@ -674,11 +674,7 @@ public static class EcosystemCommand
 
     private static ImmutableArray<IntegrationConceptDescriptor> KnownConcepts(
         EcosystemPackId ecosystem) =>
-        [
-            .. LibraryIntegrationCatalog.All
-                .Where(descriptor => descriptor.Ecosystem == ecosystem)
-                .Select(descriptor => descriptor.Concept),
-        ];
+        LibraryIntegrationCatalog.ConceptsFor(ecosystem);
 
     private static DocumentSchema CreateSchema(
         IEnumerable<EcosystemSection> sections)

@@ -52,6 +52,9 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains("| Aspire | integration.aspire |", result.Output);
+        Assert.Contains(
+            "| Dependency Injection | integration.dependency-injection |",
+            result.Output);
     }
 
     [Fact]
@@ -64,7 +67,7 @@ public sealed class EcosystemCommandTests
             "-S",
             "Integrations",
             "--rows",
-            "2..2",
+            "14..14",
         ];
         var result = await ExecuteCommandLineAsync(arguments);
 
@@ -72,7 +75,7 @@ public sealed class EcosystemCommandTests
         Assert.Empty(result.Output);
         Assert.Contains(
             "Ecosystem row selection stage 1 for 'Known Integrations' "
-            + "requires row 2, but only 1 rows are available.",
+            + "requires row 14, but only 13 rows are available.",
             result.Error);
     }
 
@@ -194,7 +197,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.blazor", result.Output);
         Assert.Contains("ecosystem.maui", result.Output);
         Assert.Contains(
-            "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
+            "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 13 | 2 |",
             result.Output);
         Assert.Contains(
             "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
@@ -322,7 +325,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("# Aspire", result.Output);
         Assert.Contains("## Ecosystem Info", result.Output);
         Assert.Contains("| ID | ecosystem.aspire |", result.Output);
-        Assert.Contains("| Known Integration Bindings | 1 |", result.Output);
+        Assert.Contains("| Known Integration Bindings | 13 |", result.Output);
         Assert.DoesNotContain("## Known Integrations", result.Output);
     }
 
@@ -340,6 +343,12 @@ public sealed class EcosystemCommandTests
         Assert.DoesNotContain("# Aspire", result.Output);
         Assert.Contains("## Known Integrations", result.Output);
         Assert.Contains("| Aspire | integration.aspire |", result.Output);
+        Assert.Contains(
+            "| Dependency Injection | integration.dependency-injection |",
+            result.Output);
+        Assert.Contains(
+            "| OpenTelemetry | integration.opentelemetry |",
+            result.Output);
         Assert.Contains(
             "these are not observations from a library",
             result.Output);
@@ -382,13 +391,16 @@ public sealed class EcosystemCommandTests
         Assert.Equal(
             "ecosystem\tintegration\tid\tevidence_relationships\tbinding\tknowledge_scope",
             lines[0]);
-        Assert.StartsWith(
+        Assert.Contains(lines, line => line.StartsWith(
             "Aspire\tAspire\tintegration.aspire\tintegration.observed, integration.opportunity\tconfigured\t",
-            lines[1]);
-        Assert.EndsWith(
+            StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.StartsWith(
+            "Aspire\tDependency Injection\tintegration.dependency-injection\tintegration.observed, integration.opportunity\tconfigured\t",
+            StringComparison.Ordinal));
+        Assert.All(lines[1..], line => Assert.EndsWith(
             "Configured product knowledge; not a library observation.",
-            lines[1]);
-        Assert.Equal(2, lines.Length);
+            line));
+        Assert.Equal(14, lines.Length);
     }
 
     [Theory]
@@ -510,19 +522,32 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, jsonl.ExitCode);
         Assert.Empty(jsonl.Error);
         Assert.Equal(
-            """{"binding":"configured"}""",
-            jsonl.Output.Trim());
+            13,
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.All(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries),
+            line => Assert.Equal("""{"binding":"configured"}""", line));
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
         using JsonDocument document = JsonDocument.Parse(json.Output);
-        JsonElement row = Assert.Single(
-            document.RootElement
+        JsonElement[] rows =
+        [
+            .. document.RootElement
                 .GetProperty("known_integrations")
-                .EnumerateArray());
-        JsonProperty property = Assert.Single(row.EnumerateObject());
-        Assert.Equal("binding", property.Name);
-        Assert.Equal("configured", property.Value.GetString());
+                .EnumerateArray(),
+        ];
+        Assert.Equal(13, rows.Length);
+        Assert.All(rows, row =>
+        {
+            JsonProperty property = Assert.Single(row.EnumerateObject());
+            Assert.Equal("binding", property.Name);
+            Assert.Equal("configured", property.Value.GetString());
+        });
     }
 
     [Fact]
