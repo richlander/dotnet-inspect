@@ -10,6 +10,9 @@ The host-neutral content, snapshot query, selection receipt, Share basis,
 admitted L2 operation, and CLI adoption are implemented. Inspect Web adoption
 remains unimplemented, so the overall target is partially implemented and
 verified through the CLI production host.
+The current CLI placement is transitional: the definition-first purpose and
+portable output of the `workspace` command are owned by
+[Workspace Definitions](workspace-definitions.md#definition-first-workspace-interchange).
 
 The operator approved one host-neutral inventory with direct CLI and Inspect
 Web adoption, and required the command experience to work from both an
@@ -136,9 +139,9 @@ revision as the admitted definition snapshot. The operation is a finite
 in-memory projection over already detached snapshot facts and has no
 asynchronous work or cancellation boundary of its own.
 
-### CLI construction routes
+### Relationship to definition-first Workspace interchange
 
-The `workspace` command has two mutually exclusive top-level construction
+The current CLI inventory consumer has two mutually exclusive construction
 routes:
 
 1. **Explicit construction.** CLI Package and registration options form one
@@ -167,9 +170,11 @@ The routes differ only in available Share evidence:
   Definitions-owned projection may supply that associated `DefinitionInput`
   basis instead.
 
-The second case is the default direct CLI contract. The inventory operation
-does not manufacture a `DefinitionInput` from `WorkspacePlan` or rerun
-construction merely to make the result shareable.
+The second case describes the implemented inventory route, not the target
+definition-first CLI contract. Direct Workspace authoring must instead retain a
+Definitions-owned portable basis before optional realization. The inventory
+operation still does not manufacture a `DefinitionInput` from `WorkspacePlan`
+or serialize inventory rows.
 
 A packet is inert input, not acquisition authority. Packet decode, migration,
 Registry resolution, source authorization, acquisition, Scope publication,
@@ -177,13 +182,11 @@ projection, cancellation, and cleanup retain the typed outcomes and ordering
 defined by Workspace Definitions and their owning services. Failure before
 operation admission does not become an inventory `Unavailable` result.
 
-The CLI owner defines the packet option spelling and its exact option
-compatibility. The packet cannot be combined with direct top-level construction
-options that would ambiguously replace its membership or registrations.
-Inventory-only controls such as output format and kind filter apply after
-either construction route. A later focused CLI design must decide whether
-descendant Navigation options may refine the packet's restored active subject
-without changing the inventory basis.
+The target `workspace` command authors or transforms portable definition state
+and may use this inventory as a summary, preview, or verification observation.
+Library, Type, Member, and other noun selection belongs to commands that
+consume the packet as aggregate context. Existing `--active-package`
+Navigation is transitional and does not define the target command boundary.
 
 Accepting a packet does not create an inventory-specific packet format or
 restoration path. The command consumes the current canonical packet format
@@ -467,11 +470,10 @@ already communicates presentation order, so the default table does not spend a
 column on a universal index.
 
 The existing one-based `--active-package` selector resolves Package source
-order through the receipt. A selection-oriented CLI view may expose that
-Package ordinal compactly when needed, but registrations do not acquire a
-shared numeric selector and Inspect Web does not show an index column. The exact
-command-line spelling for registration inputs and kind filtering remains owned
-by the CLI adoption.
+order through the receipt and remains a valid test of exact selection
+association. It is transitional CLI behavior rather than the target route to
+Library, Type, or Member inspection. Registrations do not acquire a shared
+numeric selector, and Inspect Web does not show an index column.
 
 Inspect Web renders the same typed document in the existing Workspace surface.
 It may use host-native interaction and styling, but it does not add a second
@@ -534,7 +536,8 @@ Implementation proceeds as independently reviewable slices:
    query, Definitions-owned Share projection receipt, Share basis, and admitted
    L2 operation are implemented in `DotnetInspector.Queries` and
    `DotnetInspector.Sections`.
-2. **CLI adoption (implemented).** Construct one ephemeral realization through
+2. **CLI inventory adoption (implemented, transitional).** Construct one
+   ephemeral realization through
    `WorkspaceRealizationCoordinator` from explicit construction inputs, or
    supply that coordinator as the host for Definitions-owned complete packet
    restoration, keeping explicit Package membership separate from
@@ -548,11 +551,19 @@ Implementation proceeds as independently reviewable slices:
    `--register-package-prefix`, `--register-ecosystem`, and repeatable
    `--kind`; verbose human rows disclose Package-specific detail, while Share,
    kind filtering, and packet restoration remain top-level-inventory controls
-   that reject Package Navigation under the focused deferral above.
+   that reject Package Navigation under the focused deferral above. This proves
+   the CLI can consume the shared inventory operation, but it does not settle
+   the `workspace` command's primary definition/interchange role.
 3. **Inspect Web adoption.** Consume the admitted operation from
    `BrowserWorkspaceRealizationHost`, render the same semantic document in the
    existing Workspace surface, and bind actions through retained managed
    authority and the selection receipt.
+4. **CLI placement correction.** Under
+   [#7379](https://github.com/richlander/dotnet-inspect/issues/7379), make
+   direct Workspace input projectable, emit the portable definition as packet
+   or URL, retain realization only for portable transformation, move noun
+   inspection to packet-context noun commands, and retire
+   `--active-package` only after those paths exist.
 
 Packet input and result Share are separate concerns. A valid packet can restore
 and inventory a Workspace even when the inventory request, such as a kind

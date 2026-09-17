@@ -124,6 +124,7 @@ evidence unless a category is named.
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 | `type` listing | `@Surface` | none |
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
+| `diff` | `@Diff` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -134,7 +135,9 @@ inventories, and `Inspection Failures`. Member `@Member` follows the resolved
 view: member-kind summaries for a type, the matching overload inventory for a
 member name, or signature and local implementation evidence for one selected
 overload. Use its domain doors for audit, call, decompiler, performance, source,
-or SourceLink evidence. `Switches` is a section. There are no user-facing
+or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
+`Implementation Diff`; select the non-composable `Finding Transitions` section
+by exact name. `Switches` is a section. There are no user-facing
 `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
