@@ -11,11 +11,13 @@ import {
   createQueryRequest,
   initialQueryState,
   withFacet,
+  withLibraryLiteralDraft,
   withTerm,
   type QueryResultRow,
   type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import type {
+  BrowserPackageAssemblySemanticCandidateOutcome,
   BrowserPackageQueryCancellation,
   BrowserPackageQueryCompletion,
   BrowserPackageQueryEvent,
@@ -42,6 +44,8 @@ const completionEvent: BrowserPackageQueryEvent = {
     semanticMisses: null,
     notApplicable: null,
     scope: null,
+    occurrences: null,
+    notEvaluated: null,
     kind: "Exhausted",
   },
 };
@@ -68,6 +72,7 @@ function succeeded(
         results: [],
         failures: [],
         completion: value.completion!,
+        assemblySemantic: null,
       },
       share: {
         kind: "NonProjectable",
@@ -82,6 +87,258 @@ function succeeded(
     error: null,
     diagnostic: null,
     reason: null,
+  };
+}
+
+function semanticSucceeded(): BrowserPackageQueryResult {
+  const selectedAsset = {
+    path: "lib/net10.0/Contoso.Package.dll",
+    assemblyName: "Contoso.Package",
+    targetFramework: "net10.0",
+    sequence: "Implementation",
+    ordinal: 0,
+    unevaluatedSiblings: 1,
+    rootRequest: "opaque-root",
+  };
+  const occurrences = [{
+    moduleVersionId: "00000000-0000-0000-0000-000000000001",
+    methodDefinitionToken: 0x06000001,
+    ilOffset: 4,
+    userStringToken: 0x70000001,
+    literalCharacterCount: 25,
+    literalText: "shared-literal-use-marker",
+  }, {
+    moduleVersionId: "00000000-0000-0000-0000-000000000001",
+    methodDefinitionToken: 0x06000002,
+    ilOffset: 8,
+    userStringToken: 0x70000002,
+    literalCharacterCount: 25,
+    literalText: "shared-literal-use-marker two",
+  }];
+  const semanticResult = {
+    candidateOrdinal: 1,
+    packageId: "contoso.package",
+    version: "2.0.0",
+    producer: "nuget.org",
+    selectedAsset,
+    occurrences,
+  };
+  const assemblySemantic = {
+    population: {
+      requestedCandidates: 1,
+      candidates: 1,
+      completion: "ExactPackageComplete" as const,
+      isRequestedPopulationComplete: true,
+      failures: [],
+    },
+    results: [semanticResult],
+    candidateOutcomes: [{
+      kind: "Matched" as const,
+      candidateOrdinal: 1,
+      packageId: "contoso.package",
+      version: "2.0.0",
+      producer: "nuget.org",
+      result: semanticResult,
+      selectedAsset,
+      rootRequest: "opaque-root",
+      notApplicableReason: null,
+      failureKind: null,
+      failureStage: null,
+      nonEvaluationKind: null,
+      timeoutKind: null,
+      timeoutSeconds: null,
+      message: null,
+    }],
+    candidateCount: 1,
+    evaluatedCandidateCount: 1,
+    notEvaluatedCount: 0,
+    matchedPackageCount: 1,
+    occurrenceCount: 2,
+    semanticMissCount: 0,
+    notApplicableCount: 0,
+    failureCount: 0,
+    completion: {
+      population: "ExactPackageComplete" as const,
+      isRequestedPopulationComplete: true,
+      allCandidatesHaveTerminalOutcomes: true,
+      hasFailures: false,
+      isSemanticEvaluationComplete: true,
+      isOperationDeadlineExpired: false,
+    },
+  };
+  return {
+    version: 3,
+    kind: "Succeeded",
+    value: null,
+    inspection: {
+      content: {
+        results: [{
+          packageId: "contoso.package",
+          version: "2.0.0",
+          tier: "Assembly",
+          evidence: [{
+            id: "library-literal",
+            text: "lib/net10.0/Contoso.Package.dll",
+            scope: "Package",
+            summary: {
+              count: 2,
+              preview: ["first occurrence", "second occurrence"],
+            },
+            term: null,
+          }],
+          totalDownloads: null,
+          verified: null,
+          producer: "nuget.org",
+          description: "Matched the decoded library-literal query.",
+          rootRequest: "opaque-root",
+          owners: [],
+          manifest: null,
+        }],
+        failures: [],
+        completion: {
+          prefix: "Contoso.Package",
+          producer: "nuget.org",
+          candidateLimit: 1,
+          matchLimit: 1,
+          candidates: 1,
+          matches: 1,
+          failures: 0,
+          kind: "ExactPackageComplete",
+          sourceCandidates: 1,
+          semanticMisses: 0,
+          notApplicable: 0,
+          scope: "Selected primary implementation libraries only.",
+          occurrences: 2,
+          notEvaluated: 0,
+        },
+        assemblySemantic,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-query/share",
+        reason: "No canonical Workspace packet.",
+      },
+      diagnostics: [],
+    },
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+}
+
+function semanticAssessmentSucceeded(
+  kind: "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated",
+): BrowserPackageQueryResult {
+  const base = semanticSucceeded();
+  if (base.inspection === null
+      || base.inspection.content.assemblySemantic === null) {
+    throw new Error("Expected the semantic test inspection.");
+  }
+  const selectedAsset =
+    base.inspection.content.assemblySemantic.results[0]!.selectedAsset;
+  const outcome: BrowserPackageAssemblySemanticCandidateOutcome = {
+    kind,
+    candidateOrdinal: 1,
+    packageId: "contoso.package",
+    version: "2.0.0",
+    producer: "nuget.org",
+    result: null,
+    selectedAsset: kind === "NotApplicable" || kind === "NotEvaluated"
+      ? null
+      : selectedAsset,
+    rootRequest: kind === "NotEvaluated"
+      ? null
+      : "opaque-root",
+    notApplicableReason: kind === "NotApplicable"
+      ? "NoImplementationCounterpart"
+      : null,
+    failureKind: kind === "Failure" ? "Evaluation" : null,
+    failureStage: kind === "Failure" ? "DecodeMethodBody" : null,
+    nonEvaluationKind: kind === "NotEvaluated"
+      ? "OperationDeadline"
+      : null,
+    timeoutKind: kind === "NotEvaluated" ? "Operation" : null,
+    timeoutSeconds: kind === "NotEvaluated" ? 25 : null,
+    message: `${kind} candidate`,
+  };
+  const notEvaluated = kind === "NotEvaluated" ? 1 : 0;
+  const failureCount = kind === "Failure" ? 1 : 0;
+  const hasOperationDeadline = kind === "NotEvaluated";
+  const semanticMisses = kind === "NoMatch" ? 1 : 0;
+  const notApplicable = kind === "NotApplicable" ? 1 : 0;
+  return {
+    ...base,
+    inspection: {
+      ...base.inspection,
+      content: {
+        ...base.inspection.content,
+        results: [],
+        failures: kind === "Failure"
+          ? [{
+              packageId: "contoso.package",
+              version: "2.0.0",
+              producer: "nuget.org",
+              kind: "AssemblyEvaluation",
+              message: "Failure candidate",
+              manifestFailureReason: null,
+            }]
+          : hasOperationDeadline
+            ? [{
+                packageId: null,
+                version: null,
+                producer: "nuget.org",
+                kind: "Search",
+                message: "The package source operation deadline expired.",
+                manifestFailureReason: null,
+              }]
+            : [],
+        completion: {
+          ...base.inspection.content.completion,
+          matches: 0,
+          failures: failureCount + (hasOperationDeadline ? 1 : 0),
+          semanticMisses,
+          notApplicable,
+          occurrences: 0,
+          notEvaluated,
+        },
+        assemblySemantic: {
+          ...base.inspection.content.assemblySemantic,
+          population: {
+            ...base.inspection.content.assemblySemantic.population,
+            failures: hasOperationDeadline
+              ? [{
+                  candidateOrdinal: null,
+                  packageId: null,
+                  version: null,
+                  authority: "nuget.org",
+                  kind: "Timeout",
+                  message: "The package source operation deadline expired.",
+                  timeoutKind: "Operation",
+                  timeoutSeconds: 25,
+                }]
+              : [],
+          },
+          results: [],
+          candidateOutcomes: [outcome],
+          evaluatedCandidateCount: 1 - notEvaluated,
+          notEvaluatedCount: notEvaluated,
+          matchedPackageCount: 0,
+          occurrenceCount: 0,
+          semanticMissCount: semanticMisses,
+          notApplicableCount: notApplicable,
+          failureCount,
+          completion: {
+            ...base.inspection.content.assemblySemantic.completion,
+            hasFailures: failureCount > 0 || hasOperationDeadline,
+            isSemanticEvaluationComplete: notEvaluated === 0,
+            isOperationDeadlineExpired: notEvaluated > 0,
+          },
+        },
+      },
+    },
   };
 }
 
@@ -173,6 +430,154 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
       }).run(
         request, () => {}, () => {}, () => {}, new AbortController().signal);
     }
+  }
+});
+
+test("Browser source uses progress-only callbacks and terminal semantic Document truth", async () => {
+  const rows: QueryResultRow[][] = [];
+  const failures: string[] = [];
+  const progress: unknown[] = [];
+  const assessments: unknown[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      assert.fail("Library-literal qualification must use its shared operation.");
+    },
+    async runAssemblySemantic(...args) {
+      assert.deepEqual(args.slice(0, 7), [
+        "package-query-operation",
+        "Contoso.Package",
+        "shared-literal-use-marker",
+        "net10.0",
+        1,
+        true,
+        20,
+      ]);
+      const eventSink: unknown = args[7];
+      if (typeof eventSink !== "object" || eventSink === null)
+        throw new Error("Expected Package Query event sink.");
+      Reflect.set(eventSink, "event", JSON.stringify({
+        kind: "Progress",
+        row: null,
+        failure: null,
+        completion: null,
+        progress: {
+          phase: "Assembly",
+          completed: 1,
+          limit: 1,
+        },
+        assessment: null,
+      }));
+      return semanticSucceeded();
+    },
+  };
+  const request = {
+    ...withLibraryLiteralDraft(
+      createQueryRequest("Contoso.Package"),
+      "shared-literal-use-marker",
+      "net10.0"),
+    includePrerelease: true,
+  };
+
+  const completion = await createBrowserPackageQueryDataSource(engine, {
+    createOperationId: () => "package-query-operation",
+  }).run(
+    request,
+    page => rows.push([...page]),
+    failure => failures.push(failure),
+    item => progress.push(item),
+    new AbortController().signal,
+    assessment => assessments.push(assessment));
+
+  assert.deepEqual(rows.map(page => page.map(row => ({
+    packageId: row.packageId,
+    tier: row.tier,
+    rootRequest: row.rootRequest,
+    occurrenceCount: row.evidence[0].summary?.count,
+  }))), [[{
+    packageId: "contoso.package",
+    tier: "assembly",
+    rootRequest: "opaque-root",
+    occurrenceCount: 2,
+  }]]);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(progress, [{
+    phase: "assembly",
+    completed: 1,
+    limit: 1,
+  }]);
+  assert.deepEqual(assessments, []);
+  assert.deepEqual(completion, {
+    kind: "library-literal",
+    population: "ExactPackageComplete",
+    candidateCount: 1,
+    evaluatedCandidateCount: 1,
+    notEvaluatedCount: 0,
+    matchedPackageCount: 1,
+    occurrenceCount: 2,
+    semanticMissCount: 0,
+    notApplicableCount: 0,
+    failureCount: 0,
+    complete: true,
+  });
+});
+
+test("Browser source preserves typed semantic non-match, applicability, failure, and deadline outcomes", async () => {
+  for (const kind of [
+    "NoMatch",
+    "NotApplicable",
+    "Failure",
+    "NotEvaluated",
+  ] as const) {
+    const assessments: unknown[] = [];
+    const failures: string[] = [];
+    const engine: BrowserPackageQueryEngine = {
+      ...defaultControls,
+      async run() {
+        assert.fail("Library-literal qualification must use its shared operation.");
+      },
+      async runAssemblySemantic() {
+        return semanticAssessmentSucceeded(kind);
+      },
+    };
+
+    const completion = await createBrowserPackageQueryDataSource(engine).run(
+      withLibraryLiteralDraft(
+        createQueryRequest("Contoso.Package"),
+        "shared-literal-use-marker",
+        "net10.0"),
+      () => {},
+      failure => failures.push(failure),
+      () => {},
+      new AbortController().signal,
+      assessment => assessments.push(assessment));
+
+    assert.deepEqual(assessments, [{
+      packageId: "contoso.package",
+      version: "2.0.0",
+      disposition: kind,
+      message: `${kind} candidate`,
+      assetPath:
+        kind === "NoMatch" || kind === "Failure"
+          ? "lib/net10.0/Contoso.Package.dll"
+          : null,
+      rootRequest: kind === "NotEvaluated" ? null : "opaque-root",
+    }]);
+    assert.equal(
+      failures.length,
+      kind === "Failure" || kind === "NotEvaluated" ? 1 : 0);
+    assert.equal(completion.kind, "library-literal");
+    if (completion.kind !== "library-literal")
+      throw new Error("Expected library-literal completion.");
+    assert.equal(completion.semanticMissCount, kind === "NoMatch" ? 1 : 0);
+    assert.equal(
+      completion.notApplicableCount,
+      kind === "NotApplicable" ? 1 : 0);
+    assert.equal(completion.failureCount, kind === "Failure" ? 1 : 0);
+    assert.equal(
+      completion.notEvaluatedCount,
+      kind === "NotEvaluated" ? 1 : 0);
+    assert.equal(completion.complete, kind !== "NotEvaluated");
   }
 });
 

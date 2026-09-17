@@ -20,6 +20,10 @@ export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
+  onLibraryLiteralInput: (
+    operand: string,
+    targetFramework: string,
+  ) => void;
   onTermAdd?: (termKey: string) => void;
   onTermApply?: (
     index: number | null,
@@ -60,6 +64,8 @@ export type PackageQueryFocusSnapshot =
   | { kind: "run" }
   | { kind: "results" }
   | { kind: "prerelease" }
+  | { kind: "library-literal" }
+  | { kind: "library-tfm" }
   | { kind: "facet"; facetKey: string }
   | { kind: "term-add"; termKey: string }
   | {
@@ -147,6 +153,12 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
+  if (active.id === "package-query-library-literal") {
+    return { kind: "library-literal" };
+  }
+  if (active.id === "package-query-library-tfm") {
+    return { kind: "library-tfm" };
+  }
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
   }
@@ -212,6 +224,12 @@ export function restorePackageQueryFocus(
       break;
     case "prerelease":
       target = root.querySelector(`#package-query-${snapshot.kind}`);
+      break;
+    case "library-literal":
+      target = root.querySelector("#package-query-library-literal");
+      break;
+    case "library-tfm":
+      target = root.querySelector("#package-query-library-tfm");
       break;
     case "facet":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
@@ -314,6 +332,15 @@ export function bindPackageQueryView(
   prerelease?.addEventListener("change", () => actions.onSourceChange({
     includePrerelease: prerelease.checked,
   }, prefixInput()?.value ?? ""));
+  const literal = root.querySelector<HTMLInputElement>(
+    "#package-query-library-literal");
+  const targetFramework = root.querySelector<HTMLInputElement>(
+    "#package-query-library-tfm");
+  const updateLibraryLiteral = () => actions.onLibraryLiteralInput(
+    literal?.value ?? "",
+    targetFramework?.value ?? "");
+  literal?.addEventListener("input", updateLibraryLiteral);
+  targetFramework?.addEventListener("input", updateLibraryLiteral);
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
   const reportResultPressure = () => {
@@ -424,10 +451,24 @@ function renderRow(
 ): string {
   const evidence = row.evidence
     .filter(item => item.scope === "package")
-    .map(item => `<li>${escapeHtml(item.text)}</li>`)
+    .map(item => {
+      const summary = item.summary;
+      if (!summary) return `<li>${escapeHtml(item.text)}</li>`;
+      const preview = summary.preview
+        .map(value => `<li>${escapeHtml(value)}</li>`)
+        .join("");
+      return `<li>
+        ${escapeHtml(item.text)}
+        <p>Showing ${summary.preview.length.toLocaleString()} of ${summary.count.toLocaleString()} occurrences.</p>
+        ${preview ? `<ul>${preview}</ul>` : ""}
+      </li>`;
+    })
     .join("");
+  const rootRequest = row.rootRequest === undefined
+    ? ""
+    : ` data-query-root-request="${escapeHtml(row.rootRequest)}"`;
   const openAction =
-    `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>`;
+    `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}"${rootRequest}>Open in workspace</button>`;
   return `
     <article class="query-row"
       role="listitem"
@@ -656,6 +697,8 @@ function renderCompletionFooter(
           : "all matches"
         : completion.kind === "exact"
           ? "exact package selection complete"
+        : completion.kind === "library-literal"
+          ? `${completion.matchedPackageCount.toLocaleString()} matching package${completion.matchedPackageCount === 1 ? "" : "s"} · ${completion.occurrenceCount.toLocaleString()} occurrence${completion.occurrenceCount === 1 ? "" : "s"}`
         : completion.kind === "failed"
           ? `failed: ${escapeHtml(completion.reason)}`
           : "cancelled";
@@ -668,6 +711,39 @@ function renderCompletionFooter(
       <span>${outcome.rows.length} ${resultLabel} · ${label}</span>
       ${cancelButton}
     </div>`;
+}
+
+function renderLibraryLiteralControls(
+  request: QueryRequest,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const active = request.libraryLiteral.operand.trim().length > 0;
+  return `
+    <details class="query-library-literal"${active ? " open" : ""}>
+      <summary>Library literal</summary>
+      <p>Qualify the selected packages by decoded <code>ldstr</code> use in each package's primary implementation library.</p>
+      <label for="package-query-library-literal">
+        <span>Decoded literal contains</span>
+        <input
+          id="package-query-library-literal"
+          type="text"
+          value="${escapeHtml(request.libraryLiteral.operand)}"
+          placeholder="Unexpected end when reading JSON"
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      <label for="package-query-library-tfm">
+        <span>Target framework</span>
+        <input
+          id="package-query-library-tfm"
+          type="text"
+          value="${escapeHtml(request.libraryLiteral.targetFramework)}"
+          placeholder="net10.0"
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      <p class="query-facet-disclosure">Literal qualification is exclusive with facets and terms and evaluates at most five prefix candidates.</p>
+    </details>`;
 }
 
 function renderPackageOptions(request: QueryRequest): string {
@@ -776,6 +852,14 @@ function renderEmptyState(
           : "The exact package lookup completed without a matching result."} No fallback search was used.</p>
       </section>`;
   }
+  if (completion.kind === "library-literal") {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">◇</span>
+        <h2>No matching package libraries</h2>
+        <p>The selected primary implementation libraries produced no package Result. Candidate outcomes remain listed above.</p>
+      </section>`;
+  }
   if (state.outcome.failures.length) {
     return `
       <section class="query-empty">
@@ -828,7 +912,13 @@ function renderAssessments(
       <p>These outcomes cover only each package's selector-issued primary implementation assembly, not the whole package.</p>
       <ul>${state.outcome.assessments.map(assessment => `
         <li>
-          <strong>${escapeHtml(assessment.packageId)}@${escapeHtml(assessment.version)} · ${assessment.disposition === "NoMatch" ? "No match" : "Not applicable"}</strong>
+          <strong>${escapeHtml(assessment.packageId)}@${escapeHtml(assessment.version)} · ${assessment.disposition === "NoMatch"
+            ? "No match"
+            : assessment.disposition === "NotApplicable"
+              ? "Not applicable"
+              : assessment.disposition === "Failure"
+                ? "Failed"
+                : "Not evaluated"}</strong>
           <span>${escapeHtml(assessment.message)}</span>
           ${assessment.assetPath
             ? `<span>Selected assembly: ${escapeHtml(assessment.assetPath)}</span>`
@@ -925,7 +1015,11 @@ export function renderPackageQueryView(
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
-  const terms = renderTermControls(state, availableTerms, escapeHtml);
+  const libraryLiteralActive =
+    request.libraryLiteral.operand.trim().length > 0;
+  const terms = libraryLiteralActive
+    ? `<p class="query-facet-disclosure">Terms are unavailable while Library literal qualification is active.</p>`
+    : renderTermControls(state, availableTerms, escapeHtml);
 
   return `
     <div class="query-page">
@@ -956,10 +1050,13 @@ export function renderPackageQueryView(
         <div class="query-layout">
           <aside class="query-facet-rail" aria-label="Package query controls">
             ${renderPackageOptions(request)}
+            ${renderLibraryLiteralControls(request, escapeHtml)}
             ${terms}
             <h2>Inspection facets</h2>
-            <p>Changes rerun the selected input; blank package input stays idle.</p>
-            <div class="query-facets">${facets}</div>
+            <p>${libraryLiteralActive
+              ? "Facets are unavailable while Library literal qualification is active."
+              : "Changes rerun the selected input; blank package input stays idle."}</p>
+            <div class="query-facets">${libraryLiteralActive ? "" : facets}</div>
             <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
             <p class="query-facet-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-facet-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>

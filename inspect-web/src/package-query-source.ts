@@ -3,6 +3,8 @@ import type {
   BrowserPackageQueryFacetDescriptor,
   BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyAssessment,
+  BrowserPackageAssemblySemanticCandidateOutcome,
+  BrowserPackageAssemblySemanticDocument,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
   BrowserPackageQueryInspection,
@@ -22,7 +24,10 @@ import type {
   QueryTermDescriptor,
   TerminalQueryCompletion,
 } from "./package-query.ts";
-import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
+import {
+  isLibraryLiteralQuery,
+  PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+} from "./package-query.ts";
 
 export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
 
@@ -56,12 +61,13 @@ export interface BrowserPackageQueryEngine {
     initialMatchCredit: number,
     eventSink: unknown,
   ): Promise<BrowserPackageQueryResult>;
-  runAssembly?(
+  runAssemblySemantic?(
     operationId: string,
-    patternId: string,
+    packageInput: string,
     operand: string,
-    packageCoordinatesJson: string,
     targetFramework: string,
+    maximumCandidates: number,
+    includePrerelease: boolean,
     initialMatchCredit: number,
     eventSink: unknown,
   ): Promise<BrowserPackageQueryResult>;
@@ -237,20 +243,30 @@ export function createBrowserPackageQueryDataSource(
         engine.cancel(operationId, cancellationReason(abortSignal.reason));
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const result = await engine.run(
-          operationId,
-          request.scopeQuery,
-          JSON.stringify(request.facets.map(facet => facet.key)),
-          JSON.stringify(request.terms.map(term => ({
-            key: term.descriptor.key,
-            operator: term.operator,
-            value: term.value,
-          }))),
-          request.requestedLimit,
-          request.requestedMatchLimit,
-          request.includePrerelease,
-          PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-          eventSink);
+        const result = isLibraryLiteralQuery(request)
+          ? await requireAssemblySemanticRunner(engine)(
+              operationId,
+              request.scopeQuery,
+              request.libraryLiteral.operand,
+              request.libraryLiteral.targetFramework,
+              request.requestedLimit,
+              request.includePrerelease,
+              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+              eventSink)
+          : await engine.run(
+              operationId,
+              request.scopeQuery,
+              JSON.stringify(request.facets.map(facet => facet.key)),
+              JSON.stringify(request.terms.map(term => ({
+                key: term.descriptor.key,
+                operator: term.operator,
+                value: term.value,
+              }))),
+              request.requestedLimit,
+              request.requestedMatchLimit,
+              request.includePrerelease,
+              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+              eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
         if (result.version === 3
@@ -292,6 +308,24 @@ export function createBrowserPackageQueryDataSource(
           throw new TypeError(
             "The Browser package-query result did not contain its inspection envelope.");
         }
+        if (isLibraryLiteralQuery(request)) {
+          const semantic = result.inspection.content.assemblySemantic;
+          if (semantic === null) {
+            throw new TypeError(
+              "The Browser library-literal result omitted its semantic Document.");
+          }
+          const rows = result.inspection.content.results.map(toQueryRow);
+          if (rows.length > 0) onPage(rows);
+          for (const failure of result.inspection.content.failures)
+            onFailure(formatFailure(failure));
+          for (const outcome of semantic.candidateOutcomes) {
+            const assessment = toSemanticAssessment(outcome);
+            if (assessment) onAssessment?.(assessment);
+          }
+          completion = toSemanticCompletion(semantic);
+          onInspection(result.inspection);
+          return completion;
+        }
         const finalEvent: BrowserPackageQueryEventPayload = {
           kind: "Completed",
           row: null,
@@ -332,6 +366,16 @@ export function createBrowserPackageQueryDataSource(
       }
     },
   };
+}
+
+function requireAssemblySemanticRunner(
+  engine: BrowserPackageQueryEngine,
+): NonNullable<BrowserPackageQueryEngine["runAssemblySemantic"]> {
+  if (engine.runAssemblySemantic === undefined) {
+    throw new Error(
+      "The Browser package-query engine does not expose library-literal qualification.");
+  }
+  return engine.runAssemblySemantic.bind(engine);
 }
 
 function cancellationReason(reason: unknown): string {
@@ -629,7 +673,7 @@ function parseAssessment(value: unknown): BrowserPackageAssemblyAssessment {
     version: stringValue(
       assessment.version,
       "package-query assessment version"),
-    disposition: assessmentDispositionValue(assessment.disposition),
+    disposition: browserAssessmentDispositionValue(assessment.disposition),
     message: stringValue(
       assessment.message,
       "package-query assessment message"),
@@ -743,6 +787,12 @@ function parseCompletion(value: unknown): BrowserPackageQueryCompletionPayload {
     scope: optionalNullableStringValue(
       completion.scope,
       "package-query completion scope"),
+    occurrences: optionalNullableNumberValue(
+      completion.occurrences,
+      "package-query occurrence count"),
+    notEvaluated: optionalNullableNumberValue(
+      completion.notEvaluated,
+      "package-query not-evaluated count"),
     kind: completionKindValue(completion.kind),
   };
 }
@@ -1005,6 +1055,14 @@ function assessmentDispositionValue(
     `Unknown package-query assessment disposition '${String(value)}'.`);
 }
 
+function browserAssessmentDispositionValue(
+  value: unknown,
+): Extract<BrowserPackageAssemblyAssessment["disposition"], string> {
+  if (value === "NoMatch" || value === "NotApplicable") return value;
+  throw new TypeError(
+    `Unknown Browser package-query assessment disposition '${String(value)}'.`);
+}
+
 function toQueryAssessment(
   assessment: BrowserPackageAssemblyAssessment,
 ): QueryAssemblyAssessment {
@@ -1016,6 +1074,100 @@ function toQueryAssessment(
     assetPath: assessment.assetPath,
     rootRequest: assessment.rootRequest,
   };
+}
+
+function toSemanticAssessment(
+  outcome: BrowserPackageAssemblySemanticCandidateOutcome,
+): QueryAssemblyAssessment | null {
+  if (outcome.kind === "Matched") return null;
+  switch (outcome.kind) {
+    case "NoMatch":
+      return {
+        packageId: outcome.packageId,
+        version: outcome.version,
+        disposition: "NoMatch",
+        message: outcome.message
+          ?? "The package candidate produced no matching Result.",
+        assetPath: outcome.selectedAsset?.path ?? null,
+        rootRequest: outcome.rootRequest,
+      };
+    case "NotApplicable":
+      return {
+        packageId: outcome.packageId,
+        version: outcome.version,
+        disposition: "NotApplicable",
+        message: outcome.message
+          ?? "The package candidate produced no matching Result.",
+        assetPath: outcome.selectedAsset?.path ?? null,
+        rootRequest: outcome.rootRequest,
+      };
+    case "Failure":
+      return {
+        packageId: outcome.packageId,
+        version: outcome.version,
+        disposition: "Failure",
+        message: outcome.message
+          ?? "The package candidate produced no matching Result.",
+        assetPath: outcome.selectedAsset?.path ?? null,
+        rootRequest: outcome.rootRequest,
+      };
+    case "NotEvaluated":
+      return {
+        packageId: outcome.packageId,
+        version: outcome.version,
+        disposition: "NotEvaluated",
+        message: outcome.message
+          ?? "The package candidate produced no matching Result.",
+        assetPath: outcome.selectedAsset?.path ?? null,
+        rootRequest: outcome.rootRequest,
+      };
+    default:
+      throw new TypeError(
+        `Unknown package assembly-semantic outcome '${String(outcome.kind)}'.`);
+  }
+}
+
+function toSemanticCompletion(
+  document: BrowserPackageAssemblySemanticDocument,
+): TerminalQueryCompletion {
+  if (document.results.length !== document.matchedPackageCount
+    || document.candidateOutcomes.length !== document.candidateCount) {
+    throw new TypeError(
+      "The Browser package assembly-semantic Document does not match its accounting.");
+  }
+  return {
+    kind: "library-literal",
+    population: semanticPopulationCompletion(
+      document.completion.population),
+    candidateCount: document.candidateCount,
+    evaluatedCandidateCount: document.evaluatedCandidateCount,
+    notEvaluatedCount: document.notEvaluatedCount,
+    matchedPackageCount: document.matchedPackageCount,
+    occurrenceCount: document.occurrenceCount,
+    semanticMissCount: document.semanticMissCount,
+    notApplicableCount: document.notApplicableCount,
+    failureCount: document.failureCount,
+    complete: document.completion.isRequestedPopulationComplete
+      && document.completion.allCandidatesHaveTerminalOutcomes
+      && document.completion.isSemanticEvaluationComplete,
+  };
+}
+
+function semanticPopulationCompletion(
+  value: BrowserPackageAssemblySemanticDocument["completion"]["population"],
+): Extract<TerminalQueryCompletion, { kind: "library-literal" }>["population"] {
+  switch (value) {
+    case "ExactPackageComplete":
+    case "PrefixExhausted":
+    case "CandidateLimitReached":
+    case "SourcePageLimitReached":
+    case "ClientPageLimitReached":
+    case "SourceFailed":
+      return value;
+    default:
+      throw new TypeError(
+        `Unknown package assembly-semantic population completion '${String(value)}'.`);
+  }
 }
 
 function formatFailure(failure: BrowserPackageQueryFailurePayload): string {

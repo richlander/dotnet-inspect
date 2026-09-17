@@ -290,6 +290,36 @@ function packageQueryRequest(
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
     includePrerelease,
+    libraryLiteral: {
+      operand: "",
+      targetFramework: "net10.0",
+    },
+  };
+}
+
+function packageAssemblySemanticQueryRequest(
+  searchText: string,
+  operand: string,
+  targetFramework: string,
+  maximumCandidates: number,
+  includePrerelease: boolean,
+  initialMatchCredit: number,
+): QueryRequest {
+  if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
+    throw new Error(
+      `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
+  }
+  return {
+    scopeQuery: searchText,
+    facets: [],
+    terms: [],
+    requestedLimit: maximumCandidates,
+    requestedMatchLimit: maximumCandidates,
+    includePrerelease,
+    libraryLiteral: {
+      operand,
+      targetFramework,
+    },
   };
 }
 
@@ -437,6 +467,7 @@ export function bindPackageQueryFacade(
   EngineClient["package"],
   | "cancelPackageQuery"
   | "requestPackageQueryMatches"
+  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
@@ -578,6 +609,29 @@ export function bindPackageQueryFacade(
           termsJson,
           maximumCandidates,
           maximumMatches,
+          includePrerelease,
+          initialMatchCredit,
+        ),
+        eventSink,
+      );
+    },
+    runPackageAssemblySemanticQuery(
+      operationId,
+      searchText,
+      operand,
+      targetFramework,
+      maximumCandidates,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) {
+      return run(
+        operationId,
+        packageAssemblySemanticQueryRequest(
+          searchText,
+          operand,
+          targetFramework,
+          maximumCandidates,
           includePrerelease,
           initialMatchCredit,
         ),

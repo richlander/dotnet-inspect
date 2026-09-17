@@ -50,8 +50,10 @@ interface QueryTerm {
 }
 
 const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
+const DEFAULT_QUERY_MATCH_LIMIT = 100;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
+export const PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT = 5;
 const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
@@ -59,11 +61,17 @@ export interface QuerySourceSelection {
   includePrerelease: boolean;
 }
 
+export interface LibraryLiteralQuery {
+  operand: string;
+  targetFramework: string;
+}
+
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   terms: readonly QueryTerm[];
+  libraryLiteral: LibraryLiteralQuery;
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
    * "States"), not this field directly — a real source is expected to keep
@@ -81,8 +89,12 @@ export function createQueryRequest(
     includePrerelease: false,
     facets: [],
     terms: [],
+    libraryLiteral: {
+      operand: "",
+      targetFramework: "net10.0",
+    },
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
-    requestedMatchLimit: 100,
+    requestedMatchLimit: DEFAULT_QUERY_MATCH_LIMIT,
   };
 }
 
@@ -105,6 +117,33 @@ export function withScopeQuery(
   scopeQuery: string,
 ): QueryRequest {
   return queryRequest(request, { scopeQuery });
+}
+
+export function isLibraryLiteralQuery(request: QueryRequest): boolean {
+  return request.libraryLiteral.operand.trim().length > 0;
+}
+
+export function withLibraryLiteralDraft(
+  request: QueryRequest,
+  operand: string,
+  targetFramework: string,
+): QueryRequest {
+  const wasActive = isLibraryLiteralQuery(request);
+  const active = operand.trim().length > 0;
+  return queryRequest(request, {
+    facets: active ? [] : request.facets,
+    terms: active ? [] : request.terms,
+    libraryLiteral: {
+      operand,
+      targetFramework,
+    },
+    requestedLimit: !active && wasActive
+      ? queryCandidateLimit(request.facets, request.terms)
+      : request.requestedLimit,
+    requestedMatchLimit: !active && wasActive
+      ? DEFAULT_QUERY_MATCH_LIMIT
+      : request.requestedMatchLimit,
+  });
 }
 
 export function withEditorDraft(
@@ -139,7 +178,14 @@ function withFacets(
 ): QueryRequest {
   return queryRequest(request, {
     facets,
+    libraryLiteral: {
+      ...request.libraryLiteral,
+      operand: "",
+    },
     requestedLimit: queryCandidateLimit(facets, request.terms),
+    requestedMatchLimit: isLibraryLiteralQuery(request)
+      ? DEFAULT_QUERY_MATCH_LIMIT
+      : request.requestedMatchLimit,
   });
 }
 
@@ -157,15 +203,29 @@ function queryRequest(
   request: QueryRequest,
   changes: Partial<QueryRequest>,
 ): QueryRequest {
-  return {
+  const updated = {
     scopeQuery: request.scopeQuery,
     includePrerelease: request.includePrerelease,
     facets: request.facets,
     terms: request.terms,
+    libraryLiteral: request.libraryLiteral,
     requestedLimit: request.requestedLimit,
     requestedMatchLimit: request.requestedMatchLimit,
     ...changes,
   };
+  if (isLibraryLiteralQuery(updated)) {
+    const requestedLimit = updated.scopeQuery.trim().endsWith("*")
+      ? PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT
+      : 1;
+    return {
+      ...updated,
+      facets: [],
+      terms: [],
+      requestedLimit,
+      requestedMatchLimit: requestedLimit,
+    };
+  }
+  return updated;
 }
 
 export function toggleFacet(
@@ -194,7 +254,14 @@ export function withTerm(
   const terms = [...request.terms, { descriptor, operator, value }];
   return queryRequest(request, {
     terms,
+    libraryLiteral: {
+      ...request.libraryLiteral,
+      operand: "",
+    },
     requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedMatchLimit: isLibraryLiteralQuery(request)
+      ? DEFAULT_QUERY_MATCH_LIMIT
+      : request.requestedMatchLimit,
   });
 }
 
@@ -209,7 +276,14 @@ export function replaceTerm(
     termIndex === index ? { ...term, operator, value } : term);
   return queryRequest(request, {
     terms,
+    libraryLiteral: {
+      ...request.libraryLiteral,
+      operand: "",
+    },
     requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedMatchLimit: isLibraryLiteralQuery(request)
+      ? DEFAULT_QUERY_MATCH_LIMIT
+      : request.requestedMatchLimit,
   });
 }
 
@@ -221,7 +295,14 @@ export function withoutTerm(
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
   return queryRequest(request, {
     terms,
+    libraryLiteral: {
+      ...request.libraryLiteral,
+      operand: "",
+    },
     requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedMatchLimit: isLibraryLiteralQuery(request)
+      ? DEFAULT_QUERY_MATCH_LIMIT
+      : request.requestedMatchLimit,
   });
 }
 
@@ -262,10 +343,10 @@ export interface QueryResultRow {
 export interface QueryAssemblyAssessment {
   packageId: string;
   version: string;
-  disposition: "NoMatch" | "NotApplicable";
+  disposition: "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated";
   message: string;
   assetPath: string | null;
-  rootRequest: string;
+  rootRequest: string | null;
 }
 
 export type QueryCompletion =
@@ -282,6 +363,25 @@ export type TerminalQueryCompletion =
   | { kind: "bounded"; reason: string }
   | { kind: "exhausted" }
   | { kind: "exact" }
+  | {
+      kind: "library-literal";
+      population:
+        | "ExactPackageComplete"
+        | "PrefixExhausted"
+        | "CandidateLimitReached"
+        | "SourcePageLimitReached"
+        | "ClientPageLimitReached"
+        | "SourceFailed";
+      candidateCount: number;
+      evaluatedCandidateCount: number;
+      notEvaluatedCount: number;
+      matchedPackageCount: number;
+      occurrenceCount: number;
+      semanticMissCount: number;
+      notApplicableCount: number;
+      failureCount: number;
+      complete: boolean;
+    }
   | { kind: "cancelled" }
   | { kind: "failed"; reason: string };
 

@@ -21,6 +21,7 @@ import {
   initialQueryState,
   withCompletion,
   withFacet,
+  withLibraryLiteralDraft,
   withTerm,
   type PackageQueryState,
   type QueryFacetTerm,
@@ -138,6 +139,7 @@ test("package options retain prerelease without Gallery controls", () => {
       availableFacets: FACETS,
       escapeHtml,
     });
+
     assert.match(html, /<h2>Package options<\/h2>/);
     assert.match(html, /id="package-query-prerelease"/);
     assert.match(html, /<h2>Inspection facets<\/h2>/);
@@ -161,6 +163,59 @@ test("package options retain prerelease without Gallery controls", () => {
     html,
     /id="package-query-prerelease" type="checkbox" checked/);
   assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facets</h2>"));
+});
+
+test("library-literal mode renders exclusive controls and bounded occurrence evidence", () => {
+  const request = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.Package"),
+    "shared-literal-use-marker",
+    "net10.0");
+  const result: QueryResultRow = {
+    ...row("Contoso.Package"),
+    tier: "assembly",
+    rootRequest: "opaque-root",
+    evidence: [{
+      id: "library-literal",
+      text: "lib/net10.0/Contoso.Package.dll",
+      scope: "package",
+      summary: {
+        count: 5,
+        preview: ["first", "second", "third"],
+      },
+    }],
+  };
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: withCompletion(appendRows(emptyOutcome(), [result]), {
+        kind: "library-literal",
+        population: "ExactPackageComplete",
+        candidateCount: 1,
+        evaluatedCandidateCount: 1,
+        notEvaluatedCount: 0,
+        matchedPackageCount: 1,
+        occurrenceCount: 5,
+        semanticMissCount: 0,
+        notApplicableCount: 0,
+        failureCount: 0,
+        complete: true,
+      }),
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(html, /<summary>Library literal<\/summary>/);
+  assert.match(html, /value="shared-literal-use-marker"/);
+  assert.match(html, /value="net10\.0"/);
+  assert.match(html, /Showing 3 of 5 occurrences/);
+  assert.match(html, /1 matching package · 5 occurrences/);
+  assert.match(html, /data-query-root-request="opaque-root"/);
+  assert.match(html, /Facets are unavailable while Library literal qualification is active/);
+  assert.match(html, /Terms are unavailable while Library literal qualification is active/);
+  assert.doesNotMatch(html, /data-query-facet=/);
+  assert.doesNotMatch(html, /data-query-term-add=/);
 });
 
 test("active terms render above the product-issued available-term palette", () => {
@@ -1197,6 +1252,7 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
     onFacetToggle: key => calls.push(`facet:${key}`),
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
     onResultViewportChange: () => calls.push("viewport"),
@@ -1217,6 +1273,40 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     "open:A:1.0.0",
     "facet:tfm-out-of-support",
     "cancel",
+  ]);
+});
+
+test("bindPackageQueryView forwards library-literal and target-framework edits", () => {
+  const root = new FakeRoot();
+  const literal = new FakeElement({}, "package-query-library-literal");
+  const targetFramework =
+    new FakeElement({}, "package-query-library-tfm");
+  root.add("#package-query-library-literal", literal);
+  root.add("#package-query-library-tfm", targetFramework);
+  const calls: string[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onLibraryLiteralInput: (...args) => calls.push(args),
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+  });
+
+  literal.value = "marker";
+  targetFramework.value = "net9.0";
+  literal.dispatch("input");
+  targetFramework.value = "net10.0";
+  targetFramework.dispatch("input");
+
+  assert.deepEqual(calls, [
+    ["marker", "net9.0"],
+    ["marker", "net10.0"],
   ]);
 });
 
@@ -1244,6 +1334,7 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1294,6 +1385,7 @@ test("assembly row binding forwards the exact opaque Root request", () => {
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1324,6 +1416,7 @@ test("prerelease changes forward the selection and current unmodified package te
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => assert.fail("source controls are not inspection facets"),
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1366,6 +1459,7 @@ test("query form submits package text without a Gallery action", () => {
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1412,6 +1506,7 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
+    onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
     onResultViewportChange: () => { viewportChanges++; },
@@ -1457,6 +1552,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
       onBack: () => {},
       onCancel: () => {},
       onFacetToggle: () => {},
+      onLibraryLiteralInput: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },
       onResultViewportChange: () => {},

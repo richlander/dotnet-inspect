@@ -43,6 +43,7 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
+  | "queryPackageRoot"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -775,6 +776,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackage"]>
       ) => facades.package.queryPackage(...args),
     ),
+    queryPackageRoot: valueOperation(
+      "ordinary-package-query-package-root",
+      1,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageRoot"]>
+      ) => facades.package.queryPackageRoot(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1224,6 +1233,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,
+      ),
+      queryPackageRoot: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageRoot,
       ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,

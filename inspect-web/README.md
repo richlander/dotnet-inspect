@@ -1345,15 +1345,20 @@ bounds rather than claiming globally exhaustive coverage. The route keeps
 request and result state in the current session rather than in the URL; a
 direct load starts with empty package input.
 
-The **Assembly patterns** disclosure is a separate explicit mode. Select
-**IL string literal contains**, enter one to five exact `ID@VERSION` packages,
-an unchanged literal operand, and a framework group. The shared evaluator
-searches only each selector-issued primary implementation assembly, not every
-assembly or the raw string heap. Semantic misses, unavailable roles, and
-failures remain distinct. **Open in workspace** passes the owner's exact Root
-request and reacquires under current source authorization; it does not retain
-the query candidate in the Workspace cache. RID selection and ecosystem-wide
-candidate discovery are outside this first assembly-pattern gesture.
+The collapsed **Library literal** disclosure is a separate explicit mode.
+Enter an exact package ID or terminal-star prefix in the ordinary query bar,
+an unchanged decoded-literal operand, and a framework group. Exact input
+resolves the latest eligible listed version; prefix input admits at most five
+candidates. The shared evaluator searches only each selector-issued primary
+implementation assembly, not every assembly or the raw string heap. Semantic
+misses, unavailable roles, failures, and deadline non-evaluation remain
+distinct. The callback sink carries progress only; the returned
+`InspectionEnvelope<PackageAssemblySemanticQueryDocument>` carries package
+Results, occurrence evidence, candidate outcomes, failures, and completion.
+**Open in workspace** passes the owner's exact Root request and reacquires
+under current source authorization; it does not reconstruct the Root from
+display text. RID selection and ecosystem-wide candidate discovery remain
+outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
@@ -1382,11 +1387,11 @@ The same harness's **Package Activity website over real Wasm** scenario enters
 the dedicated `/activity` route directly and through Spotlight, refreshes it,
 and exercises Back/Forward before validating progressive report publication.
 
-The same harness's **Assembly Package Query website over real Wasm** scenario
-uses the cataloged `analysis.string-literals` fixture to exercise all four
-dispositions and exact reopening from the real `/query` page. Run just that
-scenario with
-`eng/test-inspect-web-package-adoption-gate.sh --grep 'Assembly Package Query website'`.
+The same harness's library-literal Package Query scenario uses the cataloged
+`analysis.string-literals` fixture to verify the package Result, bounded
+occurrence preview, and exact Root reopening from the real `/query` page. Run
+just that scenario with
+`eng/test-inspect-web-package-adoption-gate.sh --grep 'qualifies package Results by decoded library literal'`.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass

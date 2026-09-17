@@ -125,6 +125,9 @@ const healthyAssembly = locateFixtureAssembly(
 const brokenReferenceAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
 );
+const literalAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
+);
 const libraryDiffV1Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
 );
@@ -214,6 +217,14 @@ const joinCoordinate: FixtureCoordinate = {
   version,
   archive: healthyArchive,
 };
+const literalCoordinate: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.Literals",
+  version,
+  archive: healthyNupkg(
+    literalAssembly,
+    "ILInspector.Analysis.Fixtures.dll",
+  ),
+};
 const scopeCoordinates: readonly FixtureCoordinate[] = Array.from(
   { length: 5 },
   (_unused, index) => ({
@@ -282,6 +293,7 @@ const allFixtures: readonly FixtureCoordinate[] = [
   occurrenceOne,
   occurrenceTwo,
   joinCoordinate,
+  literalCoordinate,
   references,
   manifestOnly,
   libraryDiffV1,
@@ -756,6 +768,44 @@ function deferred<T>(): Deferred<T> {
 }
 
 test.describe("Package Query website over real Wasm", () => {
+  test("qualifies package Results by decoded library literal and opens the exact Root", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([literalCoordinate]);
+    await installGalleryRoutes(context, registry);
+
+    await page.goto("/query");
+    const packageInput = page.locator("#package-query-prefix");
+    await expect(packageInput).toBeVisible({ timeout: 120_000 });
+    await packageInput.fill(literalCoordinate.packageId);
+    await page.locator(".query-library-literal summary").click();
+    await page.locator("#package-query-library-literal")
+      .fill("shared-literal-use-marker");
+    await page.locator("#package-query-library-tfm").fill(fixtureFramework);
+    await page.locator("#package-query-run").click();
+
+    await expect(page.locator(".query-row h2"))
+      .toHaveText(
+        [literalCoordinate.packageId.toLowerCase()],
+        { timeout: 30_000 });
+    await expect(page.locator(".query-evidence"))
+      .toContainText("Showing 2 of 2 occurrences.");
+    await expect(page.locator(".query-footer"))
+      .toContainText("1 matching package · 2 occurrences");
+    const open = page.locator("[data-query-row-open]");
+    await expect(open).toHaveAttribute(
+      "data-query-root-request",
+      /.+/);
+    await open.click();
+    await expect(page.locator(".query-main")).toHaveCount(0);
+    await expect(page).not.toHaveURL(
+      /\/query(?:[?#]|$)/,
+      { timeout: 30_000 });
+    expect(registry.downloadCount(literalCoordinate))
+      .toBeGreaterThanOrEqual(1);
+  });
+
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
     const workers: Worker[] = [];
     page.on("worker", worker => workers.push(worker));
