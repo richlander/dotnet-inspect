@@ -45,6 +45,16 @@ public static partial class CatalogExports
             result,
             BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
     }
+
+    [JSExport]
+    public static string CanonicalizeWorkspaceSharePacket(string encoded)
+    {
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.Canonicalize(encoded);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
+    }
 }
 }
 
@@ -170,6 +180,77 @@ namespace DotnetInspect.Web.Interop.Catalog
             catch (ArgumentException ex)
             {
                 return InvalidState(ex.Message);
+            }
+        }
+
+        internal static BrowserWorkspaceShareEncodeResult Canonicalize(
+            string encoded)
+        {
+            ArgumentNullException.ThrowIfNull(encoded);
+            try
+            {
+                WorkspaceSharePacket packet =
+                    WorkspaceSharePacketCodec.Decode(encoded);
+                if (packet.FormatVersion is not (
+                    WorkspaceSharePacketCodec.Format2Version
+                    or WorkspaceSharePacketCodec.CurrentFormatVersion))
+                {
+                    return new BrowserWorkspaceShareEncodeResult(
+                        Succeeded: false,
+                        Packet: null,
+                        Failure: new BrowserWorkspaceShareFailure(
+                            "UnsupportedFormat",
+                            "packet",
+                            $"Browser Workspace packet transposition does not support format {packet.FormatVersion}."));
+                }
+
+                CommittedScenarioDefinitionSet definitions =
+                    WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                        packet);
+                WorkspaceSharePacketProjectionResult projection =
+                    WorkspaceSharePacketTransposer.ToPacket(definitions);
+                if (!projection.Succeeded)
+                {
+                    WorkspaceSharePacketProjectionFailure failure =
+                        projection.Failure
+                        ?? throw new InvalidOperationException(
+                            "A failed Workspace share projection requires a failure.");
+                    return new BrowserWorkspaceShareEncodeResult(
+                        Succeeded: false,
+                        Packet: null,
+                        Failure: new BrowserWorkspaceShareFailure(
+                            failure.Kind.ToString(),
+                            failure.Path,
+                            failure.Message));
+                }
+
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: true,
+                    WorkspaceSharePacketCodec.Encode(
+                        projection.Packet
+                        ?? throw new InvalidOperationException(
+                            "A successful Workspace share projection requires a packet.")),
+                    Failure: null);
+            }
+            catch (WorkspaceSharePacketException ex)
+            {
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: false,
+                    Packet: null,
+                    Failure: new BrowserWorkspaceShareFailure(
+                        ex.Kind.ToString(),
+                        "packet",
+                        ex.Message));
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: false,
+                    Packet: null,
+                    Failure: new BrowserWorkspaceShareFailure(
+                        "InvalidDefinitionSet",
+                        "packet",
+                        ex.Message));
             }
         }
 

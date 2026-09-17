@@ -29,11 +29,97 @@ CLI and Browser/Wasm hosts then converge on the same SourceHouse contract.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
-The current implementation basis is `AssemblyContextSourceQuery`, which
+The current production implementation is `AssemblyContextSourceQuery`, which
 resolves an exact member or type, attempts PDB-mapped source, and falls back to
-`MemberBodyProducer`. `PdbSourceHouse` currently owns PDB-specific source
-candidate ordering and checksum verification. These are migration evidence,
-not the target public composition boundary.
+`CSharpDecompilerService`. `PdbSourceHouse` currently owns PDB-specific source
+candidate ordering; SourceLinkService owns checksum verification and decoding.
+These are migration evidence, not the target public composition boundary.
+
+### Authored settlement delivery
+
+The adapter-first implementation begins with an explicitly named
+authored-only, supplied-PDB operation, tracked by
+[#7356](https://github.com/richlander/dotnet-inspect/issues/7356).
+It does not expose an incomplete
+best-available default, decompiled demand, or external PDB-acquisition option.
+Its supported input and lifetime are the exact Library, selected assembly
+content, target and transferred operation lease defined below.
+
+The implemented entry point is `SourceHouse.ExecuteAuthoredAsync`. Its
+detached request evidence explicitly records `AuthoredOnly` and
+`LibraryCompanionOrEmbeddedOnly`; those names describe this supported
+operation, not the full future policy matrix below.
+
+This operation uses an applicable supplied companion or embedded Portable PDB.
+SourceHouse composes owner-issued document and member/type mapping evidence
+with explicit host-authorized source-content capabilities. It attempts local,
+then repository, then remote candidates, preserving declared order within
+each category. Missing capabilities do not grant ambient filesystem or
+network access. A rejected, unavailable or failed candidate remains visible
+beside any later success; exhausting candidates must not flatten a failure
+into authoritative absence.
+
+The House verifies candidate bytes through SourceLinkService and uses
+CSharpText for member slicing. An authored member requires a vouched
+declaration; a type result retains its primary-document scope, mapping
+strength and possible partiality rather than claiming a complete declaration.
+Embedded PDB interpretation does not by itself promise embedded source-text
+retrieval.
+
+The operation's finite bounds cover detached assembly and PDB bytes,
+SourceLink mapping/document work, candidate attempts, source bytes/text and
+deadline. A boundary that prevents authoritative settlement returns
+`Incomplete`, not empty or partial success. Host capabilities receive the
+applicable bound; the House also checks returned content before interpreting
+it. These are logical operation bounds, not a process-RSS ceiling. The current
+SourceLink document and target-mapping APIs materialize their result before
+the House can inspect its count. The corresponding limits bound acceptance
+and retained House evidence, not producer enumeration or peak allocation;
+assembly/PDB and SourceLink-map byte bounds still apply before that work.
+Source-byte and decoded-character charges accumulate across attempted
+candidates; slicing does not replace the cost of decoding a whole document.
+Embedded-PDB expansion uses the stricter House and SourceLink limit, with
+expanded or limit-rejected declared bytes retained as work evidence.
+
+SourceHouse finishes reader-backed mapping before asynchronous source
+retrieval. Results retain detached mapping and attempt evidence, never the
+operation plan, capability, producer reader or transferred lease. Lease
+settlement is recorded only after disposal; cancellation remains cancellation
+after owned cleanup.
+
+Deadline expiry must cooperatively stop an outstanding source read and settle
+`Incomplete` after its owned cleanup. Checking the clock only after retrieval
+returns is insufficient: a stalled, cancellation-aware source must not require
+unrelated caller cancellation to release the operation. Caller cancellation
+remains distinct from deadline expiry.
+Absence of a supplied/embedded PDB, a correlated source document, or available
+source content does not exempt completed work from the deadline. Expiry before
+absence settlement returns `Incomplete` with its retained evidence. Empty
+source-capability plans follow the same rule.
+
+An unreadable SourceLink map or rejection of the selected document's mapping
+remains producer failure evidence when it prevents authorized remote-source
+resolution. Unrelated usable entries do not clear that document's rejection,
+and unrelated rejected entries do not invalidate a resolved document.
+If no permitted candidate succeeds, the relevant failure cannot become
+authoritative `Unavailable`. Independently usable local
+or repository source may still succeed, retaining the map's diagnostic; an
+optional URL-map failure does not invalidate otherwise authoritative local-only
+settlement.
+
+This is the settlement-core portion of step 5. The public `PdbSourceHouse`
+retirement obligation remains open until shared source-query adoption replaces
+its callers. The three-delivery adapter-first path and overall twelve-step
+plan below still require both CLI and Browser/Wasm consumers of a shared
+completed `InspectionEnvelope<TContent>` API.
+
+The motivating real repository input for this delivery is
+[`richlander/dotnet-inspect`](https://github.com/richlander/dotnet-inspect):
+inspect its compiled `CSharpText.MemberSlicing` assembly, matching Portable PDB
+and actual `MemberTextSlicer.cs` source. This permits an offline,
+pathless-content success case with real method/type mappings, alongside
+checksum rejection and lease-retirement cases. The Platform `System.Text.Json`
+scenario below remains the broader production-adoption motivation.
 
 ## Authority and exact claim
 
@@ -659,6 +745,14 @@ Library input for later House adoption; it does not complete step 9's broader
 adoption or the source-query and host migrations. The twelve steps and both
 production hosts remain in scope.
 
+The immediate delivery path is the merged adapter in
+[#7313](https://github.com/richlander/dotnet-inspect/pull/7313), the authored
+settlement core in #7356, and shared source-query adoption through a completed
+`InspectionEnvelope<TContent>` for CLI and Browser/Wasm. The latter delivery
+retires only the legacy composition it actually replaces; unimplemented
+acquisition/decompiler modes and remaining callers stay tracked by the steps
+above.
+
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse
 implementation remains staged behind the Library contract floor, concrete
@@ -666,6 +760,32 @@ owner, and producer adoption in #6621; this document does not claim those
 implementation steps are complete.
 
 ## Evidence plan
+
+### Implemented authored-delivery gate
+
+Run `dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release`.
+The suite runs in the ordinary CI contracts shard. The calibrated native-mapping
+deadline regression is tagged `Speed=Slow` under the repository's isolated-time
+threshold and remains included in this focused pre-merge gate; the other cases
+are PR-fast. It covers both a mapped partial type and an unmapped enum in the
+real SourceLinkService assembly, retaining document work to distinguish
+post-mapping expiry from earlier stops.
+
+| Property | Named cases |
+| --- | --- |
+| Exact real member, ordered candidates, checksum gate and detached receipt | `RealRepositoryMember_OrdersCapabilitiesAndReturnsExactSlice`, `ChecksumRejectionExhaustion_IsUnavailableWithAttemptEvidence` |
+| Primary-document scope and real multi-file type partiality | `RealRepositoryPartialType_ReturnsPrimaryAndAdditionalDocuments` |
+| Embedded PDB use and bounded expansion accounting | `EmbeddedPdb_ReturnsSourceAndChargesExpandedBytes`, `EmbeddedPdb_UsesStricterHouseLimitAndChargesDeclaredBytes` |
+| Correspondence rejection versus producer uncertainty | `ForeignLease_IsRejectedAndSettled`, `MismatchedClaimedPdb_RejectsOwnerCorrespondence`, `ExactTargetMismatch_IsRejected`, `TargetMissingUnderInspectionFailure_IsFailedNotRejected` |
+| Candidate-local failure and retained incomplete evidence | `CapabilityFailures_AreRetainedAndLaterCandidateCanSucceed`, `FiniteBoundary_ReturnsIncomplete`, `CandidateAttemptBoundary_PreservesMappingAndEarlierAttempt`, `SourceByteBoundary_PreservesRejectedAttemptAndObservedBytes`, `DeadlineAfterCapability_RecordsCompletedAttemptAndWork` |
+| Cooperative deadline settlement, empty capabilities after mapping, final checksum rejection, exception parity and long finite deadlines | `DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete`, `DeadlineDuringMappingWithoutCapabilities_IsIncomplete`, `DeadlineDuringFinalChecksumRejection_IsIncomplete`, `LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete`, `DeadlineBeyondSingleTimerRange_CanCompleteNormally` |
+| SourceLink-map failure relevance and successful independent fallback | `UnusableSourceLinkMap_RemoteExhaustionIsFailed`, `UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed`, `UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable`, `PartiallyUsableSourceLinkMap_PreservesDocumentFailure` |
+| Transferred ownership and detached outcomes | `NullRequest_StillSettlesTransferredLease`, `CancellationDuringCapability_SettlesLease`, `UnexpectedCapabilityException_PropagatesAfterSettlement`, `OwnerAndArtifactRetirement_DrainIssuedOperation`, `PublicOutcomeClosureRetainsNoLiveAuthority` |
+
+These cases gate the authored-only delivery, not production-host parity,
+external PDB acquisition or decompiled fallback.
+
+### Remaining full-composition evidence
 
 The implementation slices must provide Release gates for:
 
@@ -683,8 +803,8 @@ The implementation slices must provide Release gates for:
   invalid owner-issued input correspondence rejects the whole request;
 - an issued Library lease remaining usable when owner retirement begins, while
   issuance after retirement fails visibly;
-- no borrowed content or Library authority crossing `await` or entering a
-  result or receipt;
+- no borrowed content crossing `await`, and no live Library authority entering
+  a result or receipt;
 - authored type results retaining mapping strength, source-unit scope, and
   partiality without claiming a complete declaration;
 - checksum-rejected source never becoming available;
@@ -697,6 +817,6 @@ The implementation slices must provide Release gates for:
 - dependency-policy enforcement that keeps SourceLink and Decompiler
   independent beneath SourceHouse.
 
-This specification itself makes no implementation-level safety, soundness, or
-faithfulness claim. Those claims remain unverified until their named Release
-gates land in the corresponding implementation slices.
+Beyond the named authored-delivery gate above, these full-composition claims
+remain unverified until their Release gates land in the corresponding
+implementation slices.

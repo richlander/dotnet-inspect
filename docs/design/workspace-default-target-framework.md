@@ -25,10 +25,9 @@ Adjacent owners retain their authority:
   `PackageDependencyGroupsQuery` owns group selection.
 - [Package dependency traversal](package-dependency-traversal.md) owns graph
   traversal, preservation of owner-issued dependency evidence, and completion.
-- [Realized package participant and dependency-evidence
-  association](https://github.com/richlander/dotnet-inspect/issues/7401) owns
-  the composition between one physical source participant and its selected
-  dependency evidence.
+- [Realized package dependency context](realized-package-dependency-context.md)
+  owns the composition between one physical source participant and its
+  selected dependency evidence.
 - [Target-framework selection across dependency
   realization](https://github.com/richlander/dotnet-inspect/issues/6424) owns
   correspondence from an exact edge target to realized package assets.

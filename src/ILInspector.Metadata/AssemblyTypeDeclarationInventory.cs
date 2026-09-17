@@ -296,6 +296,8 @@ public static class AssemblyTypeDeclarationInventoryReader
         var declarations = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
         var names = new HashSet<MetadataTypeDefinitionName>();
         int meaningfulPublicTypeCount = 0;
+        MetadataVisibilityClassification visibility =
+            MetadataVisibility.ClassifyAll(reader);
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
             TypeDefinition definition = reader.GetTypeDefinition(handle);
@@ -327,7 +329,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 read.Name, AssemblyTypeDeclarationKind.Definition,
                 GetDefinitionKind(reader, definition),
                 definition.IsPublic,
-                IsPublicDefinition(reader, handle),
+                visibility.IsExternallyVisible(handle),
                 AttributeReader.ReadTypeDiscoveryAttributes(
                     reader, definition.GetCustomAttributes())));
         }
@@ -404,19 +406,6 @@ public static class AssemblyTypeDeclarationInventoryReader
                 AssemblyTypeDefinitionKind.Delegate,
             _ => AssemblyTypeDefinitionKind.Class,
         };
-    }
-
-    static bool IsPublicDefinition(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        // The structured-name reader already validated this bounded chain.
-        while (!handle.IsNil)
-        {
-            TypeDefinition definition = reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic)
-                return false;
-            handle = definition.GetDeclaringType();
-        }
-        return true;
     }
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected DuplicateDeclaration() =>

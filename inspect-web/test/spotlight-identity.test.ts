@@ -3616,7 +3616,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryCatalogError =\s*`Package-query vocabulary is unavailable/);
   assert.match(
     appSource,
-    /try \{\s*const catalog =\s*packageQueryCatalog\(await engineClient\.package\.listPackageQueryCatalog\(\)\);\s*state\.packageQueryFacets = catalog\.facets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{[\s\S]*state\.packageQueryFacets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
+    /try \{\s*const catalog =\s*packageQueryCatalog\(await engineClient\.package\.listPackageQueryCatalog\(\)\);\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{[\s\S]*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.match(
     appSource,
     /function applyPackageQueryTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);

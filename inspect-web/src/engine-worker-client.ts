@@ -217,7 +217,6 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 
 function packageQueryRequest(
   searchText: string,
-  facetIdsJson: string,
   termsJson: string,
   maximumCandidates: number,
   maximumMatches: number,
@@ -228,17 +227,6 @@ function packageQueryRequest(
     throw new Error(
       `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
   }
-  const rawFacetIds: unknown = JSON.parse(facetIdsJson);
-  if (!Array.isArray(rawFacetIds)) {
-    throw new TypeError("Package Query facet IDs must be a JSON string array.");
-  }
-  const facetIds = rawFacetIds.map((value: unknown) => {
-    if (typeof value !== "string") {
-      throw new TypeError(
-        "Package Query facet IDs must be a JSON string array.");
-    }
-    return value;
-  });
   const rawTerms: unknown = JSON.parse(termsJson);
   if (!Array.isArray(rawTerms)) {
     throw new TypeError(
@@ -266,11 +254,7 @@ function packageQueryRequest(
   });
   return {
     scopeQuery: searchText,
-    facets: facetIds.map(key => ({
-      key,
-      label: key,
-      tier: "nuspec",
-    })),
+    presets: [],
     terms: terms.map(term => {
       return {
         descriptor: {
@@ -562,7 +546,6 @@ export function bindPackageQueryFacade(
     runPackageQuery(
       operationId,
       searchText,
-      facetIdsJson,
       termsJson,
       maximumCandidates,
       maximumMatches,
@@ -574,7 +557,6 @@ export function bindPackageQueryFacade(
         operationId,
         packageQueryRequest(
           searchText,
-          facetIdsJson,
           termsJson,
           maximumCandidates,
           maximumMatches,

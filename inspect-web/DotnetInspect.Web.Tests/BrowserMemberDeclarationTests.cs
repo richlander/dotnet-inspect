@@ -144,11 +144,15 @@ public sealed class BrowserMemberDeclarationTests
                 PackagePair(image),
                 fromCache: false));
 
-        string surfaceJson =
+        string loadJson =
             await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
                 PackageId,
                 Version,
                 Framework);
+        using JsonDocument loadDocument = JsonDocument.Parse(loadJson);
+        string surfaceJson = loadDocument.RootElement
+            .GetProperty("surface")
+            .GetRawText();
         using JsonDocument surfaceDocument = JsonDocument.Parse(surfaceJson);
 
         JsonElement spellingType = Type(surfaceDocument.RootElement, SpellingType);

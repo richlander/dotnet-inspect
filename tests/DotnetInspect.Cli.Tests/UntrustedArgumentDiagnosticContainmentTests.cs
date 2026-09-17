@@ -85,6 +85,9 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             // Command-time failures that quote the offending argument.
             data.Add("select-miss", ["library", library, "-S", hostile]);
             data.Add("il-offset", ["library", library, "--il-offset", hostile]);
+            data.Add(
+                "coordinate",
+                ["library", "coordinate", hostile, "--library", library]);
             data.Add("order-by", ["library", library, "--order-by", hostile]);
             data.Add("where", ["library", library, "--where", hostile]);
 
