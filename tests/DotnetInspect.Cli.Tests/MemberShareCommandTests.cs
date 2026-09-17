@@ -398,7 +398,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MemberShare_RejectsLegacyLineWindowBeforeScalarOutput()
+    public async Task MemberShare_InvalidRowSelectionReportsRowDiagnostic()
     {
         var result = await RunAppAsync(
             "member",
@@ -418,7 +418,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "cannot be combined with other output formatting or projection options",
+            "-n requires a positive whole number",
             result.Error);
     }
 }

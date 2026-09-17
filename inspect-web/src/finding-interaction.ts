@@ -96,6 +96,14 @@ export function createMemberFindingInteraction(
       "Facts and Annotated Source do not carry the same Finding instance keys.",
     );
   }
+  for (const evidence of census.annotatedSource.findingEvidence) {
+    if (factIdByInstanceKey.get(evidence.instanceKey) !== evidence.factId
+      || instanceKeyByFactId.get(evidence.factId) !== evidence.instanceKey) {
+      throw new TypeError(
+        "Annotated Source callee evidence carries a mismatched Finding identity.",
+      );
+    }
+  }
 
   return {
     census,

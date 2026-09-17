@@ -66,6 +66,9 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static int InvocationDestinationTarget(int value) => value;
 
+    public static int CalleeEvidenceProbe(int value) =>
+        PerformanceStackAllocProbe(value);
+
     public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
         new(bytes);
 

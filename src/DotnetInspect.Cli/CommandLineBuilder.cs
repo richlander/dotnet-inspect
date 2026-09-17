@@ -29,6 +29,9 @@ public static class CommandLineBuilder
     /// </summary>
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
+    public static bool LineWindowExplicitlySet =>
+        ArgumentPreprocessor.LineWindowExplicitlySet;
+
     /// <summary>
     /// Returns whether the parsed route owns <c>-n</c> as a typed item limit rather
     /// than delegating it to the host's rendered-line writer.
@@ -354,7 +357,7 @@ public static class CommandLineBuilder
                 optionValueFailure);
 
         bool usesCombinedFailurePrecedence =
-            rowSelection.IsAdopted
+            rowSelection.HasRequest
             || executionBound.IsActive;
         if (usesCombinedFailurePrecedence
             && SelectFirstCategoryOneFailure(
@@ -400,9 +403,10 @@ public static class CommandLineBuilder
 
             ArgumentPreprocessor.SetLineWindow(
                 headLines,
-                tailLines);
+                tailLines,
+                explicitlySet: true);
         }
-        else if (!rowSelection.IsActive)
+        else if (!rowSelection.IsAdopted)
         {
             ApplyParsedLineWindow(parseResult, rawArgs);
             headLines = HeadLines;
@@ -1150,12 +1154,6 @@ public static class CommandLineBuilder
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
         => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
-
-    /// <summary>
-    /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
-    /// Delegates to <see cref="CommandLineHelpers.ParseTypeLimit"/> for backward compatibility.
-    /// </summary>
-    internal static int? ParseTypeLimit(string? value) => CommandLineHelpers.ParseTypeLimit(value);
 
     /// <summary>
     /// Classifies a positional argument by file extension.

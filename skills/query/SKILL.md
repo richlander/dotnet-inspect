@@ -316,9 +316,10 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines on commands that
-  have not adopted semantic rows, like `head`.
-- `--tail` takes the same count from the end, like `tail`.
+- `-n N` and numeric shorthand like `-6` select semantic rows on commands
+  that declare them. Other commands reject `-n` alone.
+- Add `--lines` for the first N rendered lines or `--tail-lines` for the last
+  N. `--lines --tail` is equivalent to `--tail-lines`.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.
@@ -332,10 +333,11 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-`find`, `package query`, package `--versions` / `--versions-with-feed`, and
-`demo list` use semantic rows. `-n N` selects complete items. Package version
-listings and `demo list` also accept `-n N --lines` to clip rendered lines.
-`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
-`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range. On `package query`, `--take N` separately bounds package work
-before semantic row selection.
+`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`timeline`, `package query`, package activity, package `--versions` /
+`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
+complete items; `-n N --lines` instead clips rendered output. Where supported,
+`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
+stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
+`package query`, `--take N` separately bounds package work before semantic row
+selection.
