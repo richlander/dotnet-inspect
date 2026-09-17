@@ -474,7 +474,10 @@ Deleting the active definition follows one of two paths:
   successful selection commit. Failure preserves the old active definition and
   realization.
 - Without a successor, Inspect Web removes the definition, closes the active
-  coordinator realization, and enters the explicit no-Workspace state.
+  coordinator realization, and enters the explicit no-Workspace state. A
+  terminal cleanup failure keeps its failed settlement charged and visible but
+  cannot preserve active presentation or selection after managed authority has
+  been removed. A rejection before deactivation begins preserves the incumbent.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.

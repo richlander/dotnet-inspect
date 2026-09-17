@@ -79,6 +79,10 @@ internal abstract record BrowserRetainedWorkspaceDeactivationResult
         WorkspaceRealizationSettlement Settlement)
         : BrowserRetainedWorkspaceDeactivationResult;
 
+    internal sealed record CleanupFailed(
+        WorkspaceRealizationSettlement Settlement)
+        : BrowserRetainedWorkspaceDeactivationResult;
+
     internal sealed record NoEffect
         : BrowserRetainedWorkspaceDeactivationResult;
 
@@ -309,19 +313,21 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                 ReferenceEquals(
                     candidate.Realization,
                     activeRealization));
+        WorkspaceRealizationSettlement? failedSettlement =
+            report.Capacity.FailedSettlements.FirstOrDefault();
         lock (_gate)
         {
             _deactivating = false;
-            if (report.Capacity.FailedSettlements.IsEmpty && !_closing)
+            if (failedSettlement is null && !_closing)
                 _host = _hostFactory();
-            else if (!report.Capacity.FailedSettlements.IsEmpty)
+            else if (failedSettlement is not null)
                 _cleanupFailed = true;
         }
-        return report.Capacity.FailedSettlements.IsEmpty
+        return failedSettlement is null
             ? new BrowserRetainedWorkspaceDeactivationResult.Deactivated(
                 settlement)
-            : new BrowserRetainedWorkspaceDeactivationResult.Rejected(
-                "The active Workspace could not be settled.");
+            : new BrowserRetainedWorkspaceDeactivationResult.CleanupFailed(
+                failedSettlement);
     }
 
     internal async Task<BrowserRetainedWorkspaceSettlementResult>

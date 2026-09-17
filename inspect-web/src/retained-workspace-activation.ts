@@ -351,6 +351,16 @@ export function createRetainedWorkspaceActivationController(
           activeDefinitionId = null;
           hooks.clear();
           return;
+        case "cleanupFailed":
+          definitions = definitions.filter(
+            definition => definition.id !== retainedDefinitionId,
+          );
+          activeDefinitionId = null;
+          lastFailure = result.settlement?.failure
+            ?? result.message
+            ?? "The active Workspace could not be settled.";
+          hooks.clear();
+          return;
         case "rejected":
           lastFailure = result.message
             ?? "Retained Workspace deactivation was rejected.";

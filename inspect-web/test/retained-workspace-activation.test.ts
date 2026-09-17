@@ -687,6 +687,77 @@ test("deleting the sole active definition drains managed state", async () => {
   assert.equal(fixture.clears(), 1);
 });
 
+test("failed sole-active cleanup clears unavailable presentation and preserves evidence", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "cleanupFailed",
+    settlement: {
+      succeeded: false,
+      reason: "CoordinatorClosed",
+      failure: "Injected cleanup failure.",
+    },
+    message: "The active Workspace could not be settled.",
+  });
+  await deletion;
+
+  assert.deepEqual(fixture.controller.state.definitions, []);
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Injected cleanup failure.",
+  );
+  assert.equal(fixture.clears(), 1);
+});
+
+test("pre-close deactivation rejection preserves active presentation", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "rejected",
+    settlement: null,
+    message: "Deactivation did not begin.",
+  });
+  await deletion;
+
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [first.id],
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Deactivation did not begin.",
+  );
+  assert.equal(fixture.clears(), 0);
+});
+
 test("sole active deactivation blocks activation and preserves new definitions", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({

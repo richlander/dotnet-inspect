@@ -428,7 +428,7 @@ public sealed record BrowserRetainedWorkspaceActivationResult(
 
 /// <summary>
 /// Active-retained-definition deletion result. Status is <c>deactivated</c>,
-/// <c>noEffect</c>, or <c>rejected</c>.
+/// <c>cleanupFailed</c>, <c>noEffect</c>, or <c>rejected</c>.
 /// </summary>
 public sealed record BrowserRetainedWorkspaceDeactivationResult(
     string Status,

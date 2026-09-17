@@ -187,6 +187,41 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task CleanupFailedDeactivation_RemovesActiveAuthority()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        _ = await ActivateAsync(owner, "a", packet);
+        using (WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, "a"))
+        {
+            RegisterThrowingResource(operation.Workspace);
+        }
+
+        var failed = Assert.IsType<
+            BrowserRetainedWorkspaceDeactivationResult.CleanupFailed>(
+                await owner.DeactivateAsync(
+                    "a",
+                    TestContext.Current.CancellationToken));
+
+        Assert.False(failed.Settlement.Succeeded);
+        Assert.Null(owner.Active);
+        Assert.Single(owner.Capacity.FailedSettlements);
+        Assert.IsType<
+            WorkspaceRealizationOperationAdmission.Unavailable>(
+                await owner.EnterOperationAsync(
+                    "a",
+                    TestContext.Current.CancellationToken));
+        AggregateException cleanup = await Assert.ThrowsAsync<
+            AggregateException>(
+                () => owner.DisposeAsync().AsTask());
+        Assert.IsType<WorkspaceRealizationSettlementException>(
+            Assert.Single(cleanup.InnerExceptions));
+    }
+
+    [Fact]
     public async Task DeactivationDrain_BlocksReplacementHostAdmission()
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();
@@ -391,6 +426,26 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             "Could not locate the repository root.");
     }
 
+    static void RegisterThrowingResource(InspectionWorkspace workspace)
+    {
+        System.Reflection.FieldInfo? groupsField =
+            typeof(InspectionWorkspace).GetField(
+                "_groups",
+                System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(groupsField);
+        var groups = Assert.IsType<List<AssemblyContextGroup>>(
+            groupsField.GetValue(workspace));
+        AssemblyContextGroup group = Assert.Single(groups);
+        System.Reflection.MethodInfo? register =
+            typeof(AssemblyContextGroup).GetMethod(
+                "RegisterOwnedResource",
+                System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(register);
+        _ = register.Invoke(group, [new ThrowingResource()]);
+    }
+
     sealed class RejectingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -398,5 +453,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(
                 $"Unexpected network request: {request.RequestUri}");
+    }
+
+    sealed class ThrowingResource : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException("Injected cleanup failure.");
     }
 }

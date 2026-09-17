@@ -133,6 +133,12 @@ internal static class BrowserRetainedWorkspaceActivationService
                     Settlement(deactivated.Settlement),
                     null),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
+                    .CleanupFailed failed =>
+                new(
+                    "cleanupFailed",
+                    Settlement(failed.Settlement),
+                    "The active Workspace could not be settled."),
+            DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
                     .NoEffect =>
                 new("noEffect", null, null),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
