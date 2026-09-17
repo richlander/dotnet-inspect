@@ -125,6 +125,11 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
+            processed,
+            rootCommand,
+            "library",
+            "coordinate");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -153,6 +158,71 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
+        string[] args,
+        RootCommand rootCommand,
+        string parentName,
+        string childName)
+    {
+        // System.CommandLine treats `--value=` as bare and can consume the child token.
+        if (args.FirstOrDefault() != parentName)
+            return args;
+
+        int childIndex = -1;
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--")
+                return args;
+            if (args[i] == childName)
+            {
+                childIndex = i;
+                break;
+            }
+        }
+        if (childIndex < 0)
+            return args;
+
+        Command? parent = rootCommand.Subcommands.FirstOrDefault(
+            command => command.Name == parentName);
+        if (parent is null)
+            return args;
+
+        List<string>? result = null;
+        for (int i = 1; i < childIndex; i++)
+        {
+            string token = args[i];
+            int separator = token.Length - 1;
+            if (separator <= 0
+                || token[separator] is not ('=' or ':'))
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            string alias = token[..separator];
+            Option? option = parent.Options.FirstOrDefault(
+                candidate =>
+                    candidate.Arity.MaximumNumberOfValues > 0
+                    && (candidate.Name == alias
+                        || candidate.Aliases.Contains(alias)));
+            if (option is null)
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            result ??= [.. args[..i]];
+            result.Add(alias);
+            result.Add("");
+        }
+
+        if (result is null)
+            return args;
+
+        result.AddRange(args[childIndex..]);
+        return [.. result];
     }
 
     private static bool UsesImplicitVersionDirectionPresence(

@@ -2158,6 +2158,32 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(parentPackage, error);
     }
 
+    [Theory]
+    [InlineData("--type=", "-t")]
+    [InlineData("-t:", "-t")]
+    [InlineData("--package=", "--package")]
+    [InlineData("--extract-resources:", "--extract-resources")]
+    public async Task LibraryCoordinateCommand_RejectsInlineEmptyParentValueBeforeAcquisition(
+        string parentOption,
+        string diagnosticOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            parentOption,
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{diagnosticOption} cannot be combined with library coordinate",
+            error);
+    }
+
     [Fact]
     public async Task LibraryCoordinateCommand_RejectsParentOperation()
     {

@@ -1189,6 +1189,37 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--type=")]
+    [InlineData("-t:")]
+    [InlineData("--package=")]
+    [InlineData("--extract-resources:")]
+    public void PreprocessArgs_ExpandsInlineEmptyLibraryParentValueBeforeCoordinate(
+        string option)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [
+                "library",
+                option,
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ]);
+
+        Assert.Equal(
+            [
+                "library",
+                option[..^1],
+                "",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ],
+            result);
+    }
+
+    [Theory]
     [InlineData("--columns=", "--columns", "--columns")]
     [InlineData("--columns", "--columns=", "--columns")]
     [InlineData("--fields=", "--fields", "--fields")]
