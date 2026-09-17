@@ -1199,7 +1199,9 @@ public partial class CommandExecutionTests
             Path.Combine(libDir, "Renamed.dll"));
         File.WriteAllText(
             Path.Combine(libDir, "Text.dll"),
-            "not a managed assembly");
+            "café",
+            new System.Text.UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: true));
 
         string packagePath = Path.Combine(
             tempDir,

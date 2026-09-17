@@ -2,6 +2,7 @@ using DotnetInspector.Packages;
 using NuGetFetch;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace DotnetInspector.Services;
 
@@ -511,6 +512,9 @@ public static class TfmSelector
         if (candidates.Count == 0)
             return new PackageLibraryResolution([], null, PackageLibraryResolutionStatus.NoAssemblies, []);
 
+        var (selected, selectedTfm) =
+            SelectHighestAssemblies(candidates, extractPath, tfm);
+
         if (!string.Equals(
             tfm,
             "all",
@@ -525,7 +529,7 @@ public static class TfmSelector
                 PackageCompileAssetSelector.Select(
                     content,
                     packageId: "package",
-                    tfm);
+                    selectedTfm ?? tfm);
             if (canonicalSelection.Status
                 == PackageCompileAssetSelectionStatus
                     .EmptyCompileGroup)
@@ -538,12 +542,10 @@ public static class TfmSelector
                     GetCandidateLibraries(
                         extractPath,
                         canonicalSelection.TargetFramework
+                            ?? selectedTfm
                             ?? tfm));
             }
         }
-
-        var (selected, selectedTfm) =
-            SelectHighestAssemblies(candidates, extractPath, tfm);
 
         if (selected.Count == 0)
             return new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.NoMatchingTargetFramework, GetCandidateLibraries(extractPath, tfm));
@@ -553,14 +555,6 @@ public static class TfmSelector
                 StringComparer.OrdinalIgnoreCase)
             .SelectMany(group =>
             {
-                if (group.Key is not null
-                    && HasEmptyReferenceGroup(
-                        extractPath,
-                        group.Key))
-                {
-                    return [];
-                }
-
                 string[] referenceAssemblies =
                 [
                     .. group.Where(path =>
@@ -570,6 +564,15 @@ public static class TfmSelector
                                 "ref/",
                                 StringComparison.OrdinalIgnoreCase)),
                 ];
+                if (referenceAssemblies.Length == 0
+                    && group.Key is not null
+                    && HasEmptyReferenceGroup(
+                        extractPath,
+                        group.Key))
+                {
+                    return [];
+                }
+
                 return referenceAssemblies.Length > 0
                     ? referenceAssemblies
                     : group.ToArray();
@@ -636,27 +639,42 @@ public static class TfmSelector
     private static bool IsPlainText(string path)
     {
         Span<byte> buffer = stackalloc byte[512];
+        Span<char> characters = stackalloc char[512];
         try
         {
             using var stream = File.OpenRead(path);
-            int length = stream.Read(buffer);
+            int length = stream.ReadAtLeast(
+                buffer,
+                buffer.Length,
+                throwOnEndOfStream: false);
             if (length == 0)
                 return false;
 
-            foreach (byte value in buffer[..length])
+            var decoder = new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true).GetDecoder();
+            decoder.Convert(
+                buffer[..length],
+                characters,
+                flush: length < buffer.Length,
+                out _,
+                out int charactersUsed,
+                out _);
+            foreach (char value in characters[..charactersUsed])
             {
-                if (value is not (9 or 10 or 13)
-                    && value is < 0x20 or > 0x7e)
+                if (char.IsControl(value)
+                    && value is not ('\t' or '\n' or '\r'))
                 {
                     return false;
                 }
             }
 
-            return true;
+            return charactersUsed > 0;
         }
         catch (Exception exception) when (
             exception is IOException
-                or UnauthorizedAccessException)
+                or UnauthorizedAccessException
+                or DecoderFallbackException)
         {
             return false;
         }

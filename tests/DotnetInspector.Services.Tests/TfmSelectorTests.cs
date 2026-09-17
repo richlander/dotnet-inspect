@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace DotnetInspector.Services.Tests;
 
 public class TfmSelectorTests : IDisposable
@@ -258,7 +260,9 @@ public class TfmSelectorTests : IDisposable
             WriteDll("lib/net8.0/Text.dll");
         File.WriteAllText(
             placeholder,
-            "not a managed assembly");
+            "café",
+            new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: true));
         string packageId =
             typeof(TfmSelectorTests).Assembly.GetName().Name!;
 
@@ -343,6 +347,37 @@ public class TfmSelectorTests : IDisposable
                 .EmptyCompileGroup,
             defaultResult.Status);
         Assert.Equal("net8.0", defaultResult.Tfm);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_EmptyGroupForLowerTfmDoesNotSuppressNestedHigherTfm()
+    {
+        var nested =
+            WriteDll("lib/net8.0/x64/Implementation.dll");
+        WriteDll("lib/net6.0/Fallback.dll");
+        WriteDll("ref/net6.0/_._");
+
+        var result =
+            TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([nested], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_AllTfmsPrefersReferenceAssemblyOverEmptyMarker()
+    {
+        var reference =
+            WriteDll("ref/net8.0/Reference.dll");
+        WriteDll("ref/net8.0/_._");
+
+        var result = TfmSelector.SelectPackageLibraries(
+            _tempDir,
+            "all");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([reference], result.Paths);
     }
 
     [Fact]
