@@ -61,7 +61,7 @@ export interface QuerySourceSelection {
   includePrerelease: boolean;
 }
 
-export interface LibraryLiteralQuery {
+interface LibraryLiteralQuery {
   operand: string;
   targetFramework: string;
 }
