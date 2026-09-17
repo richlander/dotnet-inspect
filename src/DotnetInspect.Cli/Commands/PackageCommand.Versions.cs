@@ -69,40 +69,27 @@ public partial class PackageCommand
 
         using var requestScope = RequestTelemetry.Scope($"package {packageId}", "package versions");
         await using DesktopPackageSourceComposition composition = context.CreatePackageSourceComposition();
-        PackageVersionDiscoveryResult discovery;
-        string? selectedVersion = null;
         if (latest)
         {
-            PackageHouseResult settlement = await composition.SettleVersionAsync(
-                new PackageVersionSelectionRequest.AlwaysLatest(
-                    packageId, options.IncludePrerelease),
-                options.SourceOptions,
-                context.Logger.Log);
-            if (settlement is not PackageHouseResult.Settled)
-            {
-                WriteVersionSettlementFailure(packageId, packageReference, settlement);
-                return 1;
-            }
-            if (settlement.Decision?.VersionResolution
-                is not PackageVersionResolutionReceipt.Resolved resolved)
-            {
-                throw new InvalidOperationException(
-                    "Latest-version settlement did not retain its resolved version receipt.");
-            }
-            discovery = resolved.Discovery;
-            selectedVersion = resolved.Coordinate.Version;
+            using PackageSourceOperationLease operation = composition.IssueSettlementOperation();
+            InspectionEnvelope<PackageVersionSettlementOutcome> envelope =
+                await PackageVersionSettlementInspection.ExecuteAsync(
+                    new PackageCoordinate(packageId),
+                    composition.CreateSettlementHouse(
+                        packageId, options.SourceOptions, context.Logger.Log),
+                    operation,
+                    options.IncludePrerelease);
+            return WriteVersionSettlement(envelope, packageReference, options);
         }
-        else
-        {
-            discovery = await composition.GetVersionsAsync(
-                packageId,
-                pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
-                options.VersionRowSelection is not null || isRange || pinned
-                    ? null : options.Limit,
-                options.SourceOptions,
-                context.Logger.Log,
-                includeUnlisted: pinned || options.IncludeUnlisted);
-        }
+
+        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
+            packageId,
+            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
+            options.VersionRowSelection is not null || isRange || pinned
+                ? null : options.Limit,
+            options.SourceOptions,
+            context.Logger.Log,
+            includeUnlisted: pinned || options.IncludeUnlisted);
 
         bool requiresCompleteEvidence = isRange
             || (!pinned && options.SingleVersionQuery);
@@ -114,8 +101,6 @@ public partial class PackageCommand
         }
 
         IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
-        if (selectedVersion is not null)
-            listings = [.. listings.Where(row => PackageVersionsEqual(row.Version, selectedVersion))];
         if (pinned)
         {
             listings = [.. listings.Where(row =>
@@ -159,9 +144,18 @@ public partial class PackageCommand
                 [.. discovery.Failures.Select(failure => failure.Message)]);
         }
 
+        return WriteVersionQueryRows(listings, discovery.SourceListings, latest, options);
+    }
+
+    private static int WriteVersionQueryRows(
+        IReadOnlyList<PackageVersionInfo> listings,
+        IReadOnlyList<PackageVersionSourceInfo> sourceListings,
+        bool latest,
+        InspectionOptions options)
+    {
         if (options.ListVersionsWithFeed)
         {
-            var rowsByVersion = discovery.SourceListings.ToLookup(
+            var rowsByVersion = sourceListings.ToLookup(
                 row => row.Version, StringComparer.OrdinalIgnoreCase);
             if (!TrySelectVersionRows(
                     listings.SelectMany(row => rowsByVersion[row.Version]).ToList(),
@@ -197,40 +191,42 @@ public partial class PackageCommand
         return 0;
     }
 
-    private static void WriteVersionSettlementFailure(
-        string packageName,
+    private static int WriteVersionSettlement(
+        InspectionEnvelope<PackageVersionSettlementOutcome> envelope,
         string packageReference,
-        PackageHouseResult result)
+        InspectionOptions options)
     {
-        if (result is PackageHouseResult.NotFound or PackageHouseResult.NoMatch)
+        foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
+            CommandError.WriteWarning(diagnostic.Summary.ToString());
+
+        if (envelope.Content is PackageVersionSettlementOutcome.Settled settled)
+        {
+            return WriteVersionQueryRows(
+                settled.Result.Listings, settled.Result.SourceListings, latest: true, options);
+        }
+
+        if (envelope.Content is not PackageVersionSettlementOutcome.NotSettled notSettled)
+            throw new InvalidOperationException("Unknown package version settlement outcome.");
+        PackageVersionSettlementFailure failure = notSettled.Failure;
+        if (failure.Kind is PackageVersionSettlementFailureKind.NotFound
+            or PackageVersionSettlementFailureKind.NoMatch)
         {
             CommandError.Write($"Package '{packageReference}' not found on eligible configured sources.");
-            return;
+            return 1;
         }
 
-        PackageAuthorityFailure[] failures =
-        [
-            .. result.Evidence.Failures
-                .OfType<PackageHouseFailure.Authority>()
-                .Select(failure => failure.Failure),
-        ];
-        if (failures.Length != 0)
+        if (!failure.AuthorityFailures.IsEmpty)
         {
-            WriteVersionDiscoveryFailure(packageName, failures);
-            return;
+            WriteVersionDiscoveryFailureDetails(
+                failure.Request.PackageId,
+                [.. failure.AuthorityFailures.Select(value => (value.Kind, value.Message.ToString()))]);
+            return 1;
         }
 
-        string reason = result switch
-        {
-            PackageHouseResult.Ambiguous ambiguous => ambiguous.Reason.ToString(),
-            PackageHouseResult.Rejected rejected => rejected.Reason.ToString(),
-            PackageHouseResult.Unavailable unavailable => unavailable.Reason.ToString(),
-            PackageHouseResult.Incomplete incomplete => incomplete.Reason.ToString(),
-            PackageHouseResult.Failed failed => failed.Reason.ToString(),
-            _ => throw new InvalidOperationException(
-                "Version settlement returned an unexpected outcome."),
-        };
-        CommandError.Write($"Package '{packageName}' version discovery failed.", [reason]);
+        CommandError.Write(
+            $"Package '{failure.Request.PackageId}' version discovery failed.",
+            [failure.Reason.ToString()]);
+        return 1;
     }
 
     private static void WriteVersions(
@@ -389,7 +385,13 @@ public partial class PackageCommand
 
     private static void WriteVersionDiscoveryFailure(
         string packageName,
-        IReadOnlyList<PackageAuthorityFailure> failures)
+        IReadOnlyList<PackageAuthorityFailure> failures) =>
+        WriteVersionDiscoveryFailureDetails(
+            packageName, [.. failures.Select(failure => (failure.Kind, failure.Message))]);
+
+    private static void WriteVersionDiscoveryFailureDetails(
+        string packageName,
+        IReadOnlyList<(PackageAuthorityFailureKind Kind, string Message)> failures)
     {
         var kinds = failures
             .Select(failure => failure.Kind)
