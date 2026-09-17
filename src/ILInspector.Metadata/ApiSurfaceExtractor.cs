@@ -1175,6 +1175,14 @@ public static class ApiSurfaceExtractor
                     methodHandle,
                     method,
                     typeNullableContext,
+                    apiType.DefinitionName,
+                    apiType.TypeParameters.Count,
+                    apiType.Kind switch
+                    {
+                        "class" => true,
+                        "struct" => false,
+                        _ => null,
+                    },
                     isExtensionMethod,
                     observeText,
                     observeDecodeWork,
@@ -3833,6 +3841,9 @@ public static class ApiSurfaceExtractor
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
+        MetadataTypeDefinitionName? declaringType = null,
+        int declaringTypeParameterCount = -1,
+        bool? declaringTypeIsReferenceType = null,
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -3986,8 +3997,12 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
-                TypeShape = ApiTypeShapeFactory.FromTypeNode(
-                    paramTypes[i]),
+                MatchesDeclaringType =
+                    DeclaringTypeMatches(
+                        paramTypes[i],
+                        declaringType,
+                        declaringTypeParameterCount,
+                        declaringTypeIsReferenceType),
                 TypeReferences =
                     [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -4064,6 +4079,12 @@ public static class ApiSurfaceExtractor
                 : null,
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeMatchesDeclaringType =
+                DeclaringTypeMatches(
+                    treeSignature.ReturnType,
+                    declaringType,
+                    declaringTypeParameterCount,
+                    declaringTypeIsReferenceType),
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
             ReturnTypeShape =
@@ -5368,8 +5389,6 @@ public static class ApiSurfaceExtractor
                 StructuralType = parameterType.HasStructuralPayload
                     ? parameterType.StructuralIdentity()
                     : null,
-                TypeShape = ApiTypeShapeFactory.FromTypeNode(
-                    parameterType),
                 TypeReferences =
                     [.. parameterType.ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -5383,6 +5402,64 @@ public static class ApiSurfaceExtractor
 
         return (display, models);
     }
+
+    static bool? DeclaringTypeMatches(
+        TypeNode type,
+        MetadataTypeDefinitionName? declaringType,
+        int declaringTypeParameterCount,
+        bool? declaringTypeIsReferenceType)
+    {
+        if (declaringType is null
+            || declaringTypeParameterCount < 0
+            || declaringTypeIsReferenceType is null)
+        {
+            return null;
+        }
+
+        if (declaringTypeParameterCount == 0)
+        {
+            return type is NamedTypeNode named
+                && named.IsReferenceType
+                    == declaringTypeIsReferenceType
+                && DefinitionMatches(
+                    named.MetadataName,
+                    declaringType);
+        }
+
+        if (type is not GenericTypeNode generic
+            || generic.IsReferenceType
+                != declaringTypeIsReferenceType
+            || !DefinitionMatches(
+                generic.MetadataName,
+                declaringType)
+            || generic.Arguments.Length
+                != declaringTypeParameterCount)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < generic.Arguments.Length; index++)
+        {
+            if (generic.Arguments[index] is not GenericParameterNode
+                {
+                    IsMethodParameter: false,
+                    Index: var parameterIndex,
+                }
+                || parameterIndex != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool DefinitionMatches(
+        MetadataTypeNameParts? actual,
+        MetadataTypeDefinitionName expected) =>
+        actual is not null
+            && actual.Namespace == expected.Namespace
+            && actual.Segments.SequenceEqual(expected.Segments);
 
     static void ApplyAccessorStructuralReturns(
         List<ApiAccessor> accessors,

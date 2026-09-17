@@ -589,6 +589,13 @@ public class ApiSignature
     [JsonIgnore]
     public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
 
+    /// <summary>
+    /// Whether the exact return-type signature is the open constructed
+    /// declaring type. Null means this relative identity was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ReturnTypeMatchesDeclaringType { get; set; }
+
     [JsonIgnore]
     public ApiTypeReferenceIdentity? ReturnTypeDefinitionReference
         { get; set; }
@@ -659,12 +666,8 @@ public class ApiParameter
     /// </summary>
     public string? StructuralType { get; set; }
 
-    /// <summary>
-    /// Exact signature shape retained for consumers that must compare a
-    /// parameter type rather than its display spelling or named references.
-    /// </summary>
     [JsonIgnore]
-    public ApiTypeShape? TypeShape { get; set; }
+    public bool? MatchesDeclaringType { get; set; }
 
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }

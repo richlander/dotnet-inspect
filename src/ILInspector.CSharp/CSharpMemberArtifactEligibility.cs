@@ -124,19 +124,13 @@ public static class CSharpMemberArtifactEligibility
         }
 
         bool hasDeclaringOperand = signature.Parameters.Any(
-            parameter => IsOpenConstructedDeclaringType(
-                parameter.TypeShape,
-                type,
-                declaringType));
+            parameter => parameter.MatchesDeclaringType == true);
         if (!hasDeclaringOperand)
             return false;
 
         if (member.Name is "op_Increment" or "op_Decrement")
         {
-            return IsOpenConstructedDeclaringType(
-                signature.ReturnTypeShape,
-                type,
-                declaringType);
+            return signature.ReturnTypeMatchesDeclaringType == true;
         }
 
         if (member.Name is
@@ -145,46 +139,6 @@ public static class CSharpMemberArtifactEligibility
                 or "op_UnsignedRightShift")
         {
             return signature.Parameters[1].Type == "int";
-        }
-
-        return true;
-    }
-
-    static bool IsOpenConstructedDeclaringType(
-        ApiTypeShape? shape,
-        ApiType type,
-        MetadataTypeDefinitionName expected)
-    {
-        if (shape?.Definition?.DefinitionName is not { } actual
-            || actual.Namespace != expected.Namespace
-            || !actual.Segments.SequenceEqual(expected.Segments)
-            || shape.IsValueType != (type.Kind == "struct"))
-        {
-            return false;
-        }
-
-        if (type.TypeParameters.Count == 0)
-            return shape.Kind == ApiTypeShapeKind.Named;
-
-        if (shape.Kind != ApiTypeShapeKind.GenericInstance
-            || shape.DefinitionArityMatchesTypeArguments != true
-            || shape.TypeArguments.Length != type.TypeParameters.Count)
-        {
-            return false;
-        }
-
-        for (int index = 0; index < shape.TypeArguments.Length; index++)
-        {
-            if (shape.TypeArguments[index] is not
-                {
-                    Kind: ApiTypeShapeKind.GenericParameter,
-                    GenericParameterIndex: var parameterIndex,
-                    IsMethodGenericParameter: false,
-                }
-                || parameterIndex != index)
-            {
-                return false;
-            }
         }
 
         return true;
