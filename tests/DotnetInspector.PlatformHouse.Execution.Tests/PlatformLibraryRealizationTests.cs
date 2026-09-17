@@ -509,6 +509,304 @@ public class PlatformLibraryRealizationTests
     }
 
     [Fact]
+    public async Task
+        PopulationArtifactMaterializer_RejectsDuplicateIdentityBeforePublication()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(PlatformLibraryRealizationTests).Assembly.Location,
+            cancellationToken);
+        using var reader = new System.Reflection.PortableExecutable.PEReader(
+            new MemoryStream(content, writable: false));
+        AssemblyReferenceIdentity identity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                reader.GetMetadataReader());
+        int opens = 0;
+        PlatformLibraryArtifactMaterializationItem Item() =>
+            new(
+                contribution,
+                new Provenance("reference"),
+                identity,
+                content.LongLength,
+                _ =>
+                {
+                    opens++;
+                    return new MemoryStream(content, writable: false);
+                });
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies: 2,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: checked(content.LongLength * 2),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
+        var terminal = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
+                await PlatformHousePopulationArtifactMaterializer
+                    .MaterializeReferencesAsync(
+                        request.Request,
+                        [Item(), Item()],
+                        consumed,
+                        "test-platform-population"));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task
+        ReferencePopulationRealizer_TransfersOrderedOwnersAtomically()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    contribution,
+                    typeof(PlatformHousePopulationRealizer)
+                        .Assembly.Location));
+        PlatformPopulationLibraryContentSelection[] selections =
+        [
+            artifacts.PopulationSelection(0),
+            artifacts.PopulationSelection(1),
+        ];
+        ArtifactContentLease[] leases =
+        [
+            artifacts.IssueContentLease(0),
+            artifacts.IssueContentLease(1),
+        ];
+
+        var completed = Assert.IsType<
+            PlatformPopulationRealizationResult.Completed>(
+                await PlatformHousePopulationRealizer
+                    .RealizeReferencesAsync(
+                        request.Request,
+                        selections,
+                        leases,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 2)));
+
+        Assert.Equal(2, completed.Value.Libraries.Count);
+        Assert.Equal(2, completed.Owners.Count);
+        Assert.Same(
+            contribution,
+            Assert.Single(
+                    completed.Receipt.HouseReceipt.SourceSettlements)
+                .Contribution);
+        for (int index = 0; index < completed.Owners.Count; index++)
+        {
+            LibraryReference library =
+                completed.Value.Libraries[index];
+            Assert.Same(library, completed.Owners[index].Reference);
+            Assert.True(
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    selections[index].AssemblyIdentity.Identity,
+                    Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                            library.ApiAssembly.AssemblyIdentity)
+                        .Identity));
+            using LibraryOperationLease operation =
+                Issued(completed.Owners[index], library);
+            Assert.Equal(
+                (byte)'M',
+                operation.Snapshot(
+                    library.ApiAssembly,
+                    static (view, _) => view.Content[0],
+                    cancellationToken));
+        }
+
+        Task artifactRetirement = artifacts.BeginRetirement();
+        Assert.False(artifactRetirement.IsCompleted);
+        await completed.Owners[0].DisposeAsync();
+        Assert.False(artifactRetirement.IsCompleted);
+        await completed.Owners[1].DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        ReferencePopulationRealizer_RetiresPartialOwnerOnInvalidAuthority()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    contribution,
+                    typeof(PlatformHousePopulationRealizer)
+                        .Assembly.Location));
+        ArtifactContentLease first =
+            artifacts.IssueContentLease(0);
+        ArtifactContentLease released =
+            artifacts.IssueContentLease(1);
+        released.Dispose();
+
+        var terminal = Assert.IsType<
+            PlatformPopulationRealizationResult.Terminal>(
+                await PlatformHousePopulationRealizer
+                    .RealizeReferencesAsync(
+                        request.Request,
+                        [
+                            artifacts.PopulationSelection(0),
+                            artifacts.PopulationSelection(1),
+                        ],
+                        [first, released],
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 2)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.Outcome);
+        await artifacts.BeginRetirement().WaitAsync(
+            cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        ReferencePopulationRealizer_RejectsDuplicateIdentityAndCleansLeases()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location));
+
+        var terminal = Assert.IsType<
+            PlatformPopulationRealizationResult.Terminal>(
+                await PlatformHousePopulationRealizer
+                    .RealizeReferencesAsync(
+                        request.Request,
+                        [
+                            artifacts.PopulationSelection(0),
+                            artifacts.PopulationSelection(1),
+                        ],
+                        [
+                            artifacts.IssueContentLease(0),
+                            artifacts.IssueContentLease(1),
+                        ],
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 2)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.Outcome);
+        await artifacts.BeginRetirement().WaitAsync(
+            cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        ReferencePopulationRealizer_IncompleteWorkCleansTransferredLease()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location));
+
+        var terminal = Assert.IsType<
+            PlatformPopulationRealizationResult.Terminal>(
+                await PlatformHousePopulationRealizer
+                    .RealizeReferencesAsync(
+                        request.Request,
+                        [artifacts.PopulationSelection(0)],
+                        [artifacts.IssueContentLease(0)],
+                        Consumed(assemblies: 65)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Incomplete>(
+                    terminal.Outcome);
+        await artifacts.BeginRetirement().WaitAsync(
+            cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        ReferencePopulationRealizer_CancellationCleansTransferredLease()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var request = PopulationRequest(cancellation.Token);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location));
+        ArtifactContentLease lease =
+            artifacts.IssueContentLease(0);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            async () =>
+                await PlatformHousePopulationRealizer
+                    .RealizeReferencesAsync(
+                        request.Request,
+                        [artifacts.PopulationSelection(0)],
+                        [lease],
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 1)));
+
+        await artifacts.BeginRetirement().WaitAsync(
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public void PlatformLibraryCompletedEvidence_IsResourceFree()
     {
         Type[] resourceFree =
@@ -518,6 +816,9 @@ public class PlatformLibraryRealizationTests
             typeof(PlatformLibraryViewCorrespondence),
             typeof(PlatformLibraryRealizationValue),
             typeof(PlatformLibraryRealizationReceipt),
+            typeof(PlatformPopulationLibraryContentSelection),
+            typeof(PlatformPopulationRealizationValue),
+            typeof(PlatformPopulationRealizationReceipt),
             typeof(ArtifactAssemblyProjection),
             typeof(PlatformHouseCompletion.Realization),
             typeof(PlatformHouseReceipt),
@@ -604,6 +905,40 @@ public class PlatformLibraryRealizationTests
             implementation);
     }
 
+    static (
+        PlatformHouseRequest Request,
+        PlatformSourceCapabilityIdentity Reference) PopulationRequest(
+            CancellationToken cancellationToken = default)
+    {
+        PlatformSourceCapabilityIdentity reference =
+            PlatformSourceCapabilityIdentity.Create("reference-pack");
+        return (
+            new PlatformHouseRequest(
+                PlatformHouseRequestIdentity.Create(
+                    "population-request"),
+                new PlatformTargetDemand.Exact(Target()),
+                new PlatformHouseRequestOrigin.Standalone(
+                    PlatformStandaloneOperationIdentity.Create(
+                        "standalone")),
+                new PlatformHouseOperation.Realize(
+                    new PlatformPopulationDemand.CompletePopulation(),
+                    PlatformViewDemand.Reference),
+                new PlatformSourcePlan(
+                    PlatformSourcePlanIdentity.Create(
+                        "population-sources"),
+                    PlatformSourcePolicyGeneration.Create(
+                        "population-generation"),
+                    [
+                        new PlatformSourceSelection(
+                            PlatformSourceFacet.Reference,
+                            PlatformSourceSelectionMode.Precedence,
+                            [reference]),
+                    ]),
+                Work(),
+                cancellationToken),
+            reference);
+    }
+
     static PlatformSourceContribution.Realization Contribution(
         PlatformHouseRequest request,
         PlatformSourceCapabilityIdentity capability,
@@ -617,6 +952,22 @@ public class PlatformLibraryRealizationTests
             ((PlatformTargetDemand.Exact)request.Target).Target,
             PlatformSourceCoordinateIdentity.Create(
                 $"{facet}-coordinate"),
+            ((PlatformHouseOperation.Realize)request.Operation)
+                .Population,
+            PlatformSourceContributionCompleteness.Authoritative);
+
+    static PlatformSourceContribution.Realization PopulationContribution(
+        PlatformHouseRequest request,
+        PlatformSourceCapabilityIdentity capability) =>
+        new(
+            PlatformSourceFacet.Reference,
+            capability,
+            request.Snapshot,
+            PlatformSourceGeneration.Create(
+                "reference-population-generation"),
+            ((PlatformTargetDemand.Exact)request.Target).Target,
+            PlatformSourceCoordinateIdentity.Create(
+                "reference-population-coordinate"),
             ((PlatformHouseOperation.Realize)request.Operation)
                 .Population,
             PlatformSourceContributionCompleteness.Authoritative);
@@ -640,10 +991,11 @@ public class PlatformLibraryRealizationTests
             maxDuration: TimeSpan.FromSeconds(30));
 
     static PlatformHouseConsumedWork Consumed(
+        int sourceOperations = 0,
         int assemblies = 0,
         TimeSpan? elapsed = null) =>
         new(
-            sourceOperations: 0,
+            sourceOperations,
             targetCandidates: 0,
             assemblies,
             xmlDocuments: 0,
@@ -700,6 +1052,10 @@ public class PlatformLibraryRealizationTests
         public PlatformLibraryContentSelection Selection(int index) =>
             new(references[index], projections[index]);
 
+        public PlatformPopulationLibraryContentSelection
+            PopulationSelection(int index) =>
+            new(references[index], projections[index]);
+
         public ArtifactContentLease IssueContentLease(int index)
         {
             ArtifactContentLease lease = session.IssueContentLease(
@@ -723,26 +1079,45 @@ public class PlatformLibraryRealizationTests
 
         public static async Task<ArtifactFixture> CreateAsync(
             params PlatformSourceContribution.Realization[] contributions)
+            =>
+            await CreateCoreAsync(
+                    contributions.Select(
+                            contribution => (
+                                contribution,
+                                typeof(JsonSerializer).Assembly.Location))
+                        .ToArray())
+                .ConfigureAwait(false);
+
+        public static async Task<ArtifactFixture> CreatePopulationAsync(
+            params (
+                PlatformSourceContribution.Realization Contribution,
+                string Path)[] inputs) =>
+            await CreateCoreAsync(inputs).ConfigureAwait(false);
+
+        static async Task<ArtifactFixture> CreateCoreAsync(
+            IReadOnlyList<(
+                PlatformSourceContribution.Realization Contribution,
+                string Path)> inputs)
         {
             CancellationToken cancellationToken =
                 TestContext.Current.CancellationToken;
             var session = new ArtifactSetSession();
             try
             {
-                byte[] content =
-                    await File.ReadAllBytesAsync(
-                        typeof(JsonSerializer).Assembly.Location,
-                        cancellationToken);
-                for (int index = 0; index < contributions.Length; index++)
+                for (int index = 0; index < inputs.Count; index++)
                 {
                     int ordinal = index;
+                    byte[] content =
+                        await File.ReadAllBytesAsync(
+                            inputs[index].Path,
+                            cancellationToken);
                     await session.AddRequiredAcquisitionAsync(
                         (scope, _) =>
                         {
                             ArtifactContribution contribution =
                                 scope.Register(
                                     new PlatformLibraryArtifactProvenance(
-                                        contributions[ordinal],
+                                        inputs[ordinal].Contribution,
                                         new Provenance(
                                             $"artifact-{ordinal}")),
                                     _ => new MemoryStream(

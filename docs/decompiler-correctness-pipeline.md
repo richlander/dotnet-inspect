@@ -216,37 +216,34 @@ count is necessary but insufficient: if the expression reads a place, the
 rewrite must prove that no exited handler can change that place directly or
 through a managed-reference alias.
 
-The alias proof is closed over storage-transfer semantics, not a list of source
-syntaxes or selected IR node kinds:
+The implementation uses a behavior-safe decline boundary rather than claiming
+complete managed-reference alias analysis:
 
-- the returned place seeds the alias relation, and addresses or ref-containing
-  values that can denote it remain related;
-- any operation that copies or stores a related value into a writable
-  destination transfers the relation, whether the destination is named
-  directly or reached indirectly;
-- copying a ref-containing carrier transfers its contained relation rather than
-  only the identity of a field previously observed;
-- conditional values, construction, ref returns, and invocation participate
-  when their type and signature facts permit the relation to flow; invocation
-  transfer remains limited to a known related value and writable
-  ref-containing storage rather than assuming arbitrary call side effects; and
-- if a relation-bearing transfer can reach storage used by an exited handler
-  but its writable destination cannot be resolved, the rewrite declines and
-  retains post-handler evaluation.
+- a direct write to the returned local or argument in an exited cleanup retains
+  evaluation at the normal continuation;
+- if the current function takes the address of the returned local or argument,
+  every transfer that exits a cleanup retains evaluation at the normal
+  continuation because an indirect mutation has not been disproved; and
+- missing, stale, ambiguous, duplicate, or mismatched cleanup facts retain
+  evaluation at the normal continuation.
 
-This is an intraprocedural proof over the current function's supported IR and
-imported type facts. It is not whole-program alias analysis and does not promise
-to infer arbitrary callee behavior. Constants, values whose storage has no
-relation to a handler write, and dedicated return blocks proven outside this
-relation retain the existing inlining path.
+The address observation is intraprocedural and scoped to the current function
+body. It deliberately does not distinguish local, conditional, field,
+constructor, call, copied-carrier, or indirect-destination transfer shapes;
+those are evidence that uncertainty must decline, not syntax-specific proof
+rules. Constants, places whose address is not taken and whose exited cleanups
+do not write them directly, and dedicated return blocks retain the existing
+inlining path.
 
-This rule is **unverified on `main`**.
-PR [#6907](https://github.com/richlander/dotnet-inspect/pull/6907) is intended
-to establish `FinallyReturnTimingTests` as its Release gate. The pending
+`FinallyReturnTimingTests` is this rule's Release gate. The
 compiler-produced family covers direct and nested writes plus local, argument,
 stack-join, field, ref-return, ref-parameter, constructor, helper-bound,
-copied-carrier, and indirect-destination transfer; supported methods must also
-compile back `Exact`. The pending dedicated-return control and the existing
+copied-carrier, indirect-destination, and conditional indirect-destination
+transfer through stack slots and ref locals, including a ref-return field
+receiver, field extraction through nested field addresses, and an interior
+field of returned value-type storage; supported methods must also compile back
+`Exact`. The
+dedicated-return control and the existing
 `IrImporterTests.TryFinallyTwoReturns_SinksBothReturnsIntoTry` plus
 `FidelityGateTests` gate the neighboring safe-inlining boundary. Corpus cards
 remain population evidence; they do not replace these method-level semantic
@@ -257,8 +254,8 @@ supplies the compiler-produced motivating witness. No qualifying package or
 repository witness is known. At the PR #6907 Round 6 boundary, the operator
 [chose a docs-only design
 slice](https://github.com/richlander/dotnet-inspect/pull/6907#issuecomment-5668866428)
-instead of abandoning the synthetic-only defect; that approval is limited to
-this focused design evidence and does not authorize Round 7 implementation.
+instead of abandoning the synthetic-only defect. The operator separately
+authorized Round 7 after shared-EH adoption steps 5 through 7 completed.
 The existing decompiler path already serves CLI and browser/Wasm consumers
 under tracker [#5876](https://github.com/richlander/dotnet-inspect/issues/5876);
 this rule adds no architecture, host path, rendering strategy, or adoption
