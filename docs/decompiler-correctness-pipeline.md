@@ -1085,7 +1085,9 @@ be preserved by a C# declaration. An authenticated
 retains the exact protected virtual reuse-slot destructor shape. Every
 represented property or event accessor MethodDef must retain exact
 accessibility and declaration modifiers, an exact header, and callable-signature
-correspondence with its declaring row.
+correspondence with its declaring row. Property/getter correspondence treats
+the compiler's PropertyDef and getter encodings for mutable and authenticated
+read-only by-ref returns as equivalent.
 Member-signature custom modifiers are ineligible unless they are authenticated
 read-only by-ref encodings that the product spells explicitly. `CB_TYPE`
 filters that population first. Stable

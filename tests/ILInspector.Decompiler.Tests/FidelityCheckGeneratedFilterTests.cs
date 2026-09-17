@@ -268,18 +268,48 @@ public class FidelityCheckGeneratedFilterTests
         string assemblyPath = CompileFixture("""
             public static class ReadOnlyByRefFixture
             {
+                private static int _value;
+
                 public static ref readonly int Read(in int value)
                     => ref value;
+
+                public static ref readonly int Value => ref _value;
+
+                public static ref int Mutable => ref _value;
             }
             """);
         try
         {
-            var target = Assert.Single(
-                FidelityCheck.SelectReturnToSenderTargets(
-                    [assemblyPath],
-                    cap: int.MaxValue));
+            ApiType type = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "ReadOnlyByRefFixture");
+            foreach (string propertyName in new[] { "Value", "Mutable" })
+            {
+                ApiMember property = Assert.Single(
+                    type.Members,
+                    member => member.Name == propertyName);
+                ApiAccessor getter = Assert.Single(
+                    property.SignatureModel!.Accessors);
+                Assert.True(
+                    property.SignatureModel
+                        .ReturnTypeCustomModifiersAreRepresentable);
+                Assert.Equal(
+                    ApiPrimitiveType.Int32,
+                    property.SignatureModel.ReturnTypeShape!.Primitive);
+                Assert.True(getter.CustomModifiersAreRepresentable);
+                Assert.True(getter.SignatureMatchesDeclaration);
+            }
 
-            Assert.Equal("Read", target.Method);
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(selected, target => target.Method == "Read");
+            Assert.Contains(selected, target => target.Method == "get_Value");
+            Assert.Contains(selected, target => target.Method == "get_Mutable");
         }
         finally
         {
@@ -301,6 +331,8 @@ public class FidelityCheckGeneratedFilterTests
                 type => type.Name == "MalformedPropertyFixture");
             AssertAccessorFacts("this[]", expected: true);
             AssertAccessorFacts("Vararg", expected: false);
+            AssertAccessorFacts("ModifiedRef", expected: false);
+            AssertAccessorFacts("MismatchedRef", expected: false);
             AssertAccessorFacts("GoodEvent", expected: true);
             AssertAccessorFacts("VarargEvent", expected: false);
 
@@ -322,6 +354,8 @@ public class FidelityCheckGeneratedFilterTests
                                 accessor
                                     .MethodDeclarationHeaderIsRepresentable);
                             Assert.True(
+                                accessor.CustomModifiersAreRepresentable);
+                            Assert.True(
                                 accessor.SignatureMatchesDeclaration);
                         });
                 }
@@ -331,6 +365,8 @@ public class FidelityCheckGeneratedFilterTests
                         accessors,
                         accessor =>
                             accessor.MethodDeclarationHeaderIsRepresentable
+                                != true
+                            || accessor.CustomModifiersAreRepresentable
                                 != true
                             || accessor.SignatureMatchesDeclaration != true);
                 }
@@ -356,6 +392,8 @@ public class FidelityCheckGeneratedFilterTests
                     "get_BadIndexer"
                     or "get_Ordinary"
                     or "get_Vararg"
+                    or "get_ModifiedRef"
+                    or "get_MismatchedRef"
                     or "add_VarargEvent"
                     or "remove_VarargEvent");
         }
@@ -3229,6 +3267,14 @@ public class FidelityCheckGeneratedFilterTests
         TypeBuilder fixtureType = module.DefineType(
             "MalformedPropertyFixture",
             TypeAttributes.Public | TypeAttributes.Class);
+        FieldBuilder intField = fixtureType.DefineField(
+            "_intValue",
+            typeof(int),
+            FieldAttributes.Private | FieldAttributes.Static);
+        FieldBuilder longField = fixtureType.DefineField(
+            "_longValue",
+            typeof(long),
+            FieldAttributes.Private | FieldAttributes.Static);
         fixtureType.SetCustomAttribute(
             new CustomAttributeBuilder(
                 typeof(DefaultMemberAttribute)
@@ -3318,6 +3364,63 @@ public class FidelityCheckGeneratedFilterTests
             typeof(int),
             Type.EmptyTypes);
         varargProperty.SetGetMethod(varargGetter);
+
+        const MethodAttributes staticAccessorAttributes =
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        MethodBuilder modifiedRefGetter = fixtureType.DefineMethod(
+            "get_ModifiedRef",
+            staticAccessorAttributes,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            [typeof(ObsoleteAttribute)],
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator modifiedRefGetterBody =
+            modifiedRefGetter.GetILGenerator();
+        modifiedRefGetterBody.Emit(OpCodes.Ldsflda, intField);
+        modifiedRefGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder modifiedRefProperty = fixtureType.DefineProperty(
+            "ModifiedRef",
+            PropertyAttributes.None,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        modifiedRefProperty.SetGetMethod(modifiedRefGetter);
+
+        MethodBuilder mismatchedRefGetter = fixtureType.DefineMethod(
+            "get_MismatchedRef",
+            staticAccessorAttributes,
+            CallingConventions.Standard,
+            typeof(long).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator mismatchedRefGetterBody =
+            mismatchedRefGetter.GetILGenerator();
+        mismatchedRefGetterBody.Emit(OpCodes.Ldsflda, longField);
+        mismatchedRefGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder mismatchedRefProperty = fixtureType.DefineProperty(
+            "MismatchedRef",
+            PropertyAttributes.None,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        mismatchedRefProperty.SetGetMethod(mismatchedRefGetter);
 
         const MethodAttributes eventAccessorAttributes =
             MethodAttributes.Public

@@ -229,22 +229,6 @@ public static partial class ApiSurfaceExtractor
             }
         }
 
-        ApplyAccessorStructuralReturns(
-            accessorModels,
-            reader,
-            kind => kind switch
-            {
-                "get" => accessors.Getter,
-                "set" => accessors.Setter,
-                _ => default,
-            },
-            typeNodeProvider,
-            context,
-            explicitImplementationBodies,
-            beforeRetainText,
-            beforeDecodeWork,
-            treeSignature);
-
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
                 prop.GetCustomAttributes(),
@@ -289,6 +273,31 @@ public static partial class ApiSurfaceExtractor
             treeSignature.ReturnType,
             paramHandles,
             beforeDecodeWork);
+        bool returnIsByRef = IsByRefType(treeSignature.ReturnType);
+        bool returnIsReadOnlyByRef =
+            returnIsByRef
+            && IsReadOnlyByRefReturn(
+                reader,
+                treeSignature.ReturnType,
+                paramHandles,
+                beforeDecodeWork);
+        ApplyAccessorStructuralReturns(
+            accessorModels,
+            reader,
+            kind => kind switch
+            {
+                "get" => accessors.Getter,
+                "set" => accessors.Setter,
+                _ => default,
+            },
+            typeNodeProvider,
+            context,
+            explicitImplementationBodies,
+            beforeRetainText,
+            beforeDecodeWork,
+            treeSignature,
+            propertyReturnIsByRef: returnIsByRef,
+            propertyReturnIsReadOnlyByRef: returnIsReadOnlyByRef);
         IReadOnlyList<string>? xmlDocumentationParameterTypes =
             TryGetXmlDocumentationNames(
                 treeSignature.ParameterTypes,
@@ -311,16 +320,15 @@ public static partial class ApiSurfaceExtractor
             ReturnTypeCustomModifiersAreRepresentable =
                 CustomModifiersAreRepresentable(
                     treeSignature.ReturnType,
-                    allowReadOnlyByRef: returnType.StartsWith(
-                        "ref readonly ",
-                        StringComparison.Ordinal)),
+                    allowReadOnlyByRef: returnIsReadOnlyByRef),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
-            ReturnTypeShape =
-                ApiTypeShapeFactory.FromTypeNode(
-                    treeSignature.ReturnType),
+            ReturnTypeShape = PropertyReturnTypeShape(
+                treeSignature.ReturnType,
+                returnIsByRef,
+                returnIsReadOnlyByRef),
             MemberName = isIndexerDeclaration ? "this[]" : name,
             IsIndexerDeclaration = isIndexerDeclaration,
             IsRequired = isRequired,
@@ -525,6 +533,8 @@ public static partial class ApiSurfaceExtractor
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork,
         MethodSignature<TypeNode>? propertySignature = null,
+        bool propertyReturnIsByRef = false,
+        bool propertyReturnIsReadOnlyByRef = false,
         TypeNode? eventType = null)
     {
         bool declarationModifiersMatch =
@@ -564,7 +574,11 @@ public static partial class ApiSurfaceExtractor
                     signature.ReturnType,
                     beforeRetainText);
                 accessor.CustomModifiersAreRepresentable =
-                    !ContainsCustomModifier(signature.ReturnType)
+                    CustomModifiersAreRepresentable(
+                        signature.ReturnType,
+                        allowReadOnlyByRef:
+                            propertyReturnIsReadOnlyByRef
+                            && accessor.Kind == "get")
                     && signature.ParameterTypes.All(
                         parameter => !ContainsCustomModifier(parameter));
                 if (propertySignature is { } property)
@@ -575,7 +589,9 @@ public static partial class ApiSurfaceExtractor
                             signature,
                             property,
                             context.TypeParameters.Count,
-                            method);
+                            method,
+                            propertyReturnIsByRef,
+                            propertyReturnIsReadOnlyByRef);
                     accessor.SignatureMatchesProperty =
                         signatureMatchesProperty;
                     accessor.SignatureMatchesDeclaration =
@@ -679,7 +695,9 @@ public static partial class ApiSurfaceExtractor
         MethodSignature<TypeNode> accessor,
         MethodSignature<TypeNode> property,
         int declaringTypeParameterCount,
-        MethodDefinition accessorMethod)
+        MethodDefinition accessorMethod,
+        bool propertyReturnIsByRef,
+        bool propertyReturnIsReadOnlyByRef)
     {
         if (!MethodDeclarationHeaderIsRepresentable(
                 accessorMethod,
@@ -703,10 +721,16 @@ public static partial class ApiSurfaceExtractor
         return kind switch
         {
             "get" =>
-                SignatureTypeMatches(
-                    accessor.ReturnType,
-                    property.ReturnType,
-                    declaringTypeParameterCount)
+                (SignatureTypeMatches(
+                        accessor.ReturnType,
+                        property.ReturnType,
+                        declaringTypeParameterCount)
+                    || propertyReturnIsByRef
+                        && ByRefSignatureTypeMatches(
+                            accessor.ReturnType,
+                            property.ReturnType,
+                            declaringTypeParameterCount,
+                            propertyReturnIsReadOnlyByRef))
                 && SignatureTypesMatch(
                     accessor.ParameterTypes,
                     property.ParameterTypes,
@@ -725,6 +749,78 @@ public static partial class ApiSurfaceExtractor
                     declaringTypeParameterCount),
             _ => false,
         };
+    }
+
+    static bool ByRefSignatureTypeMatches(
+        TypeNode left,
+        TypeNode right,
+        int declaringTypeParameterCount,
+        bool allowReadOnlyByRef)
+    {
+        if (!TryGetByRefElement(
+                left,
+                allowReadOnlyByRef,
+                out TypeNode leftElement)
+            || !TryGetByRefElement(
+                right,
+                allowReadOnlyByRef,
+                out TypeNode rightElement))
+        {
+            return false;
+        }
+
+        return SignatureTypeMatches(
+            leftElement,
+            rightElement,
+            declaringTypeParameterCount);
+    }
+
+    static bool TryGetByRefElement(
+        TypeNode type,
+        bool allowReadOnlyByRef,
+        out TypeNode element)
+    {
+        element = null!;
+        if (!CustomModifiersAreRepresentable(
+                type,
+                allowReadOnlyByRef))
+        {
+            return false;
+        }
+
+        while (type is ModifiedTypeNode modified)
+            type = modified.Inner;
+        if (type is not ByRefTypeNode byRef
+            || ContainsCustomModifier(byRef.ElementType))
+        {
+            return false;
+        }
+
+        element = byRef.ElementType;
+        return true;
+    }
+
+    static bool IsByRefType(TypeNode type)
+    {
+        while (type is ModifiedTypeNode modified)
+            type = modified.Inner;
+        return type is ByRefTypeNode;
+    }
+
+    static ApiTypeShape? PropertyReturnTypeShape(
+        TypeNode type,
+        bool isByRef,
+        bool allowReadOnlyByRef)
+    {
+        if (!isByRef)
+            return ApiTypeShapeFactory.FromTypeNode(type);
+
+        return TryGetByRefElement(
+            type,
+            allowReadOnlyByRef,
+            out TypeNode element)
+                ? ApiTypeShapeFactory.FromTypeNode(element)
+                : null;
     }
 
     static bool AccessorSignatureMatchesEvent(

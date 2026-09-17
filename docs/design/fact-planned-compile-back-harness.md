@@ -1037,7 +1037,8 @@ MethodImpl body to retain the exact protected virtual reuse-slot destructor
 shape before spelling `~Type()`, requires every represented property or event
 accessor MethodDef to retain exact accessibility and declaration modifiers,
 an exact header, and callable signature correspondence with its declaring row,
-and rejects unrepresented
+including the compiler's equivalent PropertyDef/getter encodings for mutable
+and authenticated read-only by-ref returns, and rejects unrepresented
 member-signature custom modifiers while retaining authenticated read-only
 by-ref modifier encodings that the product spells explicitly,
 applies `CB_TYPE` before sampling, and chooses a stable hash-ranked set up to the
