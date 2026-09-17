@@ -20,8 +20,15 @@ Adjacent owners retain their authority:
   and share-packet versions.
 - Package asset selectors own compatibility, nearest applicable asset,
   ambiguity, and no-match outcomes.
+- [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
+  declarations and selected dependency groups;
+  `PackageDependencyGroupsQuery` owns group selection.
 - [Package dependency traversal](package-dependency-traversal.md) owns graph
-  traversal, source dependency-group evidence, and completion.
+  traversal, preservation of owner-issued dependency evidence, and completion.
+- [Realized package participant and dependency-evidence
+  association](https://github.com/richlander/dotnet-inspect/issues/7401) owns
+  the composition between one physical source participant and its selected
+  dependency evidence.
 - [Target-framework selection across dependency
   realization](https://github.com/richlander/dotnet-inspect/issues/6424) owns
   correspondence from an exact edge target to realized package assets.
@@ -117,13 +124,13 @@ different hub asset.
 
 This target choice does not select the dependency group of an already realized
 package participant. A consumer of this policy accepts dependency declarations
-only through an owner-issued association between that physical source
-participant and selected dependency-group evidence; package and traversal
-owners define that association. Those declarations form candidate edges; the
-Workspace governing target then selects the destination participant reached by
-each edge. A selected source asset-folder framework may participate in the
-association evidence without becoming the target used to select the
-destination.
+only through the owner-issued association tracked by #7401 between that
+physical source participant and Package Dependency Evidence's selected group.
+Package Traversal preserves and consumes that association. Those declarations
+form candidate edges; the Workspace governing target then selects the
+destination participant reached by each edge. A selected source asset-folder
+framework may participate in the association evidence without becoming the
+target used to select the destination.
 
 ## Retained decision evidence
 
@@ -147,7 +154,7 @@ consumer passes the exact governing target into the correspondence owned by
 issue #6424. Later destination selections do not substitute their source
 participant's selected asset-folder framework or rerun Workspace default
 choice. Source dependency-group selection remains separate owner-issued
-evidence at every node.
+evidence associated through #7401 at every node.
 
 Human output may explain that the Workspace default governed selection.
 Machine output retains the typed decision. Hosts do not reconstruct it from
@@ -238,9 +245,9 @@ project.
 | Unspecified intent supplies the Workspace default once and never inserts the source asset TFM or an unconstrained highest-folder request into destination participant selection. | Governing-target unit test plus a participant-selector spy asserting the exact target. |
 | A `netstandard2.0` source reaching NodaTime selects its `net8.0` asset under default `net11.0` even though NodaTime also carries `netstandard2.0`; source and selected folder remain separate evidence. | Pinned package integration test using `NodaTime@3.2.2`, with an equivalent deterministic fixture. |
 | The real relationship selects Telemetry `net8.0` under default `net11.0` and `net6.0` under configured `net7.0`, retaining source target, policy source, governing target, participant-selection outcome, and selected folder separately. | Pinned package integration test using `Microsoft.Extensions.DependencyInjection.Abstractions@8.0.0` and `Microsoft.Extensions.Telemetry@8.0.0`, with an equivalent deterministic fixture. |
-| An explicitly selected Polly.Core `netstandard2.0` hub remains unchanged and retains its four associated dependency declarations, while every destination participant uses the Workspace governing target. | Pinned `Polly.Core@8.8.0` composition test plus an equivalent two-participant fixture. |
+| An explicitly selected Polly.Core `netstandard2.0` hub remains unchanged and retains its four associated dependency declarations, while every destination participant uses the Workspace governing target. | Pinned `Polly.Core@8.8.0` composition test under #7401 plus an equivalent two-participant fixture. |
 | A default with no applicable asset returns typed `NoMatch`. | Boundary fixture containing only incompatible framework families. |
-| Later destination selections retain the first governing target rather than source selected-folder TFMs, while every source node retains its owner-issued selected dependency group. | Three-node traversal fixture under the #6424 adoption. |
+| Later destination selections retain the first governing target rather than source selected-folder TFMs, while every source node retains its owner-issued selected dependency group. | Three-node traversal fixture composing #7401 and #6424. |
 
 The design is specification-only. Every property is unverified until its named
 Release gate lands.
@@ -254,18 +261,16 @@ existing owners adopt it independently:
    Workspace snapshots.
 2. Artifact Acquisition consumes it for a context that requires a framework
    and declares none.
-3. Package traversal composes each realized source participant's owner-issued
-   selected dependency group with Workspace-governed destination participant
-   selection, and carries that governing target through #6424.
-4. Workspace Definitions and share packets add versioned portable
+3. The package composition tracked by #7401 associates each realized source
+   participant with Package Dependency Evidence's selected group.
+4. Package Traversal consumes the #7401 source association, uses the Workspace
+   target for destination participant selection through #6424, and retires
+   per-manifest no-request group selection for realized participants.
+5. Workspace Definitions and share packets add versioned portable
    representation; legacy versions lower to the product default.
-5. CLI and Browser/Wasm expose configuration through the same host-neutral
+6. CLI and Browser/Wasm expose configuration through the same host-neutral
    plan and display retained governing-target evidence where their operation
    requires it.
-6. Workspace-hosted traversal retires per-manifest no-request group selection
-   in favor of the dependency group associated with each realized source
-   participant, while the Workspace policy supplies one graph-wide destination
-   target.
 
 These are sequenced follow-up efforts, not normative changes to those owners in
 this document.
