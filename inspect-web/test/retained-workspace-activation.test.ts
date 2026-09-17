@@ -44,6 +44,10 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   }> = [];
   readonly settlements: string[] = [];
   readonly deactivations: string[] = [];
+  readonly deactivationResponses: Array<{
+    promise: Promise<BrowserRetainedWorkspaceDeactivationResult>;
+    resolve(value: BrowserRetainedWorkspaceDeactivationResult): void;
+  }> = [];
 
   activateRetainedWorkspaceDefinition():
   Promise<BrowserRetainedWorkspaceActivationResult> {
@@ -61,15 +65,18 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     retainedDefinitionId: string,
   ): Promise<BrowserRetainedWorkspaceDeactivationResult> {
     this.deactivations.push(retainedDefinitionId);
-    return Promise.resolve({
-      status: "deactivated",
-      settlement: {
-        succeeded: true,
-        reason: "CoordinatorClosed",
-        failure: null,
-      },
-      message: null,
+    let resolve!: (
+      value: BrowserRetainedWorkspaceDeactivationResult,
+    ) => void;
+    const promise =
+      new Promise<BrowserRetainedWorkspaceDeactivationResult>(accept => {
+        resolve = accept;
+      });
+    this.deactivationResponses.push({
+      promise,
+      resolve,
     });
+    return promise;
   }
 
   observeRetainedWorkspaceSettlement(
@@ -466,6 +473,63 @@ test("active deletion activates the next definition before removal", async () =>
   );
 });
 
+test("newer selection cancels successor deletion commit", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id);
+  const reselectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await deletion;
+
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [first.id, second.id],
+  );
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [first.id],
+  );
+
+  fixture.client.activations[2]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-3"),
+    failure: null,
+  });
+  await reselectFirst;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [first.id, second.id],
+  );
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-1", "realization-2", "realization-3"],
+  );
+});
+
 test("deleting the sole active definition drains managed state", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
@@ -481,12 +545,88 @@ test("deleting the sole active definition drains managed state", async () => {
   });
   await selection;
 
-  await fixture.controller.delete(first.id);
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "deactivated",
+    settlement: {
+      succeeded: true,
+      reason: "CoordinatorClosed",
+      failure: null,
+    },
+    message: null,
+  });
+  await deletion;
 
   assert.deepEqual(fixture.client.deactivations, [first.id]);
   assert.equal(fixture.controller.state.activeDefinitionId, null);
   assert.deepEqual(fixture.controller.state.definitions, []);
   assert.equal(fixture.clears(), 1);
+});
+
+test("sole active deactivation blocks activation and preserves new definitions", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id);
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  assert.equal(
+    fixture.controller.state.deactivatingDefinitionId,
+    first.id,
+  );
+  await assert.rejects(
+    fixture.controller.delete(first.id),
+    /already being deactivated/,
+  );
+  await assert.rejects(
+    fixture.controller.activate(second.id),
+    /cannot be activated while the active Workspace is being deactivated/,
+  );
+  assert.equal(fixture.client.activations.length, 1);
+
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "deactivated",
+    settlement: {
+      succeeded: true,
+      reason: "CoordinatorClosed",
+      failure: null,
+    },
+    message: null,
+  });
+  await deletion;
+
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.controller.state.deactivatingDefinitionId, null);
+  assert.equal(fixture.clears(), 1);
+
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
 });
 
 test("retained definitions are resource-free, bounded, and stable", () => {

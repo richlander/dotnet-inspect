@@ -22,8 +22,14 @@ interface RetainedWorkspaceActivationState {
   readonly definitions: readonly RetainedWorkspaceDefinition[];
   readonly activeDefinitionId: string | null;
   readonly pendingDefinitionId: string | null;
+  readonly deactivatingDefinitionId: string | null;
   readonly unsettledDefinitionIds: readonly string[];
   readonly lastFailure: string | null;
+}
+
+interface SoleDeactivationIntent {
+  readonly generation: number;
+  readonly retainedDefinitionId: string;
 }
 
 export interface RetainedWorkspaceActivationClient {
@@ -67,7 +73,9 @@ export function createRetainedWorkspaceActivationController(
   let lastFailure: string | null = null;
   let nextIdentity = 0;
   let selectionGeneration = 0;
+  let nextDeactivationGeneration = 0;
   let installedPublicationOrdinal = 0;
+  let soleDeactivationIntent: SoleDeactivationIntent | null = null;
   const observedSettlementIds = new Set<string>();
   const unsettledActivationCounts = new Map<string, number>();
 
@@ -76,6 +84,8 @@ export function createRetainedWorkspaceActivationController(
       definitions: [...definitions],
       activeDefinitionId,
       pendingDefinitionId,
+      deactivatingDefinitionId:
+        soleDeactivationIntent?.retainedDefinitionId ?? null,
       unsettledDefinitionIds: definitions
         .filter(definition => hasUnsettledActivation(definition.id))
         .map(definition => definition.id),
@@ -169,6 +179,11 @@ export function createRetainedWorkspaceActivationController(
     retainedDefinitionId: string,
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
+    if (soleDeactivationIntent !== null) {
+      throw new Error(
+        "A retained Workspace cannot be activated while the active Workspace is being deactivated.",
+      );
+    }
     const generation = ++selectionGeneration;
     pendingDefinitionId = retainedDefinitionId;
     lastFailure = null;
@@ -249,6 +264,12 @@ export function createRetainedWorkspaceActivationController(
         `Unknown retained Workspace definition '${retainedDefinitionId}'.`,
       );
     }
+    if (soleDeactivationIntent?.retainedDefinitionId
+        === retainedDefinitionId) {
+      throw new Error(
+        "The retained Workspace definition is already being deactivated.",
+      );
+    }
     if (hasUnsettledActivation(retainedDefinitionId)) {
       throw new Error(
         "The retained Workspace definition cannot be deleted until its activation settles.",
@@ -264,8 +285,18 @@ export function createRetainedWorkspaceActivationController(
     const successor = definitions[removedIndex + 1]
       ?? definitions[removedIndex - 1];
     if (successor !== undefined) {
-      const result = await activate(successor.id);
+      const successorActivation = activate(successor.id);
+      const successorGeneration = selectionGeneration;
+      const result = await successorActivation;
       if (result.status !== "activated" && result.status !== "noEffect") {
+        return;
+      }
+      if (selectionGeneration !== successorGeneration
+        || activeDefinitionId !== successor.id
+        || hasUnsettledActivation(retainedDefinitionId)
+        || !definitions.some(
+          definition => definition.id === retainedDefinitionId,
+        )) {
         return;
       }
       definitions = definitions.filter(
@@ -274,29 +305,47 @@ export function createRetainedWorkspaceActivationController(
       return;
     }
 
-    const result = await client.deactivateRetainedWorkspaceDefinition(
+    const intent: SoleDeactivationIntent = {
+      generation: ++nextDeactivationGeneration,
       retainedDefinitionId,
-    );
-    switch (result.status) {
-      case "deactivated":
-        definitions = [];
-        activeDefinitionId = null;
-        lastFailure = null;
-        hooks.clear();
+    };
+    soleDeactivationIntent = intent;
+    try {
+      const result = await client.deactivateRetainedWorkspaceDefinition(
+        retainedDefinitionId,
+      );
+      if (soleDeactivationIntent?.generation !== intent.generation) {
         return;
-      case "noEffect":
-        definitions = [];
-        activeDefinitionId = null;
-        hooks.clear();
-        return;
-      case "rejected":
-        lastFailure = result.message
-          ?? "Retained Workspace deactivation was rejected.";
-        return;
-      default:
-        throw new Error(
-          `Unknown retained Workspace deactivation status '${result.status}'.`,
-        );
+      }
+      switch (result.status) {
+        case "deactivated":
+          definitions = definitions.filter(
+            definition => definition.id !== retainedDefinitionId,
+          );
+          activeDefinitionId = null;
+          lastFailure = null;
+          hooks.clear();
+          return;
+        case "noEffect":
+          definitions = definitions.filter(
+            definition => definition.id !== retainedDefinitionId,
+          );
+          activeDefinitionId = null;
+          hooks.clear();
+          return;
+        case "rejected":
+          lastFailure = result.message
+            ?? "Retained Workspace deactivation was rejected.";
+          return;
+        default:
+          throw new Error(
+            `Unknown retained Workspace deactivation status '${result.status}'.`,
+          );
+      }
+    } finally {
+      if (soleDeactivationIntent?.generation === intent.generation) {
+        soleDeactivationIntent = null;
+      }
     }
   }
 

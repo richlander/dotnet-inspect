@@ -701,8 +701,10 @@ strict format-1 rejection before candidate charge, predecessor drainage and
 detached exactly-once settlement observation, a per-definition deletion
 barrier that survives displacement and overlapping activation, visible
 displaced cleanup failure, a sole-active deletion barrier that prevents
-replacement admission before successful drainage, deterministic active
-deletion, and bounded resource-free retained definitions.
+replacement admission before successful drainage, generation-bound active
+deletion that cannot commit over newer selection, retention of resource-free
+definitions added during sole-active drainage, deterministic active deletion,
+and bounded resource-free retained definitions.
 Generated-facade and ordinary Worker inventory gates keep the transaction
 callable through the production Browser/Wasm boundary.
 
