@@ -117,6 +117,58 @@ public static class PackageCommandDefinitions
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
+        opts.AddEnvelopeOptionTo(
+            packageCommand,
+            opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+            opts.Lines, opts.TailLines,
+            dependenciesOption, layoutOption, pathOption, pathMatchOption,
+            skipEmptyOption, tfmsOption, libOption, toolsOption,
+            libraryOption, allLibrariesOption,
+            contentOption, frontmatterOption, bodyOption, outOption,
+            tfmOption, typeFilterOption, versionOption, latestVersionOption);
+        packageCommand.Validators.Add(result =>
+        {
+            bool hasPluralVersionSelector =
+                result.GetValue(versionsOption)
+                || result.GetValue(versionsWithFeedOption);
+            if (result.GetValue(opts.Envelope))
+            {
+                string[] packageReferences =
+                    result.GetValue(packageNameArg) ?? [];
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || result.GetValue(opts.Count);
+                bool isRange =
+                    packageReferences is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null;
+                if (!hasPopulationGesture || !isRange)
+                {
+                    result.AddError(
+                        "--envelope on package requires one Package@A..B "
+                        + "range and --versions, --versions-with-feed, or --count.");
+                }
+
+                if (!result.GetValue(opts.Count))
+                {
+                    foreach (Option option in new Option[]
+                    {
+                        opts.Rows, opts.Limit, opts.Head, opts.Tail,
+                    })
+                    {
+                        if (result.GetResult(option) is { Implicit: false })
+                        {
+                            result.AddError(
+                                $"--envelope cannot be combined with {option.Name}.");
+                        }
+                    }
+                }
+            }
+
+        });
 
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
@@ -134,7 +186,15 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result =>
                 result.GetValue(versionsOption)
-                || result.GetValue(versionsWithFeedOption),
+                || result.GetValue(versionsWithFeedOption)
+                || (result.GetValue(opts.Count)
+                    && (result.GetValue(packageNameArg) ?? [])
+                        is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

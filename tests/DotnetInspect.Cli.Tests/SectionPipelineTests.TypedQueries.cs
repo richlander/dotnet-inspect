@@ -2606,7 +2606,7 @@ public partial class SectionPipelineTests
             SectionNames.CloneCandidates,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
-            .. LibraryIntegrationCatalog.CategorySections,
+            IntegrationSectionNames.Integrations,
             IntegrationSectionNames.Opportunities,
             "Metadata: #Blob",
             "Metadata: #GUID",
