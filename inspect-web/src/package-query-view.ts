@@ -62,11 +62,13 @@ export type PackageQueryFocusSnapshot =
       kind: "prefix" | "library-tfm";
       selectionStart: number | null;
       selectionEnd: number | null;
+      selectionDirection: QuerySelectionDirection | null;
     }
   | {
       kind: "library-literal";
       selectionStart: number | null;
       selectionEnd: number | null;
+      selectionDirection: QuerySelectionDirection | null;
       editorValue: string;
     }
   | { kind: "product" }
@@ -90,12 +92,18 @@ export type PackageQueryFocusSnapshot =
   | { kind: "fallback" };
 
 interface SelectableQueryElement extends HTMLElement {
-  setSelectionRange(start: number, end: number): void;
+  setSelectionRange(
+    start: number,
+    end: number,
+    direction?: QuerySelectionDirection,
+  ): void;
 }
 
 interface EditableQueryElement extends SelectableQueryElement {
   value: string;
 }
+
+type QuerySelectionDirection = "forward" | "backward" | "none";
 
 function isFocusableQueryElement(
   element: Element | null,
@@ -119,6 +127,20 @@ function supportsEditableValue(
   return supportsSelectionRange(element)
     && "value" in element
     && typeof element.value === "string";
+}
+
+function captureSelectionDirection(
+  element: HTMLElement,
+): QuerySelectionDirection | null {
+  if (!("selectionDirection" in element)) return null;
+  switch (element.selectionDirection) {
+    case "forward":
+    case "backward":
+    case "none":
+      return element.selectionDirection;
+    default:
+      return null;
+  }
 }
 
 function revealLibraryLiteralControl(element: Element | null): void {
@@ -172,6 +194,7 @@ export function capturePackageQueryFocus(
         && typeof active.selectionEnd === "number"
         ? active.selectionEnd
         : null,
+      selectionDirection: captureSelectionDirection(active),
       editorValue: "value" in active && typeof active.value === "string"
         ? active.value
         : "",
@@ -191,6 +214,7 @@ export function capturePackageQueryFocus(
         && typeof active.selectionEnd === "number"
         ? active.selectionEnd
         : null,
+      selectionDirection: captureSelectionDirection(active),
     };
   }
   if (active.id === "package-query-product") return { kind: "product" };
@@ -338,7 +362,10 @@ export function restorePackageQueryFocus(
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
     && snapshot.selectionEnd !== null) {
-    target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    target.setSelectionRange(
+      snapshot.selectionStart,
+      snapshot.selectionEnd,
+      snapshot.selectionDirection ?? undefined);
   }
   return usedFallback ? "fallback" : "restored";
 }

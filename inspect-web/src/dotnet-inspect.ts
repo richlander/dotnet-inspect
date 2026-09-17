@@ -12624,6 +12624,9 @@ const packageQueryActions: PackageQueryBindingActions = {
       && configured.libraryLiteral.targetFramework
         === current.libraryLiteral.targetFramework
       && state.packageQueryState.outcome.completion.kind === "idle") return;
+    if (current.terms.length > 0 && configured.terms.length === 0) {
+      state.packageQueryState.termEdits = [];
+    }
     state.packageQueryNavigationError = "";
     packageQueryController.configure(configured);
   },

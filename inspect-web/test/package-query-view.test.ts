@@ -1051,6 +1051,7 @@ class FakeElement {
   checked = false;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
+  selectionDirection: "forward" | "backward" | "none" | null = null;
   selectionRange: readonly [number, number] | null = null;
   customValidity = "";
   validityReports = 0;
@@ -1116,8 +1117,13 @@ class FakeElement {
     return this.rendered;
   }
 
-  setSelectionRange(start: number, end: number) {
+  setSelectionRange(
+    start: number,
+    end: number,
+    direction: "forward" | "backward" | "none" = "none",
+  ) {
     this.selectionRange = [start, end];
+    this.selectionDirection = direction;
   }
 
   setCustomValidity(message: string) {
@@ -1376,6 +1382,7 @@ test("query text controls preserve selection across a full render", () => {
     const active = new FakeElement({}, id);
     active.selectionStart = 3;
     active.selectionEnd = 8;
+    active.selectionDirection = "backward";
     const replacement = new FakeElement({}, id);
     const root = new FakeRoot(active);
     root.add(`#${id}`, replacement);
@@ -1388,6 +1395,7 @@ test("query text controls preserve selection across a full render", () => {
 
     assert.equal(replacement.focusCount, 1);
     assert.deepEqual(replacement.selectionRange, [3, 8]);
+    assert.equal(replacement.selectionDirection, "backward");
   }
 });
 

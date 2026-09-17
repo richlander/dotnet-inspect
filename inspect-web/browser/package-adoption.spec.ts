@@ -809,6 +809,22 @@ test.describe("Package Query website over real Wasm", () => {
     });
     await page.keyboard.type("head");
     await expect(literal).toHaveValue("headtail");
+    await literal.fill("abcdef");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.setSelectionRange(3, 6, "backward");
+    });
+    await page.locator(".query-main").evaluate(element =>
+      element.dispatchEvent(new Event("scroll")));
+    await expect.poll(() => literal.evaluate(element =>
+      element instanceof HTMLTextAreaElement
+        ? element.selectionDirection
+        : null)).toBe("backward");
+    await literal.press("Shift+ArrowLeft");
+    await page.keyboard.type("X");
+    await expect(literal).toHaveValue("abX");
     await literal.fill("first\nsecond");
     await expect(literal).toHaveValue("first\nsecond");
     await literal.fill("\n");
@@ -830,6 +846,28 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(targetFramework).toBeFocused();
     await expect(targetFramework).toHaveValue("net8.0");
     await expect(packageInput).toHaveValue(literalCoordinate.packageId);
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    const firstDraft = page.locator("[data-query-term-draft-value]");
+    await firstDraft.fill("Original.Dependency");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]').click();
+    const firstTerm =
+      page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    await firstTerm.fill("Unapplied.Old.Dependency");
+    await page.locator(".query-library-literal summary").click();
+    await literal.fill("marker");
+    await literal.press("Control+A");
+    await literal.press("Backspace");
+    await page.locator('[data-query-term-add="depends"]').click();
+    const replacementDraft = page.locator("[data-query-term-draft-value]");
+    await replacementDraft.fill("New.Dependency");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(
+      page.locator('[data-query-term-form="0"] [data-query-term-value]'))
+      .toHaveValue("New.Dependency");
+    await page.locator(".query-library-literal summary").click();
     await literal.fill("shared-literal-use-marker");
 
     await targetFramework.fill("net10.0");

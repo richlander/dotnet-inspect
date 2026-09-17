@@ -149,7 +149,9 @@ return and `\\` means a literal backslash, while a line feed remains a line
 break. The ordinary package editor supplies either one exact package ID,
 resolved to its latest eligible listed version, or one terminal-star prefix
 admitting at most five candidates. Activating the literal operand clears facets
-and terms; clearing it restores ordinary Package Query defaults.
+and terms, including unapplied editor state belonging to those removed terms;
+an independently open new-term draft remains separate. Clearing the literal
+restores ordinary Package Query defaults.
 The disclosure remains open while either editor retains focus, so clearing the
 operand or editing the framework cannot redirect an in-progress edit into the
 package selector.
