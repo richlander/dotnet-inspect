@@ -7,18 +7,18 @@ import type {
 
 export const MAX_RETAINED_WORKSPACE_DEFINITIONS = 4;
 
-export interface RetainedWorkspaceDefinitionInput {
+interface RetainedWorkspaceDefinitionInput {
   readonly label: string;
   readonly canonicalLocation: string;
   readonly canonicalPacket: string;
 }
 
-export interface RetainedWorkspaceDefinition
+interface RetainedWorkspaceDefinition
   extends RetainedWorkspaceDefinitionInput {
   readonly id: string;
 }
 
-export interface RetainedWorkspaceActivationState {
+interface RetainedWorkspaceActivationState {
   readonly definitions: readonly RetainedWorkspaceDefinition[];
   readonly activeDefinitionId: string | null;
   readonly pendingDefinitionId: string | null;
