@@ -392,6 +392,12 @@ primary-image definitions.
 Data-only method maps without that module identity retain their conservative
 unresolved result for these aliases.
 
+Candidate lookup preserves `TypeRef` identity: assembly names compare
+ordinally ignoring case, while namespace, type, and member names remain
+case-sensitive. Equivalent `AssemblyRef` aliases share the candidate key
+without weakening the separate full assembly-identity check; a matching name
+alone does not establish that the target belongs to the primary image.
+
 For a resolved same-image invocation, `Implicit` and `Explicit` produce
 `Unsafe call` evidence, `None` does not, and `Unavailable` remains visible on
 the call without being recast as safe or unsafe evidence. Calls to
@@ -415,6 +421,10 @@ alias provenance.
 presence agreement for matching, case-variant, and foreign module scopes,
 including local array-element aliases and a foreign signature under a local
 declaring type. These tiny generated-image cases are PR-fast, not corpus scans.
+`SameImageCalls_AssemblyReferenceAliasesPreserveIdentity` gates equivalent
+case-variant assembly aliases against different assembly names, versions,
+cultures, and keys, plus case-sensitive namespace/type/member neighbors.
+Its ten tiny generated-image rows are PR-fast.
 `SameImageCalls_PreserveOpenIdentityAndGenericScope` gates distinct open
 overloads that collapse after construction, caller-scoped TypeSpec and optional
 vararg arguments, and enclosing method parameters inside function-pointer

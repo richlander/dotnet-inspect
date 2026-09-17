@@ -6,9 +6,8 @@ namespace ILInspector.Analysis;
 internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
-    readonly Dictionary<string, List<MethodIdentity>>
-        _methodsByDeclaringTypeAndName =
-            new(StringComparer.Ordinal);
+    readonly Dictionary<(TypeRef DeclaringType, string Name), List<MethodIdentity>>
+        _methodsByDeclaringTypeAndName = [];
     readonly SameImageSignatureComparer _signatureComparer;
 
     MethodDefinitionMap(
@@ -27,9 +26,7 @@ internal sealed class MethodDefinitionMap
             }
 
             _methodTokens.Add(method.MetadataToken);
-            string key = DeclaringTypeAndNameKey(
-                method.DeclaringType,
-                method.Name);
+            var key = (method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(
                     key,
                     out List<MethodIdentity>? candidates))
@@ -86,9 +83,7 @@ internal sealed class MethodDefinitionMap
                 ? declaring.TypeArguments
                 : [];
         if (!_methodsByDeclaringTypeAndName.TryGetValue(
-                DeclaringTypeAndNameKey(
-                    definition,
-                    callee.Name),
+                (definition, callee.Name),
                 out List<MethodIdentity>? candidates))
         {
             return 0;
@@ -97,8 +92,7 @@ internal sealed class MethodDefinitionMap
         int resolvedToken = 0;
         foreach (MethodIdentity candidate in candidates)
         {
-            if (!definition.Equals(candidate.DeclaringType)
-                || !SignatureMatches(
+            if (!SignatureMatches(
                     candidate,
                     typeArguments,
                     callee))
@@ -208,11 +202,4 @@ internal sealed class MethodDefinitionMap
         => type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
             : type;
-
-    static string DeclaringTypeAndNameKey(
-        TypeRef declaringType,
-        string name)
-        => $"{declaringType.Assembly}|"
-            + $"{declaringType.Namespace}|"
-            + $"{declaringType.Name}|{name}";
 }

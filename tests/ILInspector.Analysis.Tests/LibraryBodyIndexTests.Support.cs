@@ -3575,7 +3575,11 @@ public partial class LibraryBodyIndexTests
             MemorySafetyCallTarget.PointerOnly,
         string aliasModuleName = "AnalysisMemorySafety.dll",
         bool includeLocalParameter = false,
-        string? parameterModuleName = null)
+        string? parameterModuleName = null,
+        AssemblyReferenceIdentity? assemblyAlias = null,
+        string aliasNamespace = "Samples",
+        string aliasTypeName = "Target",
+        string aliasMemberName = "AttributeOnly")
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -3769,6 +3773,23 @@ public partial class LibraryBodyIndexTests
                     moduleAliasType,
                     metadata.GetOrAddString("AttributeOnly"),
                     aliasSignature),
+            MemorySafetyCallTarget.AssemblyReferenceAttributeOnly
+                when assemblyAlias is { Version: { } aliasVersion } =>
+                metadata.AddMemberReference(
+                    metadata.AddTypeReference(
+                        metadata.AddAssemblyReference(
+                            metadata.GetOrAddString(assemblyAlias.Name),
+                            aliasVersion,
+                            metadata.GetOrAddString(assemblyAlias.Culture ?? ""),
+                            assemblyAlias.PublicKeyToken is { } token
+                                ? metadata.GetOrAddBlob(Convert.FromHexString(token))
+                                : default,
+                            default,
+                            default),
+                        metadata.GetOrAddString(aliasNamespace),
+                        metadata.GetOrAddString(aliasTypeName)),
+                    metadata.GetOrAddString(aliasMemberName),
+                    emptyMethodSignature),
             MemorySafetyCallTarget
                 .MethodDefinitionParentVarArgAttributeOnly =>
                     metadata.AddMemberReference(
@@ -3839,6 +3860,8 @@ public partial class LibraryBodyIndexTests
                             "CallsLocalAlias",
                     MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
                         "CallsModuleAlias",
+                    MemorySafetyCallTarget.AssemblyReferenceAttributeOnly =>
+                        "CallsAssemblyAlias",
                     MemorySafetyCallTarget
                         .ExternalSameNameAttributeOnly =>
                             "CallsExternalAlias",

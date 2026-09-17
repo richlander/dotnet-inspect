@@ -339,6 +339,74 @@ public partial class LibraryBodyIndexTests
         }
     }
 
+    [Theory]
+    [InlineData("AnalysisMemorySafety", 1, "Samples", "Target", "AttributeOnly", true)]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "Samples", "Target", "AttributeOnly", true)]
+    [InlineData("analysismemorysafety", 1, "Samples", "Target", "AttributeOnly", true)]
+    [InlineData("Other", 1, "Samples", "Target", "AttributeOnly", false)]
+    [InlineData("ANALYSISMEMORYSAFETY", 9, "Samples", "Target", "AttributeOnly", false)]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "Samples", "Target", "AttributeOnly", false, "fr-FR")]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "Samples", "Target", "AttributeOnly", false, null, "0102030405060708")]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "samples", "Target", "AttributeOnly", false)]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "Samples", "target", "AttributeOnly", false)]
+    [InlineData("ANALYSISMEMORYSAFETY", 1, "Samples", "Target", "attributeOnly", false)]
+    public void SameImageCalls_AssemblyReferenceAliasesPreserveIdentity(
+        string assemblyName,
+        int majorVersion,
+        string aliasNamespace,
+        string aliasTypeName,
+        string aliasMemberName,
+        bool expected,
+        string? culture = null,
+        string? publicKeyToken = null)
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget: MemorySafetyCallTarget.AssemblyReferenceAttributeOnly,
+            assemblyAlias: new(
+                assemblyName,
+                new Version(majorVersion, 0, 0, 0),
+                culture,
+                publicKeyToken),
+            aliasNamespace: aliasNamespace,
+            aliasTypeName: aliasTypeName,
+            aliasMemberName: aliasMemberName);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"analysis-assembly-alias-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                candidate => candidate.Caller.Name == "CallsAssemblyAlias");
+
+            Assert.Empty(index.Diagnostics);
+            Assert.Equal(
+                expected,
+                LibraryBodyIndex.HasUnsafeEvidence(
+                    path,
+                    ImmutableArray.Create(image)));
+            Assert.Equal(
+                expected ? CallerUnsafeMode.Explicit : (CallerUnsafeMode?)null,
+                call.TargetCallerUnsafeMode);
+            Assert.Equal(
+                expected,
+                index.UnsafeEvidence.Any(evidence =>
+                    evidence.Member.Name == "CallsAssemblyAlias"
+                    && evidence.Reason == "Unsafe call"
+                    && evidence.OperandToken == call.OperandToken));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void
         SameImageCalls_ResolveMethodDefinitionParentVarArg()
@@ -392,6 +460,7 @@ public partial class LibraryBodyIndexTests
         AttributeOnly,
         LocalTypeReferenceAttributeOnly,
         ModuleReferenceAttributeOnly,
+        AssemblyReferenceAttributeOnly,
         ExternalSameNameAttributeOnly,
         MethodDefinitionParentVarArgAttributeOnly,
     }
