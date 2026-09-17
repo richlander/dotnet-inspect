@@ -244,18 +244,20 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
-    public void CompilerProducedCopyBlock_SeparatesGeneratedUnsafeGroups()
+    public void CompilerProducedCopyBlock_KeepsSingleUnsafeSetupCompact()
     {
         var (output, _) = Print(
             typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives),
             nameof(ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives.StackallocBooleanInitializer));
 
         Assert.Contains(
-            "    values = (bool*)S_256;\n" +
-            "}\n\n" +
+            "    S_256 = __stackalloc;\n" +
+            "}\n" +
+            "/* unsupported cpblk */\n" +
+            "bool* values = (bool*)S_256;\n" +
             "if (unsafe(!(*values)))",
             output);
-        Assert.Contains("}\n\nreturn true;", output);
+        Assert.Contains("}\nreturn true;", output);
     }
 
     [Fact]
