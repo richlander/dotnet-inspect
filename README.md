@@ -246,10 +246,11 @@ dotnet-inspect package activity --ecosystem aspire \
 UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
 activity with positive current-advisory or exact security-release evidence.
 Unavailable evidence is not treated as a negative. Human output uses the shared
-report view; `--json` emits the lossless schema-versioned report, with
-`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
-on stderr. Single-table formats and catalog-only section projections are not
-available with `package activity`.
+report view; `--json` emits the lossless schema-versioned report, while
+`--envelope` emits the same report as Content with Share and diagnostics.
+`--compact` minifies either JSON boundary. Use `--verbose` for bounded
+acquisition progress on stderr. Single-table formats and catalog-only section
+projections are not available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -337,11 +338,11 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>` and ordinary single-Library API `diff` additionally
-support the presence-only `--envelope` service-output selector. It implies
-JSON; unprojected `--json` emits the same Content without the service frame.
-Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
-have not adopted this transport.
+Positional `depends <type>`, ordinary single-Library API `diff`, and
+`package activity` additionally support the presence-only `--envelope`
+service-output selector. It implies JSON; unprojected `--json` emits the same
+Content without the service frame. Asset-mode `depends`, other Diff modes,
+Discover, Count, and other commands have not adopted this transport.
 
 | Goal | Flags |
 | ---- | ----- |

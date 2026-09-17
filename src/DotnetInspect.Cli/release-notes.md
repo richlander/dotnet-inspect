@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Adds complete service `--envelope` output to `package activity` with result
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
+  emits the same owner-issued report Content without the service frame.
+  Report request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection with named `--library`, `--package`, and `--platform` source
   context. Heap coordinates remain bound to the selected `--metadata-root`. The

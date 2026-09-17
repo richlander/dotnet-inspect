@@ -53,6 +53,37 @@ public sealed class PackageChangesCommandTests
         Assert.Empty(result.Errors);
     }
 
+    [Fact]
+    public void ParserAcceptsEnvelopeAndRejectsCompetingOutput()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var accepted = root.Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "--envelope",
+            "--compact",
+        ]);
+        Assert.Empty(accepted.Errors);
+
+        var rejected = root.Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "--envelope",
+            "--json",
+        ]);
+        Assert.Contains(
+            rejected.Errors,
+            error => error.Message.Contains(
+                "--envelope cannot be combined with --json",
+                StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData(
         "package activity --ecosystem aspire --table",
@@ -162,6 +193,61 @@ public sealed class PackageChangesCommandTests
             root.GetProperty("summary")
                 .GetProperty("completion")
                 .GetString());
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesJsonAndRetainsShare()
+    {
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(StandardCatalog(ReferenceTime));
+        using var advisoryClient = new HttpClient(
+            new SingleResponseHandler(HttpStatusCode.OK, "[]"));
+        var json = await ConsoleCapture.RunAsync(
+            () => PackageChangesCommand.ExecuteAsync(
+                Options(OutputFormat.Json),
+                source,
+                new GitHubNuGetAdvisoryService(
+                    advisoryClient,
+                    timeProvider: new FixedTimeProvider(ReferenceTime)),
+                new VerboseLogger(false),
+                new FixedTimeProvider(ReferenceTime)));
+
+        using INuGetCatalogPackageSourceClient envelopeSource =
+            CreateSource(StandardCatalog(ReferenceTime));
+        using var envelopeAdvisoryClient = new HttpClient(
+            new SingleResponseHandler(HttpStatusCode.OK, "[]"));
+        var envelope = await ConsoleCapture.RunAsync(
+            () => PackageChangesCommand.ExecuteAsync(
+                Options(OutputFormat.Markdown) with
+                {
+                    EnvelopeOutput = true,
+                    CompactJson = true,
+                },
+                envelopeSource,
+                new GitHubNuGetAdvisoryService(
+                    envelopeAdvisoryClient,
+                    timeProvider: new FixedTimeProvider(ReferenceTime)),
+                new VerboseLogger(false),
+                new FixedTimeProvider(ReferenceTime)));
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "ecosystem-change-report",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                root.GetProperty("content")));
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
     }
 
     [Fact]
@@ -286,6 +372,47 @@ public sealed class PackageChangesCommandTests
     }
 
     [Fact]
+    public async Task EnvelopeKeepsPartialReportBeforeReturningFailure()
+    {
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                StandardCatalog(
+                    ReferenceTime,
+                    Item(
+                        "Aspire.Hosting",
+                        "9.5.0",
+                        ReferenceTime - TimeSpan.FromDays(1))));
+        using var advisoryClient = new HttpClient(
+            new SingleResponseHandler(HttpStatusCode.Forbidden, "[]"));
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageChangesCommand.ExecuteAsync(
+                Options(OutputFormat.Markdown) with
+                {
+                    EnvelopeOutput = true,
+                    CompactJson = true,
+                },
+                source,
+                new GitHubNuGetAdvisoryService(
+                    advisoryClient,
+                    timeProvider: new FixedTimeProvider(ReferenceTime)),
+                new VerboseLogger(false),
+                new FixedTimeProvider(ReferenceTime)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument envelope = JsonDocument.Parse(result.Output);
+        JsonElement content = envelope.RootElement.GetProperty("content");
+        Assert.Equal(
+            "Partial",
+            content.GetProperty("summary")
+                .GetProperty("completion")
+                .GetString());
+        Assert.Single(content.GetProperty("failures").EnumerateArray());
+        Assert.Single(content.GetProperty("rows").EnumerateArray());
+    }
+
+    [Fact]
     public async Task VerboseProgressStaysOnStderr()
     {
         using INuGetCatalogPackageSourceClient source =
@@ -360,6 +487,37 @@ public sealed class PackageChangesCommandTests
                     .GetProperty("summary")
                     .GetProperty("completion")
                     .GetString());
+
+            var envelopeResult = await InvokeAsync(
+                [
+                    "package",
+                    "activity",
+                    "--ecosystem",
+                    "aspire",
+                    "--from",
+                    "2026-09-14T17:59:00Z",
+                    "--through",
+                    "2026-09-14T18:00:00Z",
+                    "--envelope",
+                    "--compact",
+                    "-n",
+                    "1",
+                ]);
+
+            Assert.Equal(0, envelopeResult.ExitCode);
+            Assert.Empty(envelopeResult.Error);
+            using JsonDocument envelope =
+                JsonDocument.Parse(envelopeResult.Output);
+            Assert.Equal(
+                "ecosystem-change-report",
+                envelope.RootElement.GetProperty("result_kind").GetString());
+            Assert.Equal(
+                1,
+                envelope.RootElement
+                    .GetProperty("content")
+                    .GetProperty("request")
+                    .GetProperty("maximum_rows")
+                    .GetInt32());
         }
         finally
         {
