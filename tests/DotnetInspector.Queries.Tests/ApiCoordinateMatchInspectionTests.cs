@@ -36,7 +36,20 @@ public sealed class ApiCoordinateMatchInspectionTests
             content.Destination.DeclarationKind);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
-        Assert.NotNull(content.Evidence);
+        ApiCoordinateCorrespondenceEvidence evidence =
+            Assert.IsType<ApiCoordinateCorrespondenceEvidence>(content.Evidence);
+        Assert.False(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal("Avalonia.Markup", evidence.Source.Library.Assembly.Assembly.Name);
+        Assert.Equal("Avalonia.Base", evidence.Destination!.Library.Assembly.Assembly.Name);
+        Assert.Equal("ref/net8.0/Avalonia.Base.dll", evidence.Destination.Library.Asset!.Path);
+        CoordinateTypeResolutionOutcomeEvidence.Resolved resolved =
+            Assert.IsType<CoordinateTypeResolutionOutcomeEvidence.Resolved>(
+                Assert.IsType<CoordinateTypeResolutionEvidence.Available>(
+                    evidence.Resolution).Outcome);
+        Assert.Single(resolved.Hops);
+        Assert.Same(
+            evidence.Destination.Library.Assembly.Registration,
+            resolved.Definition.Assembly.Assembly.Library!.Assembly.Registration);
     }
 
     [Fact]
@@ -83,6 +96,17 @@ public sealed class ApiCoordinateMatchInspectionTests
             && stage.Reason == nameof(ApiDeclarationCorrespondenceReason.NoExactDeclarationUnderProfile));
         Assert.Null(envelope.Content.Destination);
         Assert.Empty(envelope.Diagnostics);
+        ApiCoordinateCorrespondenceEvidence evidence =
+            Assert.IsType<ApiCoordinateCorrespondenceEvidence>(
+                envelope.Content.Evidence);
+        Assert.True(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Absent,
+            Assert.IsType<ApiDeclarationCorrespondenceResult>(
+                evidence.Correspondence).Status);
+        Assert.IsType<CoordinateTypeResolutionOutcomeEvidence.Resolved>(
+            Assert.IsType<CoordinateTypeResolutionEvidence.Available>(
+                evidence.Resolution).Outcome);
         using var markdown = new StringWriter();
         ApiCoordinateMatchPresentation.Render(envelope.Content, markdown);
         Assert.DoesNotContain("## Candidates", markdown.ToString());
@@ -104,6 +128,16 @@ public sealed class ApiCoordinateMatchInspectionTests
         Assert.Contains(envelope.Content.Stages, stage =>
             stage.Stage == ApiCoordinateMatchStage.TypeResolution && stage.Outcome == "NotFound");
         Assert.Empty(envelope.Content.ForwardingHops);
+        ApiCoordinateCorrespondenceEvidence evidence =
+            Assert.IsType<ApiCoordinateCorrespondenceEvidence>(
+                envelope.Content.Evidence);
+        Assert.True(evidence.IsCompleteDestinationAbsence);
+        CoordinateTypeResolutionOutcomeEvidence.NotFound notFound =
+            Assert.IsType<CoordinateTypeResolutionOutcomeEvidence.NotFound>(
+                Assert.IsType<CoordinateTypeResolutionEvidence.Available>(
+                    evidence.Resolution).Outcome);
+        Assert.Empty(notFound.Hops);
+        Assert.Null(evidence.Correspondence);
     }
 
     [Fact]
@@ -153,6 +187,19 @@ public sealed class ApiCoordinateMatchInspectionTests
             stage.Stage == ApiCoordinateMatchStage.TypeResolution && stage.Outcome == "Resolved");
         Assert.Equal("Avalonia.Base", Assert.Single(envelope.Content.Candidates).Assembly.Name.ToString());
         Assert.Null(envelope.Content.Destination);
+        ApiCoordinateCorrespondenceEvidence evidence =
+            Assert.IsType<ApiCoordinateCorrespondenceEvidence>(
+                envelope.Content.Evidence);
+        Assert.True(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(
+            ApiDeclarationCorrespondenceStatus.Absent,
+            Assert.IsType<ApiDeclarationCorrespondenceResult>(
+                evidence.Correspondence).Status);
+        CoordinateTypeResolutionOutcomeEvidence.Resolved resolved =
+            Assert.IsType<CoordinateTypeResolutionOutcomeEvidence.Resolved>(
+                Assert.IsType<CoordinateTypeResolutionEvidence.Available>(
+                    evidence.Resolution).Outcome);
+        Assert.Single(resolved.Hops);
     }
 
     [Fact]
