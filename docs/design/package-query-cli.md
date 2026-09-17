@@ -44,9 +44,11 @@ Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
 canary.
 
-The focused CLI adoption binds a deliberately smaller initial vocabulary:
-the broad .NET tool facet and its CLI v1/v2 alternatives. Other Browser facets
-are not automatically CLI surface. Assembly-semantic qualification is an explicit Package Query mode owned by
+The focused CLI adoption binds a deliberately smaller vocabulary: the broad
+.NET tool facet and its CLI v1/v2 alternatives, the nuspec-only has-license
+facet, and the `depends` and `license` terms. Other Browser facets are not
+automatically CLI surface. Assembly-semantic qualification is an explicit
+Package Query mode owned by
 [Package Query library-literal qualification](package-query-library-literal.md).
 Its Results have package grain; decoded literal occurrences remain typed
 evidence within each matched package Result. The one-candidate evaluator
@@ -59,12 +61,12 @@ query's optional match budget; direct package rows also use that Head as their
 candidate bound. Existing Browser requests retain their numeric match-stop
 budget.
 
-The first parameterized term adoption under
-[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) adds
-`depends=<package-id>` beside that existing facet surface. It is the first
-production consumer of the Package Query term descriptor and typed term plan;
+The parameterized term adoption begun under
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) exposes
+`depends=<package-id>` and `license=<nuspec-value>` beside that existing facet
+surface. They consume the Package Query term descriptor and typed term plan;
 the existing parameterless facets remain active until their own term spellings
-land. Inspect Web consumes the same descriptor and planner through its active
+land. Inspect Web consumes the same descriptors and planner through its active
 term editor, without defining a second vocabulary. This staged boundary does
 not define the portable intent codec.
 
@@ -103,12 +105,16 @@ Related docs:
 
 ## Parameterized term binding
 
-The Package Query owner publishes one initial parameterized term:
+The Package Query owner publishes two nuspec-tier parameterized terms:
 
 ```text
 key: depends
 operator: eq
 value: <package-id>
+
+key: license
+operator: eq
+value: <nuspec license expression, file, or URL>
 ```
 
 The unresolved triple and canonical operator identity use
@@ -123,6 +129,8 @@ The CLI spells it through the existing predicate grammar:
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
 ```
 
 `depends` admits equality only. Its value must be one canonical NuGet package
@@ -146,16 +154,31 @@ stop after its requested number of matching package witnesses; explicit
 or another accepted row selection to be complete under the existing Count
 rules.
 
-`PackageQueryTests.TermDescriptors_ExposeTheInitialDependsVocabulary`,
+`license` also admits equality only. It compares case-insensitively with the
+typed value declared by `<license type="expression">`,
+`<license type="file">`, or the deprecated `<licenseUrl>`. It does not infer a
+license from package filenames, open the package archive, parse a license
+document, expand SPDX equivalence, or translate arbitrary legacy URLs. The
+`package.query.has-license` facet uses the same typed declaration and reports
+its kind and value as evidence. Thus WiX matches
+`license=OSMFEULA.txt`, while an MIT expression matches `license=MIT`; both
+remain valid with `--nuspec-only`.
+
+`PackageQueryTests.TermDescriptors_ExposeNuspecVocabulary`,
 `PlanInput_RejectsInvalidTermsBeforeExecution`,
 `PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates`,
 `PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse`, and
-`ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges` gate the L1
-descriptor, planning, matching, evidence, and acquisition boundary.
+`ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges` gate the shared L1
+descriptor and planning boundary.
+`ExecuteAsync_LicenseFacetAndTermUseOnlyManifestDeclaration` gates license
+matching, typed evidence, and zero package-content acquisition.
 `PackageQueryCliTests.DependsTerm_LowersToTheProductPlan`,
 `DependsTerms_AndAcrossManifestDependenciesWithoutPackageContent`, and
 `DependsTerm_HeadStopsAfterItsWitnessAndCountEvaluatesThePopulation` gate the
-CLI spelling and its Head/Count behavior.
+dependency CLI spelling and its Head/Count behavior.
+`PackageQueryCliTests.LicenseTerm_LowersToTheProductPlan` and
+`LicenseTerm_MatchesManifestWithoutPackageContent` gate the license spelling
+and acquisition boundary.
 
 ## CLI facet binding
 

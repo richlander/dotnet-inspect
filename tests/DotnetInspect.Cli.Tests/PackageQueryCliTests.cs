@@ -29,13 +29,14 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public void DiscoveryValues_LowerToTheInitialToolFacetSet()
+    public void DiscoveryValues_LowerToTheInitialCliFacetSet()
     {
         string[] expected =
         {
             PackageQuery.ToolFacetId,
             PackageQuery.ToolV1FacetId,
             PackageQuery.ToolV2FacetId,
+            PackageQuery.HasLicenseFacetId,
         };
         Assert.Equal(expected, PackageQueryOptions.QueryKey.Values);
         foreach (string facet in expected)
@@ -55,7 +56,9 @@ public class PackageQueryCliTests
                 facet,
                 Assert.Single(options!.Plan.Facets).Id);
             Assert.Equal(
-                PackageQuery.MaximumPackageContentCandidates,
+                facet == PackageQuery.HasLicenseFacetId
+                    ? PackageQuery.DefaultMaximumCandidates
+                    : PackageQuery.MaximumPackageContentCandidates,
                 options.Plan.MaximumCandidates);
         }
     }
@@ -85,6 +88,32 @@ public class PackageQueryCliTests
             "Microsoft.Extensions.DependencyInjection",
             term.Value);
         Assert.Empty(options.Plan.Facets);
+        Assert.Equal(
+            PackageQuery.DefaultMaximumCandidates,
+            options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void LicenseTerm_LowersToTheProductPlan()
+    {
+        Assert.Equal(
+            PackageQuery.LicenseTermKey,
+            PackageQueryOptions.LicenseTerm.Name);
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["license=MIT"],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.LicenseTermKey, term.Key);
+        Assert.Equal("MIT", term.Value);
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
@@ -478,6 +507,42 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains("Dependency.One 1.0.0", result.Output);
         Assert.Contains("Dependency.Two 2.0.0", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task LicenseTerm_MatchesManifestWithoutPackageContent()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["license=OSMFEULA.txt"],
+                nuspecOnly: true,
+                take: 3,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                options! with
+                {
+                    Tabular = true,
+                    Tsv = true,
+                },
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.DoesNotContain("Contoso.Third", result.Output);
+        Assert.Contains("License file: OSMFEULA.txt.", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -1069,9 +1134,18 @@ public class PackageQueryCliTests
                     StringComparison.OrdinalIgnoreCase)
                     ? "<dependency id=\"Dependency.One\" version=\"1.0.0\"/>"
                     : "<dependency id=\"Dependency.One\" version=\"1.0.0\"/><dependency id=\"Dependency.Two\" version=\"2.0.0\"/>";
+            string license = id.Equals(
+                    "Contoso.First",
+                    StringComparison.OrdinalIgnoreCase)
+                ? "<license type=\"expression\">MIT</license>"
+                : id.Equals(
+                    "Contoso.Second",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "<license type=\"file\">OSMFEULA.txt</license>"
+                    : "";
             return Encoding.UTF8.GetBytes($"""
                 <package><metadata><id>{id}</id><version>1.0.0</version><authors>Contoso</authors>
-                <description>CLI query fixture</description><dependencies>{dependencies}</dependencies>
+                <description>CLI query fixture</description>{license}<dependencies>{dependencies}</dependencies>
                 </metadata></package>
                 """);
         }

@@ -138,6 +138,7 @@ public sealed class PackageQueryTests
                 ("package.query.has-dependencies", 300),
                 ("package.query.no-dependencies", 400),
                 ("package.query.downloads-1m", 500),
+                ("package.query.has-license", 550),
                 ("package.query.embedded-readme", 600),
                 ("package.query.embedded-skill", 700),
             ],
@@ -149,6 +150,7 @@ public sealed class PackageQueryTests
                 PackageQueryFacetTier.PackageContent,
                 PackageQueryFacetTier.PackageContent,
                 PackageQueryFacetTier.PackageContent,
+                PackageQueryFacetTier.Nuspec,
                 PackageQueryFacetTier.Nuspec,
                 PackageQueryFacetTier.Nuspec,
                 PackageQueryFacetTier.Nuspec,
@@ -201,16 +203,24 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public void TermDescriptors_ExposeTheInitialDependsVocabulary()
+    public void TermDescriptors_ExposeNuspecVocabulary()
     {
+        Assert.Equal(
+            [PackageQuery.DependsTermKey, PackageQuery.LicenseTermKey],
+            PackageQuery.Terms.Select(descriptor => descriptor.Key));
         PackageQueryTermDescriptor descriptor =
-            Assert.Single(PackageQuery.Terms);
-        Assert.Equal(PackageQuery.DependsTermKey, descriptor.Key);
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.DependsTermKey);
         Assert.Equal(
             [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
             descriptor.Operators);
         Assert.Equal(PackageQueryFacetTier.Nuspec, descriptor.Tier);
         Assert.Equal("NuGet package ID", descriptor.ValueKind);
+        PackageQueryTermDescriptor license =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.LicenseTermKey);
+        Assert.Equal(PackageQueryFacetTier.Nuspec, license.Tier);
+        Assert.Equal("MIT", license.ExampleValue);
     }
 
     [Theory]
@@ -421,6 +431,77 @@ public sealed class PackageQueryTests
                 value.ToString()));
         Assert.Equal(2, source.ManifestRequests.Count);
         Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LicenseFacetAndTermUseOnlyManifestDeclaration()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Mit"),
+            Match("Contoso.Osmf"),
+            Match("Contoso.None"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.mit@1.0.0"] = Manifest(
+                    "Contoso.Mit",
+                    license: "<license type=\"expression\">MIT</license>"),
+                ["contoso.osmf@1.0.0"] = Manifest(
+                    "Contoso.Osmf",
+                    license: "<license type=\"file\">OSMFEULA.txt</license>"),
+                ["contoso.none@1.0.0"] = Manifest("Contoso.None"),
+            });
+        PackageQueryPlan hasLicense = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.HasLicenseFacetId],
+                    MaximumCandidates: 3,
+                    MaximumMatches: null)));
+
+        List<PackageQueryEvent> facetEvents = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                hasLicense,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            ["Contoso.Mit", "Contoso.Osmf"],
+            facetEvents.OfType<PackageQueryEvent.Match>()
+                .Select(match => match.Value.Package.PackageId));
+        Assert.All(
+            facetEvents.OfType<PackageQueryEvent.Match>(),
+            match => Assert.Equal(PackageQueryFacetTier.Nuspec, match.Value.Tier));
+
+        PackageQueryPlan osmf = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                facetIds: null,
+                terms:
+                [
+                    new(
+                        PackageQuery.LicenseTermKey,
+                        PortableQueryOperator.Equal,
+                        "osmfeula.TXT"),
+                ],
+                maximumCandidates: 3,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> termEvents = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                osmf,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(termEvents.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Contoso.Osmf", match.Package.PackageId);
+        PackageQueryEvidence evidence =
+            Assert.Single(match.Evidence, item => item.Term is not null);
+        Assert.Equal("License file: OSMFEULA.txt.", evidence.Value);
     }
 
     [Theory]
@@ -2001,7 +2082,8 @@ public sealed class PackageQueryTests
         string version = "1.0.0",
         string dependencies = "",
         string packageTypes = "",
-        string readme = "") =>
+        string readme = "",
+        string license = "") =>
         Encoding.UTF8.GetBytes(
             $$"""
             <?xml version="1.0" encoding="utf-8"?>
@@ -2011,6 +2093,7 @@ public sealed class PackageQueryTests
                 <version>{{version}}</version>
                 <authors>Manifest Author</authors>
                 <description>Package query test.</description>
+                {{license}}
                 {{packageTypes}}
                 {{readme}}
                 <dependencies>{{dependencies}}</dependencies>

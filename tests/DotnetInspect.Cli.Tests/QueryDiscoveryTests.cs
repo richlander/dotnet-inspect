@@ -342,14 +342,21 @@ public class QueryDiscoveryTests
                 .GetProperty("facets").EnumerateArray(),
         ];
         Assert.Equal(
-            [PackageQuery.DependsTermKey, "facet"],
+            [
+                PackageQuery.DependsTermKey,
+                PackageQuery.LicenseTermKey,
+                "facet",
+            ],
             facets.Select(facet => facet.GetProperty("name").GetString()));
-        JsonElement facet = facets[1];
+        JsonElement facet = facets[2];
         Assert.Equal(PackageQueryOptions.QueryKey.Values,
             facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
         Assert.Equal(
             "NuGet package ID",
             facets[0].GetProperty("value_kind").GetString());
+        Assert.Equal(
+            "nuspec license expression, file, or URL",
+            facets[1].GetProperty("value_kind").GetString());
     }
 
     [Fact]

@@ -145,25 +145,44 @@ public static class NuspecParser
         result.RepositoryType = repositoryElement?.Attribute("type")?.Value;
         result.RepositoryCommit = repositoryElement?.Attribute("commit")?.Value;
 
-        // Parse license (prefer expression over file or URL)
+        // Parse license (prefer expression or file over the legacy URL).
         var licenseElement = metadata.Element(ns + "license");
         if (licenseElement != null)
         {
             string? licenseType = licenseElement.Attribute("type")?.Value;
+            string licenseValue = licenseElement.Value.Trim();
             if (licenseType?.Equals("expression", StringComparison.OrdinalIgnoreCase) == true)
             {
-                result.License = licenseElement.Value;
+                result.License = licenseValue;
+                if (licenseValue.Length > 0)
+                {
+                    result.LicenseDeclaration = new(
+                        PackageLicenseDeclarationKind.Expression,
+                        licenseValue);
+                }
             }
             else if (licenseType?.Equals("file", StringComparison.OrdinalIgnoreCase) == true)
             {
-                result.License = $"(file: {licenseElement.Value})";
+                result.License = $"(file: {licenseValue})";
+                if (licenseValue.Length > 0)
+                {
+                    result.LicenseDeclaration = new(
+                        PackageLicenseDeclarationKind.File,
+                        licenseValue);
+                }
             }
         }
-        // Fallback to deprecated licenseUrl if no license element
+        // Fallback to deprecated licenseUrl if no recognized license declaration exists.
         if (string.IsNullOrEmpty(result.License))
         {
-            var licenseUrl = metadata.Element(ns + "licenseUrl")?.Value;
+            var licenseUrl = metadata.Element(ns + "licenseUrl")?.Value.Trim();
             result.LicenseUrl = licenseUrl;
+            if (!string.IsNullOrEmpty(licenseUrl))
+            {
+                result.LicenseDeclaration = new(
+                    PackageLicenseDeclarationKind.Url,
+                    licenseUrl);
+            }
             if (!string.IsNullOrEmpty(licenseUrl) && !licenseUrl.Contains("LICENSE"))
             {
                 if (licenseUrl.StartsWith("https://licenses.nuget.org/"))

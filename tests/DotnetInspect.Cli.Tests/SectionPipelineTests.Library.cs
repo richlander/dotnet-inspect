@@ -1256,6 +1256,7 @@ public partial class SectionPipelineTests
                 new PackageFile("runtimes/win-x64/native/test.txt", 1),
                 new PackageFile("README.md", 1, IsReadme: true),
                 new PackageFile("Test.nuspec", 1),
+                new PackageFile("LICENSE", 1, IsLicense: true),
                 new PackageFile("skills/demo/SKILL.md", 1),
                 new PackageFile("skills/demo/SKILL.md", 1)
             ]

@@ -401,12 +401,14 @@ public static partial class PackageQuery
     public const string HasDependenciesFacetId = "package.query.has-dependencies";
     public const string NoDependenciesFacetId = "package.query.no-dependencies";
     public const string MillionDownloadsFacetId = "package.query.downloads-1m";
+    public const string HasLicenseFacetId = "package.query.has-license";
     public const string EmbeddedReadmeFacetId = "package.query.embedded-readme";
     public const string EmbeddedSkillFacetId = "package.query.embedded-skill";
     public const string DependencySelectionGroupId = "package.query.dependencies";
     public const string ToolSelectionGroupId = "package.query.dotnet-tool-format";
     public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
     public const string DependsTermKey = "depends";
+    public const string LicenseTermKey = "license";
 
     static readonly ImmutableArray<PackageQueryFacetDefinition> Definitions =
     [
@@ -501,6 +503,18 @@ public static partial class PackageQuery
                 $"The package source reports {match.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads.")),
         new(
             new PackageQueryFacetDescriptor(
+                HasLicenseFacetId,
+                "has license",
+                "The package manifest declares a license expression, file, or legacy URL.",
+                550,
+                PackageQueryFacetTier.Nuspec),
+            static match => match.RequiredManifest.LicenseDeclaration is not null,
+            static (match, _) => DescribeLicense(
+                match.RequiredManifest.LicenseDeclaration
+                    ?? throw new InvalidOperationException(
+                        "License evidence requires a manifest license declaration."))),
+        new(
+            new PackageQueryFacetDescriptor(
                 EmbeddedReadmeFacetId,
                 "embedded README",
                 "The package manifest declares an embedded README file.",
@@ -554,6 +568,15 @@ public static partial class PackageQuery
             [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection"),
+        new(
+            LicenseTermKey,
+            "license",
+            "Matches the license value declared by the package manifest.",
+            360,
+            PackageQueryFacetTier.Nuspec,
+            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            "license expression, file, or URL",
+            "MIT"),
     ];
 
     static readonly IReadOnlyDictionary<string, PackageQueryTermDescriptor>
@@ -726,6 +749,7 @@ public static partial class PackageQuery
         }
         if (distinctTerms.Any(term =>
             string.IsNullOrWhiteSpace(term.Value)
+            || term.Value.Length > PackageManifestFactsQuery.MaxScalarCharacters
             || !InertString.IsPermitted(TextPolicy.Field, term.Value)
             || term.Key == DependsTermKey
                 && !DotnetInspector.Packages.PackageExtractor
@@ -737,10 +761,13 @@ public static partial class PackageQuery
         string[] duplicateTermKeys =
         [
             .. distinctTerms
-                .Where(term => term.Key == DependsTermKey)
-                .GroupBy(term => term.Value, StringComparer.OrdinalIgnoreCase)
-                .Where(group => group.Skip(1).Any())
-                .Select(_ => DependsTermKey)
+                .GroupBy(term => term.Key, StringComparer.Ordinal)
+                .Where(group =>
+                    group.GroupBy(
+                            term => term.Value,
+                            StringComparer.OrdinalIgnoreCase)
+                        .Any(values => values.Skip(1).Any()))
+                .Select(group => group.Key)
                 .Distinct(StringComparer.Ordinal),
         ];
         if (duplicateTermKeys.Length > 0)
@@ -1312,10 +1339,26 @@ public static partial class PackageQuery
         PackageQueryPackage match,
         out PackageQueryFacetEvidence evidence)
     {
+        if (term.Descriptor.Key == LicenseTermKey)
+        {
+            PackageLicenseDeclaration? declaration =
+                match.RequiredManifest.LicenseDeclaration;
+            if (declaration is null
+                || !declaration.Value.Equals(
+                    term.Value.ToString(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                evidence = null!;
+                return false;
+            }
+
+            evidence = DescribeLicense(declaration);
+            return true;
+        }
+
         if (term.Descriptor.Key != DependsTermKey)
         {
-            throw new InvalidOperationException(
-                "Unknown bound Package Query term.");
+            throw new InvalidOperationException("Unknown bound Package Query term.");
         }
 
         DeclaredPackageDependency[] dependencies =
@@ -1341,6 +1384,20 @@ public static partial class PackageQuery
             "dependency declaration",
             "dependency declarations");
         return true;
+    }
+
+    static PackageQueryFacetEvidence DescribeLicense(
+        PackageLicenseDeclaration declaration)
+    {
+        string kind = declaration.Kind switch
+        {
+            PackageLicenseDeclarationKind.Expression => "expression",
+            PackageLicenseDeclarationKind.File => "file",
+            PackageLicenseDeclarationKind.Url => "URL",
+            _ => throw new InvalidOperationException(
+                "Unknown package license declaration kind."),
+        };
+        return Describe($"License {kind}: {declaration.Value}.");
     }
 
     static PackageQueryFacetEvidence DescribeDependencies(PackageQueryPackage match) =>

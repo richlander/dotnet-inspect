@@ -35,6 +35,8 @@ public sealed record PackageManifestFacts(
     string? ReadmeFile,
     ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
 {
+    public PackageLicenseDeclaration? LicenseDeclaration { get; init; }
+
     public string? IconFile { get; init; }
 
     public string? IconUrl { get; init; }
@@ -221,6 +223,7 @@ public static class PackageManifestFactsQuery
                     nuspec.ReadmeFile,
                     dependencyGroups)
                 {
+                    LicenseDeclaration = nuspec.LicenseDeclaration,
                     IconFile = nuspec.IconFile,
                     IconUrl = nuspec.IconUrl,
                     IdentityProvenance = identityProvenance,
@@ -367,6 +370,7 @@ public static class PackageManifestFactsQuery
         ValidateScalar(nuspec.RepositoryCommit);
         ValidateScalar(nuspec.License);
         ValidateScalar(nuspec.LicenseUrl);
+        ValidateScalar(nuspec.LicenseDeclaration?.Value);
         ValidateScalar(nuspec.IconFile);
         ValidateScalar(nuspec.IconUrl);
         ValidateScalar(nuspec.ReadmeFile);

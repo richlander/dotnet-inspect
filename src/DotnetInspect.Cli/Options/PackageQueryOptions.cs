@@ -34,7 +34,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         .. PackageQuery.Facets.Where(facet => facet.Id is
             PackageQuery.ToolFacetId
             or PackageQuery.ToolV1FacetId
-            or PackageQuery.ToolV2FacetId),
+            or PackageQuery.ToolV2FacetId
+            or PackageQuery.HasLicenseFacetId),
     ];
 
     public static SectionQueryKey QueryKey { get; } = new(
@@ -53,13 +54,22 @@ public sealed record PackageQueryOptions : IProjectionOptions
         [],
         "--where \"depends=Microsoft.Extensions.DependencyInjection\"");
 
+    public static SectionQueryKey LicenseTerm { get; } = new(
+        PackageQuery.LicenseTermKey,
+        ["--where"],
+        ["="],
+        "nuspec license expression, file, or URL",
+        [],
+        "--where \"license=MIT\"");
+
     public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
-        [DependsTerm, QueryKey];
+        [DependsTerm, LicenseTerm, QueryKey];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
         + "depends=<package ID> matches a direct declared dependency; repeated "
-        + "depends terms are ANDed. Existing facet=<product facet ID> selections "
+        + "depends terms are ANDed. license=<value> matches the nuspec-declared "
+        + "license expression, file, or legacy URL. Existing facet=<product facet ID> selections "
         + "remain available while the Browser adopts the shared term vocabulary. "
         + "Independent facet selections are ANDed; compatible tool-format alternatives are ORed. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
@@ -215,8 +225,20 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 continue;
             }
 
+            if (syntax.Field.Equals(
+                    PackageQuery.LicenseTermKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                terms.Add(new PortableQueryTerm(
+                    PackageQuery.LicenseTermKey,
+                    PortableQueryOperator.Equal,
+                    syntax.Value));
+                continue;
+            }
+
             error =
-                "Package Query supports --where \"depends=<package ID>\" "
+                "Package Query supports --where \"depends=<package ID>\", "
+                + "--where \"license=<nuspec value>\", "
                 + "and the staged \"facet=<product facet ID>\" form; run "
                 + "'package query -Q Packages' for the current vocabulary.";
             return false;

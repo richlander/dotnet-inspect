@@ -41,9 +41,13 @@ public static class PackageFileLister
     /// as the package readme (e.g. <c>README.md</c> or <c>PACKAGE.md</c>); the
     /// matching row is flagged <see cref="PackageFile.IsReadme"/>.
     /// </summary>
-    public static List<PackageFile> ListAll(string extractPath, string? declaredReadme = null)
+    public static List<PackageFile> ListAll(
+        string extractPath,
+        string? declaredReadme = null,
+        string? declaredLicense = null)
     {
         string? readme = declaredReadme?.Replace('\\', '/').Trim();
+        string? license = NormalizePackagePath(declaredLicense);
         var files = new List<PackageFile>();
         foreach (var full in Directory.EnumerateFiles(extractPath, "*", SearchOption.AllDirectories))
         {
@@ -52,7 +56,13 @@ public static class PackageFileLister
                 continue;
             bool isReadme = readme is not null && string.Equals(rel, readme, StringComparison.OrdinalIgnoreCase);
             bool isAgents = string.Equals(rel, "AGENTS.md", StringComparison.OrdinalIgnoreCase);
-            files.Add(new PackageFile(rel, new FileInfo(full).Length, isReadme, isAgents));
+            bool isLicense = IsLicenseDocumentPath(rel, license);
+            files.Add(new PackageFile(
+                rel,
+                new FileInfo(full).Length,
+                isReadme,
+                isAgents,
+                isLicense));
         }
 
         files.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
@@ -86,6 +96,9 @@ public static class PackageFileLister
 
         if (p.Equals("@agents", StringComparison.OrdinalIgnoreCase))
             return files.Where(f => f.IsAgents).ToList();
+
+        if (p.Equals("@license", StringComparison.OrdinalIgnoreCase))
+            return files.Where(f => f.IsLicense).ToList();
 
         // Root selector: top-level files only.
         if (p is "/" or "." or "./")
@@ -124,6 +137,54 @@ public static class PackageFileLister
         // No further separator after the directory prefix => immediate child.
         return path.IndexOf('/', dir.Length + 1) < 0;
     }
+
+    public static bool IsLicenseDocumentPath(
+        string path,
+        string? declaredLicense = null)
+    {
+        string normalized = path.Replace('\\', '/').TrimStart('/');
+        if (declaredLicense is not null
+            && normalized.Equals(
+                NormalizePackagePath(declaredLicense),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+        int extensionStart = fileName.LastIndexOf('.');
+        string extension = extensionStart >= 0
+            ? fileName[extensionStart..]
+            : "";
+        if (extension.Length > 0
+            && !extension.Equals(".txt", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string[] segments = normalized.Split('/');
+        if (segments[..^1].Any(segment =>
+            segment.Equals("license", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("licenses", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("licence", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("licences", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return fileName.Contains("license", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("licence", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("eula", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith("copying", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith("copyright", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith("unlicense", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizePackagePath(string? path)
+        => string.IsNullOrWhiteSpace(path)
+            ? null
+            : path.Replace('\\', '/').Trim().TrimStart('/');
 
     // The .nuspec is deliberately absent: it is authored content (the package
     // manifest), not packaging plumbing, so it belongs in the file listings and

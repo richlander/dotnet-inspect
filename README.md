@@ -416,10 +416,35 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
+License selection also stays at the manifest boundary. `has-license` accepts
+an SPDX expression, a package-relative license file declaration, or a legacy
+license URL; `license=<value>` matches that declared value case-insensitively:
+
+```bash
+dotnet-inspect package query wix \
+  --where "facet=package.query.has-license" --nuspec-only
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
+```
+
+Neither query opens the package archive. To inspect the license documents that
+the package actually ships, use the separate package-file section:
+
+```bash
+dotnet-inspect package wix@7.0.0 -S "Package license files"
+dotnet-inspect package wix@7.0.0 -S "Package license files" --count
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
+```
+
+The exact nuspec `<license type="file">` target is always included. The same
+section also finds conventional text or Markdown license names and license
+directories; notices remain a separate legal-document concern.
+
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
 one matched package per row and product-authored evidence. The initial CLI
-facet set identifies .NET tool packages and their CLI v1/v2 format. Discover
-the admitted IDs before constructing a query:
+facet set identifies .NET tool packages, their CLI v1/v2 format, and packages
+with a nuspec license declaration. Discover the admitted IDs before
+constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages

@@ -98,8 +98,8 @@ other combining members of its selection group.
 The Browser catalog also projects `PackageQuery.Terms`; it does not define a
 TypeScript term table. Each descriptor preserves the product-issued key, label,
 summary, weight, tier, admitted Portable Query operator identities, value kind,
-and example. The initial catalog contains only the nuspec-tier `depends` term
-defined by
+and example. The initial catalog contains the nuspec-tier `depends` and
+`license` terms defined by
 [Package Query parameterized term binding](package-query-cli.md#parameterized-term-binding).
 
 The rail renders applied operand-bearing terms in an **Active terms** zone
@@ -118,11 +118,13 @@ rejection is a visible expected query failure and performs no acquisition.
 
 Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected facets, and starts
-a replacement query when the package input is runnable. Repeated
-`depends` terms remain separate active rows and AND through the product planner.
-The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
-the operand, or infer a term from evidence text. Product-issued term
-attribution remains structured across the Browser engine boundary.
+a replacement query when the package input is runnable. Repeated terms remain separate active rows and AND through the product planner.
+`depends` binds one direct package ID. `license` binds the case-insensitive
+nuspec declaration value—an SPDX expression, package-relative file, or legacy
+URL—and never inspects archive contents. The Browser does not pre-collapse
+exact or case-variant duplicates, reinterpret the operand, or infer a term from
+evidence text. Product-issued term attribution remains structured across the
+Browser engine boundary.
 
 This delivery keeps request state in memory only. Portable intent resolution,
 payload encoding, `/query` URL persistence, Workspace packet attachment,
@@ -184,6 +186,7 @@ and
 │ [.NET Tool|v1|v2]                           [ Open in workspace ]              │
 │ Has dependencies                                                             │
 │ No dependencies│  … 99 more (bounded: first 100 matches)                     │
+│ Has license    │                                                             │
 │ 1M+ downloads  │                                                             │
 │ Embedded README│                                                             │
 │ embedded SKILL.md                                                            │
@@ -647,6 +650,9 @@ and browser-history and focus-return outcomes are proved by
    tracked by #6071, transports typed package/query scope and count-plus-preview
    summaries to the website. Query context renders once per result set while
    package inspection evidence remains on its owning card.
+10. **#7335** adds the nuspec-tier has-license facet and `license=<value>`
+    term. Both consume typed manifest declarations and perform no package
+    archive acquisition.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

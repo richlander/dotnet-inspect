@@ -223,6 +223,9 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.FilesReadme)]
     public List<PackageFileRow>? PackageReadme => FamilyRows(PackageSections.FilesReadme);
 
+    [MarkoutSection(Name = PackageSections.FilesLicenses)]
+    public List<PackageFileRow>? LicenseFiles => FamilyRows(PackageSections.FilesLicenses);
+
     [MarkoutSection(Name = PackageSections.FilesSkills)]
     public List<PackageFileRow>? SkillFiles => FamilyRows(PackageSections.FilesSkills);
 
