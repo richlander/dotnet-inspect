@@ -1,0 +1,154 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+
+using ILInspector.MetadataPrimitives;
+
+namespace ILInspector.Metadata;
+
+public sealed record PublicMethodRootInventoryLimits(
+    int MaximumTypeDefinitions,
+    int MaximumMethodDefinitions,
+    int MaximumRoots)
+{
+    internal void Validate()
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            MaximumTypeDefinitions,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            MaximumMethodDefinitions,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            MaximumRoots,
+            1);
+    }
+}
+
+public enum PublicMethodRootInventoryLimit
+{
+    TypeDefinitions,
+    MethodDefinitions,
+    Roots,
+}
+
+public sealed record PublicMethodRootInventoryBoundary(
+    PublicMethodRootInventoryLimit Limit,
+    int Maximum);
+
+public sealed record PublicMethodRootInventoryReceipt(
+    int VisitedTypeDefinitions,
+    int VisitedMethodDefinitions,
+    int RetainedRoots);
+
+/// <summary>
+/// Exact public MethodDef roots from one metadata module.
+/// </summary>
+public sealed record PublicMethodRootInventory(
+    Guid ModuleVersionId,
+    ImmutableArray<MetadataMethodAddress> Roots,
+    PublicMethodRootInventoryReceipt Receipt,
+    PublicMethodRootInventoryBoundary? Boundary)
+{
+    public bool IsComplete => Boundary is null;
+}
+
+/// <summary>
+/// Reads exact public MethodDef roots without applying API presentation
+/// filters.
+/// </summary>
+public static class PublicMethodRootInventoryReader
+{
+    public static PublicMethodRootInventory Read(
+        MetadataReader reader,
+        PublicMethodRootInventoryLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(limits);
+        limits.Validate();
+
+        Guid moduleVersionId =
+            MetadataModuleIdentity.ReadVersionId(reader);
+        var roots =
+            ImmutableArray.CreateBuilder<MetadataMethodAddress>();
+        int visitedTypes = 0;
+        int visitedMethods = 0;
+
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
+        {
+            if (visitedTypes == limits.MaximumTypeDefinitions)
+            {
+                return Result(
+                    PublicMethodRootInventoryLimit.TypeDefinitions,
+                    limits.MaximumTypeDefinitions);
+            }
+
+            visitedTypes++;
+            if (!MetadataVisibility.IsExternallyVisible(
+                    reader,
+                    typeHandle))
+            {
+                continue;
+            }
+
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                if (visitedMethods
+                    == limits.MaximumMethodDefinitions)
+                {
+                    return Result(
+                        PublicMethodRootInventoryLimit
+                            .MethodDefinitions,
+                        limits.MaximumMethodDefinitions);
+                }
+
+                visitedMethods++;
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes
+                        & MethodAttributes.MemberAccessMask)
+                    != MethodAttributes.Public)
+                {
+                    continue;
+                }
+
+                if (roots.Count == limits.MaximumRoots)
+                {
+                    return Result(
+                        PublicMethodRootInventoryLimit.Roots,
+                        limits.MaximumRoots);
+                }
+
+                roots.Add(
+                    new MetadataMethodAddress(
+                        moduleVersionId,
+                        methodHandle));
+            }
+        }
+
+        return new PublicMethodRootInventory(
+            moduleVersionId,
+            roots.ToImmutable(),
+            new(
+                visitedTypes,
+                visitedMethods,
+                roots.Count),
+            Boundary: null);
+
+        PublicMethodRootInventory Result(
+            PublicMethodRootInventoryLimit limit,
+            int maximum) =>
+            new(
+                moduleVersionId,
+                roots.ToImmutable(),
+                new(
+                    visitedTypes,
+                    visitedMethods,
+                    roots.Count),
+                new(limit, maximum));
+    }
+}

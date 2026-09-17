@@ -327,7 +327,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 read.Name, AssemblyTypeDeclarationKind.Definition,
                 GetDefinitionKind(reader, definition),
                 definition.IsPublic,
-                IsPublicDefinition(reader, handle),
+                MetadataVisibility.IsExternallyVisible(reader, handle),
                 AttributeReader.ReadTypeDiscoveryAttributes(
                     reader, definition.GetCustomAttributes())));
         }
@@ -404,19 +404,6 @@ public static class AssemblyTypeDeclarationInventoryReader
                 AssemblyTypeDefinitionKind.Delegate,
             _ => AssemblyTypeDefinitionKind.Class,
         };
-    }
-
-    static bool IsPublicDefinition(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        // The structured-name reader already validated this bounded chain.
-        while (!handle.IsNil)
-        {
-            TypeDefinition definition = reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic)
-                return false;
-            handle = definition.GetDeclaringType();
-        }
-        return true;
     }
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected DuplicateDeclaration() =>

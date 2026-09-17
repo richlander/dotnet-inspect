@@ -149,7 +149,9 @@ public sealed class SignatureSpellability
                 var reader = MetadataFormatAdmission.GetMetadataReader(pe);
                 foreach (var handle in reader.TypeDefinitions)
                 {
-                    if (!IsExternallyVisible(reader, handle))
+                    if (!MetadataVisibility.IsExternallyVisible(
+                            reader,
+                            handle))
                         types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
                 }
             }
@@ -203,18 +205,6 @@ public sealed class SignatureSpellability
 
         var relaxed = reference.Identity with { Version = null };
         return _resolver.Resolve(relaxed, reference.Scope);
-    }
-
-    static bool IsExternallyVisible(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var typeDef = reader.GetTypeDefinition(handle);
-        return (typeDef.Attributes & TypeAttributes.VisibilityMask) switch
-        {
-            TypeAttributes.Public => true,
-            TypeAttributes.NestedPublic => !typeDef.GetDeclaringType().IsNil
-                && IsExternallyVisible(reader, typeDef.GetDeclaringType()),
-            _ => false,
-        };
     }
 
     static ReferenceKey? AssemblyScope(MetadataReader reader, TypeReferenceHandle handle)
