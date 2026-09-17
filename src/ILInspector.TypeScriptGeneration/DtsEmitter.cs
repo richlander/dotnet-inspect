@@ -1538,25 +1538,26 @@ static class DtsEmitter
 
     internal static bool UsesJsonValue(
         ILInspector.JsExportSurface.JsExportSurface surface) =>
-        surface.Functions.Any(function =>
-            ContainsJsonElement(function.ReturnWireTypeShape))
-        || surface.Records.Any(type =>
+        surface.Records.Any(type =>
         {
             JsonWireDirection directions =
                 surface.WireDirections.GetValueOrDefault(
                     type,
                     JsonWireDirection.Both);
+            JsonWireDirection declarationDirection =
+                (directions & JsonWireDirection.Serialize)
+                    != JsonWireDirection.None
+                    ? JsonWireDirection.Serialize
+                    : JsonWireDirection.Deserialize;
             return type.Members
-                .Where(member =>
-                    JsonWireMemberRules.ParticipatesInWireContract(
-                        member,
-                        directions))
                 .Any(member =>
-                    ContainsJsonElement(
+                    JsonWireMemberRules.GetPresence(
+                        member,
+                        declarationDirection)
+                        == JsonWireMemberPresence.Conditional
+                    && ContainsJsonElement(
                         member.SignatureModel?.ReturnTypeShape));
-        })
-        || surface.Unions.Any(union =>
-            union.CaseTypes.Any(ContainsJsonElement));
+        });
 
     static bool ContainsJsonElement(ApiTypeShape? type)
     {
@@ -1576,30 +1577,6 @@ static class DtsEmitter
             if (current.ElementType is { } element)
                 pending.Push(element);
             foreach (ApiTypeShape argument in current.TypeArguments)
-                pending.Push(argument);
-        }
-        return false;
-    }
-
-    static bool ContainsJsonElement(TypeRef type)
-    {
-        var pending = new Stack<TypeRef>();
-        pending.Push(type);
-        while (pending.TryPop(out TypeRef? current))
-        {
-            TypeRef definition = current.Kind == TypeRefKind.GenericInstance
-                ? current.ElementType!
-                : current;
-            if (definition.Kind == TypeRefKind.Definition
-                && definition.Namespace == "System.Text.Json"
-                && definition.Name == "JsonElement"
-                && TsTypeMapper.IsAuthenticFrameworkMapping(definition))
-            {
-                return true;
-            }
-            if (current.ElementType is { } element)
-                pending.Push(element);
-            foreach (TypeRef argument in current.TypeArguments)
                 pending.Push(argument);
         }
         return false;

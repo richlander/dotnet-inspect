@@ -250,10 +250,11 @@ and `null` supplied by another authenticated wire contract remain intact. A
 nullable `WhenWritingNull` member becomes `property?: T`. `Never` remains
 present. The emitter consumes `JsExportSurface` presence facts rather than
 reading serializer attributes or inferring absence from C# nullability.
-Authenticated `JsonElement` wire values use the recursive `JsonValue` alias,
-which includes JSON `null` but excludes JavaScript `undefined`; a conditional
-`JsonElement` member is therefore `property?: JsonValue`, not
-`property?: unknown`.
+A conditional `JsonElement` member uses the recursive `JsonValue`
+present-value alias, which includes JSON `null` but excludes JavaScript
+`undefined`; it is therefore `property?: JsonValue`, not
+`property?: unknown`. Other arbitrary JSON outputs retain their existing
+opaque `unknown` contract.
 
 A bidirectional record whose serialize and deserialize presence differs still
 fails visibly. Separate input and output declarations are a later

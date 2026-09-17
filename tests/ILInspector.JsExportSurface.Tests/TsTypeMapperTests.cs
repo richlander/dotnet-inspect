@@ -1062,14 +1062,14 @@ public sealed class TsTypeMapperTests
     [Theory]
     [InlineData("System.Text.Json.JsonElement")]
     [InlineData("JsonElement")]
-    public void MapJsonWire_JsonElementMapsToJsonValueWithoutReportingAsUnmapped(
+    public void MapJsonWirePresentValue_JsonElementMapsToJsonValueWithoutReportingAsUnmapped(
         string csharpType)
     {
         var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "JsonValue",
-            TsTypeMapper.MapJsonWireType(
+            TsTypeMapper.MapJsonWirePresentValueType(
                 csharpType,
                 RecordNames,
                 diagnostics,

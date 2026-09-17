@@ -615,6 +615,7 @@ static class TsTypeMapper
                     blockedAliases))
             {
                 return mappingContext == TsTypeMappingContext.JsonWire
+                    && suppressOuterNull
                     ? "JsonValue"
                     : "unknown";
             }
@@ -668,6 +669,7 @@ static class TsTypeMapper
         if (trimmed is "System.Text.Json.JsonElement" or "JsonElement")
         {
             return mappingContext == TsTypeMappingContext.JsonWire
+                && suppressOuterNull
                 ? "JsonValue"
                 : "unknown";
         }
