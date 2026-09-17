@@ -161,7 +161,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace scope and navigation | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Navigation snapshot over the Workspace Scope. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. Add `--active-package N` for structural Library, Type, Member, and lens descriptors. |
+| Workspace inventory and navigation | `workspace --package X --tfm TFM` | Render one typed top-level inventory over committed Packages and inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent, or restore one canonical packet with `--packet`. Add `--active-package N` on the direct route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -188,7 +188,7 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the committed ordered Package occurrences of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` to evaluate the exact one-based occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
+| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Pass a direct-Package-only canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -509,17 +509,49 @@ rejects a token this tool did not issue, and reports an unauthorized producer
 or unavailable content instead of opening a different Root that happens to
 share the package id and version.
 
-### Workspace structural navigation
+### Workspace inventory and structural navigation
 
-The default `workspace` output remains the ordered Package inventory. It never
-selects an occurrence implicitly, even when the Workspace contains exactly one
-Package:
+The default `workspace` output is the typed top-level inventory. Package
+occurrences appear in committed Scope order, followed by inert registrations
+in declaration order. Overlap is preserved because committed content and
+registration intent are different facts:
 
 ```bash
 dotnet-inspect workspace \
   --package System.Text.Json@10.0.0 \
-  --tfm net10.0
+  --package Markout@0.35.2 \
+  --tfm net10.0 \
+  --register-library System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
+  --register-package-prefix Microsoft.Extensions. \
+  --register-ecosystem aspire
 ```
+
+Use repeatable `--kind package|exact-library|package-prefix|ecosystem` to
+select inventory kinds without changing Workspace construction. JSON and
+JSONL retain the typed entry arms and their portable details. `--verbose`
+adds each Package producer, requested/selected/effective target, runtime
+identifier, and asset-selection status to human output.
+
+Restore complete Package membership from every context in one
+direct-Package-only canonical Workspace packet instead of supplying direct
+construction options:
+
+```bash
+dotnet-inspect workspace --packet PACKET --share packet
+```
+
+Packet input is mutually exclusive with direct Package and registration
+construction. Packet-restored Navigation refinement is intentionally deferred;
+`--packet` currently supports inventory controls only and visibly rejects group
+subscriptions or non-Package context members pending complete Workspace
+restoration. Unfiltered `--share` re-emits the exact canonical packet. A
+directly constructed Workspace remains inspectable but reports that no retained
+Definitions projection is available when Share output is requested.
+Share reports the top-level inventory and cannot be combined with
+`--active-package` or descendant Navigation selectors.
+
+`workspace` never selects an occurrence implicitly, even when the Workspace
+contains exactly one Package.
 
 Add `--active-package N` to evaluate one exact occurrence by its one-based
 Workspace order. The detailed result includes the active subject, complete
