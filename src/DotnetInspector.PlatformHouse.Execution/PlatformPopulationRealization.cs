@@ -78,7 +78,7 @@ public sealed class PlatformPopulationLibraryContentSelection
 }
 
 /// <summary>
-/// Resource-free value for one completed Platform reference population.
+/// Resource-free value for one completed Platform population.
 /// </summary>
 public sealed class PlatformPopulationRealizationValue
 {
@@ -232,7 +232,7 @@ public abstract class PlatformPopulationRealizationResult
 }
 
 /// <summary>
-/// Performs the atomic ownership handoff for one complete reference
+/// Performs the atomic ownership handoff for one complete single-view
 /// population.
 /// </summary>
 public static class PlatformHousePopulationRealizer
@@ -250,6 +250,48 @@ public static class PlatformHousePopulationRealizer
             PlatformHouseConsumedWork consumedWork,
             IEnumerable<PlatformSourceContribution>?
                 priorContributions = null)
+        => await RealizeAsync(
+                request,
+                PlatformViewDemand.Reference,
+                selections,
+                contentLeases,
+                consumedWork,
+                priorContributions)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Accepts every supplied implementation content lease and either
+    /// transfers all resulting Library owners or retires every accepted
+    /// authority before termination.
+    /// </summary>
+    public static async ValueTask<PlatformPopulationRealizationResult>
+        RealizeImplementationsAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                selections,
+            IReadOnlyList<ArtifactContentLease> contentLeases,
+            PlatformHouseConsumedWork consumedWork,
+            IEnumerable<PlatformSourceContribution>?
+                priorContributions = null)
+        => await RealizeAsync(
+                request,
+                PlatformViewDemand.Implementation,
+                selections,
+                contentLeases,
+                consumedWork,
+                priorContributions)
+            .ConfigureAwait(false);
+
+    static async ValueTask<PlatformPopulationRealizationResult>
+        RealizeAsync(
+            PlatformHouseRequest request,
+            PlatformViewDemand expectedView,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                selections,
+            IReadOnlyList<ArtifactContentLease> contentLeases,
+            PlatformHouseConsumedWork consumedWork,
+            IEnumerable<PlatformSourceContribution>?
+                priorContributions)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(selections);
@@ -269,7 +311,7 @@ public static class PlatformHousePopulationRealizer
             if (request.Target is not PlatformTargetDemand.Exact exact
                 || request.Operation is not PlatformHouseOperation.Realize
                 {
-                    View: PlatformViewDemand.Reference,
+                    View: var view,
                     Population:
                         PlatformPopulationDemand.CompletePopulation,
                 } operation)
@@ -282,6 +324,18 @@ public static class PlatformHousePopulationRealizer
                         owners,
                         PlatformHouseRejectionKind.InvalidRequest,
                         "platform-population.invalid-request")
+                    .ConfigureAwait(false);
+            }
+            if (view != expectedView)
+            {
+                return await RejectAfterCleanupAsync(
+                        request,
+                        consumedWork,
+                        selected,
+                        leases,
+                        owners,
+                        PlatformHouseRejectionKind.InvalidRequest,
+                        "platform-population.invalid-view")
                     .ConfigureAwait(false);
             }
             if (PlatformHouseLibraryRealizer.ExceedsBudget(
@@ -301,6 +355,9 @@ public static class PlatformHousePopulationRealizer
                     request,
                     exact.Target,
                     operation.Population,
+                    expectedView == PlatformViewDemand.Reference
+                        ? PlatformSourceFacet.Reference
+                        : PlatformSourceFacet.Implementation,
                     selected,
                     leases,
                     prior,
@@ -324,10 +381,6 @@ public static class PlatformHousePopulationRealizer
                         contribution,
                         PlatformSourceSettlementDisposition.Selected))
                 .ToArray();
-            var completion = new PlatformHouseCompletion.Realization(
-                (PlatformHouseOperationSnapshot.Realize)
-                    request.Snapshot.Operation,
-                selectedSettlements);
             var settlements = new List<PlatformSourceSettlement>(
                 prior.Length + selectedSettlements.Length);
             settlements.AddRange(
@@ -338,12 +391,6 @@ public static class PlatformHousePopulationRealizer
                             .OutcomeRelevant)));
             settlements.AddRange(selectedSettlements);
 
-            var receipt = new PlatformHouseReceipt(
-                request.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
-                settlements,
-                consumedWork,
-                completion);
             var libraries = new List<LibraryReference>(selected.Length);
             for (int index = 0; index < selected.Length; index++)
             {
@@ -353,7 +400,13 @@ public static class PlatformHousePopulationRealizer
                 var assemblyCorrespondence =
                     new LibraryAssemblyCorrespondence(
                         selection.Content,
-                        selection.AssemblyIdentity);
+                        selection.AssemblyIdentity,
+                        expectedView == PlatformViewDemand.Implementation
+                            ? selection.Content
+                            : null,
+                        expectedView == PlatformViewDemand.Implementation
+                            ? selection.AssemblyIdentity
+                            : null);
                 LibraryReference library =
                     LibraryReference.CreateFromSource(
                         new ExactLibrarySourceCoordinate.Platform(
@@ -368,6 +421,22 @@ public static class PlatformHousePopulationRealizer
                 libraries.Add(library);
             }
 
+            PlatformViewCorrespondenceEvidence? viewCorrespondence =
+                expectedView == PlatformViewDemand.Implementation
+                    ? new PlatformPopulationImplementationDeclarationSurface(
+                        selected)
+                    : null;
+            var completion = new PlatformHouseCompletion.Realization(
+                (PlatformHouseOperationSnapshot.Realize)
+                    request.Snapshot.Operation,
+                selectedSettlements,
+                viewCorrespondence);
+            var receipt = new PlatformHouseReceipt(
+                request.Snapshot,
+                new PlatformTargetSettlement.Exact(exact),
+                settlements,
+                consumedWork,
+                completion);
             var value =
                 new PlatformPopulationRealizationValue(libraries);
             return new PlatformPopulationRealizationResult.Completed(
@@ -436,6 +505,7 @@ public static class PlatformHousePopulationRealizer
         PlatformHouseRequest request,
         PlatformFamilyTarget target,
         PlatformPopulationDemand population,
+        PlatformSourceFacet expectedFacet,
         IReadOnlyList<PlatformPopulationLibraryContentSelection>
             selections,
         IReadOnlyList<ArtifactContentLease> leases,
@@ -476,7 +546,7 @@ public static class PlatformHousePopulationRealizer
             PlatformSourceContribution.Realization contribution =
                 selection.Contribution;
             generation ??= selection.Content.Generation;
-            if (contribution.Facet != PlatformSourceFacet.Reference
+            if (contribution.Facet != expectedFacet
                 || contribution.RealizationCompleteness
                     != PlatformSourceContributionCompleteness.Authoritative
                 || !ReferenceEquals(
@@ -487,7 +557,7 @@ public static class PlatformHousePopulationRealizer
                     contribution.Population,
                     population)
                 || !request.Sources.Authorizes(
-                    PlatformSourceFacet.Reference,
+                    expectedFacet,
                     contribution.Capability)
                 || !ReferenceEquals(
                     selection.Content.Generation,
@@ -695,4 +765,33 @@ public static class PlatformHousePopulationRealizer
     sealed record CleanupResult(
         IReadOnlyList<Exception> Failures,
         IReadOnlyList<PlatformHouseFailureKind> Kinds);
+
+    sealed class PlatformPopulationImplementationDeclarationSurface :
+        PlatformViewCorrespondenceEvidence
+    {
+        internal PlatformPopulationImplementationDeclarationSurface(
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                selections)
+            : base(
+                PlatformViewCorrespondenceIdentity.Issue(
+                    "platform-population-implementation-declarations"))
+        {
+            if (selections.Count == 0
+                || selections.Any(
+                    static selection =>
+                        selection.Contribution.Facet
+                            != PlatformSourceFacet.Implementation))
+            {
+                throw new ArgumentException(
+                    "Implementation declaration-surface evidence requires a non-empty implementation population.",
+                    nameof(selections));
+            }
+
+            Selections = Array.AsReadOnly([.. selections]);
+        }
+
+        internal IReadOnlyList<
+            PlatformPopulationLibraryContentSelection> Selections
+        { get; }
+    }
 }
