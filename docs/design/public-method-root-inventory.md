@@ -73,7 +73,9 @@ The inventory includes constructors, operators, property and event accessors,
 special-name methods, compiler-generated public methods, methods carrying
 `EditorBrowsable(Never)`, and bodiless declarations when they satisfy those
 rules. It excludes protected, internal, private, and private-scope MethodDefs,
-and every method whose declaring-type chain contains a non-public TypeDef.
+and every method whose declaring-type chain contains a non-public TypeDef. The
+reserved member-access value `0x0007` is malformed rather than another
+non-public accessibility.
 
 Forwarders and exported types contribute no roots because they declare no
 MethodDefs in the local module. The `<Module>` definition is non-public and
@@ -116,7 +118,11 @@ The Release gates are:
 - `Read_ReorderedMethodPtrPreservesMethodDefTokenOrder`; and
 - `Read_OrphanedNestedPublicTypeFailsVisibly`;
 - `Read_ContradictoryNonPublicNestingFailsVisibly`; and
-- `Read_DeepPublicNestingCompletes`.
+- `Read_DeepPublicNestingCompletes`;
+- `Read_ParentAfterChildNestingCompletes`;
+- `Read_NestedTypeCycleFailsVisibly`;
+- `Read_InvalidMethodAccessFailsInCompleteAndBoundedScans`; and
+- `Read_MalformedMethodOwnershipFailsVisibly`.
 
 ## Consumer handoff
 

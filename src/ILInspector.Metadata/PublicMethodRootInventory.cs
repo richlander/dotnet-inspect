@@ -121,6 +121,8 @@ public static class PublicMethodRootInventoryReader
                     int methodRow = ValidateMethodRow(
                         methodHandle,
                         methodDefinitionCount);
+                    ValidateMethodAccess(
+                        reader.GetMethodDefinition(methodHandle));
                     if (observedMethods.Contains(methodRow))
                     {
                         throw new BadImageFormatException(
@@ -184,9 +186,7 @@ public static class PublicMethodRootInventoryReader
                 MethodDefinition method =
                     reader.GetMethodDefinition(methodHandle);
                 publicMethods[methodRow] =
-                    (method.Attributes
-                        & MethodAttributes.MemberAccessMask)
-                    == MethodAttributes.Public;
+                    ValidateMethodAccess(method);
             }
         }
 
@@ -264,6 +264,22 @@ public static class PublicMethodRootInventoryReader
             }
 
             return row;
+        }
+
+        static bool ValidateMethodAccess(
+            MethodDefinition method)
+        {
+            MethodAttributes access =
+                method.Attributes
+                & MethodAttributes.MemberAccessMask;
+            if (access == MethodAttributes.MemberAccessMask)
+            {
+                throw new BadImageFormatException(
+                    "A MethodDef has an invalid member-access "
+                        + "value.");
+            }
+
+            return access == MethodAttributes.Public;
         }
     }
 }

@@ -282,6 +282,109 @@ public sealed class PublicMethodRootInventoryTests
             inventory.Roots.Select(static root => root.Token));
     }
 
+    [Fact]
+    public void Read_ParentAfterChildNestingCompletes()
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildParentAfterChildImage()));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        PublicMethodRootInventory inventory =
+            PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits);
+
+        Assert.True(inventory.IsComplete);
+        Assert.Empty(inventory.Roots);
+    }
+
+    [Fact]
+    public void Read_NestedTypeCycleFailsVisibly()
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildNestedTypeCycleImage()));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits));
+    }
+
+    [Fact]
+    public void Read_InvalidMethodAccessFailsInCompleteAndBoundedScans()
+    {
+        using (var completeImage = new PEReader(
+            ImmutableArray.Create(
+                BuildInvalidMethodAccessImage(
+                    malformedMethodRow: 1))))
+        {
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(
+                    completeImage);
+            Assert.Throws<BadImageFormatException>(
+                () => PublicMethodRootInventoryReader.Read(
+                    reader,
+                    FullLimits));
+        }
+
+        using var boundedImage = new PEReader(
+            ImmutableArray.Create(
+                BuildInvalidMethodAccessImage(
+                    malformedMethodRow: 2)));
+        MetadataReader boundedReader =
+            MetadataFormatAdmission.GetMetadataReader(
+                boundedImage);
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                boundedReader,
+                FullLimits with
+                {
+                    MaximumMethodDefinitions = 1,
+                }));
+    }
+
+    [Theory]
+    [InlineData("duplicate")]
+    [InlineData("aliased")]
+    [InlineData("out-of-range")]
+    [InlineData("descending")]
+    [InlineData("uncovered")]
+    [InlineData("count-mismatch")]
+    public void Read_MalformedMethodOwnershipFailsVisibly(
+        string shape)
+    {
+        byte[] bytes = shape switch
+        {
+            "duplicate" =>
+                MetadataMethodPtrFixture.BuildDuplicate(),
+            "aliased" =>
+                MetadataMethodPtrFixture.BuildAliased(),
+            "out-of-range" =>
+                MetadataMethodPtrFixture.BuildOutOfRange(),
+            "descending" =>
+                MetadataMethodPtrFixture.BuildDescending(),
+            "uncovered" =>
+                MetadataMethodPtrFixture.BuildUncovered(),
+            "count-mismatch" =>
+                MetadataMethodPtrFixture.BuildCountMismatch(),
+            _ => throw new UnreachableException(),
+        };
+        using var image =
+            new PEReader(ImmutableArray.Create(bytes));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits));
+    }
+
     static void AssertBound(
         MetadataReader reader,
         PublicMethodRootInventory full,
@@ -468,6 +571,122 @@ public sealed class PublicMethodRootInventoryTests
             parent = nested;
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildParentAfterChildImage()
+    {
+        MetadataBuilder metadata =
+            CreateRelationshipMetadata("ParentAfterChild");
+        TypeDefinitionHandle child =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Child"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle parent =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Parent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(child, parent);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNestedTypeCycleImage()
+    {
+        MetadataBuilder metadata =
+            CreateRelationshipMetadata("NestedCycle");
+        TypeDefinitionHandle first =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("First"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle second =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Second"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(first, second);
+        metadata.AddNestedType(second, first);
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder CreateRelationshipMetadata(
+        string name)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{name}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return metadata;
+    }
+
+    static byte[] BuildInvalidMethodAccessImage(
+        int malformedMethodRow)
+    {
+        MetadataBuilder metadata =
+            CreateRelationshipMetadata("InvalidMethodAccess");
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
+        for (int row = 1; row <= 2; row++)
+        {
+            MethodAttributes access =
+                row == malformedMethodRow
+                    ? MethodAttributes.MemberAccessMask
+                    : MethodAttributes.Public;
+            metadata.AddMethodDefinition(
+                access | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{row}"),
+                signatureHandle,
+                bodyOffset: 0,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
         return Serialize(metadata);
     }
 

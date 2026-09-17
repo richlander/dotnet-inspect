@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -8,6 +9,47 @@ namespace DotnetInspector.Fixtures;
 
 public static class MetadataMethodPtrFixture
 {
+    public static byte[] BuildDuplicate() => Build(1, 1);
+
+    public static byte[] BuildAliased()
+    {
+        byte[] image = BuildDuplicate();
+        WriteMethodListStart(
+            image,
+            typeDefRow: 1,
+            start: 2);
+        return image;
+    }
+
+    public static byte[] BuildOutOfRange() => Build(1, 99);
+
+    public static byte[] BuildCountMismatch() =>
+        Build(1, 2, 1, 2);
+
+    public static byte[] BuildUncovered()
+    {
+        byte[] image = Build(1, 2);
+        WriteMethodListStart(
+            image,
+            typeDefRow: 0,
+            start: 2);
+        WriteMethodListStart(
+            image,
+            typeDefRow: 1,
+            start: 2);
+        return image;
+    }
+
+    public static byte[] BuildDescending()
+    {
+        byte[] image = Build(2, 1);
+        WriteMethodListStart(
+            image,
+            typeDefRow: 0,
+            start: 2);
+        return image;
+    }
+
     public static byte[] Build(params ushort[] rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -392,6 +434,29 @@ public static class MetadataMethodPtrFixture
     }
 
     static int AlignTo4(int value) => (value + 3) & ~3;
+
+    static void WriteMethodListStart(
+        byte[] image,
+        int typeDefRow,
+        ushort start)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int offset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        int rowSize =
+            reader.GetTableRowSize(TableIndex.TypeDef);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(
+                offset
+                + (typeDefRow * rowSize)
+                + rowSize
+                - sizeof(ushort),
+                sizeof(ushort)),
+            start);
+    }
 
     static ushort ReadUInt16At(
         byte[] buffer,
