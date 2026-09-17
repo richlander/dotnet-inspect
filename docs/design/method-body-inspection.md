@@ -363,6 +363,135 @@ contract. The wider #5254 adoption continues with call targets, fields,
 operation evidence, and inner-unsafe roles before #5270 composes CLI and browser
 audit paths.
 
+### Same-image call-target contracts
+
+**Owner and claim:** Analysis joins each `call`, `callvirt`, or `newobj`
+operand that corresponds to a primary-image MethodDef to that definition's
+normalized caller contract. The MethodDef token is the join currency:
+`MethodDefinitionMap` resolves direct MethodDef operands, MethodSpec operands,
+local MemberRef aliases, and constructed-generic targets before
+`MethodSafetyAnalysis` classifies the call. The resolved MethodDef remains the
+internal join currency; `DirectCall` preserves its `None`, `Implicit`,
+`Explicit`, or `Unavailable` contract without changing the established operand
+and peeled-token identities.
+
+Definition correspondence compares open signatures before generic substitution:
+`Invoke(!0)` and `Invoke(int)` remain distinct even on a constructed `Target<int>`.
+Constructed parameter and return views do not replace that identity. Generic
+variables in a declaring TypeSpec and optional vararg arguments belong to the
+caller's scope; variables in the open return and required-parameter signature
+belong to the target's scope. Nested function-pointer signatures retain their
+enclosing type and method generic scope. A constructed declaring type must
+supply exactly the generic arity declared by its canonical metadata-name
+segments. Arity is summed from retained root-to-leaf metadata-name segments,
+not reconstructed from flattened display text, so a literal `+` within one
+segment is not mistaken for nesting. Full analysis leaves malformed
+correspondence unresolved, while the bounded presence query fails visibly
+rather than using an argument count as a substitute for declaration arity.
+
+Call-contract composition uses the primary image's declared module name to
+recognize same-module `ModuleRef` aliases, including aliases nested in signature
+types. Full analysis and the bounded presence resolver share
+`SameImageSignatureComparer` for exact signature provenance. Module names
+compare ordinally ignoring case; foreign module scopes do not bind to
+primary-image definitions.
+Data-only method maps without that module identity retain their conservative
+unresolved result for these aliases.
+
+The body index retains two module-aware maps. Correspondence resolves exactly
+once against the declaration map, which admits every MethodDef and therefore
+preserves ambiguity across body availability. Traversal, propagation,
+allocation, repeated-scan, caller-loop, leverage, fan-in, inbound resolution,
+root-path, implementation-profile, and overload consumers then use the body
+map or their body-method inventory only to test whether the resolved
+declaration has analyzable code. They never rerun correspondence against the
+body-only subset. Outbound call trees likewise resolve identity through
+declarations and body availability through the body map, so a matching alias
+to an abstract, interface, extern, or runtime declaration is `Bodiless`, not
+`External`.
+
+Candidate lookup preserves `TypeRef` identity: assembly names compare
+ordinally ignoring case, while namespace, type, and member names remain
+case-sensitive. Equivalent `AssemblyRef` aliases share the candidate key
+without weakening the separate full assembly-identity check; a matching name
+alone does not establish that the target belongs to the primary image.
+
+For a resolved same-image invocation, `Implicit` and `Explicit` produce
+`Unsafe call` evidence, `None` does not, and `Unavailable` remains visible on
+the call without being recast as safe or unsafe evidence. Calls to
+`System.Runtime.CompilerServices.Unsafe` remain independent positive body-risk
+evidence. External or unresolved targets retain the existing structural
+pointer fallback until cross-assembly mixed-model enforcement has an owner.
+
+`SameImageCalls_UseNormalizedCallerContracts`,
+`SameImageCalls_LegacyPointerContractRemainsImplicit`,
+`SameImageCalls_UnavailableContractRemainsVisible`,
+`UnsafeEvidencePresence_UsesNormalizedSameImageCallerContract`, and
+`UnsafeEvidence_FindsSignatureOperationsAndUnsafeCalls` gate the contract with
+compiler-produced updated and legacy controls plus a generated conflicting-
+marker image. The constructed-generic control includes same-signature method
+overloads with different generic arity and caller contracts.
+`MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix` gates vararg
+correspondence. `UnsafeEvidencePresence_ResolvesPointerFreeLocalTypeReferenceAlias`
+and `UnsafeEvidencePresence_DoesNotBindExternalSameNameReference` gate local
+alias provenance.
+`SameImageCalls_ModuleReferenceAliasesMatchPresence` gates full-index and
+presence agreement for matching, case-variant, and foreign module scopes,
+including local array-element aliases and a foreign signature under a local
+declaring type. The same rows gate downstream overload relationships,
+implementation profiles, leverage, and outbound call-tree identity.
+`BuildCallTree_ClassifiesModuleAliasBodilessCallee` gates the declaration/body
+separation. These tiny generated-image cases are PR-fast, not corpus scans.
+`SameImageCalls_AssemblyReferenceAliasesPreserveIdentity` gates equivalent
+case-variant assembly aliases against different assembly names, versions,
+cultures, and keys, plus case-sensitive namespace/type/member neighbors.
+Its ten tiny generated-image rows are PR-fast.
+`SameImageCalls_PreserveOpenIdentityAndGenericScope` gates distinct open
+overloads that collapse after construction, caller-scoped TypeSpec and optional
+vararg arguments, and enclosing method parameters inside function-pointer
+signatures. The three
+cataloged compiler fixtures stay separate because the public presence query
+short-circuits at the first positive: combining their assemblies would mask
+negative or malformed-result regressions. Their ordinary build and tiny-image
+analysis are PR-fast; the function-pointer control retains structural signature
+evidence while rejecting a false `Unsafe call`.
+`UnsafeEvidencePresence_RejectsSameImageCorrespondenceAboveBudget` and
+`UnsafeEvidencePresence_RejectsAggregateTypeSpecAndMethodSpecWork` gate the
+public query's bounded failure paths. The presence matcher examines only the
+resolved local declaring type, compares candidate names without materializing
+them, decodes only same-name signatures, charges operand and candidate metadata
+rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
+rejects malformed or ambiguous matches.
+`UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
+`UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
+ambiguity rather than successful absence.
+`MethodDefinitionMap_MalformedConstructedDeclaringTypeArityDoesNotBind`,
+`MethodDefinitionMap_OutOfRangeDeclaringTypeParameterDoesNotBind`, and
+`UnsafeEvidencePresence_MalformedConstructedDeclaringTypeArityFailsVisibly`
+gate exact declaration arity in full and bounded paths.
+`MethodDefinitionMap_DeclaringTypeMethodVariableOutsideCallerScopeDoesNotBind`
+gates caller-owned generic scope in full correspondence.
+`MethodDefinitionMap_LiteralPlusSegmentPreservesDeclaredArity` and
+`SameImageCalls_LiteralPlusSegmentPreservesGenericArity` gate structured-name
+arity and full/bounded agreement for a literal `+` segment.
+`UnsafeEvidencePresence_MalformedOpenMemberSignatureFailsVisibly` and
+`UnsafeEvidencePresence_MalformedTargetSignatureFailsVisibly` gate visible
+bounded failure for malformed reference and candidate signatures.
+`UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset` gates resolution
+against the complete declaration population before the unsafe subset is
+ranked. `MethodLeverage_ResolvesBeforeFilteringBodilessDeclarations` and
+`TopLeverage_DoesNotResolveAgainstBodyOnlySubset` gate the same invariant
+across body availability.
+`FindNearest_FiltersResolvedBodilessDeclarations` and
+`Analyze_TreatsResolvedBodilessTargetsAsOpaque` gate post-resolution body
+filtering for caller-loop and allocation composition.
+`SameImageCalls_ResolveMethodDefinitionParentVarArg` gates the authoritative
+MethodDef-parent form used by same-module vararg call sites, and
+`UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly` gates malformed
+local operand failure. This slice does not define cross-assembly enforcement,
+field contracts, inner-unsafe or safe-boundary roles, reconstructed operation
+meaning, function-load enforcement, or #5270 CLI/browser composition.
+
 `LibraryBodyStableReceiverGetterClassifier` owns the
 narrow PE-backed readonly-field getter judgment and its acquisition-scoped
 cache;

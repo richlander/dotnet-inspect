@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
@@ -11,14 +12,12 @@ namespace DotnetInspect.Cli.Commands;
 public static class VocabularyCommand
 {
     public const string Name = "vocabulary";
-    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
     private static readonly string[] DefaultIndexColumns = ["Section", "Summary", "Values"];
 
     public static int Execute(VocabularyOptions options)
     {
         VocabularyDocument document = VocabularyCatalog.Document;
-        string[] sectionNames = [.. document.Sections.Select(section => section.Name)];
+        SectionCatalog<VocabularyDocument> catalog = VocabularySections.Catalog;
         DocumentSchema schema = CreateSchema(document);
         string[]? projectedColumns = ResolveProjectedColumns(options);
         string[]? discover = NormalizeSectionIds(options.Discover, document);
@@ -35,6 +34,7 @@ public static class VocabularyCommand
 
         if (options.Discover is not null)
         {
+            SectionPipeline<VocabularyDocument> pipeline = catalog.Pipeline;
             return DiscoverOutput.Execute(
                 discover,
                 schema,
@@ -49,14 +49,19 @@ public static class VocabularyCommand
                     options.Tree,
                     options.Format == OutputFormat.Table,
                     options.NoHeader,
-                    projection: options));
+                    projection: options),
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: catalog.SelectionCategoryMap,
+                catalogHiddenSections:
+                    options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             select,
-            sectionNames,
-            infoSections: [VocabularyCatalog.SectionsSection],
-            NoCategories,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selection))
             return 1;
@@ -67,7 +72,12 @@ public static class VocabularyCommand
                 StringComparer.OrdinalIgnoreCase);
         VocabularySection[] sections =
         [
-            .. document.Sections.Where(section => selectedNames.Contains(section.Name)),
+            .. catalog.AlphabeticalSectionOrder
+                .Where(selectedNames.Contains)
+                .Select(name => document.Sections.Single(
+                    section => section.Name.Equals(
+                        name,
+                        StringComparison.OrdinalIgnoreCase))),
         ];
 
         if (!ProjectionDiagnostics.ValidateProjection(

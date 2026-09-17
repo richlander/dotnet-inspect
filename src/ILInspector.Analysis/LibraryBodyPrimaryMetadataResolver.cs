@@ -17,6 +17,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 {
     readonly MetadataReader _reader;
     readonly string _assemblyName;
+    readonly string _moduleName;
+    readonly AssemblyReferenceIdentity? _assemblyIdentity;
+    readonly SameImageSignatureComparer _signatureComparer;
     readonly Guid _mvid;
     readonly MemorySafetyMetadataIndex _memorySafety;
     readonly Func<
@@ -24,6 +27,11 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         GenericScope,
         MethodDefinitionHandle,
         MemberRef> _resolveMethod;
+    readonly Func<
+        EntityHandle,
+        GenericScope,
+        UnsafePresenceWorkBudget,
+        MemberRef> _resolvePresenceMethod;
     readonly Func<TypeRef, MethodIdentity, bool>
         _genericParameterCanBeValueType;
     readonly Func<DecodedInstruction, bool>
@@ -47,6 +55,11 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             GenericScope,
             MethodDefinitionHandle,
             MemberRef> resolveMethod,
+        Func<
+            EntityHandle,
+            GenericScope,
+            UnsafePresenceWorkBudget,
+            MemberRef> resolvePresenceMethod,
         Func<TypeRef, MethodIdentity, bool>
             genericParameterCanBeValueType,
         Func<DecodedInstruction, bool>
@@ -55,8 +68,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     {
         _reader = reader;
         _assemblyName = assemblyName;
+        _moduleName = reader.GetString(
+            reader.GetModuleDefinition().Name);
+        _assemblyIdentity = reader.IsAssembly
+            ? AssemblyReferenceIdentity
+                .FromAssemblyDefinition(reader)
+            : null;
+        _signatureComparer = new(_assemblyIdentity, _moduleName);
         _mvid = mvid;
         _resolveMethod = resolveMethod;
+        _resolvePresenceMethod =
+            resolvePresenceMethod;
         _genericParameterCanBeValueType =
             genericParameterCanBeValueType;
         _isStableReceiverGetter =
@@ -73,6 +95,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         _memorySafety.Rules;
 
     internal string AssemblyName => _assemblyName;
+
+    internal string ModuleName => _moduleName;
 
     internal Guid Mvid => _mvid;
 
@@ -91,6 +115,128 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         MethodIdentity caller) =>
         new CallResolver(this, scope, caller);
 
+    internal CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
+        int operandToken,
+        MemberRef member,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        int definitionToken = PeelToDefinitionToken(operandToken);
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(definitionToken);
+        if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            return CallerUnsafeModeFromContract(
+                _memorySafety.GetMemberContract(
+                    (MethodDefinitionHandle)handle));
+        }
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            EntityHandle parent =
+                _reader.GetMemberReference(
+                    (MemberReferenceHandle)handle)
+                    .Parent;
+            if (parent.Kind == HandleKind.MethodDefinition)
+            {
+                return CallerUnsafeModeFromContract(
+                    _memorySafety.GetMemberContract(
+                        (MethodDefinitionHandle)parent));
+            }
+        }
+
+        if (!CanCanonicalizeCurrentModuleReference(
+                member.DeclaringType))
+        {
+            return null;
+        }
+
+        var decoder = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes);
+        if (!TryResolveSameImageDeclaringType(
+                definitionToken,
+                member.DeclaringType,
+                decoder,
+                workBudget,
+                out TypeDefinitionHandle typeHandle))
+        {
+            return null;
+        }
+        if (member.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+            && member.DeclaringType.TypeArguments.Length
+                != _reader
+                    .GetTypeDefinition(typeHandle)
+                    .GetGenericParameters()
+                    .Count)
+        {
+            throw new BadImageFormatException(
+                "Constructed declaring-type arity does not match "
+                    + "the resolved local type definition.");
+        }
+
+        MethodDefinitionHandle target =
+            ResolveSameImageMethodDefinition(
+                typeHandle,
+                member,
+                decoder,
+                workBudget);
+        return target.IsNil
+            ? null
+            : CallerUnsafeModeFromContract(
+                _memorySafety.GetMemberContract(
+                    target));
+    }
+
+    internal bool MayResolveSameImageCall(
+        int operandToken,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(operandToken);
+        if (handle.Kind == HandleKind.MethodDefinition)
+            return true;
+        if (handle.Kind == HandleKind.MethodSpecification)
+        {
+            MethodSpecification specification =
+                _reader.GetMethodSpecification(
+                    (MethodSpecificationHandle)handle);
+            return MayResolveSameImageCall(
+                MetadataTokens.GetToken(
+                    specification.Method),
+                workBudget);
+        }
+        if (handle.Kind != HandleKind.MemberReference)
+            return false;
+
+        EntityHandle parent =
+            _reader.GetMemberReference(
+                (MemberReferenceHandle)handle)
+                .Parent;
+        return parent.Kind switch
+        {
+            HandleKind.TypeDefinition
+                or HandleKind.MethodDefinition => true,
+            HandleKind.TypeSpecification => true,
+            HandleKind.TypeReference =>
+                CanCanonicalizeCurrentModuleReference(
+                    new TypeRefDecoder(
+                        workBudget
+                            .ReserveCorrespondenceBytes)
+                        .GetTypeFromReference(
+                            _reader,
+                            (TypeReferenceHandle)parent,
+                            0)),
+            HandleKind.ModuleReference =>
+                ReadPresenceString(
+                    _reader.GetModuleReference(
+                        (ModuleReferenceHandle)parent).Name,
+                    workBudget)
+                    .Equals(
+                        _moduleName,
+                        StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
     internal MemberRef ResolveMethod(
         int token,
         GenericScope scope,
@@ -99,6 +245,15 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             MetadataTokens.EntityHandle(token),
             scope,
             caller);
+
+    internal MemberRef ResolvePresenceMethod(
+        int token,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget) =>
+        _resolvePresenceMethod(
+            MetadataTokens.EntityHandle(token),
+            scope,
+            workBudget);
 
     internal bool IsAllocatingValueTypeBox(int token, GenericScope scope) =>
         IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope));
@@ -575,15 +730,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             TypeReferenceOrigin.CurrentAssembly => true,
             TypeReferenceOrigin.AssemblyReference assembly =>
-                _reader.IsAssembly
+                _assemblyIdentity is not null
                 && assembly.Assembly.Name.Equals(
-                    _reader.GetString(
-                        _reader.GetAssemblyDefinition().Name),
+                    _assemblyName,
                     StringComparison.OrdinalIgnoreCase),
             TypeReferenceOrigin.ModuleReference module =>
                 module.ModuleName.Equals(
-                    _reader.GetString(
-                        _reader.GetModuleDefinition().Name),
+                    _moduleName,
                     StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
@@ -598,17 +751,26 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             TypeReferenceOrigin.CurrentAssembly => true,
             TypeReferenceOrigin.AssemblyReference assembly =>
-                _reader.IsAssembly
+                _assemblyIdentity is not null
                 && assembly.Assembly.IsEquivalentTo(
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(
-                        _reader)),
+                    _assemblyIdentity),
             TypeReferenceOrigin.ModuleReference module =>
                 module.ModuleName.Equals(
-                    _reader.GetString(
-                        _reader.GetModuleDefinition().Name),
+                    _moduleName,
                     StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
+    }
+
+    string ReadPresenceString(
+        StringHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(
+            _reader,
+            handle);
     }
 
     bool TryResolveLocalTypeDefinition(
@@ -651,6 +813,196 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         }
 
         return definitions;
+    }
+
+    bool TryResolveSameImageDeclaringType(
+        int definitionToken,
+        TypeRef declaringType,
+        TypeRefDecoder decoder,
+        UnsafePresenceWorkBudget workBudget,
+        out TypeDefinitionHandle typeHandle)
+    {
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(definitionToken);
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            EntityHandle parent =
+                _reader.GetMemberReference(
+                    (MemberReferenceHandle)handle)
+                    .Parent;
+            if (parent.Kind == HandleKind.TypeDefinition)
+            {
+                typeHandle = (TypeDefinitionHandle)parent;
+                return true;
+            }
+            if (parent.Kind == HandleKind.MethodDefinition)
+            {
+                typeHandle = _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)parent)
+                    .GetDeclaringType();
+                return true;
+            }
+        }
+
+        TypeRef definition =
+            declaringType.Kind == TypeRefKind.GenericInstance
+                ? declaringType.ElementType ?? declaringType
+                : declaringType;
+        if (definition.Resolution is not { Type: var targetName })
+        {
+            typeHandle = default;
+            return false;
+        }
+
+        Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle> definitions =
+                workBudget.GetOrCreateLocalTypeDefinitions(
+                    () => BuildPresenceLocalTypeDefinitions(
+                        decoder,
+                        workBudget));
+        if (!definitions.TryGetValue(
+                targetName,
+                out typeHandle))
+        {
+            return false;
+        }
+        if (typeHandle.IsNil)
+        {
+            throw new InvalidDataException(
+                "Unsafe evidence presence is incomplete because a local "
+                    + "type reference has ambiguous declaring-type "
+                    + "correspondence.");
+        }
+        return true;
+    }
+
+    Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle> BuildPresenceLocalTypeDefinitions(
+            TypeRefDecoder decoder,
+            UnsafePresenceWorkBudget workBudget)
+    {
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle candidateHandle
+            in _reader.TypeDefinitions)
+        {
+            workBudget.ReserveCorrespondenceRow();
+            TypeRef candidate =
+                decoder.GetTypeFromDefinition(
+                    _reader,
+                    candidateHandle,
+                    0);
+            if (candidate.Resolution is not { Type: var candidateName })
+                continue;
+
+            if (!definitions.TryAdd(
+                    candidateName,
+                    candidateHandle))
+            {
+                definitions[candidateName] = default;
+            }
+        }
+
+        return definitions;
+    }
+
+    MethodDefinitionHandle ResolveSameImageMethodDefinition(
+        TypeDefinitionHandle typeHandle,
+        MemberRef member,
+        TypeRefDecoder decoder,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        TypeDefinition typeDefinition =
+            _reader.GetTypeDefinition(typeHandle);
+        MethodDefinitionHandle resolved = default;
+        foreach (MethodDefinitionHandle methodHandle
+            in typeDefinition.GetMethods())
+        {
+            workBudget.ReserveCorrespondenceRow();
+            MethodDefinition methodDefinition =
+                _reader.GetMethodDefinition(methodHandle);
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    methodDefinition.Name)
+                    .Length);
+            if (!_reader.StringComparer.Equals(
+                    methodDefinition.Name,
+                    member.Name))
+            {
+                continue;
+            }
+
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    methodDefinition.Signature)
+                    .Length);
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    methodDefinition.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                throw new BadImageFormatException(
+                    "A same-image target signature exceeds the safe decoding limits.");
+            }
+
+            MethodSignature<TypeRef> signature =
+                methodDefinition.DecodeSignature(
+                    decoder,
+                    GenericScope.Empty);
+            int typeParameterCount =
+                typeDefinition.GetGenericParameters()
+                    .Count;
+            int methodParameterCount =
+                methodDefinition.GetGenericParameters()
+                    .Count;
+            if (SignatureTypeFacts.IsMalformed(
+                    signature.ReturnType,
+                    typeParameterCount,
+                    methodParameterCount)
+                || signature.ParameterTypes.Any(
+                    parameter =>
+                        SignatureTypeFacts.IsMalformed(
+                            parameter,
+                            typeParameterCount,
+                            methodParameterCount)))
+            {
+                throw new BadImageFormatException(
+                    "A same-image target signature contains an "
+                        + "unsupported or malformed type.");
+            }
+            if (!MethodDefinitionMap.SignatureMatches(
+                    signature.ParameterTypes,
+                    signature.ReturnType,
+                    typeParameterCount,
+                    methodParameterCount,
+                    (methodDefinition.Attributes
+                        & MethodAttributes.Static) != 0,
+                    signature.Header.RawValue,
+                    signature.RequiredParameterCount,
+                    member.OpenSignatureParameters,
+                    member.OpenSignatureReturn,
+                    member.GenericArity,
+                    member.HasThis,
+                    member.SignatureHeader,
+                    member.RequiredParameterCount,
+                    _signatureComparer.Matches))
+            {
+                continue;
+            }
+            if (!resolved.IsNil)
+            {
+                throw new InvalidDataException(
+                    "Unsafe evidence presence is incomplete because a local "
+                        + "member reference has ambiguous MethodDef "
+                        + "correspondence.");
+            }
+            resolved = methodHandle;
+        }
+
+        return resolved;
     }
 
     bool FieldMatchesMemberReference(

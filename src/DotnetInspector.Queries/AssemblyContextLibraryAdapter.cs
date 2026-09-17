@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
@@ -19,7 +21,7 @@ public enum AssemblyContextLibraryRole
 /// </summary>
 /// <remarks>
 /// The bounds apply separately to the adapter's captured input and the
-/// Artifact-owned retained image. They are not a process-RSS limit or a
+/// Artifact-owned retained images. They are not a process-RSS limit or a
 /// zero-copy guarantee.
 /// </remarks>
 public sealed class AssemblyContextLibraryMaterializationLimits
@@ -44,7 +46,7 @@ public sealed class AssemblyContextLibraryMaterializationLimits
     }
 
     /// <summary>
-    /// Maximum bytes retained by the adapter's independent input capture.
+    /// Maximum bytes in each independently captured assembly or Portable PDB image.
     /// </summary>
     public long MaxCapturedImageBytes { get; }
 
@@ -52,6 +54,24 @@ public sealed class AssemblyContextLibraryMaterializationLimits
     /// Maximum bytes retained by the new Artifact generation.
     /// </summary>
     public long MaxRetainedArtifactBytes { get; }
+}
+
+/// <summary>Already acquired Portable PDB content and its source provenance.</summary>
+public sealed class AssemblyContextLibraryPortablePdb
+{
+    public AssemblyContextLibraryPortablePdb(
+        ImmutableArray<byte> image,
+        IArtifactProvenance provenance)
+    {
+        if (image.IsDefault)
+            throw new ArgumentException("A Portable PDB image must be supplied.", nameof(image));
+        ArgumentNullException.ThrowIfNull(provenance);
+        Image = image;
+        Provenance = provenance;
+    }
+
+    public ImmutableArray<byte> Image { get; }
+    public IArtifactProvenance Provenance { get; }
 }
 
 /// <summary>
@@ -124,7 +144,6 @@ public sealed class AssemblyContextLibraryAssociation
                 nameof(projection));
         }
         if (!publishedReference.IsDirectArtifact
-            || publishedReference.Contents.Count != 1
             || !ReferenceEquals(
                 publishedReference.ApiAssembly.ArtifactReference,
                 publishedContent)
@@ -239,19 +258,44 @@ public abstract class AssemblyContextLibraryAdapterResult
             AssemblyAcquisitionRegistration sourceRegistration,
             AssemblyBindingPolicyVersion bindingPolicyVersion,
             long requiredImageBytes,
-            long maxCapturedImageBytes)
+            long maxCapturedImageBytes,
+            LibraryContentRole contentRole)
             : base([])
         {
             SourceRegistration = sourceRegistration;
             BindingPolicyVersion = bindingPolicyVersion;
             RequiredImageBytes = requiredImageBytes;
             MaxCapturedImageBytes = maxCapturedImageBytes;
+            ContentRole = contentRole;
         }
 
         public AssemblyAcquisitionRegistration SourceRegistration { get; }
         public AssemblyBindingPolicyVersion BindingPolicyVersion { get; }
         public long RequiredImageBytes { get; }
         public long MaxCapturedImageBytes { get; }
+        public LibraryContentRole ContentRole { get; }
+    }
+
+    public sealed class PortablePdbRejected : Terminal
+    {
+        internal PortablePdbRejected(
+            AssemblyAcquisitionRegistration sourceRegistration,
+            AssemblyBindingPolicyVersion bindingPolicyVersion,
+            IArtifactProvenance provenance,
+            IReadOnlyList<string> observations,
+            IReadOnlyList<Exception> cleanupFailures)
+            : base(cleanupFailures)
+        {
+            SourceRegistration = sourceRegistration;
+            BindingPolicyVersion = bindingPolicyVersion;
+            Provenance = provenance;
+            Observations = observations;
+        }
+
+        public AssemblyAcquisitionRegistration SourceRegistration { get; }
+        public AssemblyBindingPolicyVersion BindingPolicyVersion { get; }
+        public IArtifactProvenance Provenance { get; }
+        public IReadOnlyList<string> Observations { get; }
     }
 
     public sealed class ArtifactNotPublished : Terminal
@@ -300,12 +344,22 @@ public abstract class AssemblyContextLibraryAdapterResult
 /// </summary>
 public static class AssemblyContextLibraryAdapter
 {
+    public static ValueTask<AssemblyContextLibraryAdapterResult>
+        MaterializeAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyContextLibraryRole role,
+            AssemblyContextLibraryMaterializationLimits limits,
+            CancellationToken cancellationToken) =>
+        MaterializeAsync(group, participant, role, limits, null, cancellationToken);
+
     public static async ValueTask<AssemblyContextLibraryAdapterResult>
         MaterializeAsync(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             AssemblyContextLibraryRole role,
             AssemblyContextLibraryMaterializationLimits limits,
+            AssemblyContextLibraryPortablePdb? portablePdb,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -313,6 +367,12 @@ public static class AssemblyContextLibraryAdapter
         ArgumentNullException.ThrowIfNull(limits);
         if (!Enum.IsDefined(role))
             throw new ArgumentOutOfRangeException(nameof(role));
+        if (portablePdb is not null && role != AssemblyContextLibraryRole.Implementation)
+        {
+            throw new ArgumentException(
+                "A Portable PDB companion requires the selected implementation assembly.",
+                nameof(portablePdb));
+        }
 
         AssemblyBindingPolicyVersion bindingPolicyVersion =
             group.BindingPolicyVersion;
@@ -325,6 +385,7 @@ public static class AssemblyContextLibraryAdapter
                     participant.Assembly.Provenance,
                     bindingPolicyVersion,
                     limits,
+                    portablePdb,
                     cancellationToken));
         if (access
             is AssemblyImageAccessResult<CapturedInput>.Rejected rejected)
@@ -344,7 +405,8 @@ public static class AssemblyContextLibraryAdapter
                 incomplete.SourceRegistration,
                 incomplete.BindingPolicyVersion,
                 incomplete.RequiredImageBytes,
-                limits.MaxCapturedImageBytes);
+                limits.MaxCapturedImageBytes,
+                incomplete.ContentRole);
         }
 
         return await MaterializeCapturedAsync(
@@ -365,14 +427,14 @@ public static class AssemblyContextLibraryAdapter
         var session = new ArtifactSetSession(
             new ArtifactSetSessionLimits
             {
-                MaxArtifacts = 1,
+                MaxArtifacts = ready.PortablePdb is null ? 1 : 2,
                 MaxArtifactBytes =
                     limits.MaxRetainedArtifactBytes,
                 MaxRetainedBytes =
                     limits.MaxRetainedArtifactBytes,
             });
         ArtifactQueryLease? queryLease = null;
-        ArtifactContentLease? contentLease = null;
+        var contentLeases = new List<ArtifactContentLease>();
         LibraryContentOwner? owner = null;
         try
         {
@@ -382,6 +444,7 @@ public static class AssemblyContextLibraryAdapter
                     ready.BindingPolicyVersion,
                     ready.SourceProvenance);
             ArtifactContribution? contribution = null;
+            ArtifactContribution? pdbContribution = null;
             await session.AddRequiredAcquisitionAsync(
                     (scope, generationEnd) =>
                     {
@@ -396,10 +459,23 @@ public static class AssemblyContextLibraryAdapter
                                     writable: false);
                             },
                             kind: "assembly-context-library");
+                        if (ready.PortablePdb is { } pdb)
+                        {
+                            pdbContribution = scope.Register(
+                                ready.PortablePdbProvenance!,
+                                token =>
+                                {
+                                    token.ThrowIfCancellationRequested();
+                                    return new MemoryStream(pdb, writable: false);
+                                },
+                                kind: "assembly-context-library-portable-pdb");
+                        }
                         return ValueTask.FromResult<
                             ArtifactAcquisitionOutcome>(
                                 new ArtifactAcquisitionOutcome.Acquired(
-                                    [contribution],
+                                    pdbContribution is null
+                                        ? [contribution]
+                                        : [contribution, pdbContribution],
                                     ArtifactAcquisitionLeases.None));
                     },
                     cancellationToken: cancellationToken)
@@ -410,10 +486,13 @@ public static class AssemblyContextLibraryAdapter
                 await session.SealWithProjectionAsync(
                         (view, token) =>
                         {
-                            projection =
-                                ArtifactAssemblyInspection.Project(
-                                    view,
-                                    token);
+                            if (ReferenceEquals(view.Artifact, contribution!.Descriptor.Identity))
+                            {
+                                projection =
+                                    ArtifactAssemblyInspection.Project(
+                                        view,
+                                        token);
+                            }
                             return null;
                         },
                         cancellationToken)
@@ -425,7 +504,7 @@ public static class AssemblyContextLibraryAdapter
                     await CleanupAsync(
                             owner,
                             queryLease,
-                            contentLease,
+                            contentLeases,
                             session)
                         .ConfigureAwait(false);
                 return new AssemblyContextLibraryAdapterResult
@@ -444,7 +523,7 @@ public static class AssemblyContextLibraryAdapter
                     await CleanupAsync(
                             owner,
                             queryLease,
-                            contentLease,
+                            contentLeases,
                             session)
                         .ConfigureAwait(false);
                 return new AssemblyContextLibraryAdapterResult
@@ -457,6 +536,23 @@ public static class AssemblyContextLibraryAdapter
                         cleanup);
             }
 
+            if (ready.PortablePdb is { } portablePdb
+                && ValidatePortablePdb(
+                    ready,
+                    projected.Value.Identity,
+                    portablePdb,
+                    cancellationToken) is { } observations)
+            {
+                IReadOnlyList<Exception> cleanup = await CleanupAsync(
+                    owner, queryLease, contentLeases, session).ConfigureAwait(false);
+                return new AssemblyContextLibraryAdapterResult.PortablePdbRejected(
+                    ready.SourceRegistration,
+                    ready.BindingPolicyVersion,
+                    ready.PortablePdbProvenance!,
+                    observations,
+                    cleanup);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             ArtifactQueryAuthorization authorization =
                 session.CreateQueryAuthorization();
@@ -465,8 +561,14 @@ public static class AssemblyContextLibraryAdapter
                 session.GetContentReference(
                     contribution!.Descriptor.Identity,
                     queryLease);
-            contentLease =
-                session.IssueContentLease(content, queryLease);
+            contentLeases.Add(session.IssueContentLease(content, queryLease));
+            ArtifactContentReference? pdbContent = null;
+            if (pdbContribution is not null)
+            {
+                pdbContent = session.GetContentReference(
+                    pdbContribution.Descriptor.Identity, queryLease);
+                contentLeases.Add(session.IssueContentLease(pdbContent, queryLease));
+            }
             queryLease.Dispose();
             queryLease = null;
 
@@ -485,7 +587,11 @@ public static class AssemblyContextLibraryAdapter
                         identity);
             LibraryReference library =
                 LibraryReference.CreateDirect(
-                    assemblyCorrespondence);
+                    assemblyCorrespondence,
+                    pdbContent is null
+                        ? null
+                        : [new LibraryCompanionCorrespondence(
+                            pdbContent, LibraryContentRole.PortablePdb, content)]);
             var association =
                 new AssemblyContextLibraryAssociation(
                     ready.SourceRegistration,
@@ -495,8 +601,8 @@ public static class AssemblyContextLibraryAdapter
                     library);
             owner = new LibraryContentOwner(
                 library,
-                [contentLease]);
-            contentLease = null;
+                contentLeases);
+            contentLeases.Clear();
 
             return new AssemblyContextLibraryAdapterResult.Completed(
                 association,
@@ -509,7 +615,7 @@ public static class AssemblyContextLibraryAdapter
                 await CleanupAsync(
                         owner,
                         queryLease,
-                        contentLease,
+                        contentLeases,
                         session)
                     .ConfigureAwait(false);
             ArtifactSetSession.AttachCleanupFailures(
@@ -519,11 +625,69 @@ public static class AssemblyContextLibraryAdapter
         }
     }
 
+    static IReadOnlyList<string>? ValidatePortablePdb(
+        CapturedInput.Ready ready,
+        AssemblyReferenceIdentity identity,
+        byte[] portablePdb,
+        CancellationToken cancellationToken)
+    {
+        var observations = new List<string>();
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => new MemoryStream(ready.Content, writable: false),
+            ready.SourceProvenance);
+        PdbContext context = PdbContext.OpenMetadataOnly(assembly, observations.Add);
+        Exception? primaryFailure = null;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (context.PdbId is not { IsPortable: true })
+            {
+                observations.Add("The selected assembly has no Portable CodeView identity.");
+                return observations.AsReadOnly();
+            }
+
+            try
+            {
+                context.LoadPdbFromStream(
+                    new MemoryStream(portablePdb, writable: false),
+                    throwOnReadFailure: true);
+            }
+            catch (IOException failure)
+            {
+                observations.Add(failure.Message);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (context.HasPdb)
+                return null;
+
+            observations.Add("Supplied content was not accepted as a matching Portable PDB.");
+            return observations.AsReadOnly();
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            if (context.DisposeWithFailure() is { } cleanupFailure)
+            {
+                if (primaryFailure is not null)
+                    ArtifactSetSession.AttachCleanupFailures(primaryFailure, [cleanupFailure]);
+                else
+                    ExceptionDispatchInfo.Throw(cleanupFailure);
+            }
+        }
+    }
+
     static CapturedInput Capture(
         AssemblyImageSnapshot snapshot,
         AssemblyResolutionProvenance sourceProvenance,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         AssemblyContextLibraryMaterializationLimits limits,
+        AssemblyContextLibraryPortablePdb? portablePdb,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -532,7 +696,17 @@ public static class AssemblyContextLibraryAdapter
             return new CapturedInput.Incomplete(
                 snapshot.Registration,
                 bindingPolicyVersion,
-                snapshot.Length);
+                snapshot.Length,
+                LibraryContentRole.ApiAssembly);
+        }
+        if (portablePdb is not null
+            && portablePdb.Image.Length > limits.MaxCapturedImageBytes)
+        {
+            return new CapturedInput.Incomplete(
+                snapshot.Registration,
+                bindingPolicyVersion,
+                portablePdb.Image.Length,
+                LibraryContentRole.PortablePdb);
         }
 
         byte[] content = snapshot.Content.AsSpan().ToArray();
@@ -541,13 +715,15 @@ public static class AssemblyContextLibraryAdapter
             snapshot.Registration,
             bindingPolicyVersion,
             sourceProvenance,
-            content);
+            content,
+            portablePdb?.Image.AsSpan().ToArray(),
+            portablePdb?.Provenance);
     }
 
     static async ValueTask<IReadOnlyList<Exception>> CleanupAsync(
         LibraryContentOwner? owner,
         ArtifactQueryLease? queryLease,
-        ArtifactContentLease? contentLease,
+        IReadOnlyList<ArtifactContentLease> contentLeases,
         ArtifactSetSession session)
     {
         var failures = new List<Exception>();
@@ -564,13 +740,16 @@ public static class AssemblyContextLibraryAdapter
         }
         else
         {
-            try
+            foreach (ArtifactContentLease contentLease in contentLeases)
             {
-                contentLease?.Dispose();
-            }
-            catch (Exception failure)
-            {
-                failures.Add(failure);
+                try
+                {
+                    contentLease.Dispose();
+                }
+                catch (Exception failure)
+                {
+                    failures.Add(failure);
+                }
             }
         }
 
@@ -639,20 +818,24 @@ public static class AssemblyContextLibraryAdapter
         internal sealed class Incomplete(
             AssemblyAcquisitionRegistration sourceRegistration,
             AssemblyBindingPolicyVersion bindingPolicyVersion,
-            long requiredImageBytes)
+            long requiredImageBytes,
+            LibraryContentRole contentRole)
             : CapturedInput(
                 sourceRegistration,
                 bindingPolicyVersion)
         {
             internal long RequiredImageBytes { get; } =
                 requiredImageBytes;
+            internal LibraryContentRole ContentRole { get; } = contentRole;
         }
 
         internal sealed class Ready(
             AssemblyAcquisitionRegistration sourceRegistration,
             AssemblyBindingPolicyVersion bindingPolicyVersion,
             AssemblyResolutionProvenance sourceProvenance,
-            byte[] content)
+            byte[] content,
+            byte[]? portablePdb,
+            IArtifactProvenance? portablePdbProvenance)
             : CapturedInput(
                 sourceRegistration,
                 bindingPolicyVersion)
@@ -660,6 +843,8 @@ public static class AssemblyContextLibraryAdapter
             internal AssemblyResolutionProvenance SourceProvenance
             { get; } = sourceProvenance;
             internal byte[] Content { get; } = content;
+            internal byte[]? PortablePdb { get; } = portablePdb;
+            internal IArtifactProvenance? PortablePdbProvenance { get; } = portablePdbProvenance;
         }
     }
 }

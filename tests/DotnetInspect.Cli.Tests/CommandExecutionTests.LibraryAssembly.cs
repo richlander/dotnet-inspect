@@ -1996,6 +1996,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_InvalidMetadataRootFailsBeforeAcquisition()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "#Strings:1",
+            "--library",
+            missingLibrary,
+            "--metadata-root",
+            "not-a-root",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("expected cli or r2r-manifest", error);
+        Assert.DoesNotContain(missingLibrary, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_HeapSelectionMismatchFailsBeforeAcquisition()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "#Strings:1",
+            "--library",
+            missingLibrary,
+            "-S",
+            MetadataSectionNames.Image,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "library coordinate requires the heap coordinate section",
+            error);
+        Assert.DoesNotContain(missingLibrary, error);
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_RequiresNamedLibrarySource()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2316,6 +2366,8 @@ public partial class CommandExecutionTests
         Assert.Contains("--library", child.Output);
         Assert.Contains("--package", child.Output);
         Assert.Contains("--platform", child.Output);
+        Assert.Contains("--metadata-root", child.Output);
+        Assert.Contains("#Strings:0x1a4", child.Output);
         Assert.Empty(child.Error);
     }
 

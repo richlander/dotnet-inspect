@@ -1,16 +1,242 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using CSharpText.MemberSlicing;
 using DotnetInspector.Libraries;
+using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
+using ILInspector.SourceLink;
+using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class AssemblyContextLibraryAdapterTests
 {
+    // Focused image/companion cases are PR-fast.
+    [Fact]
+    public async Task SuppliedPortablePdb_PreservesContentProvenanceAndRetirement()
+    {
+        var (source, pdb) = MemberSlicingInput();
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        var completed = Assert.IsType<AssemblyContextLibraryAdapterResult.Completed>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                CompanionLimits(source, pdb), pdb,
+                TestContext.Current.CancellationToken));
+        LibraryOperationLease? operation = null;
+        try
+        {
+            LibraryCompanionCorrespondence correspondence =
+                Assert.Single(completed.Reference.CompanionCorrespondences);
+            Assert.Equal(LibraryContentRole.PortablePdb, correspondence.Role);
+            Assert.Same(completed.Association.PublishedContent, correspondence.Assembly);
+            Assert.Same(pdb.Provenance, correspondence.Content.Provenance);
+            Assert.Same(
+                completed.Association.PublishedContent.Generation,
+                correspondence.Content.Generation);
+            LibraryContentReference companion = Assert.Single(
+                completed.Reference.Contents,
+                content => content.HasRole(LibraryContentRole.PortablePdb));
+            Assert.Same(completed.Reference.ApiAssembly, companion.AssociatedAssembly);
+            Assert.Same(correspondence.Content, companion.ArtifactReference);
+            Assert.Equal(2, completed.Reference.Contents.Count);
+            Assert.Equal(1, source.OpenCount);
+
+            operation = Issued(completed.Owner, completed.Reference);
+            group.Dispose();
+            source.Disable();
+            Task libraryRetirement = completed.Owner.DisposeAsync().AsTask();
+            Task artifactRetirement = completed.Artifacts.DisposeAsync().AsTask();
+            Assert.False(libraryRetirement.IsCompleted);
+            Assert.False(artifactRetirement.IsCompleted);
+            Assert.True(operation.Snapshot(
+                companion, pdb.Image,
+                static (view, expected, _) => view.Content.SequenceEqual(expected.AsSpan()),
+                TestContext.Current.CancellationToken));
+            Assert.True(operation.Snapshot(
+                completed.Reference.ApiAssembly, source.Bytes,
+                static (view, expected, _) => view.Content.SequenceEqual(expected),
+                TestContext.Current.CancellationToken));
+            operation.Dispose();
+            operation = null;
+            await libraryRetirement.WaitAsync(TestContext.Current.CancellationToken);
+            await artifactRetirement.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.Empty(completed.Owner.CleanupFailures);
+            Assert.Empty(completed.Artifacts.CleanupFailures);
+        }
+        finally
+        {
+            operation?.Dispose();
+            await RetireAsync(completed);
+        }
+    }
+
+    [Fact]
+    public async Task SuppliedPortablePdb_DoesNotPromoteApiOnlyInput()
+    {
+        var (source, pdb) = MemberSlicingInput();
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        ArgumentException failure = await Assert.ThrowsAsync<ArgumentException>(
+            async () => await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.ApiOnly,
+                CompanionLimits(source, pdb), pdb, TestContext.Current.CancellationToken));
+        Assert.Equal("portablePdb", failure.ParamName);
+        Assert.Equal(0, source.OpenCount);
+    }
+
+    [Fact]
+    public async Task SuppliedPortablePdb_EnablesRealSourceHouseMember()
+    {
+        var (source, pdb) = MemberSlicingInput();
+        byte[] sourceBytes = File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryAdapter", "MemberTextSlicer.cs"));
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        var target = Assert.IsType<AssemblyImageAccessResult<SourceHouseTarget.MemberTarget>.Available>(
+            group.UseAssemblySession(participant, TestContext.Current.CancellationToken, (session, _) =>
+            {
+                ApiType type = Assert.Single(session.ApiSurface(includeAll: true).Types,
+                    type => type.DefinitionName?.ToMetadataFullName() == typeof(MemberTextSlicer).FullName);
+                ApiMember member = Assert.Single(type.Members,
+                    member => member.Name == nameof(MemberTextSlicer.ExtractMemberText));
+                return new SourceHouseTarget.MemberTarget(
+                    type.DefinitionName!, ApiMemberIdentity.GetMemberAnchor(type, member),
+                    member.MetadataToken!.Value);
+            })).Value;
+        var completed = Assert.IsType<AssemblyContextLibraryAdapterResult.Completed>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                CompanionLimits(source, pdb), pdb, TestContext.Current.CancellationToken));
+        try
+        {
+            LibraryOperationLease operation = Issued(completed.Owner, completed.Reference);
+            group.Dispose();
+            source.Disable();
+            var request = new SourceHouseAuthoredRequest(
+                SourceHouseRequestIdentity.Create("adapted-member"),
+                completed.Reference,
+                completed.Reference.ImplementationAssembly!,
+                target,
+                new SourceHouseOperationPlan(
+                    SourceHouseOperationPlanIdentity.Create("repository-source"),
+                    SourceHousePolicyGeneration.Create("adapter-test"),
+                    new SourceHouseLimits(
+                        source.Bytes.Length, pdb.Image.Length,
+                        new ApiSurfaceExtractionBounds(2_000, 40_000, 1_000, 1_000, 500_000, 8_000_000),
+                        new SourceLinkReadLimits(1_000_000, 1_000_000, 1_000),
+                        1_000, 1_000, 1, sourceBytes.Length, sourceBytes.Length),
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    [new RepositorySourceCapability(sourceBytes)]));
+            var result = Assert.IsType<SourceHouseOutcome.Available>(
+                await SourceHouse.SourceHouse.ExecuteAuthoredAsync(
+                    request, operation, TestContext.Current.CancellationToken));
+            Assert.Equal(SourceHousePdbContributionKind.SuppliedCompanion, result.PdbContribution.Kind);
+            Assert.Equal(SourceHouseSourceUnitScope.ExactMember, result.Source.Mapping!.Scope);
+            Assert.StartsWith("public static string? ExtractMemberText(", result.Source.Text.TrimStart());
+            Assert.Same(completed.Reference, result.Receipt.Request.Library);
+            Assert.Throws<ObjectDisposedException>(() => operation.Snapshot(
+                completed.Reference.ApiAssembly, static (view, _) => view.Content.Length,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            await RetireAsync(completed);
+        }
+    }
+
+    [Theory]
+    [InlineData("foreign")]
+    [InlineData("malformed")]
+    [InlineData("truncated")]
+    public async Task SuppliedPortablePdb_RejectionRetainsNativeEvidence(string kind)
+    {
+        var (source, pdb) = MemberSlicingInput();
+        byte[] bytes = kind switch
+        {
+            "foreign" => File.ReadAllBytes(Path.ChangeExtension(typeof(PdbContext).Assembly.Location, ".pdb")),
+            "malformed" => [1, 2, 3, 4],
+            "truncated" => [0x42, 0x53, 0x4a],
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+        var supplied = new AssemblyContextLibraryPortablePdb(
+            ImmutableArray.CreateRange(bytes), pdb.Provenance);
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        var rejected = Assert.IsType<AssemblyContextLibraryAdapterResult.PortablePdbRejected>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                CompanionLimits(source, supplied), supplied, TestContext.Current.CancellationToken));
+        Assert.Same(source.Assembly.Registration, rejected.SourceRegistration);
+        Assert.Same(supplied.Provenance, rejected.Provenance);
+        Assert.NotEmpty(rejected.Observations);
+        if (kind == "foreign")
+            Assert.Contains(rejected.Observations, observation => observation.Contains("identity mismatch"));
+        Assert.Empty(rejected.CleanupFailures);
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            group.UseAssemblyImage(source.Assembly, static image => image.Content.Length));
+    }
+
+    [Fact]
+    public async Task SuppliedPortablePdb_WithoutPortableCodeViewCannotEstablishCorrespondence()
+    {
+        var (_, pdb) = MemberSlicingInput();
+        byte[] image = EmitAssembly("Adapter.NoPortableIdentity", Guid.NewGuid());
+        AssemblySource source = AssemblySource.FromBytes(image, ReadIdentity(image), "no portable identity");
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        var rejected = Assert.IsType<AssemblyContextLibraryAdapterResult.PortablePdbRejected>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                CompanionLimits(source, pdb), pdb, TestContext.Current.CancellationToken));
+        Assert.Contains("The selected assembly has no Portable CodeView identity.", rejected.Observations);
+        Assert.Empty(rejected.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task SuppliedPortablePdb_BoundsApplyPerImageAndToCombinedRetention()
+    {
+        var (source, pdb) = MemberSlicingInput();
+        byte[] padded = new byte[Math.Max(source.Bytes.Length, pdb.Image.Length) + 1];
+        pdb.Image.CopyTo(padded);
+        var supplied = new AssemblyContextLibraryPortablePdb(
+            ImmutableArray.CreateRange(padded), pdb.Provenance);
+        long totalBytes = (long)source.Bytes.Length + padded.Length;
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy());
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
+        var incomplete = Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                new(padded.Length - 1, totalBytes), supplied, TestContext.Current.CancellationToken));
+        Assert.Equal(LibraryContentRole.PortablePdb, incomplete.ContentRole);
+        Assert.Equal(padded.Length, incomplete.RequiredImageBytes);
+        Assert.Equal(padded.Length - 1, incomplete.MaxCapturedImageBytes);
+
+        var capacity = Assert.IsType<AssemblyContextLibraryAdapterResult.ArtifactNotPublished>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                new(padded.Length, totalBytes - 1), supplied, TestContext.Current.CancellationToken));
+        Assert.Contains(capacity.Publication.Failures,
+            failure => failure.Diagnostic.Code == "artifact.session.byte-limit");
+        Assert.Empty(capacity.CleanupFailures);
+        var completed = Assert.IsType<AssemblyContextLibraryAdapterResult.Completed>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.Implementation,
+                new(padded.Length, totalBytes), supplied, TestContext.Current.CancellationToken));
+        await RetireAsync(completed);
+    }
+
     [Fact]
     public async Task
         SystemTextJsonImplementation_UsesRetainedSnapshotAndTransfersIndependentAuthorities()
@@ -290,12 +516,13 @@ public sealed class AssemblyContextLibraryAdapterTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task
-        CancellationAfterGroupSnapshot_RemainsCancellationWithoutHandoff()
+        CancellationAfterGroupSnapshot_RemainsCancellationWithoutHandoff(bool supplyPdb)
     {
-        AssemblySource source =
-            AssemblySource.FromPathlessRuntimeImage();
+        var (source, pdb) = MemberSlicingInput();
         await using var workspace = new InspectionWorkspace();
         var participant =
             new AssemblyContextParticipant(
@@ -311,8 +538,9 @@ public sealed class AssemblyContextLibraryAdapterTests
                 await AssemblyContextLibraryAdapter.MaterializeAsync(
                     group,
                     participant,
-                    AssemblyContextLibraryRole.ApiOnly,
-                    Limits(source.Bytes.Length),
+                    AssemblyContextLibraryRole.Implementation,
+                    CompanionLimits(source, pdb),
+                    supplyPdb ? pdb : null,
                     cancellation.Token));
 
         Assert.Equal(1, source.OpenCount);
@@ -407,6 +635,39 @@ public sealed class AssemblyContextLibraryAdapterTests
     static AssemblyContextLibraryMaterializationLimits Limits(
         long imageBytes) =>
         new(imageBytes, imageBytes);
+
+    static (AssemblySource Source, AssemblyContextLibraryPortablePdb Pdb) MemberSlicingInput()
+    {
+        string assemblyPath = typeof(MemberTextSlicer).Assembly.Location;
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        byte[] pdb = File.ReadAllBytes(Path.ChangeExtension(assemblyPath, ".pdb"));
+        return (
+            AssemblySource.FromBytes(image, ReadIdentity(image), "pathless MemberSlicing"),
+            new AssemblyContextLibraryPortablePdb(
+                ImmutableArray.CreateRange(pdb), new PdbProvenance("MemberSlicing symbols")));
+    }
+
+    static AssemblyContextLibraryMaterializationLimits CompanionLimits(
+        AssemblySource source, AssemblyContextLibraryPortablePdb pdb) =>
+        new(Math.Max(source.Bytes.Length, pdb.Image.Length), (long)source.Bytes.Length + pdb.Image.Length);
+
+    sealed record PdbProvenance(string Name) : IArtifactProvenance;
+
+    sealed class RepositorySourceCapability(byte[] content) : ISourceHouseSourceCapability
+    {
+        public SourceHouseCapabilityIdentity Identity { get; } =
+            SourceHouseCapabilityIdentity.Create("repository-document");
+        public SourceHouseCapabilityCategory Category => SourceHouseCapabilityCategory.Repository;
+
+        public ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
+            SourceHouseSourceCandidate candidate, int maximumBytes, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.True(content.Length <= maximumBytes);
+            return ValueTask.FromResult<SourceHouseCapabilityOutcome>(
+                new SourceHouseCapabilityOutcome.Available(content));
+        }
+    }
 
     static LibraryOperationLease Issued(
         LibraryContentOwner owner,
