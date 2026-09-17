@@ -244,9 +244,11 @@ stale work. The existing opaque-snapshot TLA+ state machines remain sufficient
 for Navigation-local intent, maintenance, and authority ordering. Workspace
 scope-operation results are owned by
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md). Their
-protected Navigation consumption is specified by
+protected Navigation consumption is implemented by the shared producer in
 [Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
 under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
+Source-retiring correspondence orchestration and CLI/Browser adoption remain
+unverified follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -1297,8 +1299,9 @@ Subject and lens activation return one of these semantic outcomes:
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
 `Rejected` is an admitted Navigation result with ordinary result authority. A
-future protected-membership refusal belongs to #5584 rather than this ordinary
-result algebra.
+protected-membership refusal belongs to the
+[Scope-operation consumption boundary](navigation-scope-operation-consumption.md)
+rather than this ordinary result algebra.
 
 A subject-activation request carries one exact destination subject and one
 complete exact route to it. Navigation rejects a foreign Workspace, invalid

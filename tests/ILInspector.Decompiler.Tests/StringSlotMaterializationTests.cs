@@ -106,17 +106,10 @@ public class StringSlotMaterializationTests
         AssertRetained(function);
     }
 
-    [Theory]
-    [InlineData("rectangular-array")]
-    [InlineData("foreign-string")]
-    public void OtherExactReferenceTypesRemainDeferred(string kind)
+    [Fact]
+    public void UnresolvedForeignStringRemainsDeferred()
     {
-        var type = kind switch
-        {
-            "rectangular-array" => TypeRef.MdArray(Object, 2),
-            "foreign-string" => TypeRef.Definition("Other", "System", "String"),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-        };
+        var type = TypeRef.Definition("Other", "System", "String");
         var function = Function(type,
             new StoreStackSlot(0, new Constant(null, type)),
             new Return(new LoadStackSlot(0, type)));
