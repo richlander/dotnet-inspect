@@ -59,6 +59,8 @@ The Source facade and TypeScript viewer each repeat that correspondence check
 against the serialized document and require the transported node-id set to
 equal the exact matches. This prevents serialization or adapter drift from
 turning a Research-proven location into a different displayed source node.
+An unavailable row that retains a diagnostic document is valid only while the
+same recomputation still reports zero or multiple matching nodes.
 An instruction-unavailable Finding, callee document failure, or correspondence
 failure retains the callee member target and a typed visible reason but no
 evidence node ids.

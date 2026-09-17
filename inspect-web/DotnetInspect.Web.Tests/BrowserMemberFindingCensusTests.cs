@@ -230,6 +230,36 @@ public sealed class BrowserMemberFindingCensusTests
                     }]));
         Assert.Contains("requires a document", outcomeError.Message);
 
+        InvalidOperationException staleUnavailableError =
+            Assert.Throws<InvalidOperationException>(() =>
+                Create(
+                    projection,
+                    [available with
+                    {
+                        NodeIds = [],
+                        UnavailableReason =
+                            "No unique callee source node.",
+                    }]));
+        Assert.Contains(
+            "unavailable despite exact serialized correspondence",
+            staleUnavailableError.Message);
+
+        BrowserMemberFindingCensus unavailableEnvelope = Create(
+            projection,
+            [available with
+            {
+                Coordinates =
+                [
+                    new(
+                        3,
+                        BrowserCalleeEvidenceKind.Localloc),
+                ],
+                NodeIds = [],
+                UnavailableReason =
+                    "No unique callee source node.",
+            }]);
+        Assert.Single(unavailableEnvelope.AnnotatedSource.FindingEvidence);
+
         InvalidOperationException offsetError =
             Assert.Throws<InvalidOperationException>(() =>
                 Create(

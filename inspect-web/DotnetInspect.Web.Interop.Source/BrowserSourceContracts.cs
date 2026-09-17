@@ -398,6 +398,22 @@ public sealed record BrowserMemberFindingCensus
                     throw new InvalidOperationException(
                         $"Unavailable member Finding evidence row {index} cannot carry node ids.");
                 }
+                if (evidenceDocument is not null
+                    && evidence.Coordinates.Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Unavailable member Finding evidence row {index} cannot carry a document without coordinates.");
+                }
+                if (evidenceDocument is not null
+                    && FindEvidenceNodeIds(
+                        evidenceDocument,
+                        evidence,
+                        index,
+                        out _) is not null)
+                {
+                    throw new InvalidOperationException(
+                        $"Member Finding census evidence row {index} is unavailable despite exact serialized correspondence.");
+                }
             }
             else if (evidenceDocument is null
                 || evidence.Coordinates.Length == 0
@@ -408,10 +424,19 @@ public sealed record BrowserMemberFindingCensus
             }
             else
             {
-                ValidateEvidenceCorrespondence(
+                int[] expectedNodeIds =
+                    FindEvidenceNodeIds(
                     evidenceDocument,
                     evidence,
-                    index);
+                    index,
+                    out string? failure)
+                    ?? throw new InvalidOperationException(failure);
+                if (!evidence.NodeIds.SequenceEqual(expectedNodeIds))
+                {
+                    throw new InvalidOperationException(
+                        $"Member Finding census evidence row {index} node ids "
+                            + "do not equal its exact coordinate matches.");
+                }
             }
         }
 
@@ -431,10 +456,11 @@ public sealed record BrowserMemberFindingCensus
         ?? throw new InvalidOperationException(
             $"Member Finding census evidence row {evidenceIndex} carries no callee document.");
 
-    static void ValidateEvidenceCorrespondence(
+    static int[]? FindEvidenceNodeIds(
         AnnotatedSourceDocument document,
         BrowserAnnotatedSourceFindingEvidence evidence,
-        int evidenceIndex)
+        int evidenceIndex,
+        out string? failure)
     {
         var matchedNodeIds = new List<int>();
         foreach (
@@ -465,24 +491,20 @@ public sealed record BrowserMemberFindingCensus
             ];
             if (matches.Length != 1)
             {
-                throw new InvalidOperationException(
+                failure =
                     $"Member Finding census evidence row {evidenceIndex} coordinate "
                         + $"IL_{coordinate.IlOffset:X4} matches {matches.Length} "
-                        + $"{expectedKind} nodes.");
+                        + $"{expectedKind} nodes.";
+                return null;
             }
             matchedNodeIds.Add(matches[0].Id);
         }
 
-        int[] expectedNodeIds =
+        failure = null;
+        return
         [
             .. matchedNodeIds.Distinct().Order(),
         ];
-        if (!evidence.NodeIds.SequenceEqual(expectedNodeIds))
-        {
-            throw new InvalidOperationException(
-                $"Member Finding census evidence row {evidenceIndex} node ids "
-                    + "do not equal its exact coordinate matches.");
-        }
     }
 }
 

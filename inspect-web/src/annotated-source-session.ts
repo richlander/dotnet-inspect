@@ -699,7 +699,22 @@ function validateFindingEvidence(
         throw new TypeError(
           `Unavailable Annotated Source Finding evidence ${index} cannot carry node ids.`);
       }
-      if (evidence.document !== null) validateDocument(evidence.document);
+      if (evidence.document !== null) {
+        validateDocument(evidence.document);
+        if (evidence.coordinates.length === 0) {
+          throw new TypeError(
+            `Unavailable Annotated Source Finding evidence ${index} cannot carry a document without coordinates.`);
+        }
+        const correspondence = findEvidenceNodeIds(
+          evidence.document,
+          evidence.coordinates,
+          index,
+        );
+        if (correspondence.failure === null) {
+          throw new TypeError(
+            `Annotated Source Finding evidence ${index} is unavailable despite exact serialized correspondence.`);
+        }
+      }
     } else {
       if (evidence.document === null
         || evidence.coordinates.length === 0
@@ -708,20 +723,15 @@ function validateFindingEvidence(
           `Available Annotated Source Finding evidence ${index} requires a document, coordinates, and node ids.`);
       }
       validateDocument(evidence.document);
-      const matchedNodeIds: number[] = [];
-      for (const coordinate of evidence.coordinates) {
-        const expectedKind = evidenceNodeKind(coordinate.kind);
-        const matches = evidence.document.nodes.filter(node =>
-          node.medium === "CSharp"
-          && node.kind === expectedKind
-          && node.provenance?.il_offsets.includes(coordinate.ilOffset) === true);
-        if (matches.length !== 1) {
-          throw new TypeError(
-            `Annotated Source Finding evidence ${index} coordinate IL_${coordinate.ilOffset.toString(16).toUpperCase().padStart(4, "0")} matches ${matches.length} ${expectedKind} nodes.`);
-        }
-        matchedNodeIds.push(matches[0]!.id);
+      const correspondence = findEvidenceNodeIds(
+        evidence.document,
+        evidence.coordinates,
+        index,
+      );
+      if (correspondence.failure !== null) {
+        throw new TypeError(correspondence.failure);
       }
-      const expectedNodeIds = uniqueSorted(matchedNodeIds);
+      const expectedNodeIds = correspondence.nodeIds;
       if (evidence.nodeIds.length !== expectedNodeIds.length
         || evidence.nodeIds.some((nodeId, nodeIndex) =>
           nodeId !== expectedNodeIds[nodeIndex])) {
@@ -841,6 +851,34 @@ function evidenceNodeKind(
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function findEvidenceNodeIds(
+  document: AnnotatedSourceDocument,
+  coordinates: AnnotatedSourceFindingEvidence["coordinates"],
+  evidenceIndex: number,
+): { readonly nodeIds: readonly number[]; readonly failure: null }
+  | { readonly nodeIds: null; readonly failure: string } {
+  const matchedNodeIds: number[] = [];
+  for (const coordinate of coordinates) {
+    const expectedKind = evidenceNodeKind(coordinate.kind);
+    const matches = document.nodes.filter(node =>
+      node.medium === "CSharp"
+      && node.kind === expectedKind
+      && node.provenance?.il_offsets.includes(coordinate.ilOffset) === true);
+    if (matches.length !== 1) {
+      return {
+        nodeIds: null,
+        failure:
+          `Annotated Source Finding evidence ${evidenceIndex} coordinate IL_${coordinate.ilOffset.toString(16).toUpperCase().padStart(4, "0")} matches ${matches.length} ${expectedKind} nodes.`,
+      };
+    }
+    matchedNodeIds.push(matches[0]!.id);
+  }
+  return {
+    nodeIds: uniqueSorted(matchedNodeIds),
+    failure: null,
+  };
 }
 
 function uniqueSorted(values: readonly number[]): number[] {

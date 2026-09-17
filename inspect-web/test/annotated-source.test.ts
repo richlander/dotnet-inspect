@@ -378,6 +378,14 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     /provenance must be a non-empty C# IL-offset set/,
   );
   assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      nodeIds: [],
+      unavailableReason: "No unique callee source node.",
+    })),
+    /unavailable despite exact serialized correspondence/,
+  );
+  assert.throws(
     () => createAnnotatedSourceViewerModel({
       ...calleeEvidenceResult(),
       findingEvidence: [],
@@ -790,6 +798,15 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
 
   const unavailableSource = calleeEvidenceResult({
     ...sampleCalleeEvidence,
+    document: {
+      ...sampleCalleeDocument,
+      nodes: [{
+        ...sampleCalleeDocument.nodes[0],
+        provenance: {
+          il_offsets: [3],
+        },
+      }],
+    },
     nodeIds: [],
     unavailableReason: "No unique callee source node.",
   });
