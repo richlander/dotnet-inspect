@@ -15,7 +15,31 @@ public sealed record PackageCompileAsset(
     string Path,
     string AssemblyName,
     string TargetFramework,
-    PackageCompileAssetKind Kind);
+    PackageCompileAssetKind Kind,
+    string? RuntimeIdentifier = null);
+
+/// <summary>One available compile slice and its complete candidate inventory.</summary>
+public sealed record PackageCompileAssetSlice(
+    string TargetFramework,
+    IReadOnlyList<PackageCompileAsset> CandidateAssets,
+    bool HasExplicitEmptyReferenceGroup);
+
+/// <summary>The package-local policy that produced one compile selection.</summary>
+public enum PackageCompileAssetSelectionPolicy
+{
+    /// <summary>Select the highest available package compile slice.</summary>
+    HighestAvailable,
+
+    /// <summary>
+    /// Select the highest package compile slice applicable to an explicit target.
+    /// </summary>
+    ExplicitTarget,
+
+    /// <summary>
+    /// Select only a package compile slice that exactly matches the target.
+    /// </summary>
+    ExactTarget,
+}
 
 /// <summary>The outcome of selecting one package's compile-assembly set.</summary>
 public enum PackageCompileAssetSelectionStatus
@@ -37,9 +61,10 @@ public enum PackageCompileAssetSelectionStatus
 }
 
 /// <summary>
-/// A deterministic package compile-asset selection. <see cref="Assets"/> contains only one
-/// target framework and one preferred root; <see cref="CandidateAssets"/> retains the complete
-/// discovered set when selection fails.
+/// A deterministic package compile-asset selection. <see cref="Assets"/>
+/// contains only one target framework and one preferred root;
+/// <see cref="CandidateAssets"/> retains the complete discovered set on every
+/// outcome.
 /// </summary>
 public sealed record PackageCompileAssetSelection(
     PackageCompileAssetSelectionStatus Status,
@@ -49,6 +74,8 @@ public sealed record PackageCompileAssetSelection(
     PackageCompileAsset? DefaultAsset,
     IReadOnlyList<PackageCompileAsset> CandidateAssets,
     IReadOnlyList<PackageCompileAsset> ImplementationAssets,
+    IReadOnlyList<string> ExplicitEmptyTargetFrameworks,
+    IReadOnlyList<PackageCompileAssetSlice> AvailableSlices,
     string? Message = null)
 {
     public bool IsSelected =>
@@ -138,6 +165,7 @@ public sealed class PackageCompileAssetSelectionReceipt
     internal PackageCompileAssetSelectionReceipt(
         PackageContentGenerationIdentity generation,
         string packageId,
+        PackageCompileAssetSelectionPolicy policy,
         string? requestedTargetFramework,
         string? requestedRuntimeIdentifier,
         PackageCompileAssetSelection selection)
@@ -147,6 +175,7 @@ public sealed class PackageCompileAssetSelectionReceipt
         ArgumentNullException.ThrowIfNull(selection);
         Generation = generation;
         PackageId = packageId;
+        Policy = policy;
         RequestedTargetFramework = requestedTargetFramework;
         RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
         Selection = selection;
@@ -155,6 +184,8 @@ public sealed class PackageCompileAssetSelectionReceipt
     public PackageContentGenerationIdentity Generation { get; }
 
     public string PackageId { get; }
+
+    public PackageCompileAssetSelectionPolicy Policy { get; }
 
     public string? RequestedTargetFramework { get; }
 
@@ -179,15 +210,16 @@ public static class PackageCompileAssetSelector
         string packageId,
         string? targetFramework = null,
         string? runtimeIdentifier = null) =>
-        Evaluate(
+        SelectCore(
             content,
             packageId,
             targetFramework,
-            runtimeIdentifier).Selection;
+            runtimeIdentifier,
+            allowCompatibleFallback: false);
 
     /// <summary>
     /// Selects compile roles for an already-selected compatible implementation
-    /// universe while reducing explicit empty reference groups against the
+    /// universe while independently reducing the compile slice against the
     /// original requested framework.
     /// </summary>
     public static PackageCompileAssetSelection SelectForCompatibleImplementation(
@@ -202,9 +234,10 @@ public static class PackageCompileAssetSelector
         return SelectCore(
             content,
             packageId,
-            implementationTargetFramework,
+            requestedTargetFramework,
             runtimeIdentifier,
-            requestedTargetFramework);
+            implementationTargetFramework,
+            allowCompatibleFallback: true);
     }
 
     /// <summary>
@@ -215,19 +248,60 @@ public static class PackageCompileAssetSelector
         IPackageContent content,
         string packageId,
         string? targetFramework = null,
+        string? runtimeIdentifier = null) =>
+        Evaluate(
+            content,
+            packageId,
+            targetFramework is null
+                ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                : PackageCompileAssetSelectionPolicy.ExactTarget,
+            targetFramework,
+            runtimeIdentifier);
+
+    /// <summary>
+    /// Applies one explicit package-local selection policy and retains its exact
+    /// invocation correspondence without retaining package content.
+    /// </summary>
+    public static PackageCompileAssetSelectionReceipt Evaluate(
+        IPackageContent content,
+        string packageId,
+        PackageCompileAssetSelectionPolicy policy,
+        string? targetFramework = null,
         string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy), policy, null);
+
+        if (policy == PackageCompileAssetSelectionPolicy.HighestAvailable
+            && targetFramework is not null)
+        {
+            throw new ArgumentException(
+                "Highest-available compile selection does not accept an explicit target framework.",
+                nameof(targetFramework));
+        }
+        if (policy is PackageCompileAssetSelectionPolicy.ExplicitTarget
+                or PackageCompileAssetSelectionPolicy.ExactTarget
+            && targetFramework is null)
+        {
+            throw new ArgumentException(
+                "Explicit compile selection requires a target framework.",
+                nameof(targetFramework));
+        }
+
         return new PackageCompileAssetSelectionReceipt(
             content.GenerationIdentity,
             packageId,
+            policy,
             targetFramework,
             runtimeIdentifier,
             SelectCore(
                 content,
                 packageId,
                 targetFramework,
-                runtimeIdentifier));
+                runtimeIdentifier,
+                allowCompatibleFallback:
+                    policy == PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
 
     private static PackageCompileAssetSelection SelectCore(
@@ -235,7 +309,8 @@ public static class PackageCompileAssetSelector
         string packageId,
         string? targetFramework = null,
         string? runtimeIdentifier = null,
-        string? emptyGroupTargetFramework = null)
+        string? implementationTargetFramework = null,
+        bool allowCompatibleFallback = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -246,10 +321,7 @@ public static class PackageCompileAssetSelector
             .. entries
                 .Select(Parse)
                 .OfType<PackageCompileAsset>()
-                .GroupBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group
-                    .OrderBy(asset => asset.Path, StringComparer.Ordinal)
-                    .First())
+                .Where(asset => !IsSatelliteAsset(asset))
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];
@@ -258,9 +330,24 @@ public static class PackageCompileAssetSelector
             .. entries
                 .Select(ParseEmptyReferenceGroup)
                 .OfType<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase),
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(framework =>
+                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
+                .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(framework => framework, StringComparer.Ordinal),
         ];
-        if (discovered.Length == 0)
+        string[] frameworks =
+        [
+            .. discovered
+                .Select(asset => asset.TargetFramework)
+                .Concat(emptyReferenceGroups)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(framework =>
+                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
+                .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(framework => framework, StringComparer.Ordinal),
+        ];
+        if (frameworks.Length == 0)
         {
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.NoCompileAssets,
@@ -269,36 +356,40 @@ public static class PackageCompileAssetSelector
                 [],
                 null,
                 [],
+                [],
+                [],
                 []);
         }
 
-        string[] frameworks =
+        PackageCompileAssetSlice[] slices =
         [
-            .. discovered
-                .Select(asset => asset.TargetFramework)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(framework =>
-                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
-                .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase),
+            .. frameworks.Select(framework =>
+                new PackageCompileAssetSlice(
+                    framework,
+                    discovered
+                        .Where(asset => asset.TargetFramework.Equals(
+                            framework,
+                            StringComparison.OrdinalIgnoreCase))
+                        .ToArray(),
+                    emptyReferenceGroups.Contains(
+                        framework,
+                        StringComparer.OrdinalIgnoreCase))),
         ];
         string? selectedFramework;
-        if (string.IsNullOrWhiteSpace(targetFramework))
+        if (targetFramework is null)
         {
             selectedFramework = frameworks[0];
         }
         else
         {
-            selectedFramework = frameworks.FirstOrDefault(
-                framework => framework.Equals(
-                    targetFramework,
-                    StringComparison.OrdinalIgnoreCase));
-            if (selectedFramework is null
-                && emptyReferenceGroups.Contains(
-                    targetFramework,
-                    StringComparer.OrdinalIgnoreCase))
-            {
-                selectedFramework = targetFramework;
-            }
+            selectedFramework = allowCompatibleFallback
+                ? SelectApplicableFramework(
+                    frameworks,
+                    targetFramework)
+                : frameworks.FirstOrDefault(framework =>
+                    framework.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase));
         }
         if (selectedFramework is null)
         {
@@ -309,7 +400,9 @@ public static class PackageCompileAssetSelector
                 [],
                 null,
                 discovered,
-                []);
+                [],
+                emptyReferenceGroups,
+                slices);
         }
 
         PackageCompileAsset[] frameworkAssets =
@@ -319,20 +412,20 @@ public static class PackageCompileAssetSelector
                     selectedFramework,
                     StringComparison.OrdinalIgnoreCase)),
         ];
-        string compileTargetFramework =
-            emptyGroupTargetFramework ?? selectedFramework;
         PackageCompileAsset[] referenceAssets =
         [
             .. discovered.Where(
                 asset => asset.Kind == PackageCompileAssetKind.Reference
                     && asset.TargetFramework.Equals(
-                        compileTargetFramework,
+                        selectedFramework,
                         StringComparison.OrdinalIgnoreCase)),
         ];
         PackageAssetSelection implementationSelection =
             PackageAssetSelector.Select(
                 content,
-                selectedFramework,
+                implementationTargetFramework
+                    ?? targetFramework
+                    ?? selectedFramework,
                 runtimeIdentifier);
         if (implementationSelection
             is PackageAssetSelection.Ambiguous ambiguous)
@@ -345,6 +438,8 @@ public static class PackageCompileAssetSelector
                 null,
                 discovered,
                 [],
+                emptyReferenceGroups,
+                slices,
                 ambiguous.Message);
         }
         if (implementationSelection is PackageAssetSelection.Invalid invalid)
@@ -357,6 +452,8 @@ public static class PackageCompileAssetSelector
                 null,
                 discovered,
                 [],
+                emptyReferenceGroups,
+                slices,
                 invalid.Message);
         }
 
@@ -370,19 +467,18 @@ public static class PackageCompileAssetSelector
                             asset.EntryPath,
                             asset.FileName,
                             implementation.Universe.TargetFramework,
-                            PackageCompileAssetKind.Library)),
+                            PackageCompileAssetKind.Library,
+                            asset.RuntimeIdentifier)),
                 ]
                 : [];
 
-        // An explicit empty compile group is a statement, not an absence: NuGet's nearest-group
-        // rule picks the closest compatible ref group, and when that group is `_._` the package
-        // contributes no compile-time assembly for the request. Falling back to lib/ there would
-        // compile against assets the package deliberately withheld. Compatible implementation
-        // selection still reduces empty groups against the original requested framework.
+        // An explicit empty compile group applies to its exact selected slice.
+        // A marker in another compatible slice cannot suppress the selected
+        // slice's compile assets.
         if (referenceAssets.Length == 0
-            && NearestCompatibleEmptyGroup(
-                emptyReferenceGroups,
-                compileTargetFramework) is not null)
+            && emptyReferenceGroups.Contains(
+                selectedFramework,
+                StringComparer.OrdinalIgnoreCase))
         {
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.EmptyCompileGroup,
@@ -391,7 +487,9 @@ public static class PackageCompileAssetSelector
                 [],
                 null,
                 discovered,
-                implementationAssets);
+                implementationAssets,
+                emptyReferenceGroups,
+                slices);
         }
 
         PackageCompileAsset[] libraryFallback =
@@ -420,7 +518,9 @@ public static class PackageCompileAssetSelector
                 [],
                 null,
                 discovered,
-                implementationAssets);
+                implementationAssets,
+                emptyReferenceGroups,
+                slices);
         }
 
         PackageCompileAsset defaultAsset = selected.FirstOrDefault(
@@ -434,7 +534,9 @@ public static class PackageCompileAssetSelector
             selected,
             defaultAsset,
             discovered,
-            implementationAssets);
+            implementationAssets,
+            emptyReferenceGroups,
+            slices);
     }
 
     static PackageCompileAsset? Parse(string entry)
@@ -443,8 +545,8 @@ public static class PackageCompileAssetSelector
             return null;
 
         string path = entry;
-        if (!parts![2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[2]))
+        if (!parts![^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1]))
             || !TfmResolver.IsTfmLike(parts[1]))
         {
             return null;
@@ -461,9 +563,23 @@ public static class PackageCompileAssetSelector
             : new PackageCompileAsset(
                 AssetIdPrefix + path,
                 path,
-                parts[2],
+                parts[^1],
                 parts[1],
                 kind.Value);
+    }
+
+    static bool IsSatelliteAsset(PackageCompileAsset asset)
+    {
+        if (!asset.AssemblyName.EndsWith(
+                ".resources.dll",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string[] segments = asset.Path.Split('/');
+        return segments.Length >= 4
+            && TfmResolver.IsCultureFolderName(segments[^2]);
     }
 
     /// <summary>
@@ -476,49 +592,94 @@ public static class PackageCompileAssetSelector
         if (!TryParsePathParts(entry, out string[]? parts))
             return null;
 
-        return parts![0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+        return parts!.Length == 3
+            && parts[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
             && parts[2].Equals(EmptyGroupMarker, StringComparison.Ordinal)
             && TfmResolver.IsTfmLike(parts[1])
                 ? parts[1]
                 : null;
     }
 
-    /// <summary>
-    /// The nearest empty reference group that a consumer of <paramref name="selectedFramework"/>
-    /// would bind to: family-compatible and no newer than the selected framework, highest
-    /// priority first. An exact framework match is its own nearest group.
-    /// </summary>
-    static string? NearestCompatibleEmptyGroup(
-        IReadOnlyList<string> emptyGroups,
-        string selectedFramework)
+    static string? SelectApplicableFramework(
+        IReadOnlyList<string> frameworks,
+        string requestedFramework)
     {
-        int selectedPriority = TfmResolver.GetTfmPriority(selectedFramework.ToLowerInvariant());
-        string? nearest = null;
-        int nearestPriority = int.MinValue;
-        foreach (string group in emptyGroups)
+        string? exact = frameworks.FirstOrDefault(framework =>
+            framework.Equals(
+                requestedFramework,
+                StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        if (!TrySplitFramework(
+                requestedFramework,
+                out string? requestedBase,
+                out string? requestedPlatform))
         {
-            if (group.Equals(selectedFramework, StringComparison.OrdinalIgnoreCase))
-                return group;
-
-            int priority = TfmResolver.GetTfmPriority(group.ToLowerInvariant());
-            if (!TfmResolver.IsTfmCompatible(group, selectedFramework)
-                || priority > selectedPriority
-                || priority <= nearestPriority)
-            {
-                continue;
-            }
-
-            nearest = group;
-            nearestPriority = priority;
+            return null;
         }
 
-        return nearest;
+        return frameworks
+            .Select(framework =>
+            {
+                bool parsed = TrySplitFramework(
+                    framework,
+                    out string? candidateBase,
+                    out string? candidatePlatform);
+                bool platformApplicable = candidatePlatform is null
+                    || requestedPlatform is not null
+                        && candidatePlatform.Equals(
+                            requestedPlatform,
+                            StringComparison.OrdinalIgnoreCase);
+                return new
+                {
+                    Framework = framework,
+                    Base = candidateBase,
+                    PlatformRank = candidatePlatform is null ? 0 : 1,
+                    IsApplicable = parsed
+                        && platformApplicable
+                        && TfmResolver.IsFrameworkCompatible(
+                            candidateBase!,
+                            requestedBase!),
+                };
+            })
+            .Where(candidate => candidate.IsApplicable)
+            .OrderByDescending(candidate =>
+                TfmResolver.GetFrameworkFallbackRank(
+                    candidate.Base!,
+                    requestedBase!))
+            .ThenByDescending(candidate =>
+                TfmResolver.GetTfmPriority(
+                    candidate.Base!.ToLowerInvariant()))
+            .ThenByDescending(candidate => candidate.PlatformRank)
+            .ThenBy(
+                candidate => candidate.Framework,
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.Framework, StringComparer.Ordinal)
+            .Select(candidate => candidate.Framework)
+            .FirstOrDefault();
+    }
+
+    static bool TrySplitFramework(
+        string framework,
+        out string? baseFramework,
+        out string? platform)
+    {
+        baseFramework = null;
+        platform = null;
+        if (!TfmResolver.TryGetBaseFrameworkIdentity(framework, out _))
+            return false;
+
+        int separator = framework.IndexOf('-', StringComparison.Ordinal);
+        baseFramework = separator < 0 ? framework : framework[..separator];
+        platform = separator < 0 ? null : framework[(separator + 1)..];
+        return true;
     }
 
     /// <summary>
-    /// The three <c>&lt;root&gt;/&lt;tfm&gt;/&lt;file&gt;</c> segments of a package entry, or
-    /// false for an entry that is not shaped like one — including traversal-shaped and
-    /// backslash-separated spellings.
+    /// The <c>&lt;root&gt;/&lt;tfm&gt;/&lt;relative-path&gt;</c> segments of a
+    /// package entry, or false for an entry that is not shaped like one —
+    /// including traversal-shaped and backslash-separated spellings.
     /// </summary>
     static bool TryParsePathParts(string entry, out string[]? parts)
     {
@@ -527,7 +688,10 @@ public static class PackageCompileAssetSelector
             return false;
 
         string[] candidate = entry.Split('/');
-        if (candidate.Length != 3 || candidate.Any(part => part is "." or ".."))
+        if (candidate.Length < 3
+            || candidate.Any(part =>
+                string.IsNullOrEmpty(part)
+                || part is "." or ".."))
             return false;
 
         parts = candidate;

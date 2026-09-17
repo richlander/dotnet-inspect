@@ -87,9 +87,12 @@ reduce to different frameworks. The retained build oracle at
 `net9.0` consumer receives the empty `net8.0` compile group while retaining the
 `net6.0` runtime asset; it does not compile against `Example.dll`.
 
-A real reference-assembly group at the exactly selected target wins over a
-compatible empty group. A compatible real `ref` group at another target
-framework is not a compile candidate. A library empty group such as
+A real reference assembly wins over a co-located empty marker in the selected
+compile slice. Compile slices are reduced independently from implementation
+slices: a lower marker does not suppress a selected higher compile slice, and
+a lower real `ref` group does not override a selected higher empty group. A
+selected slice retains nested DLL candidates such as
+`lib/net8.0/x64/Implementation.dll`. A library empty group such as
 `lib/net8.0/_._` says nothing about compile assets. Files such as
 `ref/net8.0/_` and `ref/net8.0/_._.dll` are not empty-group markers.
 
@@ -110,14 +113,14 @@ Current behavior is gated by:
 - `PackageCompileAssetSelectorTests.InMemorySelection_PrefersReferenceAssetsAndPackageNamedDefault`;
 - `PackageCompileAssetSelectorTests.InMemorySelection_FallsBackToLibraryAssetsAtHighestTfm`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_AtTheSelectedFramework_SuppressesLibraryFallback`;
-- `PackageCompileAssetSelectorTests.EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback`;
-- `PackageCompileAssetSelectorTests.CompatibleImplementation_UsesRequestedFrameworkForEmptyGroupReduction`;
-- `PackageCompileAssetSelectorTests.CompatibleImplementation_DoesNotUseCompatibleReferenceAssets`;
+- `PackageCompileAssetSelectorTests.EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice`;
+- `PackageCompileAssetSelectorTests.CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately`;
+- `PackageCompileAssetSelectorTests.CompatibleImplementation_PrefersReferenceAssetsInItsSelectedSlice`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework`;
 - `PackageCompileAssetSelectorTests.RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback`;
 - `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`;
 - `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`;
-- `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback`;
+- `PackageAssemblyContextRealizationTests.PackageRootBinding_CompatibleEmptyGroupSelectsItsCompileSlice`;
 - `PackageAssemblyContextRealizationTests.CompatibleAmbiguousImplementationLayout_RemainsInvalid`;
 - `PackageAssemblyContextRealizationTests.RidSpecificImplementation_UsesSeparateNeutralCompileRole`;
 - `BrowserEngineBoundaryTests.QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback`;

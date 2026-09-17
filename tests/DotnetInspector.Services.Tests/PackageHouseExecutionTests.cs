@@ -795,6 +795,13 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageCompileAssetSelectionStatus.Selected,
             realization.Selection.Status);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            realization.Receipt.Policy);
+        Assert.Equal(
+            "net10.0",
+            realization.Receipt.RequestedTargetFramework);
+        Assert.Equal("net10.0", realization.Selection.TargetFramework);
         PackageHouseLibraryHandoff.Compile handoff =
             Assert.IsType<PackageHouseLibraryHandoff.Compile>(
                 Assert.Single(realization.LibraryHandoffs));
@@ -804,6 +811,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
             handoff.ImplementationAsset!.Path);
+        Assert.Equal(
+            "linux-x64",
+            handoff.ImplementationAsset.RuntimeIdentifier);
         Assert.Same(
             acquired.Payload.Content.GenerationIdentity,
             realization.Receipt.Generation);
@@ -863,6 +873,81 @@ public sealed partial class PackageHouseExecutionTests
                 realization.Selection.Assets[index],
                 contribution.Binding.Root.AssetSelection.Assets[index]);
         }
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task OwnerDefaultCompileRealizePreservesHighestAvailableInventory()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        "ref/net6.0/_._",
+                        $"lib/net8.0/{PackageId}.dll",
+                        $"ref/net10.0/{PackageId}.Companion.dll",
+                        $"ref/net10.0/{PackageId}.dll",
+                    ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                settlement);
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                acquired.Result.Evidence.Realization);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.HighestAvailable,
+            realization.Receipt.Policy);
+        Assert.Null(realization.Receipt.RequestedTargetFramework);
+        Assert.Equal("net10.0", realization.Selection.TargetFramework);
+        Assert.Equal(
+            ["net10.0", "net8.0", "net6.0"],
+            realization.Selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["net6.0"],
+            realization.Selection.ExplicitEmptyTargetFrameworks);
+        Assert.Equal(
+            realization.Selection.AvailableTargetFrameworks,
+            realization.Selection.AvailableSlices.Select(
+                slice => slice.TargetFramework));
+        PackageCompileAssetSlice emptySlice =
+            realization.Selection.AvailableSlices[2];
+        Assert.Empty(emptySlice.CandidateAssets);
+        Assert.True(emptySlice.HasExplicitEmptyReferenceGroup);
+        Assert.Equal(
+            [
+                $"ref/net10.0/{PackageId}.Companion.dll",
+                $"ref/net10.0/{PackageId}.dll",
+            ],
+            realization.LibraryHandoffs
+                .Select(handoff =>
+                    Assert.IsType<PackageHouseLibraryHandoff.Compile>(
+                        handoff).Asset.Path));
+        Assert.Same(
+            acquired.Payload.Content.GenerationIdentity,
+            realization.Receipt.Generation);
         await environment.AssertRootSettledAsync();
     }
 
@@ -973,6 +1058,15 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             realization.Selection.Status);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            realization.Receipt.Policy);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            realization.Selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["net10.0"],
+            realization.Selection.ExplicitEmptyTargetFrameworks);
         Assert.Empty(realization.LibraryHandoffs);
         PackageHouseRootContribution contribution =
             Assert.IsType<
@@ -996,7 +1090,7 @@ public sealed partial class PackageHouseExecutionTests
                     [Version],
                     PayloadEntries:
                     [
-                        $"ref/net8.0/{PackageId}.dll",
+                        $"ref/net11.0/{PackageId}.dll",
                     ]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(
@@ -1031,6 +1125,22 @@ public sealed partial class PackageHouseExecutionTests
             PackageCompileAssetSelectionStatus
                 .NoMatchingTargetFramework,
             realization.Selection.Status);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            realization.Receipt.Policy);
+        Assert.Equal(
+            ["net11.0"],
+            realization.Selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            [$"ref/net11.0/{PackageId}.dll"],
+            realization.Selection.CandidateAssets.Select(
+                asset => asset.Path));
+        PackageCompileAssetSlice availableSlice =
+            Assert.Single(realization.Selection.AvailableSlices);
+        Assert.Equal("net11.0", availableSlice.TargetFramework);
+        Assert.Equal(
+            realization.Selection.CandidateAssets,
+            availableSlice.CandidateAssets);
         Assert.Empty(realization.LibraryHandoffs);
         Assert.NotNull(noMatch.Evidence.Acquisition);
         PackageHouseRootContribution contribution =
