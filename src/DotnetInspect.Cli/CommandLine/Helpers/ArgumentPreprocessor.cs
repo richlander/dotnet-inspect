@@ -233,9 +233,7 @@ public static class ArgumentPreprocessor
 
     internal static string[] PreprocessArgs(string[] args, bool directionPresence)
     {
-        // Reset HeadLines for each preprocessing call
-        HeadLines = null;
-        TailLines = null;
+        SetLineWindow(headLines: null, tailLines: null);
 
         // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
         // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
@@ -357,8 +355,7 @@ public static class ArgumentPreprocessor
         ParseResult parseResult,
         IReadOnlyList<string>? rawArgs = null)
     {
-        HeadLines = null;
-        TailLines = null;
+        SetLineWindow(headLines: null, tailLines: null);
 
         if (parseResult.Errors.Count > 0)
             return;

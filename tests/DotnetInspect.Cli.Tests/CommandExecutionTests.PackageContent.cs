@@ -928,6 +928,18 @@ public partial class CommandExecutionTests
                 (
                     "content-readme-role",
                     ["--content", "--path", "@readme", "--lines", "-n", "1"]),
+                (
+                    "content-rows-lines",
+                    [
+                        "--content",
+                        "--path",
+                        "README.md",
+                        "--rows",
+                        "1..1",
+                        "--lines",
+                        "-n",
+                        "1",
+                    ]),
             ];
 
             foreach (var testCase in cases)
