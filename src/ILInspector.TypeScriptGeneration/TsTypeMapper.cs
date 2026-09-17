@@ -614,7 +614,9 @@ static class TsTypeMapper
                     trimmed,
                     blockedAliases))
             {
-                return "unknown";
+                return mappingContext == TsTypeMappingContext.JsonWire
+                    ? "JsonValue"
+                    : "unknown";
             }
             if ((typeShape is
                     {
@@ -661,12 +663,13 @@ static class TsTypeMapper
             return mappedTypeName;
         }
 
-        // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
-        // specific TS shape to recover here, so "unknown" is the deliberately correct mapping
-        // (not a reporting gap the way an unrecognized type like Guid/DateTime/Dictionary is).
+        // JsonElement is an opaque direct-interop value, but an authenticated JSON wire
+        // contract can expose its recursive value domain without admitting undefined.
         if (trimmed is "System.Text.Json.JsonElement" or "JsonElement")
         {
-            return "unknown";
+            return mappingContext == TsTypeMappingContext.JsonWire
+                ? "JsonValue"
+                : "unknown";
         }
 
         // JSObject is an intentionally opaque direct-interop handle. Its members are owned by

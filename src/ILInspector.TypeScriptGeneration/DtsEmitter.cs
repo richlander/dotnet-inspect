@@ -301,6 +301,31 @@ static class DtsEmitter
                 .Append("]: \"InertString\";\n};\n\n");
         }
 
+        if (UsesJsonValue(surface))
+        {
+            const string jsonValueName = "JsonValue";
+            if (declarationTypes.Any(type =>
+                AllocatedTypeName(type, allocatedTypeNames)
+                    == jsonValueName))
+            {
+                throw new UnsupportedWireContractException(
+                    "System.Text.Json.JsonElement",
+                    "the JSON-value TypeScript alias collides with another type");
+            }
+
+            sb.Append(
+                """
+                export type JsonValue =
+                  | null
+                  | boolean
+                  | number
+                  | string
+                  | readonly JsonValue[]
+                  | { readonly [key: string]: JsonValue };
+
+                """);
+        }
+
         foreach (ApiType enumType in surface.Enums
             .Where(type => ShouldEmit(surface, type))
             .OrderBy(
@@ -1509,6 +1534,75 @@ static class DtsEmitter
                 TsTypeMapper.InertStringFullName,
                 "multiple inert-string assembly identities are unsupported"),
         };
+    }
+
+    internal static bool UsesJsonValue(
+        ILInspector.JsExportSurface.JsExportSurface surface) =>
+        surface.Functions.Any(function =>
+            ContainsJsonElement(function.ReturnWireTypeShape))
+        || surface.Records.Any(type =>
+        {
+            JsonWireDirection directions =
+                surface.WireDirections.GetValueOrDefault(
+                    type,
+                    JsonWireDirection.Both);
+            return type.Members
+                .Where(member =>
+                    JsonWireMemberRules.ParticipatesInWireContract(
+                        member,
+                        directions))
+                .Any(member =>
+                    ContainsJsonElement(
+                        member.SignatureModel?.ReturnTypeShape));
+        })
+        || surface.Unions.Any(union =>
+            union.CaseTypes.Any(ContainsJsonElement));
+
+    static bool ContainsJsonElement(ApiTypeShape? type)
+    {
+        if (type is null)
+            return false;
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(type);
+        while (pending.TryPop(out ApiTypeShape? current))
+        {
+            if (current.Definition is { } identity
+                && identity.FullName == "System.Text.Json.JsonElement"
+                && IsAuthenticFrameworkMapping(identity))
+            {
+                return true;
+            }
+            if (current.ElementType is { } element)
+                pending.Push(element);
+            foreach (ApiTypeShape argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+        return false;
+    }
+
+    static bool ContainsJsonElement(TypeRef type)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        while (pending.TryPop(out TypeRef? current))
+        {
+            TypeRef definition = current.Kind == TypeRefKind.GenericInstance
+                ? current.ElementType!
+                : current;
+            if (definition.Kind == TypeRefKind.Definition
+                && definition.Namespace == "System.Text.Json"
+                && definition.Name == "JsonElement"
+                && TsTypeMapper.IsAuthenticFrameworkMapping(definition))
+            {
+                return true;
+            }
+            if (current.ElementType is { } element)
+                pending.Push(element);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+        return false;
     }
 
     static bool IsInertStringIdentity(

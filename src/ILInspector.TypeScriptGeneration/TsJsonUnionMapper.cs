@@ -102,7 +102,7 @@ static class TsJsonUnionMapper
         if (definition.Namespace == "System.Text.Json"
             && definition.Name == "JsonElement"
             && TsTypeMapper.IsAuthenticFrameworkMapping(definition))
-            return "unknown";
+            return "JsonValue";
 
         if (LocalIdentity(definition, context) is { } local
             && !context.GenericArities.ContainsKey(local)
@@ -204,7 +204,7 @@ static class TsJsonUnionMapper
             {
                 if (shape.Kind == ApiTypeShapeKind.Named
                     && identity.FullName == "System.Text.Json.JsonElement")
-                    return "unknown";
+                    return "JsonValue";
                 if (shape.Kind == ApiTypeShapeKind.Named
                     && identity.FullName == "System.Decimal")
                     return nullableDisplay ? "number | null" : "number";

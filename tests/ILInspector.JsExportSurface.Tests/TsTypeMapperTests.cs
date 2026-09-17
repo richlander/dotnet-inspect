@@ -1060,6 +1060,24 @@ public sealed class TsTypeMapperTests
     }
 
     [Theory]
+    [InlineData("System.Text.Json.JsonElement")]
+    [InlineData("JsonElement")]
+    public void MapJsonWire_JsonElementMapsToJsonValueWithoutReportingAsUnmapped(
+        string csharpType)
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+
+        Assert.Equal(
+            "JsonValue",
+            TsTypeMapper.MapJsonWireType(
+                csharpType,
+                RecordNames,
+                diagnostics,
+                "ConditionalOutputDto.Payload"));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
+
+    [Theory]
     [InlineData("System.Runtime.InteropServices.JavaScript.JSObject")]
     [InlineData("JSObject")]
     public void Map_JSObjectMapsToUnknownWithoutReportingAsUnmapped(string csharpType)

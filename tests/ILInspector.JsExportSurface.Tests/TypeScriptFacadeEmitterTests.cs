@@ -1025,7 +1025,19 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export function getJsonElement(): unknown {\n"
+            """
+            export type JsonValue =
+              | null
+              | boolean
+              | number
+              | string
+              | readonly JsonValue[]
+              | { readonly [key: string]: JsonValue };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getJsonElement(): JsonValue {\n"
                 + "  const $result = $requireManagedExports()",
             source,
             StringComparison.Ordinal);

@@ -78,7 +78,11 @@ TS
 
 cat > "$scratch/conditional-usage.ts" <<'TS'
 import { getConditionalOutput } from "./facade.js";
-import type { ConditionalOutputDto, WidgetDto } from "./facade.js";
+import type {
+  ConditionalOutputDto,
+  JsonValue,
+  WidgetDto,
+} from "./facade.js";
 
 export function readConditionalOutput(value: ConditionalOutputDto): string {
   const alwaysNullable: string | null = value.alwaysNullable;
@@ -90,6 +94,7 @@ export function readConditionalOutput(value: ConditionalOutputDto): string {
     value.nonNullableNullHidden;
   const nullableItems: ReadonlyArray<WidgetDto | null> | undefined =
     value.nullableItems;
+  const payload: JsonValue | undefined = value.payload;
 
   return [
     alwaysNullable ?? "null",
@@ -98,6 +103,7 @@ export function readConditionalOutput(value: ConditionalOutputDto): string {
     nullHidden ?? "missing",
     nonNullableNullHidden ?? "missing",
     nullableItems?.[0]?.name ?? "missing",
+    payload === undefined ? "missing" : "json",
   ].join("|");
 }
 
@@ -112,6 +118,13 @@ declare const output: ConditionalOutputDto;
 export const invalidConditionalOutput: ConditionalOutputDto = {
   ...output,
   nullHidden: undefined,
+};
+
+// Arbitrary JSON includes null but never an explicitly present undefined.
+// @ts-expect-error
+export const invalidConditionalJson: ConditionalOutputDto = {
+  ...output,
+  payload: undefined,
 };
 TS
 

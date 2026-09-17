@@ -87,6 +87,9 @@ public sealed record ConditionalOutputDto(string Name)
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WidgetDto?[]? NullableItems { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonElement Payload { get; init; }
 }
 
 public sealed class HiddenTypeJsonIncludeDto
