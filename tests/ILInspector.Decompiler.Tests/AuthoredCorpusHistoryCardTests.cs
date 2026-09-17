@@ -257,6 +257,24 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void Render_MovementSplitsSourceOutcomesAcrossTheV4Boundary()
+    {
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(
+        [
+            """{"date":"2026-09-16","commit":"v3","validPct":57.0,"correct":1560,"validDifferent":{"total":5280,"frontierIlExact":3200,"frontierIlDiff":2070,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":2070,"productBodyDefect":980,"harnessShellReconstruction":550,"compileBackFloor":540,"unclassified":0}},"invalid":5160,"invalidBreakdown":{"productBodyDefect":250,"harnessShellReconstruction":4860,"unclassified":50},"methodologyVersion":3,"notFull":0,"unknownOutcome":0,"unsupported":0,"drift":0,"inputsComplete":true}""",
+            """{"date":"2026-09-17","commit":"v4","validPct":56.0,"correct":1500,"validDifferent":{"total":5220,"frontierIlExact":3150,"frontierIlDiff":2060,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":2060,"productBodyDefect":970,"harnessShellReconstruction":550,"compileBackFloor":540,"unclassified":0}},"invalid":5160,"invalidBreakdown":{"productBodyDefect":250,"harnessShellReconstruction":4860,"unclassified":50},"methodologyVersion":4,"notFull":120,"unknownOutcome":0,"unsupported":0,"drift":0,"inputsComplete":true}""",
+        ]);
+
+        string card = AuthoredCorpusHistoryCard.Render(runs, window: 0);
+
+        Assert.Contains("| Valid % (legacy source outcomes) \u2191 | 57 | - |", card, StringComparison.Ordinal);
+        Assert.Contains("| Valid % (native RTS source outcomes) \u2191 | - | 56 |", card, StringComparison.Ordinal);
+        Assert.Contains("| Correct (legacy source outcomes) \u2191 | 1560 | - |", card, StringComparison.Ordinal);
+        Assert.Contains("| Invalid (raw) (native RTS source outcomes) \u2193 | - | 5160 |", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("56 \u2717", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Render_MovementAddsFrontierProductDefectsOnlyForMethodologyV3()
     {
         var runs = AuthoredCorpusHistoryCard.ParseHistory(

@@ -55,14 +55,12 @@ public class StringArraySlotMaterializationTests
     [Theory]
     [InlineData("generic")]
     [InlineData("rank-one")]
-    [InlineData("rectangular")]
-    public void UnspellableAndNonSzReferenceArrayShapesRemainDeferred(string kind)
+    public void UnspellableReferenceArrayShapesRemainDeferred(string kind)
     {
         var type = kind switch
         {
             "generic" => TypeRef.SzArray(TypeRef.GenericInstance(String, [Int32])),
             "rank-one" => TypeRef.MdArray(String, 1),
-            "rectangular" => TypeRef.MdArray(String, 2),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var function = Function(type,

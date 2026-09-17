@@ -685,6 +685,84 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
+    public async Task IntegrationsInspection_ReturnsDetachedReusableEnvelope()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "ReusableIntegrationsInspection",
+            "Microsoft.Extensions.Logging.CustomLogger",
+            policy);
+        InspectionEnvelope<AssemblyIntegrationsEntry> inspection;
+
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([source.Participant]);
+
+            inspection = AssemblyIntegrationsInspection.Execute(
+                group,
+                source.Participant);
+            Assert.True(
+                AssemblyContextIntegrationsQuery.Execute(group).IsComplete);
+        }
+
+        var integrations =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                inspection.Content);
+        Assert.Contains(
+            integrations.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.Logging);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share);
+        Assert.Equal("assembly-integrations/share", share.Path);
+        Assert.Empty(inspection.Diagnostics);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public async Task IntegrationsInspection_StreamingEnvelopeSurvivesRelease()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "StreamingIntegrationsInspection",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+        InspectionEnvelope<AssemblyIntegrationsEntry>? callback = null;
+
+        InspectionEnvelope<AssemblyIntegrationsEntry> completed =
+            await AssemblyIntegrationsInspection.ExecuteAndReleaseAsync(
+                group,
+                source.Participant,
+                (retained, inspection) =>
+                {
+                    Assert.NotNull(retained);
+                    Assert.True(group.RetainedImageBytes > 0);
+                    callback = inspection;
+                    return Task.CompletedTask;
+                });
+
+        Assert.Same(callback, completed);
+        Assert.Equal(0, group.RetainedImageBytes);
+        var integrations =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                completed.Content);
+        Assert.Contains(
+            integrations.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
     public async Task OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup()
     {
         var policy = new TestBindingPolicy(

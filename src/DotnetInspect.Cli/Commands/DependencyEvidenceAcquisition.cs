@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using InertText;
@@ -129,7 +130,7 @@ internal static class DependencyEvidenceAcquisition
         foreach (DependsAssetRoot requested in requestedRoots)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (requested.Kind == DependsAssetRootKind.Library)
+            if (requested.Kind == DependencyInspectionRootKind.Library)
                 continue;
 
             int inputIndex = roots.Count;
@@ -137,7 +138,7 @@ internal static class DependencyEvidenceAcquisition
             RestoredProjectDependencyTraversalResult? restoredTraversal = null;
             switch (requested.Kind)
             {
-                case DependsAssetRootKind.Package:
+                case DependencyInspectionRootKind.Package:
                     await AcquirePackageAsync(
                         requested.Value,
                         options,
@@ -150,7 +151,7 @@ internal static class DependencyEvidenceAcquisition
                         cancellationToken,
                         operationContext).ConfigureAwait(false);
                     break;
-                case DependsAssetRootKind.Nuspec:
+                case DependencyInspectionRootKind.Nuspec:
                     await AcquireNuspecAsync(
                         requested.Value,
                         options.Tfm,
@@ -158,7 +159,7 @@ internal static class DependencyEvidenceAcquisition
                         failures,
                         cancellationToken).ConfigureAwait(false);
                     break;
-                case DependsAssetRootKind.Project:
+                case DependencyInspectionRootKind.Project:
                     restoredTraversal = await AcquireProjectAsync(
                         requested.Value,
                         options.Tfm,
