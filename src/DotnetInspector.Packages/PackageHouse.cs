@@ -971,6 +971,9 @@ public sealed class PackageHouse
                     PackageCompileAssetSelector.Evaluate(
                         content,
                         acquisition.Candidate.Coordinate.PackageId,
+                        request.TargetContext?.RequestedFramework is null
+                            ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                            : PackageCompileAssetSelectionPolicy.ExplicitTarget,
                         request.TargetContext?.RequestedFramework,
                         request.TargetContext?.RuntimeIdentifier)),
             PackageHouseAssetSelectionKind.Runtime =>

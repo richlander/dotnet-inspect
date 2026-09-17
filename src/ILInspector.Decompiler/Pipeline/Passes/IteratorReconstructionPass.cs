@@ -152,6 +152,9 @@ public sealed class IteratorReconstructionPass : IIrPass
     static void ReplaceBody(IrFunction function, IrFunction source, IEnumerable<IrNode> statements)
     {
         function.MergeTypeFactsFrom(source);
+        function.LocalNameImportCauses = function.LocalNameImportCauses.AddRange(
+            source.LocalNameImportCauses.Select(static cause =>
+                cause.WithLocation(DecompilerFidelityLocation.Unknown)));
         function.Body.DetachChildren();
         var block = new Block(0);
         foreach (var statement in statements)
@@ -173,7 +176,12 @@ public sealed class IteratorReconstructionPass : IIrPass
             work.Locals,
             work.LocalNames,
             work.EliminatedLocalSlots,
-            work.SynthesizedLocalNames);
+            work.SynthesizedLocalNames,
+            work.LocalDeclaredInNestedScope,
+            work.LocalDeclarationBindings);
+        function.LocalNameImportCauses = function.LocalNameImportCauses.AddRange(
+            work.LocalNameImportCauses.Select(static cause =>
+                cause.WithLocation(DecompilerFidelityLocation.Unknown)));
         function.Body.DetachChildren();
         foreach (var block in reconstructed.Blocks.ToList())
         {

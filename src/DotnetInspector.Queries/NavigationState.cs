@@ -342,7 +342,8 @@ public sealed class NavigationScopeEvaluationResult
         NavigationConsumerScopeStatus scope,
         NavigationConsumerOutcome outcome,
         NavigationTypeInventoryOutcome? incompleteInventory = null,
-        NavigationLensActivationResult? resolution = null)
+        NavigationLensActivationResult? resolution = null,
+        NavigationCoordinateRetentionResult? coordinateRetention = null)
     {
         Request = request;
         Settlement = settlement;
@@ -351,6 +352,7 @@ public sealed class NavigationScopeEvaluationResult
         Outcome = outcome;
         IncompleteInventory = incompleteInventory;
         Resolution = resolution;
+        CoordinateRetention = coordinateRetention;
     }
 
     public NavigationScopeEvaluationRequest Request { get; }
@@ -358,8 +360,29 @@ public sealed class NavigationScopeEvaluationResult
     public NavigationConsumerScopeStatus Scope { get; }
     public NavigationConsumerOutcome Outcome { get; }
     public NavigationLensActivationResult? Resolution { get; }
+    public NavigationCoordinateRetentionResult? CoordinateRetention { get; }
     internal NavigationWorkspaceSnapshot Snapshot { get; }
     internal NavigationTypeInventoryOutcome? IncompleteInventory { get; }
+
+    internal NavigationScopeEvaluationResult WithCoordinateRetention(
+        NavigationCoordinateRetentionResult coordinateRetention) =>
+        new(
+            Request,
+            Settlement,
+            Snapshot,
+            Scope,
+            Outcome with
+            {
+                CoordinateRetention = new(
+                    coordinateRetention.Disposition,
+                    coordinateRetention.Detail,
+                    coordinateRetention.LibraryPairing?.Status,
+                    coordinateRetention.TypeCorrespondence?.Status,
+                    coordinateRetention.MemberCorrespondence?.Status),
+            },
+            IncompleteInventory,
+            Resolution,
+            coordinateRetention);
 }
 
 /// <summary>Detached evaluation evidence; only completion may issue effect authority.</summary>
@@ -444,7 +467,8 @@ public sealed record NavigationLensResolution(
 public sealed record NavigationOperationResult(
     NavigationConsumerResult Consumer,
     NavigationLensResolution? LensResolution,
-    WorkspaceScopeOperationResult? ScopeResult = null);
+    WorkspaceScopeOperationResult? ScopeResult = null,
+    NavigationCoordinateRetentionResult? CoordinateRetention = null);
 
 public enum NavigationActionPublicationKind
 {
