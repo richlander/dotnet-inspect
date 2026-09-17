@@ -285,8 +285,13 @@ policy, the focused correspondence producer, protected Navigation replacement
 consumption, CLI adoption, Browser descriptor/control adoption, and Browser
 result installation. Existing shared realization and restoration prerequisites
 are separate costs, not hidden inside those six steps. The CLI #5513 consumes
-the stateless result; Browser/Wasm #5510/#5511 consumes the same policy through
-retained results. At Browser cutover, retire the corresponding host-local
+the base stateless result. Replacement adoption follows the newer
+definition-first Workspace boundary under
+[#7466](https://github.com/richlander/dotnet-inspect/issues/7466) and
+[portable coordinate replacement](portable-coordinate-replacement.md), rather
+than growing the transitional `workspace --active-package` grammar.
+Browser/Wasm #5510/#5511 consumes the same policy through retained results.
+At Browser cutover, retire the corresponding host-local
 Package/Library preferences only after preserving their shipped behavior.
 The added policy serves one experience: a coordinate change must not replace
 the selected API with a sibling or silently discard an explicit inspector
