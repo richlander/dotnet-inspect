@@ -2026,18 +2026,65 @@ public class AuthoredCorpusRatchetTests
     {
         Assert.NotNull(
             AuthoredCorpusMethodology.InvalidAttributionLineage(AuthoredCorpusMethodology.Version));
+        Assert.NotNull(
+            AuthoredCorpusMethodology.SourceOutcomeLineage(AuthoredCorpusMethodology.Version));
         Assert.Null(AuthoredCorpusMethodology.InvalidAttributionLineage(999));
+        Assert.Null(AuthoredCorpusMethodology.SourceOutcomeLineage(999));
     }
 
     [Theory]
     [InlineData(1, 1)]
     [InlineData(2, 2)]
     [InlineData(3, 3)]
+    [InlineData(4, 4)]
     public void InvalidAttributionLineages_AreExplicit(int methodology, int expectedLineage)
     {
         Assert.Equal(
             expectedLineage,
             AuthoredCorpusMethodology.InvalidAttributionLineage(methodology));
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 1)]
+    [InlineData(3, 1)]
+    [InlineData(4, 2)]
+    public void SourceOutcomeLineages_AreExplicit(int methodology, int expectedLineage)
+    {
+        Assert.Equal(
+            expectedLineage,
+            AuthoredCorpusMethodology.SourceOutcomeLineage(methodology));
+    }
+
+    [Fact]
+    public void Ratchet_V3ToV4RefusesToCompareRedefinedPopulations()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 4),
+            [Row(methodology: 3)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("no ratcheted metric shares a methodology lineage",
+            comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ratchet_V4UsesTheNewestV4Baseline()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 4),
+            [
+                Row(methodology: 3),
+                Row(date: "2026-09-17", methodology: 4),
+            ]);
+
+        Assert.False(comparison.Skipped);
+        Assert.Equal("2026-09-17", comparison.Baseline!.Date);
+        Assert.Equal(
+            ["valid", "correct", "invalid", "productBodyDefect"],
+            comparison.Metrics.Select(metric => metric.Name));
     }
 
     [Fact]

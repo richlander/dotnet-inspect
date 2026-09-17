@@ -16,6 +16,7 @@ public enum WorkspaceTopLevelInventoryShareRequestKind
 public enum WorkspaceTopLevelInventoryShareNonProjectableReason
 {
     NoRetainedDefinitionProjection,
+    DefinitionsProjectionUnavailable,
 }
 
 public abstract record WorkspaceTopLevelInventoryShareProjection
@@ -36,7 +37,8 @@ public abstract record WorkspaceTopLevelInventoryShareProjection
     }
 
     public sealed record NonProjectable(
-        WorkspaceTopLevelInventoryShareNonProjectableReason Reason)
+        WorkspaceTopLevelInventoryShareNonProjectableReason Reason,
+        string? Detail = null)
         : WorkspaceTopLevelInventoryShareProjection;
 }
 
@@ -86,6 +88,39 @@ public sealed class WorkspaceTopLevelInventoryShareBasis
             },
             new WorkspaceTopLevelInventoryShareProjection.Projectable(
                 projection.CanonicalPacket));
+    }
+
+    public static WorkspaceTopLevelInventoryShareBasis
+        CreateCompleteRestoration(
+            CompleteWorkspaceActivation activation)
+    {
+        ArgumentNullException.ThrowIfNull(activation);
+        WorkspaceDefinitionSnapshot definition =
+            activation.Snapshot.Definition;
+        return new(
+            definition,
+            activation.Request switch
+            {
+                CompleteRestorationRequestBasis.PacketInput =>
+                    WorkspaceTopLevelInventoryShareRequestKind.PacketInput,
+                CompleteRestorationRequestBasis.DefinitionInput =>
+                    WorkspaceTopLevelInventoryShareRequestKind.DefinitionInput,
+                _ => throw new InvalidOperationException(
+                    "Unknown complete-restoration request basis."),
+            },
+            activation.Projection switch
+            {
+                CompleteRestorationProjection.Projectable projectable =>
+                    new WorkspaceTopLevelInventoryShareProjection.Projectable(
+                        projectable.CanonicalPacket),
+                CompleteRestorationProjection.NonProjectable nonProjectable =>
+                    new WorkspaceTopLevelInventoryShareProjection.NonProjectable(
+                        WorkspaceTopLevelInventoryShareNonProjectableReason
+                            .DefinitionsProjectionUnavailable,
+                        nonProjectable.Reason),
+                _ => throw new InvalidOperationException(
+                    "Unknown complete-restoration Share projection."),
+            });
     }
 
     public static WorkspaceTopLevelInventoryShareBasis CreateRealizedWorkspace(
@@ -257,6 +292,10 @@ public static class WorkspaceTopLevelInventoryOperation
                         WorkspaceTopLevelInventoryShareNonProjectableReason
                             .NoRetainedDefinitionProjection =>
                             "The realized Workspace has no retained Definitions-owned projection.",
+                        WorkspaceTopLevelInventoryShareNonProjectableReason
+                            .DefinitionsProjectionUnavailable =>
+                            nonProjectable.Detail
+                            ?? "Workspace Definitions could not project the restored state.",
                         _ => throw new InvalidOperationException(
                             "Unknown Workspace inventory Share projection reason."),
                     }),

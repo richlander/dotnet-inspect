@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspect.Cli.Sections;
@@ -30,7 +31,7 @@ internal static class DependsAssetSections
         Catalog.Pipeline.AllSectionNames;
 
     public static SectionCatalog<DependsAssetProjection> GraphCatalog
-        { get; } = new SectionPipeline<DependsAssetProjection>()
+    { get; } = new SectionPipeline<DependsAssetProjection>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
             .Add<GraphSection>()
@@ -180,7 +181,7 @@ internal static class DependsAssetSections
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(DependsAssetProjection model) =>
             model.Summary.Pruning.Completion
-                != DependsPruningCompletion.NotRequested;
+                != DependencyInspectionPruningCompletion.NotRequested;
     }
 
     public sealed class RestoredEdgeSection :

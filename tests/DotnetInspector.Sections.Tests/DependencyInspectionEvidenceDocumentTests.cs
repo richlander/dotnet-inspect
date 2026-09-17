@@ -32,6 +32,27 @@ public sealed class DependencyInspectionEvidenceDocumentTests
     }
 
     [Fact]
+    public void ProjectionUsesTypedRootOccurrenceAssociations()
+    {
+        PackageDependencyEvidenceOutcome outcome = Outcome(
+            admittedRoots: 1,
+            failedRoots:
+            [
+                AcquisitionFailure(),
+            ]);
+        var document = new DependencyInspectionEvidenceDocument(
+            outcome,
+            [new DependencyRootOccurrenceIdentity(2)],
+            [new DependencyRootOccurrenceIdentity(3)]);
+
+        DependencyEvidenceProjection projection =
+            DependencyEvidenceProjection.Create(document);
+
+        Assert.Equal(2, Assert.Single(projection.Roots).RootIndex);
+        Assert.Equal(3, Assert.Single(projection.Failures).RootIndex);
+    }
+
+    [Fact]
     public void ConstructionNormalizesDefaultEmptyAssociations()
     {
         var document = new DependencyInspectionEvidenceDocument(

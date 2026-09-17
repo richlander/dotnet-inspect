@@ -13,7 +13,7 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.DocumentationHouse.Tests;
 
-public sealed class CompiledXmlDocumentationHouseTests
+public sealed partial class CompiledXmlDocumentationHouseTests
 {
     private const string DeserializeIdentity =
         "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)";

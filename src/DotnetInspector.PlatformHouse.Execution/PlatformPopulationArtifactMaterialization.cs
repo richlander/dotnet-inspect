@@ -1,3 +1,4 @@
+using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
@@ -5,8 +6,8 @@ using Inspector.Artifacts.Workspaces;
 namespace DotnetInspector.PlatformHouse;
 
 /// <summary>
-/// Common source-neutral Artifact publication and complete single-view
-/// population handoff outcome.
+/// Common source-neutral Artifact publication and complete population handoff
+/// outcome.
 /// </summary>
 public abstract class PlatformPopulationArtifactMaterializationOutcome
 {
@@ -64,8 +65,8 @@ public abstract class PlatformPopulationArtifactMaterializationOutcome
 }
 
 /// <summary>
-/// Publishes one authoritative single-view population and performs its atomic
-/// Library ownership handoff.
+/// Publishes one or two authoritative population views and performs their
+/// atomic Library ownership handoff.
 /// </summary>
 public static class PlatformHousePopulationArtifactMaterializer
 {
@@ -81,6 +82,25 @@ public static class PlatformHousePopulationArtifactMaterializer
             request,
             PlatformViewDemand.Reference,
             items,
+            [],
+            consumedWork,
+            identityPrefix);
+
+    public static ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        MaterializeReferenceAndImplementationAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> references,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> implementations,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix) =>
+        MaterializeAsync(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            references,
+            implementations,
             consumedWork,
             identityPrefix);
 
@@ -95,6 +115,7 @@ public static class PlatformHousePopulationArtifactMaterializer
         MaterializeAsync(
             request,
             PlatformViewDemand.Implementation,
+            [],
             items,
             consumedWork,
             identityPrefix);
@@ -105,12 +126,15 @@ public static class PlatformHousePopulationArtifactMaterializer
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> items,
+                PlatformLibraryArtifactMaterializationItem> references,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> implementations,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(implementations);
         ArgumentNullException.ThrowIfNull(consumedWork);
         ArgumentException.ThrowIfNullOrWhiteSpace(identityPrefix);
         request.CancellationToken.ThrowIfCancellationRequested();
@@ -130,7 +154,8 @@ public static class PlatformHousePopulationArtifactMaterializer
             PopulationMaterializationPlan.TryCreate(
                 request,
                 expectedView,
-                items,
+                references,
+                implementations,
                 consumedWork);
         if (plan is null)
         {
@@ -269,7 +294,8 @@ public static class PlatformHousePopulationArtifactMaterializer
                         expectedView,
                         selections,
                         contentLeases,
-                        consumedWork)
+                        consumedWork,
+                        plan.ReferenceCount)
                     .ConfigureAwait(false);
             if (realization
                 is PlatformPopulationRealizationResult.Completed completed)
@@ -285,7 +311,8 @@ public static class PlatformHousePopulationArtifactMaterializer
                     IReadOnlyList<PlatformPopulationLibraryContentSelection>
                         selections,
                     IReadOnlyList<ArtifactContentLease> contentLeases,
-                    PlatformHouseConsumedWork consumedWork) =>
+                    PlatformHouseConsumedWork consumedWork,
+                    int referenceCount) =>
                 expectedView switch
                 {
                     PlatformViewDemand.Reference =>
@@ -294,6 +321,15 @@ public static class PlatformHousePopulationArtifactMaterializer
                             selections,
                             contentLeases,
                             consumedWork),
+                    PlatformViewDemand.ReferenceAndImplementation =>
+                        PlatformHousePopulationRealizer
+                            .RealizeReferenceAndImplementationAsync(
+                                request,
+                                selections.Take(referenceCount).ToArray(),
+                                contentLeases.Take(referenceCount).ToArray(),
+                                selections.Skip(referenceCount).ToArray(),
+                                contentLeases.Skip(referenceCount).ToArray(),
+                                consumedWork),
                     PlatformViewDemand.Implementation =>
                         PlatformHousePopulationRealizer.RealizeImplementationsAsync(
                             request,
@@ -557,11 +593,13 @@ public static class PlatformHousePopulationArtifactMaterializer
     {
         private PopulationMaterializationPlan(
             IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+            int referenceCount,
             long totalContentLength,
             int maxContentLength,
             bool exceedsMaterializationBudget)
         {
             Items = items;
+            ReferenceCount = referenceCount;
             TotalContentLength = totalContentLength;
             MaxContentLength = maxContentLength;
             ExceedsMaterializationBudget =
@@ -572,6 +610,7 @@ public static class PlatformHousePopulationArtifactMaterializer
             PlatformLibraryArtifactMaterializationItem> Items
         { get; }
 
+        internal int ReferenceCount { get; }
         internal long TotalContentLength { get; }
         internal int MaxContentLength { get; }
         internal bool ExceedsMaterializationBudget { get; }
@@ -583,9 +622,24 @@ public static class PlatformHousePopulationArtifactMaterializer
         internal static PopulationMaterializationPlan? TryCreate(
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
-            IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+            IReadOnlyList<PlatformLibraryArtifactMaterializationItem>
+                references,
+            IReadOnlyList<PlatformLibraryArtifactMaterializationItem>
+                implementations,
             PlatformHouseConsumedWork consumedWork)
         {
+            PlatformLibraryArtifactMaterializationItem[] items =
+                [.. references, .. implementations];
+            bool validShape = expectedView switch
+            {
+                PlatformViewDemand.Reference =>
+                    references.Count != 0 && implementations.Count == 0,
+                PlatformViewDemand.Implementation =>
+                    references.Count == 0 && implementations.Count != 0,
+                PlatformViewDemand.ReferenceAndImplementation =>
+                    references.Count != 0 && implementations.Count != 0,
+                _ => false,
+            };
             if (request.Target is not PlatformTargetDemand.Exact exact
                 || request.Operation is not PlatformHouseOperation.Realize
                 {
@@ -594,44 +648,26 @@ public static class PlatformHousePopulationArtifactMaterializer
                         PlatformPopulationDemand.CompletePopulation,
                 } operation
                 || view != expectedView
-                || items.Count == 0
+                || !validShape
                 || items.Any(static item => item.ContentLength <= 0)
-                || consumedWork.Assemblies < items.Count)
+                || consumedWork.Assemblies < items.Length)
             {
                 return null;
             }
 
-            var identities = new HashSet<AssemblyReferenceIdentity>(
-                AssemblyReferenceIdentity.EquivalentComparer);
-            PlatformSourceFacet expectedFacet =
-                expectedView == PlatformViewDemand.Reference
-                    ? PlatformSourceFacet.Reference
-                    : PlatformSourceFacet.Implementation;
-            foreach (
-                PlatformLibraryArtifactMaterializationItem item
-                in items)
-            {
-                PlatformSourceContribution.Realization contribution =
-                    item.Contribution;
-                if (contribution.Facet != expectedFacet
-                    || contribution.RealizationCompleteness
-                        != PlatformSourceContributionCompleteness
-                            .Authoritative
-                    || !ReferenceEquals(
-                        contribution.Request,
-                        request.Snapshot)
-                    || contribution.Target != exact.Target
-                    || !ReferenceEquals(
-                        contribution.Population,
-                        operation.Population)
-                    || !request.Sources.Authorizes(
-                        expectedFacet,
-                        contribution.Capability)
-                    || !identities.Add(item.Identity))
-                {
-                    return null;
-                }
-            }
+            if (!ValidFacet(
+                    PlatformSourceFacet.Reference,
+                    references,
+                    request,
+                    exact.Target,
+                    operation.Population)
+                || !ValidFacet(
+                    PlatformSourceFacet.Implementation,
+                    implementations,
+                    request,
+                    exact.Target,
+                    operation.Population))
+                return null;
 
             int sourceOperations = items.Select(
                     static item => item.Contribution)
@@ -651,6 +687,7 @@ public static class PlatformHousePopulationArtifactMaterializer
             {
                 return new(
                     items,
+                    references.Count,
                     long.MaxValue,
                     int.MaxValue,
                     exceedsMaterializationBudget: true);
@@ -659,7 +696,7 @@ public static class PlatformHousePopulationArtifactMaterializer
                 return null;
 
             bool exceedsBudget =
-                items.Count > request.Work.MaxAssemblies
+                items.Length > request.Work.MaxAssemblies
                 || totalContentLength > request.Work.MaxBytes
                 || totalContentLength > int.MaxValue
                 || items.Any(
@@ -670,9 +707,54 @@ public static class PlatformHousePopulationArtifactMaterializer
                     static item => item.ContentLength));
             return new(
                 items,
+                references.Count,
                 totalContentLength,
                 maxContentLength,
                 exceedsBudget);
+        }
+
+        static bool ValidFacet(
+            PlatformSourceFacet expectedFacet,
+            IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformPopulationDemand population)
+        {
+            var identities = new HashSet<AssemblyReferenceIdentity>(
+                AssemblyReferenceIdentity.EquivalentComparer);
+            PlatformSourceContribution.Realization? populationContribution =
+                items.Count == 0
+                    ? null
+                    : items[0].Contribution;
+            foreach (
+                PlatformLibraryArtifactMaterializationItem item
+                in items)
+            {
+                PlatformSourceContribution.Realization contribution =
+                    item.Contribution;
+                if (!ReferenceEquals(
+                        contribution,
+                        populationContribution)
+                    || contribution.Facet != expectedFacet
+                    || contribution.RealizationCompleteness
+                        != PlatformSourceContributionCompleteness
+                            .Authoritative
+                    || !ReferenceEquals(
+                        contribution.Request,
+                        request.Snapshot)
+                    || contribution.Target != target
+                    || !ReferenceEquals(
+                        contribution.Population,
+                        population)
+                    || !request.Sources.Authorizes(
+                        expectedFacet,
+                        contribution.Capability)
+                    || !identities.Add(item.Identity))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }

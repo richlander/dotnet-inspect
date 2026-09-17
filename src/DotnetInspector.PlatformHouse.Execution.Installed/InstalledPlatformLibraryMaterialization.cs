@@ -219,6 +219,7 @@ public static class InstalledPlatformLibraryMaterializer
 
         bool prepared = TryPrepareReferencePopulation(
             request,
+            PlatformViewDemand.Reference,
             reference,
             out IReadOnlyList<
                 PlatformLibraryArtifactMaterializationItem> items);
@@ -227,6 +228,50 @@ public static class InstalledPlatformLibraryMaterializer
                 .MaterializeReferencesAsync(
                     request,
                     prepared ? items : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToInstalledPopulationResult(outcome);
+    }
+
+    /// <summary>
+    /// Materializes authoritative installed reference and implementation
+    /// populations through PlatformHouse-issued view correspondence.
+    /// </summary>
+    public static async ValueTask<
+        InstalledPlatformPopulationMaterializationResult>
+        MaterializeReferenceAndImplementationPopulationAsync(
+            PlatformHouseRequest request,
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded reference,
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool referencePrepared = TryPrepareReferencePopulation(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            reference,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> references);
+        bool implementationPrepared = TryPrepareImplementationPopulation(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            implementation,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> implementations);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeReferenceAndImplementationAsync(
+                    request,
+                    referencePrepared ? references : [],
+                    implementationPrepared ? implementations : [],
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
@@ -251,6 +296,7 @@ public static class InstalledPlatformLibraryMaterializer
 
         bool prepared = TryPrepareImplementationPopulation(
             request,
+            PlatformViewDemand.Implementation,
             implementation,
             out IReadOnlyList<
                 PlatformLibraryArtifactMaterializationItem> items);
@@ -428,18 +474,22 @@ public static class InstalledPlatformLibraryMaterializer
 
     static bool TryPrepareReferencePopulation(
         PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
         InstalledPlatformHouseResult<
             InstalledReferenceRealization>.Succeeded reference,
         out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
     {
         items = [];
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        if (expectedView is not PlatformViewDemand.Reference
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
-                View: PlatformViewDemand.Reference,
+                View: var view,
                 Population:
                     PlatformPopulationDemand.CompletePopulation,
             }
+            || view != expectedView
             || !ValidContribution(
                 request,
                 exact.Target,
@@ -484,18 +534,22 @@ public static class InstalledPlatformLibraryMaterializer
 
     static bool TryPrepareImplementationPopulation(
         PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
         InstalledPlatformHouseResult<
             InstalledImplementationRealization>.Succeeded implementation,
         out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
     {
         items = [];
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        if (expectedView is not PlatformViewDemand.Implementation
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
-                View: PlatformViewDemand.Implementation,
+                View: var view,
                 Population:
                     PlatformPopulationDemand.CompletePopulation,
             }
+            || view != expectedView
             || !ValidContribution(
                 request,
                 exact.Target,
