@@ -200,9 +200,10 @@ stderr rather than mixed into structured output.
 for a compact package or library overview, then opt into deeper audits only when
 you need them.
 
-Integration support is exposed through `@Integrations` or focused
-`Integration: ...` sections such as `Integration: Logging` or
-`Integration: OpenTelemetry`.
+Observed integration support is exposed through one `Integrations` section.
+Use `integration=<canonical-concept-id>` to focus one concept, or
+`ecosystem=<canonical-pack-id>` to select the concepts bound to an ecosystem.
+`@Integrations` also includes the separate `Integration Opportunities` section.
 
 Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
 configured into this build. This is catalog knowledge, not evidence from an
@@ -264,12 +265,15 @@ predicate with `library -Q Integrations`, then narrow the ordinary result:
 
 ```bash
 dotnet-inspect library -Q Integrations
-dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
-dotnet-inspect library ./MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S Integrations --where "ecosystem=ecosystem.aspire"
+dotnet-inspect library ./MyLibrary.dll -S Integrations \
+  --where "integration=integration.aspire" --jsonl
 ```
 
-This filters Integration evidence and opportunities, not assembly-wide presence
-or Census. Other query families cannot be combined with the ecosystem predicate.
+These facets filter Integration evidence and opportunities, not assembly-wide
+presence or Census. When both are supplied, they intersect. Other query
+families cannot be combined with either Integration facet.
 
 For deeper how-to guidance, use the embedded skills instead of relying on a very
 long README:
@@ -383,8 +387,10 @@ dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
-dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S "Integration: Logging"
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S "Integration: OpenTelemetry"
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions \
+  -S Integrations --where "integration=integration.logging"
+dotnet-inspect library System.Diagnostics.DiagnosticSource \
+  -S Integrations --where "integration=integration.opentelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q

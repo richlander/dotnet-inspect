@@ -94,9 +94,12 @@ public static class SectionCategoryNames
     public const string Context = "@Context";
 
     /// <summary>
-    /// Ecosystem integration sections. At library scope these are the
-    /// <c>Integration: &lt;X&gt;</c> members plus <c>Integration Opportunities</c>. At ecosystem
-    /// scope this is the product-configured <c>Known Integrations</c> section.
+    /// Ecosystem integration sections. At library scope these are observed <c>Integrations</c> plus
+    /// <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose applicability
+    /// is a capability predicate, each member's applicability is evidence-based (a cheap
+    /// reference probe), so the whole category hyper-subscribes away for a library with no
+    /// integrations. At ecosystem scope this is the product-configured
+    /// <c>Known Integrations</c> section.
     /// </summary>
     public const string Integrations = "@Integrations";
 
