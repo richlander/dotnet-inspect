@@ -757,6 +757,31 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(requests);
     }
 
+    [Theory]
+    [InlineData("bad/id")]
+    [InlineData("bad id")]
+    public async Task RangeVersionSettlement_InvalidInputIsReportedBeforeDiscovery(
+        string packageName)
+    {
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..2.0.0",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Correct the package command input", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.Empty(requests);
+    }
+
     [Fact]
     public async Task FeedLatest_RefreshFailureDoesNotFallBackToCachedRows()
     {
@@ -857,6 +882,72 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("requires credentials", error);
         Assert.DoesNotContain("Could not retrieve versions", error);
+    }
+
+    [Fact]
+    public async Task RangeVersionListing_EnumeratesOnceWithoutAcquiringPayload()
+    {
+        string packageName = $"HouseRange{Guid.NewGuid():N}";
+        string[] versions = ["1.0.0", "1.1.0", "2.0.0"];
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                versions,
+                [
+                    "package",
+                    $"{packageName}@2.0.0..1.0.0",
+                    "--versions",
+                    "--verbose",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            versions.Reverse(),
+            output.ReplaceLineEndings("\n").Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains("Fetching versions from ", error);
+        Assert.Contains(SecondSource, error);
+        string versionIndex =
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json";
+        Assert.Equal(
+            1,
+            requests.Count(request => request.Equals(
+                versionIndex,
+                StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task RangeVersionListing_ReportsTheMissingEndpoint()
+    {
+        string packageName = $"HouseRangeMissing{Guid.NewGuid():N}";
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..3.0.0",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("does not contain range endpoint 3.0.0", error);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
