@@ -232,8 +232,7 @@ public abstract class PlatformPopulationRealizationResult
 }
 
 /// <summary>
-/// Performs the atomic ownership handoff for one complete single-view
-/// population.
+/// Performs the atomic ownership handoff for one complete population.
 /// </summary>
 public static class PlatformHousePopulationRealizer
 {
@@ -255,6 +254,36 @@ public static class PlatformHousePopulationRealizer
                 PlatformViewDemand.Reference,
                 selections,
                 contentLeases,
+                [],
+                [],
+                consumedWork,
+                priorContributions)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Accepts every supplied reference and implementation content lease and
+    /// either transfers their lossless paired population or retires every
+    /// accepted authority before termination.
+    /// </summary>
+    public static async ValueTask<PlatformPopulationRealizationResult>
+        RealizeReferenceAndImplementationAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                references,
+            IReadOnlyList<ArtifactContentLease> referenceLeases,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                implementations,
+            IReadOnlyList<ArtifactContentLease> implementationLeases,
+            PlatformHouseConsumedWork consumedWork,
+            IEnumerable<PlatformSourceContribution>?
+                priorContributions = null)
+        => await RealizeAsync(
+                request,
+                PlatformViewDemand.ReferenceAndImplementation,
+                references,
+                referenceLeases,
+                implementations,
+                implementationLeases,
                 consumedWork,
                 priorContributions)
             .ConfigureAwait(false);
@@ -276,6 +305,8 @@ public static class PlatformHousePopulationRealizer
         => await RealizeAsync(
                 request,
                 PlatformViewDemand.Implementation,
+                [],
+                [],
                 selections,
                 contentLeases,
                 consumedWork,
@@ -287,20 +318,34 @@ public static class PlatformHousePopulationRealizer
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
             IReadOnlyList<PlatformPopulationLibraryContentSelection>
-                selections,
-            IReadOnlyList<ArtifactContentLease> contentLeases,
+                references,
+            IReadOnlyList<ArtifactContentLease> referenceLeases,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                implementations,
+            IReadOnlyList<ArtifactContentLease> implementationLeases,
             PlatformHouseConsumedWork consumedWork,
             IEnumerable<PlatformSourceContribution>?
                 priorContributions)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(selections);
-        ArgumentNullException.ThrowIfNull(contentLeases);
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(referenceLeases);
+        ArgumentNullException.ThrowIfNull(implementations);
+        ArgumentNullException.ThrowIfNull(implementationLeases);
         ArgumentNullException.ThrowIfNull(consumedWork);
 
+        PlatformPopulationLibraryContentSelection[] referenceSelections =
+            [.. references];
+        ArtifactContentLease[] acceptedReferenceLeases =
+            [.. referenceLeases];
+        PlatformPopulationLibraryContentSelection[] implementationSelections =
+            [.. implementations];
+        ArtifactContentLease[] acceptedImplementationLeases =
+            [.. implementationLeases];
         PlatformPopulationLibraryContentSelection[] selected =
-            [.. selections];
-        ArtifactContentLease[] leases = [.. contentLeases];
+            [.. referenceSelections, .. implementationSelections];
+        ArtifactContentLease[] leases =
+            [.. acceptedReferenceLeases, .. acceptedImplementationLeases];
         PlatformSourceContribution[] prior =
             [.. priorContributions ?? []];
         var owners = new List<LibraryContentOwner>(selected.Length);
@@ -355,11 +400,11 @@ public static class PlatformHousePopulationRealizer
                     request,
                     exact.Target,
                     operation.Population,
-                    expectedView == PlatformViewDemand.Reference
-                        ? PlatformSourceFacet.Reference
-                        : PlatformSourceFacet.Implementation,
-                    selected,
-                    leases,
+                    expectedView,
+                    referenceSelections,
+                    acceptedReferenceLeases,
+                    implementationSelections,
+                    acceptedImplementationLeases,
                     prior,
                     consumedWork))
             {
@@ -392,40 +437,67 @@ public static class PlatformHousePopulationRealizer
             settlements.AddRange(selectedSettlements);
 
             var libraries = new List<LibraryReference>(selected.Length);
-            for (int index = 0; index < selected.Length; index++)
+            if (expectedView == PlatformViewDemand.Reference)
             {
-                request.CancellationToken.ThrowIfCancellationRequested();
-                PlatformPopulationLibraryContentSelection selection =
-                    selected[index];
-                var assemblyCorrespondence =
-                    new LibraryAssemblyCorrespondence(
-                        selection.Content,
-                        selection.AssemblyIdentity,
-                        expectedView == PlatformViewDemand.Implementation
-                            ? selection.Content
-                            : null,
-                        expectedView == PlatformViewDemand.Implementation
-                            ? selection.AssemblyIdentity
-                            : null);
-                LibraryReference library =
-                    LibraryReference.CreateFromSource(
-                        new ExactLibrarySourceCoordinate.Platform(
-                            new PlatformLibraryPopulationDeclaration(
-                                exact.Target.Family),
-                            selection.AssemblyIdentity),
-                        assemblyCorrespondence);
-                owners.Add(
-                    new LibraryContentOwner(
-                        library,
-                        [leases[index]]));
-                libraries.Add(library);
+                for (int index = 0;
+                    index < referenceSelections.Length;
+                    index++)
+                {
+                    request.CancellationToken.ThrowIfCancellationRequested();
+                    AddLibrary(
+                        exact.Target,
+                        referenceSelections[index],
+                        acceptedReferenceLeases[index],
+                        implementation: null,
+                        implementationLease: null,
+                        owners,
+                        libraries);
+                }
+            }
+            else if (expectedView == PlatformViewDemand.Implementation)
+            {
+                for (int index = 0;
+                    index < implementationSelections.Length;
+                    index++)
+                {
+                    request.CancellationToken.ThrowIfCancellationRequested();
+                    AddLibrary(
+                        exact.Target,
+                        implementationSelections[index],
+                        acceptedImplementationLeases[index],
+                        implementationSelections[index],
+                        acceptedImplementationLeases[index],
+                        owners,
+                        libraries);
+                }
+            }
+            else
+            {
+                AddPairedLibraries(
+                    request,
+                    exact.Target,
+                    referenceSelections,
+                    acceptedReferenceLeases,
+                    implementationSelections,
+                    acceptedImplementationLeases,
+                    owners,
+                    libraries);
             }
 
             PlatformViewCorrespondenceEvidence? viewCorrespondence =
-                expectedView == PlatformViewDemand.Implementation
-                    ? new PlatformPopulationImplementationDeclarationSurface(
-                        selected)
-                    : null;
+                expectedView switch
+                {
+                    PlatformViewDemand.Reference => null,
+                    PlatformViewDemand.Implementation =>
+                        new PlatformPopulationImplementationDeclarationSurface(
+                            implementationSelections),
+                    PlatformViewDemand.ReferenceAndImplementation =>
+                        new PlatformPopulationReferenceAndImplementationCorrespondence(
+                            referenceSelections,
+                            implementationSelections),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(expectedView)),
+                };
             var completion = new PlatformHouseCompletion.Realization(
                 (PlatformHouseOperationSnapshot.Realize)
                     request.Snapshot.Operation,
@@ -505,18 +577,36 @@ public static class PlatformHousePopulationRealizer
         PlatformHouseRequest request,
         PlatformFamilyTarget target,
         PlatformPopulationDemand population,
-        PlatformSourceFacet expectedFacet,
+        PlatformViewDemand expectedView,
         IReadOnlyList<PlatformPopulationLibraryContentSelection>
-            selections,
-        IReadOnlyList<ArtifactContentLease> leases,
+            references,
+        IReadOnlyList<ArtifactContentLease> referenceLeases,
+        IReadOnlyList<PlatformPopulationLibraryContentSelection>
+            implementations,
+        IReadOnlyList<ArtifactContentLease> implementationLeases,
         IReadOnlyList<PlatformSourceContribution> prior,
         PlatformHouseConsumedWork consumedWork)
     {
+        PlatformPopulationLibraryContentSelection[] selections =
+            [.. references, .. implementations];
+        ArtifactContentLease[] leases =
+            [.. referenceLeases, .. implementationLeases];
+        bool validShape = expectedView switch
+        {
+            PlatformViewDemand.Reference =>
+                references.Count != 0 && implementations.Count == 0,
+            PlatformViewDemand.Implementation =>
+                references.Count == 0 && implementations.Count != 0,
+            PlatformViewDemand.ReferenceAndImplementation =>
+                references.Count != 0 && implementations.Count != 0,
+            _ => false,
+        };
         int sourceOperations = DistinctContributions(selections).Length;
-        if (selections.Count == 0
-            || leases.Count != selections.Count
-            || selections.Count > request.Work.MaxAssemblies
-            || consumedWork.Assemblies < selections.Count
+        if (!validShape
+            || referenceLeases.Count != references.Count
+            || implementationLeases.Count != implementations.Count
+            || selections.Length > request.Work.MaxAssemblies
+            || consumedWork.Assemblies < selections.Length
             || consumedWork.SourceOperations < sourceOperations
             || prior.Any(
                 contribution =>
@@ -531,13 +621,51 @@ public static class PlatformHousePopulationRealizer
             return false;
         }
 
-        var identities = new HashSet<AssemblyReferenceIdentity>(
-            AssemblyReferenceIdentity.EquivalentComparer);
         var contents = new HashSet<ArtifactContentReference>(
             ReferenceEqualityComparer.Instance);
         var authorities = new HashSet<ArtifactContentLease>(
             ReferenceEqualityComparer.Instance);
         ArtifactGenerationIdentity? generation = null;
+        return ValidFacet(
+                PlatformSourceFacet.Reference,
+                references,
+                referenceLeases,
+                request,
+                target,
+                population,
+                contents,
+                authorities,
+                ref generation)
+            && ValidFacet(
+                PlatformSourceFacet.Implementation,
+                implementations,
+                implementationLeases,
+                request,
+                target,
+                population,
+                contents,
+                authorities,
+                ref generation);
+    }
+
+    static bool ValidFacet(
+        PlatformSourceFacet expectedFacet,
+        IReadOnlyList<PlatformPopulationLibraryContentSelection>
+            selections,
+        IReadOnlyList<ArtifactContentLease> leases,
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PlatformPopulationDemand population,
+        HashSet<ArtifactContentReference> contents,
+        HashSet<ArtifactContentLease> authorities,
+        ref ArtifactGenerationIdentity? generation)
+    {
+        var identities = new HashSet<AssemblyReferenceIdentity>(
+            AssemblyReferenceIdentity.EquivalentComparer);
+        PlatformSourceContribution.Realization? populationContribution =
+            selections.Count == 0
+                ? null
+                : selections[0].Contribution;
         for (int index = 0; index < selections.Count; index++)
         {
             PlatformPopulationLibraryContentSelection selection =
@@ -546,7 +674,10 @@ public static class PlatformHousePopulationRealizer
             PlatformSourceContribution.Realization contribution =
                 selection.Contribution;
             generation ??= selection.Content.Generation;
-            if (contribution.Facet != expectedFacet
+            if (!ReferenceEquals(
+                    contribution,
+                    populationContribution)
+                || contribution.Facet != expectedFacet
                 || contribution.RealizationCompleteness
                     != PlatformSourceContributionCompleteness.Authoritative
                 || !ReferenceEquals(
@@ -574,6 +705,107 @@ public static class PlatformHousePopulationRealizer
             }
         }
         return true;
+    }
+
+    static void AddPairedLibraries(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        IReadOnlyList<PlatformPopulationLibraryContentSelection> references,
+        IReadOnlyList<ArtifactContentLease> referenceLeases,
+        IReadOnlyList<PlatformPopulationLibraryContentSelection>
+            implementations,
+        IReadOnlyList<ArtifactContentLease> implementationLeases,
+        ICollection<LibraryContentOwner> owners,
+        ICollection<LibraryReference> libraries)
+    {
+        var implementationIndices =
+            new Dictionary<AssemblyReferenceIdentity, int>(
+                AssemblyReferenceIdentity.EquivalentComparer);
+        for (int index = 0; index < implementations.Count; index++)
+        {
+            implementationIndices.Add(
+                implementations[index].AssemblyIdentity.Identity,
+                index);
+        }
+
+        var matched = new bool[implementations.Count];
+        for (int index = 0; index < references.Count; index++)
+        {
+            request.CancellationToken.ThrowIfCancellationRequested();
+            PlatformPopulationLibraryContentSelection reference =
+                references[index];
+            if (implementationIndices.TryGetValue(
+                    reference.AssemblyIdentity.Identity,
+                    out int implementationIndex))
+            {
+                matched[implementationIndex] = true;
+                AddLibrary(
+                    target,
+                    reference,
+                    referenceLeases[index],
+                    implementations[implementationIndex],
+                    implementationLeases[implementationIndex],
+                    owners,
+                    libraries);
+            }
+            else
+            {
+                AddLibrary(
+                    target,
+                    reference,
+                    referenceLeases[index],
+                    implementation: null,
+                    implementationLease: null,
+                    owners,
+                    libraries);
+            }
+        }
+
+        for (int index = 0; index < implementations.Count; index++)
+        {
+            if (matched[index])
+                continue;
+            request.CancellationToken.ThrowIfCancellationRequested();
+            AddLibrary(
+                target,
+                implementations[index],
+                implementationLeases[index],
+                implementations[index],
+                implementationLeases[index],
+                owners,
+                libraries);
+        }
+    }
+
+    static void AddLibrary(
+        PlatformFamilyTarget target,
+        PlatformPopulationLibraryContentSelection api,
+        ArtifactContentLease apiLease,
+        PlatformPopulationLibraryContentSelection? implementation,
+        ArtifactContentLease? implementationLease,
+        ICollection<LibraryContentOwner> owners,
+        ICollection<LibraryReference> libraries)
+    {
+        var assemblyCorrespondence =
+            new LibraryAssemblyCorrespondence(
+                api.Content,
+                api.AssemblyIdentity,
+                implementation?.Content,
+                implementation?.AssemblyIdentity);
+        LibraryReference library =
+            LibraryReference.CreateFromSource(
+                new ExactLibrarySourceCoordinate.Platform(
+                    new PlatformLibraryPopulationDeclaration(
+                        target.Family),
+                    api.AssemblyIdentity),
+                assemblyCorrespondence);
+        ArtifactContentLease[] leases =
+            implementationLease is null
+                || ReferenceEquals(apiLease, implementationLease)
+            ? [apiLease]
+            : [apiLease, implementationLease];
+        owners.Add(new LibraryContentOwner(library, leases));
+        libraries.Add(library);
     }
 
     static PlatformSourceContribution.Realization[] DistinctContributions(
@@ -792,6 +1024,48 @@ public static class PlatformHousePopulationRealizer
 
         internal IReadOnlyList<
             PlatformPopulationLibraryContentSelection> Selections
+        { get; }
+    }
+
+    sealed class
+        PlatformPopulationReferenceAndImplementationCorrespondence :
+        PlatformViewCorrespondenceEvidence
+    {
+        internal
+            PlatformPopulationReferenceAndImplementationCorrespondence(
+                IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                    references,
+                IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                    implementations)
+            : base(
+                PlatformViewCorrespondenceIdentity.Issue(
+                    "platform-population-reference-implementation"))
+        {
+            if (references.Count == 0
+                || implementations.Count == 0
+                || references.Any(
+                    static selection =>
+                        selection.Contribution.Facet
+                            != PlatformSourceFacet.Reference)
+                || implementations.Any(
+                    static selection =>
+                        selection.Contribution.Facet
+                            != PlatformSourceFacet.Implementation))
+            {
+                throw new ArgumentException(
+                    "Paired population correspondence requires non-empty reference and implementation populations.");
+            }
+
+            References = Array.AsReadOnly([.. references]);
+            Implementations = Array.AsReadOnly([.. implementations]);
+        }
+
+        internal IReadOnlyList<
+            PlatformPopulationLibraryContentSelection> References
+        { get; }
+
+        internal IReadOnlyList<
+            PlatformPopulationLibraryContentSelection> Implementations
         { get; }
     }
 }

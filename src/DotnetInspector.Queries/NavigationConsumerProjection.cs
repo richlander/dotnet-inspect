@@ -131,17 +131,21 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
 
     internal (NavigationConsumerSnapshot Snapshot, Dictionary<string, NavigationActionTarget> Actions) Build(
         NavigationWorkspaceSnapshot snapshot,
-        string session)
+        string session,
+        NavigationConsumerScopeStatus? scope = null,
+        bool actionsEnabled = true)
     {
         string generation = Token();
         var actions = new Dictionary<string, NavigationActionTarget>(StringComparer.Ordinal);
         string source = SubjectId(snapshot.ActiveSubject);
 
-        NavigationAction Action(
+        NavigationAction? Action(
             NavigationOperationKind kind,
             StructuralSubjectIdentity subject,
             NavigationLensIdentity? lens = null)
         {
+            if (!actionsEnabled)
+                return null;
             var action = new NavigationAction(session, generation, Token(), source, kind);
             actions.Add(action.Id, new(action, snapshot.ActiveSubject, subject, lens));
             return action;
@@ -223,6 +227,7 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
 
         var result = new NavigationConsumerSnapshot(
             generation,
+            scope ?? new(NavigationScopeSnapshotKind.Current),
             Subject(snapshot, snapshot.Workspace),
             snapshot.ActiveOccurrence is { } occurrence
                 ? SubjectId(StructuralSubjectIdentity.ForPackage(snapshot.Workspace, occurrence)) : null,

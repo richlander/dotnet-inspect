@@ -48,6 +48,10 @@ internal sealed class MethodDefinitionMap
 
     public bool ContainsToken(int token) => _methodTokens.Contains(token);
 
+    public bool CouldResolveToCurrentModule(DirectCall call)
+        => call.Callee.Kind != MemberKind.Unsupported
+            && CanResolveToCurrentModule(call.Callee.DeclaringType);
+
     public int Resolve(DirectCall call)
     {
         if (_methodTokens.Contains(call.CalleeDefinitionToken))

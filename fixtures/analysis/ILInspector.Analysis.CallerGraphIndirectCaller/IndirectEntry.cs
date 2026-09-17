@@ -10,5 +10,7 @@ namespace Indirect
     public static class Entry
     {
         public static void Run() => Shared.Entry.Run();
+
+        public static void RunRootPath() => Shared.RootPathEntry.Create();
     }
 }
