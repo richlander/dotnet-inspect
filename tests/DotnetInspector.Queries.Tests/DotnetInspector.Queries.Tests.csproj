@@ -8,6 +8,7 @@
     <IsTestProject>true</IsTestProject>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <IsAotCompatible>false</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
     <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
@@ -35,6 +36,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
@@ -89,6 +91,12 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/system.text.json.10.0.0.nupkg"
           Link="RealAssets/ApiMatching/system.text.json.10.0.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="RealAssets/DocumentationQuery/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.xml"
+          Link="RealAssets/DocumentationQuery/System.Text.Json.xml"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"

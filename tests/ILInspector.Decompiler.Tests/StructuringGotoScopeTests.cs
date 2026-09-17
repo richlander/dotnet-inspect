@@ -1,5 +1,8 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -351,6 +354,179 @@ public class StructuringGotoScopeTests
         Assert.DoesNotContain("IL_0018:", output);
     }
 
+    [Fact]
+    public void FalseArmPrefixBeforeRegionExit_PreservesBothArms()
+    {
+        var function = RegionExitDiamond(includeFalseArmPrefix: true);
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var conditional = Assert.Single(
+            tryFinally.TryBody.Descendants.OfType<IfStatement>(),
+            statement => statement.HasElse);
+        var takenStore = Assert.Single(conditional.Then.Descendants.OfType<StoreLocal>());
+        var fallthroughStore = Assert.Single(conditional.Else!.Descendants.OfType<StoreLocal>());
+        Assert.Equal(1, Assert.IsType<Constant>(takenStore.Value).Value);
+        Assert.Equal(7, Assert.IsType<Constant>(fallthroughStore.Value).Value);
+        Assert.Same(conditional, Assert.IsType<Block>(conditional.Parent).Children[^1]);
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.Contains(" = 7;", output);
+        Assert.Contains("else", output);
+        AssertCompiles(output);
+    }
+
+    [Fact]
+    public void PrefixFreeFalseArmRegionExit_StillStructures()
+    {
+        var function = RegionExitDiamond(includeFalseArmPrefix: false);
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.False(Assert.Single(tryFinally.TryBody.Descendants.OfType<IfStatement>()).HasElse);
+        Assert.Empty(tryFinally.TryBody.Descendants.OfType<Leave>());
+    }
+
+    [Fact]
+    public void PrefixedFalseArmBeforeEmptyContainerTail_StillStructures()
+    {
+        var function = RegionExitDiamondBeforeEmptyTail();
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var conditional = Assert.Single(
+            tryFinally.TryBody.Descendants.OfType<IfStatement>(),
+            statement => statement.HasElse);
+        Assert.Contains(
+            conditional.Else!.Descendants.OfType<StoreLocal>(),
+            store => Equals(Assert.IsType<Constant>(store.Value).Value, 7));
+        Assert.Empty(conditional.Descendants.OfType<Leave>());
+    }
+
+    [Fact]
+    public void RoslynAggregateOrDefault_PreservesEmptySequenceExit()
+    {
+        using var source = MetadataSource.Open(typeof(Compilation).Assembly.Location);
+        const string typeName = "System.Linq.RoslynEnumerableExtensions";
+        const string methodName = "AggregateOrDefault";
+
+        var before = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(before);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(before, PassContext.None);
+        }
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        var after = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(after);
+        IrPasses.Run(after);
+        after.CheckInvariant();
+
+        string output = CSharpPrinter.Print(after).Output ?? "";
+        Assert.Contains("else", output);
+        Assert.Contains("V_2 = default;", output);
+    }
+
+    [Fact]
+    public void PrefixedRegionExitWithExternalEntry_StaysFlatAndCompiles()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitWithExternalEntry));
+        var tryBody = Assert.Single(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody)).TryBody;
+        var externallyEnteredBlock = Assert.Single(
+            tryBody.Blocks,
+            block => block.Children.Count > 1
+                && block.Children[^1] is Leave);
+        Assert.Contains(
+            tryBody.Descendants.OfType<Leave>(),
+            leave => leave.TargetOffset == externallyEnteredBlock.StartOffset
+                && !ReferenceEquals(leave.Parent, externallyEnteredBlock));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitWithExternalEntry));
+
+        Assert.Contains("goto", output);
+        AssertCompiles(output);
+    }
+
+    [Fact]
+    public void PrefixedRegionExitBeforeSibling_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling));
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling));
+        var reconstructed = Compile(output);
+
+        Assert.Contains("goto", output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling(input),
+                reconstructed(input));
+        }
+    }
+
+    [Fact]
+    public void PrefixedRegionExitTakenArmWithExternalEntry_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry));
+        var tryBody = Assert.Single(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody)).TryBody;
+        var externallyEnteredBlock = Assert.Single(
+            tryBody.Blocks,
+            block => block.Children.Count == 1
+                && block.Children[0] is StoreLocal);
+        Assert.Contains(
+            tryBody.Descendants.OfType<Leave>(),
+            leave => leave.TargetOffset == externallyEnteredBlock.StartOffset
+                && !ReferenceEquals(leave.Parent, externallyEnteredBlock));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry));
+
+        Assert.Contains("goto", output);
+        var reconstructed = Compile(output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry(input),
+                reconstructed(input));
+        }
+    }
+
+    [Fact]
+    public void PrefixedRegionExitInsideTailInfiniteLoop_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop));
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop));
+
+        Assert.Contains("goto", output);
+        var reconstructed = Compile(output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop(input),
+                reconstructed(input));
+        }
+    }
+
     [Theory]
     [InlineData(0x0077, 0x0062, false)]
     [InlineData(0x005E, 0x0062, false)]
@@ -490,6 +666,181 @@ public class StructuringGotoScopeTests
             pass.Run(function, PassContext.None);
         }
         return function;
+    }
+
+    static IrFunction RegionExitDiamond(bool includeFalseArmPrefix)
+    {
+        var tryBody = new BlockContainer();
+        tryBody.Add(Block(0x00, new ConditionalBranch(Cond(), 0x20)));
+        var falseArm = Block(0x10);
+        if (includeFalseArmPrefix)
+            falseArm.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        falseArm.Add(new Leave(0x40));
+        tryBody.Add(falseArm);
+        tryBody.Add(Block(
+            0x20,
+            new StoreLocal(0, Int32, new Constant(1, Int32)),
+            new Leave(0x40)));
+
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(Block(0x30));
+
+        var root = new BlockContainer();
+        root.Add(Block(0x00, new TryFinally(tryBody, finallyBody)));
+        root.Add(Block(0x40, new Return(new LoadLocal(0, Int32))));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [new Parameter("a", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            root);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static IrFunction RegionExitDiamondBeforeEmptyTail()
+    {
+        var tryBody = new BlockContainer();
+        tryBody.Add(Block(0x00, new ConditionalBranch(Cond(), 0x30)));
+        tryBody.Add(Block(0x10, new ConditionalBranch(Cond(), 0x28)));
+        tryBody.Add(Block(
+            0x20,
+            new StoreLocal(0, Int32, new Constant(7, Int32)),
+            new Leave(0x40)));
+        tryBody.Add(Block(
+            0x28,
+            new StoreLocal(0, Int32, new Constant(1, Int32)),
+            new Leave(0x40)));
+        tryBody.Add(Block(0x30));
+
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(Block(0x38));
+
+        var root = new BlockContainer();
+        root.Add(Block(0x00, new TryFinally(tryBody, finallyBody)));
+        root.Add(Block(0x40, new Return(new LoadLocal(0, Int32))));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [new Parameter("a", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            root);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static bool HasPrefixedFalseArmRegionExit(BlockContainer container)
+    {
+        for (int i = 0; i + 2 < container.Blocks.Count; i++)
+        {
+            var current = container.Blocks[i];
+            var falseArm = container.Blocks[i + 1];
+            var takenArm = container.Blocks[i + 2];
+            if (current.Children.Count > 0
+                && current.Children[^1] is ConditionalBranch conditional
+                && conditional.TargetOffset == takenArm.StartOffset
+                && falseArm.Children.Count > 1
+                && falseArm.Children[^1] is Leave)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static IrFunction ImportFixtureBeforeStructuring(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(StructuringRegionExitSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(StructuringRegionExitSamples).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+        function.CheckInvariant();
+        return function;
+    }
+
+    static string PrintFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(StructuringRegionExitSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(StructuringRegionExitSamples).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        return CSharpPrinter.Print(function).Output ?? "";
+    }
+
+    static void AssertCompiles(string body)
+        => Compile(body);
+
+    static Func<int, int> Compile(string body)
+    {
+        string source = $$"""
+            static class CfgSampleClass
+            {
+                public static int LastValue;
+            }
+
+            static class Synthetic
+            {
+                static int M(int a)
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+                "region-exit-gate",
+                [tree],
+                RoslynTestReferences.TrustedPlatform,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+
+        Assert.True(
+            errors.Length == 0,
+            "Rendered body must compile, got:\n  "
+                + string.Join("\n  ", errors)
+                + "\n--- body ---\n"
+                + body);
+
+        using var assemblyStream = new MemoryStream();
+        var emit = compilation.Emit(assemblyStream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                "\n",
+                emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)));
+        var method = Assembly.Load(assemblyStream.ToArray())
+            .GetType("Synthetic")!
+            .GetMethod("M", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return value => (int)method.Invoke(null, [value])!;
     }
 
     [Fact]

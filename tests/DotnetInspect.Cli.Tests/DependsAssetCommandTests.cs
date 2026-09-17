@@ -35,6 +35,32 @@ public sealed class DependsAssetCommandTests
         FixtureCatalog.RestoredProjectDependencyFacts.ProjectDirectory();
 
     [Fact]
+    public async Task TypeEnvelopeRejectsRenderedLineSelectionBeforeAcquisition()
+    {
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "No.Such.Type",
+            "--platform",
+            "System.Private.CoreLib",
+            "--envelope",
+            "-n",
+            "1",
+            "--lines",
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
+        Assert.DoesNotContain(
+            "not found",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void AssetProjectionPublishesItsSettledSemanticContentAndEvidence()
     {
         var summary = new DependencyInspectionSummary(
@@ -3400,6 +3426,58 @@ public sealed class DependsAssetCommandTests
         Assert.Contains("└", tree, StringComparison.Ordinal);
         Assert.StartsWith("graph TD", mermaid, StringComparison.Ordinal);
         Assert.Equal("2", count.Trim());
+    }
+
+    [Fact]
+    public async Task SemanticWindowComposesWithRenderedLineLimit()
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                AssetsFixture,
+                "--depth",
+                "1",
+                "-S",
+                "Dependency Graph",
+                "--rows",
+                "2..2",
+                "--count",
+                "-n",
+                "100",
+                "--lines",
+            ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("1..1")]
+    public async Task LegacyRowsRemainCommandOwnedDuringSemanticAdoption(
+        string rows)
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                AssetsFixture,
+                "--depth",
+                "1",
+                "-S",
+                "Dependency Graph",
+                "--rows",
+                rows,
+                "--count",
+            ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
     }
 
     [Fact]

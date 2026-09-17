@@ -30,6 +30,37 @@ public sealed record PackageQueryRequest(
     bool IncludePrerelease = false,
     RowSelectionIntent<string>? RowSelection = null);
 
+public enum PackageQueryDependencyTargetKind
+{
+    All,
+    TargetFramework,
+}
+
+/// <summary>The dependency-group scope applied by one Package Query plan.</summary>
+public sealed record PackageQueryDependencyTarget
+{
+    private PackageQueryDependencyTarget(
+        PackageQueryDependencyTargetKind kind,
+        string? requestedTargetFramework)
+    {
+        Kind = kind;
+        RequestedTargetFramework = requestedTargetFramework;
+    }
+
+    public PackageQueryDependencyTargetKind Kind { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public static PackageQueryDependencyTarget All { get; } =
+        new(PackageQueryDependencyTargetKind.All, null);
+
+    internal static PackageQueryDependencyTarget ForTargetFramework(
+        string canonicalFramework) =>
+        new(
+            PackageQueryDependencyTargetKind.TargetFramework,
+            canonicalFramework);
+}
+
 /// <summary>Why a package-query request could not become an executable plan.</summary>
 public enum PackageQueryRequestFailureReason
 {
@@ -43,6 +74,7 @@ public enum PackageQueryRequestFailureReason
     InvalidTermValue,
     DuplicateTerm,
     IncompatibleTerms,
+    DependencyTargetRequiresDependencyPredicate,
     RequiredPopulationMissing,
     RequiredPrereleaseMissing,
     RequiredCandidateBoundMissing,
@@ -98,6 +130,8 @@ public sealed record PackageQueryRequestFailure
             "Two package-query terms resolve to the same predicate.",
         PackageQueryRequestFailureReason.IncompatibleTerms =>
             "The selected package-query terms cannot be combined.",
+        PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
+            "dependency-target requires a depends or dependencies term.",
         PackageQueryRequestFailureReason.RequiredPopulationMissing =>
             "Package Query requires exactly one package or prefix population term.",
         PackageQueryRequestFailureReason.RequiredPrereleaseMissing =>
@@ -136,6 +170,7 @@ public sealed class PackageQueryPlan
         InertString prefix,
         InertString prefixEvidence,
         ImmutableArray<BoundPackageQueryTerm> terms,
+        PackageQueryDependencyTarget dependencyTarget,
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
@@ -147,6 +182,7 @@ public sealed class PackageQueryPlan
         PrefixEvidence = prefixEvidence;
         BoundTerms = terms;
         Terms = [.. terms.Select(term => term.Term)];
+        DependencyTarget = dependencyTarget;
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
@@ -157,6 +193,7 @@ public sealed class PackageQueryPlan
     public PortableQueryIntent Intent { get; }
     public InertString Prefix { get; }
     public ImmutableArray<PortableQueryTerm> Terms { get; }
+    public PackageQueryDependencyTarget DependencyTarget { get; }
     public int MaximumCandidates { get; }
     public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
@@ -174,6 +211,15 @@ public sealed class PackageQueryPlan
 
     internal InertString PrefixEvidence { get; }
     internal ImmutableArray<BoundPackageQueryTerm> BoundTerms { get; }
+    internal bool HasDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
+                or PackageQueryPredicateKind.Depends);
+    internal bool HasExplicitDependencyTarget =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
+    internal bool HasDependencyTerms =>
+        HasDependencyPredicate || HasExplicitDependencyTarget;
 }
 
 /// <summary>Whether evidence describes the query input or an inspected package.</summary>
@@ -339,6 +385,16 @@ internal sealed record PackageQueryTermEvidence(
     InertString Text,
     PackageQueryEvidenceSummary? Summary = null);
 
+internal sealed record PackageQueryDependencySelection(
+    PackageQueryDependencyTarget Target,
+    ImmutableArray<DeclaredPackageDependencyGroup> Groups,
+    PackageDependencyGroupSelectionStatus? SelectionStatus,
+    DeclaredPackageDependencyGroup? SelectedGroup);
+
+internal sealed record PackageQueryDependencyMatch(
+    DeclaredPackageDependencyGroup Group,
+    DeclaredPackageDependency Dependency);
+
 internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion);
@@ -367,6 +423,8 @@ public static partial class PackageQuery
     public const string PrefixTermKey = "prefix";
     public const string PrereleaseTermKey = "prerelease";
     public const string DependenciesTermKey = "dependencies";
+    public const string DependencyTargetTermKey = "dependency-target";
+    public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
     public const string DownloadsTermKey = "downloads";
     public const string ReadmeTermKey = "readme";
@@ -436,7 +494,7 @@ public static partial class PackageQuery
         new(
             DependenciesTermKey,
             "dependencies",
-            "Matches packages whose manifests declare no dependencies.",
+            "Matches packages with no dependencies in the selected dependency scope.",
             100,
             PackageQueryAcquisitionTier.Nuspec,
             EqualityOperator,
@@ -450,13 +508,28 @@ public static partial class PackageQuery
                 new(
                     "none",
                     "no dependencies",
-                    "The package manifest declares no dependencies in any framework group."),
+                    "The selected dependency scope declares no dependencies."),
             ],
+        },
+        new(
+            DependencyTargetTermKey,
+            "dependency target",
+            "Scopes dependency terms to all manifest groups or one TFM-selected group.",
+            150,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "all or NuGet target framework",
+            "net8.0",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input)
+        {
+            SelectionGroupId =
+                PackageQueryVocabulary.DependencyTargetFamily,
         },
         new(
             DependsTermKey,
             "depends on package",
-            "Matches a direct dependency declared in any package manifest group.",
+            "Matches a direct dependency in the selected dependency scope.",
             200,
             PackageQueryAcquisitionTier.Nuspec,
             EqualityOperator,
@@ -577,6 +650,7 @@ public static partial class PackageQuery
         Key(PrefixTermKey, BindPrefix),
         Key(PrereleaseTermKey, BindPrerelease),
         Key(DependenciesTermKey, BindDependencies),
+        Key(DependencyTargetTermKey, BindDependencyTarget),
         Key(DependsTermKey, BindDepends),
         Key(DownloadsTermKey, BindDownloads),
         Key(ReadmeTermKey, static (op, value) =>
@@ -611,9 +685,17 @@ public static partial class PackageQuery
                 Vocabulary,
                 intent,
                 cancellationToken);
-        return resolution.IsResolved
-            ? new PackageQueryPlanResult.Accepted(resolution.Plan)
-            : Rejected(resolution.Failure);
+        if (!resolution.IsResolved)
+            return Rejected(resolution.Failure);
+
+        PackageQueryPlan plan = resolution.Plan;
+        return plan.HasExplicitDependencyTarget
+            && !plan.HasDependencyPredicate
+                ? Rejected(
+                    PackageQueryRequestFailureReason
+                        .DependencyTargetRequiresDependencyPredicate,
+                    [DependencyTargetTermKey])
+                : new PackageQueryPlanResult.Accepted(plan);
     }
 
     public static PackageQueryPlanResult Plan(PackageQueryRequest request)
@@ -699,6 +781,41 @@ public static partial class PackageQuery
                 Normalize(value))
             : PortableQueryBinding<PackageQueryPredicate>.Rejected;
 
+    private static PortableQueryBinding<PackageQueryPredicate>
+        BindDependencyTarget(
+            PortableQueryOperator @operator,
+            string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        if (value.Equals(
+                DependencyTargetAllValue,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Bound(
+                PackageQueryPredicateKind.DependencyTarget,
+                DependencyTargetAllValue,
+                DependencyTargetAllValue);
+        }
+
+        if (value.Equals("any", StringComparison.OrdinalIgnoreCase))
+        {
+            return Bound(
+                PackageQueryPredicateKind.DependencyTarget,
+                "any",
+                "any");
+        }
+
+        return NuGetTargetFrameworkIdentity.TryNormalize(
+            value,
+            out string canonical)
+                ? Bound(
+                    PackageQueryPredicateKind.DependencyTarget,
+                    canonical,
+                    canonical)
+                : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+    }
+
     private static PortableQueryBinding<PackageQueryPredicate> BindDownloads(
         PortableQueryOperator @operator,
         string value)
@@ -763,6 +880,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Prefix => PrefixTermKey,
             PackageQueryPredicateKind.Prerelease => PrereleaseTermKey,
             PackageQueryPredicateKind.NoDependencies => DependenciesTermKey,
+            PackageQueryPredicateKind.DependencyTarget =>
+                DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
             PackageQueryPredicateKind.Downloads => DownloadsTermKey,
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
@@ -1076,6 +1195,10 @@ public static partial class PackageQuery
         evidence = ImmutableArray.CreateBuilder<PackageQueryEvidence>(
             plan.BoundTerms.Length + 1);
         AddScopeEvidence(plan, evidence);
+        PackageQueryDependencySelection? dependencySelection =
+            plan.HasDependencyTerms
+                ? SelectDependencies(plan, match)
+                : null;
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (BoundPackageQueryTerm term in plan.BoundTerms)
         {
@@ -1093,7 +1216,10 @@ public static partial class PackageQuery
             BoundPackageQueryTerm[] matched =
             [
                 .. alternatives.Where(candidate =>
-                    MatchesManifest(candidate, match)),
+                    MatchesManifest(
+                        candidate,
+                        match,
+                        dependencySelection)),
             ];
             if (matched.Length == 0)
             {
@@ -1108,7 +1234,12 @@ public static partial class PackageQuery
                 {
                     continue;
                 }
-                AddTermEvidence(candidate, match, null, evidence);
+                AddTermEvidence(
+                    candidate,
+                    match,
+                    content: null,
+                    dependencySelection,
+                    evidence);
             }
         }
 
@@ -1155,7 +1286,12 @@ public static partial class PackageQuery
 
             foreach (BoundPackageQueryTerm candidate in matched)
             {
-                AddTermEvidence(candidate, match, content, evidence);
+                AddTermEvidence(
+                    candidate,
+                    match,
+                    content,
+                    dependencySelection: null,
+                    evidence);
             }
         }
 
@@ -1288,19 +1424,25 @@ public static partial class PackageQuery
             failure.Message,
             failure.ManifestFailureReason);
 
-    static bool HasDependencies(PackageQueryPackage match) =>
-        match.RequiredManifest.DependencyGroups.Any(group =>
-            !group.Dependencies.IsEmpty);
-
     static bool MatchesManifest(
         BoundPackageQueryTerm term,
-        PackageQueryPackage match) =>
+        PackageQueryPackage match,
+        PackageQueryDependencySelection? dependencySelection) =>
         term.Predicate.Kind switch
         {
             PackageQueryPredicateKind.NoDependencies =>
-                !HasDependencies(match),
+                HasNoDependencies(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection.")),
+            PackageQueryPredicateKind.DependencyTarget => true,
             PackageQueryPredicateKind.Depends =>
-                MatchingDependencies(term, match).Length > 0,
+                MatchingDependencies(
+                    term,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
             PackageQueryPredicateKind.Downloads =>
                 match.TotalDownloads >= term.Predicate.Number,
             PackageQueryPredicateKind.Readme =>
@@ -1313,6 +1455,57 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Skill => true,
             _ => throw new InvalidOperationException(
                 "A structural Package Query term reached manifest evaluation."),
+        };
+
+    static PackageQueryDependencySelection SelectDependencies(
+        PackageQueryPlan plan,
+        PackageQueryPackage match)
+    {
+        PackageManifestFacts manifest = match.RequiredManifest;
+        if (plan.DependencyTarget.Kind
+            == PackageQueryDependencyTargetKind.All)
+        {
+            return new PackageQueryDependencySelection(
+                plan.DependencyTarget,
+                manifest.DependencyGroups,
+                SelectionStatus: null,
+                SelectedGroup: null);
+        }
+
+        PackageDependencyGroups selection =
+            PackageDependencyGroupsQuery.ProjectDependencyGroups(
+                manifest,
+                plan.DependencyTarget.RequestedTargetFramework,
+                allowCompatibleFallbackForRequestedTfm: true);
+        return new PackageQueryDependencySelection(
+            plan.DependencyTarget,
+            selection.Groups,
+            selection.SelectionStatus,
+            selection.SelectedGroup);
+    }
+
+    static bool HasNoDependencies(
+        PackageQueryDependencySelection selection) =>
+        selection.Target.Kind switch
+        {
+            PackageQueryDependencyTargetKind.All =>
+                selection.Groups.All(group =>
+                    group.Dependencies.IsEmpty),
+            PackageQueryDependencyTargetKind.TargetFramework =>
+                selection.SelectionStatus switch
+                {
+                    PackageDependencyGroupSelectionStatus.Selected =>
+                        selection.SelectedGroup!.Dependencies.IsEmpty,
+                    PackageDependencyGroupSelectionStatus.NoDependencyGroups =>
+                        true,
+                    PackageDependencyGroupSelectionStatus
+                        .NoMatchingTargetFramework =>
+                        false,
+                    _ => throw new InvalidOperationException(
+                        "Unknown dependency-group selection status."),
+                },
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query dependency target."),
         };
 
     static bool MatchesPackageContent(
@@ -1328,27 +1521,97 @@ public static partial class PackageQuery
                 "A non-content Package Query term reached content evaluation."),
         };
 
-    static DeclaredPackageDependency[] MatchingDependencies(
+    static PackageQueryDependencyMatch[] MatchingDependencies(
         BoundPackageQueryTerm term,
-        PackageQueryPackage match) =>
+        PackageQueryDependencySelection selection) =>
         [
-            .. match.RequiredManifest.DependencyGroups
-                .SelectMany(group => group.Dependencies)
-                .Where(dependency => string.Equals(
-                    dependency.Id,
-                    term.Predicate.Text,
-                    StringComparison.OrdinalIgnoreCase)),
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies
+                    .Where(dependency => string.Equals(
+                        dependency.Id,
+                        term.Predicate.Text,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Select(dependency =>
+                        new PackageQueryDependencyMatch(
+                            group,
+                            dependency))),
         ];
 
-    static PackageQueryTermEvidence DescribeDependencies(PackageQueryPackage match) =>
+    static IEnumerable<DeclaredPackageDependencyGroup>
+        SelectedDependencyGroups(
+            PackageQueryDependencySelection selection) =>
+        selection.Target.Kind == PackageQueryDependencyTargetKind.All
+            ? selection.Groups
+            : selection.SelectedGroup is { } selected
+                ? [selected]
+                : [];
+
+    static PackageQueryTermEvidence DescribeDependencies(
+        PackageQueryDependencySelection selection) =>
         DescribeItems(
             SummarizeItems(
-                match.RequiredManifest.DependencyGroups
+                SelectedDependencyGroups(selection)
                     .SelectMany(group => group.Dependencies)
                     .Select(dependency => dependency.Id),
                 StringComparer.OrdinalIgnoreCase),
             "dependency",
             "dependencies");
+
+    static PackageQueryTermEvidence DescribeDependencyTarget(
+        PackageQueryDependencySelection selection)
+    {
+        if (selection.Target.Kind == PackageQueryDependencyTargetKind.All)
+        {
+            return Describe(
+                "Dependency predicates include all package manifest groups.");
+        }
+
+        string requested =
+            selection.Target.RequestedTargetFramework
+            ?? throw new InvalidOperationException(
+                "A target-framework dependency scope requires its requested framework.");
+        InertString requestedText = new(TextPolicy.Field, requested);
+        return selection.SelectionStatus switch
+        {
+            PackageDependencyGroupSelectionStatus.Selected =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} selected manifest group {DependencyGroupText(selection.SelectedGroup!)}.")),
+            PackageDependencyGroupSelectionStatus.NoDependencyGroups =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} found no declared dependency groups.")),
+            PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} matched no declared dependency group.")),
+            _ => throw new InvalidOperationException(
+                "Unknown dependency-group selection status."),
+        };
+    }
+
+    static InertString DependencyGroupText(
+        DeclaredPackageDependencyGroup group) =>
+        new(
+            TextPolicy.Field,
+            string.IsNullOrWhiteSpace(group.TargetFramework)
+                ? "any"
+                : group.TargetFramework,
+            MaximumEvidencePreviewCharacters);
+
+    static string DescribeDependencyMatch(
+        PackageQueryDependencyMatch match)
+    {
+        string group = string.IsNullOrWhiteSpace(
+            match.Group.TargetFramework)
+                ? "any"
+                : match.Group.TargetFramework;
+        return $"{group}: {match.Dependency.Id} "
+            + match.Dependency.VersionRange;
+    }
 
     static PackageQueryTermEvidence DescribeToolFormat(
         string? settingsVersion) =>
@@ -1400,17 +1663,30 @@ public static partial class PackageQuery
     static PackageQueryEvidence CreateTermEvidence(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
-        PackageContentFacts? content)
+        PackageContentFacts? content,
+        PackageQueryDependencySelection? dependencySelection)
     {
         PackageQueryTermEvidence description = term.Predicate.Kind switch
         {
             PackageQueryPredicateKind.NoDependencies =>
-                DescribeDependencies(package),
+                DescribeDependencies(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency evidence requires one dependency selection.")),
+            PackageQueryPredicateKind.DependencyTarget =>
+                DescribeDependencyTarget(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency-target evidence requires one dependency selection.")),
             PackageQueryPredicateKind.Depends =>
                 DescribeItems(
                     SummarizeItems(
-                        MatchingDependencies(term, package).Select(dependency =>
-                            $"{dependency.Id} {dependency.VersionRange}"),
+                        MatchingDependencies(
+                            term,
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))
+                            .Select(DescribeDependencyMatch),
                         StringComparer.Ordinal),
                     "dependency declaration",
                     "dependency declarations"),
@@ -1440,6 +1716,12 @@ public static partial class PackageQuery
         };
         return new PackageQueryEvidence(term.Descriptor.Key, description.Text)
         {
+            Scope = term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependencyTarget
+                && dependencySelection!.Target.Kind
+                    == PackageQueryDependencyTargetKind.All
+                    ? PackageQueryEvidenceScope.Query
+                    : PackageQueryEvidenceScope.Package,
             Summary = description.Summary,
             Term = term.Term,
         };
@@ -1449,6 +1731,7 @@ public static partial class PackageQuery
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
         PackageContentFacts? content,
+        PackageQueryDependencySelection? dependencySelection,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         int insertionIndex = 1;
@@ -1463,7 +1746,11 @@ public static partial class PackageQuery
 
         evidence.Insert(
             insertionIndex,
-            CreateTermEvidence(term, package, content));
+            CreateTermEvidence(
+                term,
+                package,
+                content,
+                dependencySelection));
     }
 
     static string Pluralize(int count, string singular, string plural) =>

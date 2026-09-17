@@ -63,16 +63,6 @@ public static class PackageCommandDefinitions
             Description = "List available versions with source feeds; use -n N to select N version/feed rows",
             Arity = ArgumentArity.Zero
         };
-        var linesOption = new Option<bool>("--lines")
-        {
-            Description = "Apply -n to rendered lines instead of version rows",
-            Arity = ArgumentArity.Zero
-        };
-        var tailLinesOption = new Option<bool>("--tail-lines")
-        {
-            Description = "Apply -n to rendered lines from the end",
-            Arity = ArgumentArity.Zero
-        };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
@@ -99,8 +89,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
-        packageCommand.Options.Add(linesOption);
-        packageCommand.Options.Add(tailLinesOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(includeUnlistedOption);
         packageCommand.Options.Add(contentOption);
@@ -132,7 +120,7 @@ public static class PackageCommandDefinitions
         opts.AddEnvelopeOptionTo(
             packageCommand,
             opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
-            linesOption, tailLinesOption,
+            opts.Lines, opts.TailLines,
             dependenciesOption, layoutOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, allLibrariesOption,
@@ -143,17 +131,6 @@ public static class PackageCommandDefinitions
             bool hasPluralVersionSelector =
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption);
-            bool hasLineSelection =
-                result.GetValue(linesOption)
-                || result.GetValue(tailLinesOption);
-            if (!hasPluralVersionSelector
-                && hasLineSelection)
-            {
-                result.AddError(
-                    "--lines and --tail-lines are available with "
-                    + "--versions or --versions-with-feed.");
-            }
-
             if (result.GetValue(opts.Envelope))
             {
                 string[] packageReferences =
@@ -202,8 +179,8 @@ public static class PackageCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
@@ -220,7 +197,7 @@ public static class PackageCommandDefinitions
                     && rangeError is null),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         var queryCommand = CreatePackageQueryCommand(
@@ -241,7 +218,7 @@ public static class PackageCommandDefinitions
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption,
-            linesOption, tailLinesOption, outOption, pathMatchOption,
+            opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
 
@@ -362,9 +339,6 @@ public static class PackageCommandDefinitions
         {
             Description = "Minified JSON (use with --json)"
         };
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
-
         queryCommand.Arguments.Add(inputArg);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
@@ -379,6 +353,8 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.Rows);
         queryCommand.Options.Add(opts.Head);
         queryCommand.Options.Add(opts.Tail);
+        queryCommand.Options.Add(opts.Lines);
+        queryCommand.Options.Add(opts.TailLines);
         queryCommand.Options.Add(opts.Count);
         queryCommand.Options.Add(opts.Fields);
         queryCommand.Options.Add(opts.Columns);
@@ -411,6 +387,8 @@ public static class PackageCommandDefinitions
                 opts.Rows,
                 opts.Head,
                 opts.Tail,
+                opts.Lines,
+                opts.TailLines,
                 opts.Fields,
                 opts.Columns,
                 opts.Discover,
@@ -579,11 +557,16 @@ public static class PackageCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,
             takeOption,

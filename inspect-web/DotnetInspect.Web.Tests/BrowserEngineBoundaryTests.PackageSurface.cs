@@ -893,7 +893,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserCompileLibraryStatus.EmptyCompileGroup,
             surface.CompileLibrary.Status);
-        Assert.Equal("net6.0", surface.CompileLibrary.TargetFramework);
+        Assert.Equal("net8.0", surface.CompileLibrary.TargetFramework);
         Assert.Null(surface.DefaultAssemblyId);
         Assert.Empty(surface.Assemblies);
         Assert.Empty(surface.Types);
