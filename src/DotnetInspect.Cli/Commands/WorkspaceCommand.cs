@@ -71,51 +71,35 @@ public static class WorkspaceCommand
             return 1;
         }
 
-        WorkspaceSharePacketRealizationPlan? packetPlan = null;
-        WorkspacePlan plan;
-        WorkspaceMemberCoordinate[] directMembers = [];
         if (options.Packet is not null)
         {
-            try
-            {
-                packetPlan = WorkspaceSharePacketRealization.Prepare(
-                    options.Packet,
-                    cancellationToken);
-                plan = packetPlan.Plan;
-            }
-            catch (Exception ex)
-                when (ex is WorkspaceSharePacketException
-                    or InspectionDefinitionException
-                    or ArgumentException)
-            {
-                CommandError.Write(
-                    "The Workspace packet could not be restored.",
-                    [ex.Message]);
-                return 1;
-            }
+            return await ExecutePacketAsync(
+                options,
+                loadOptions,
+                cancellationToken).ConfigureAwait(false);
         }
-        else
+
+        WorkspacePlan plan;
+        WorkspaceMemberCoordinate[] directMembers = [];
+        if (!TryCreateRegistrations(options, out var registrations))
+            return 1;
+        if (options.Packages.Length != 0
+            && !InspectionGraphCommand.TryCreateMembers(
+                options.Packages,
+                out directMembers))
         {
-            if (!TryCreateRegistrations(options, out var registrations))
-                return 1;
-            if (options.Packages.Length != 0
-                && !InspectionGraphCommand.TryCreateMembers(
-                    options.Packages,
-                    out directMembers))
-            {
-                return 1;
-            }
-            try
-            {
-                plan = new WorkspacePlan(registrations);
-            }
-            catch (ArgumentException ex)
-            {
-                CommandError.Write(
-                    "The Workspace registration set is invalid.",
-                    [ex.Message]);
-                return 1;
-            }
+            return 1;
+        }
+        try
+        {
+            plan = new WorkspacePlan(registrations);
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                "The Workspace registration set is invalid.",
+                [ex.Message]);
+            return 1;
         }
 
         await using var coordinator = new WorkspaceRealizationCoordinator();
@@ -142,7 +126,6 @@ public static class WorkspaceCommand
         }
 
         IReadOnlyList<PackageRootBinding> committedBindings = [];
-        IReadOnlyList<PackageRootBinding> packetAcquisitions = [];
         using (WorkspaceRealizationConstructionLease construction =
             prepared.Candidate.EnterConstruction())
         {
@@ -162,56 +145,7 @@ public static class WorkspaceCommand
 
             WorkspaceScopeSnapshot snapshot =
                 ((WorkspaceScopeReadResult.Available)read).Snapshot;
-            if (packetPlan is not null)
-            {
-                var packageBindings = new List<PackageRootBinding>();
-                foreach (WorkspaceContextInput context in packetPlan.Plan.Contexts)
-                {
-                    foreach (WorkspaceMemberCoordinate.PackageMember package
-                        in context.Members.OfType<
-                            WorkspaceMemberCoordinate.PackageMember>())
-                    {
-                        WorkspacePackageRootAcquisitionOutcome outcome =
-                            await WorkspaceContextLoader.AcquirePackageRootAsync(
-                                new WorkspaceContextInput
-                                {
-                                    Framework = context.Framework,
-                                    RuntimeIdentifier =
-                                        context.RuntimeIdentifier,
-                                    Members = [package],
-                                },
-                                loadOptions,
-                                cancellationToken).ConfigureAwait(false);
-                        if (outcome
-                            is WorkspacePackageRootAcquisitionOutcome.Failed failed)
-                        {
-                            CommandError.Write(
-                                "The Workspace packet's Package membership could not be loaded.",
-                                [
-                                    .. failed.Failures.Select(static failure =>
-                                        $"{failure.Kind}: {failure.Message}"),
-                                ]);
-                            await AbandonCandidateAsync(
-                                coordinator,
-                                prepared.Candidate).ConfigureAwait(false);
-                            return 1;
-                        }
-
-                        packageBindings.Add(
-                            ((WorkspacePackageRootAcquisitionOutcome.Acquired)
-                                outcome).Root);
-                    }
-                }
-
-                packetAcquisitions = packageBindings;
-                committedBindings =
-                [
-                    .. packageBindings.DistinctBy(
-                        static binding =>
-                            binding.CreateReacquisitionRequest()),
-                ];
-            }
-            else if (options.RootRequest is not null)
+            if (options.RootRequest is not null)
             {
                 PackageRootBinding? root =
                     await AcquireRootRequestAsync(
@@ -311,27 +245,9 @@ public static class WorkspaceCommand
             return 1;
         }
 
-        WorkspaceTopLevelInventoryShareBasis shareBasis;
-        try
-        {
-            shareBasis = packetPlan is null
-                ? WorkspaceTopLevelInventoryShareBasis
-                    .CreateRealizedWorkspace(ready.Definition)
-                : WorkspaceTopLevelInventoryShareBasis.CreateProjectable(
-                    packetPlan.CreateShareProjection(
-                        ready.Definition,
-                        packetAcquisitions));
-        }
-        catch (ArgumentException ex)
-        {
-            CommandError.Write(
-                "The Workspace packet projection could not be associated with the realized Workspace.",
-                [ex.Message]);
-            await AbandonCandidateAsync(
-                coordinator,
-                prepared.Candidate).ConfigureAwait(false);
-            return 1;
-        }
+        WorkspaceTopLevelInventoryShareBasis shareBasis =
+            WorkspaceTopLevelInventoryShareBasis
+                .CreateRealizedWorkspace(ready.Definition);
 
         WorkspaceRealizationCutoverResult cutover =
             coordinator.CutOver(prepared.Candidate);
@@ -404,6 +320,95 @@ public static class WorkspaceCommand
         }
         return exitCode;
     }
+
+    static async Task<int> ExecutePacketAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        CancellationToken cancellationToken)
+    {
+        var intent = new WorkspaceCommandRestorationIntent(cancellationToken);
+        CompleteRestorationPreparationResult preparation =
+            CompleteRestorationPreparation.FromPacket(
+                options.Packet!,
+                intent,
+                cancellationToken);
+        await using var host = new WorkspaceCommandRestorationHost();
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        ViewFacetAvailabilitySnapshot executableEntries =
+            CurrentCatalogEntriesExecutable(registry);
+        CompleteRestorationResult<WorkspaceRealizationOperationLease> result =
+            await CompleteRestorationCoordinator.RestoreAsync(
+                preparation,
+                intent,
+                host,
+                new CompleteRestorationExecutionOptions
+                {
+                    ContextLoad = loadOptions,
+                    ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
+                    Facets = registry,
+                    FacetAvailability = (_, _) => executableEntries,
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (result
+            is not CompleteRestorationResult<
+                WorkspaceRealizationOperationLease>.Activated activated)
+        {
+            CommandError.Write(
+                "The Workspace packet could not be restored.",
+                result switch
+                {
+                    CompleteRestorationResult<
+                        WorkspaceRealizationOperationLease>.Failed failed =>
+                        RestorationFailureDetails(failed.Failure),
+                    CompleteRestorationResult<
+                        WorkspaceRealizationOperationLease>.Superseded =>
+                        ["The restoration request was superseded."],
+                    _ => ["The restoration returned an unsupported result."],
+                });
+            return 1;
+        }
+
+        using WorkspaceRealizationOperationLease authority =
+            activated.Activation;
+        WorkspaceTopLevelInventoryRequest request =
+            options.InventoryKinds.Length == 0
+                ? WorkspaceTopLevelInventoryRequest.All
+                : new WorkspaceTopLevelInventoryRequest(
+                    new WorkspaceTopLevelInventoryKindFilter(
+                        options.InventoryKinds));
+        WorkspaceTopLevelInventoryExecution inventory =
+            WorkspaceTopLevelInventoryOperation.Execute(
+                authority,
+                request,
+                WorkspaceTopLevelInventoryShareBasis
+                    .CreateCompleteRestoration(activated.Workspace));
+        int exitCode = WriteInventory(inventory, options);
+        if (exitCode == 0 && options.ShareFormat is { } shareFormat)
+        {
+            exitCode = WorkspaceShareOutput.Write(
+                inventory.Inspection.Share,
+                shareFormat);
+        }
+        return exitCode;
+    }
+
+    static string[] RestorationFailureDetails(
+        CompleteRestorationFailure failure) =>
+        failure switch
+        {
+            CompleteRestorationFailure.ContextLoadFailed
+            {
+                Outcome: WorkspaceContextLoadOutcome.Failed failed,
+            } =>
+            [
+                failure.Message,
+                .. failed.Failures.Select(static item =>
+                    $"{item.Kind}: {item.Message}"),
+            ],
+            CompleteRestorationFailure.ScopeMutationFailed scope =>
+                [failure.Message, scope.Outcome.ToString() ?? "Unknown Scope outcome."],
+            _ => [failure.Message],
+        };
 
     static Task AbandonCandidateAsync(
         WorkspaceRealizationCoordinator coordinator,

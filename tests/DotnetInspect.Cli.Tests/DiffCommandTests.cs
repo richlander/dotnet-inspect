@@ -12,6 +12,7 @@ using ILInspector.Research;
 using Inspector.Text;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using InertText;
 using Markout;
@@ -2462,7 +2463,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_MultipleSelectedSections_ComposesJson()
+    public async Task ExecuteAsync_DiffCategory_ComposesJson()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
         var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
@@ -2471,7 +2472,7 @@ public class DiffCommandTests
             DiffCommand.ExecuteAsync(new DiffOptions
             {
                 LibraryVersionRange = $"{v1}..{v2}",
-                Select = ["Analysis Diff", "Implementation Diff"],
+                Select = [SectionCategoryNames.Diff, "*Transitions"],
                 JsonOutput = true,
                 TypeFilter = ["DiffSample"],
                 ChangedOnly = true
@@ -2480,6 +2481,7 @@ public class DiffCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("changes", out _));
         Assert.True(document.RootElement.TryGetProperty("analysis_diff", out var analysis));
         Assert.True(document.RootElement.TryGetProperty("implementation_diff", out var implementation));
         Assert.Equal(
@@ -2596,20 +2598,24 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_AllSections_ReportsFocusedFindingTransitionsException()
+    public async Task ExecuteAsync_DiffCategoryWithFindingTransitions_ReportsCompositionError()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             DiffCommand.ExecuteAsync(new DiffOptions
             {
                 LibraryVersionRange = "missing-old.dll..missing-new.dll",
-                Select = ["@All"],
+                Select =
+                [
+                    SectionCategoryNames.Diff,
+                    DiffSections.FindingTransitions.Name,
+                ],
                 TypeFilter = ["Sample.Widget"]
             }));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains("focused endpoint-confirmation lens", error, StringComparison.Ordinal);
-        Assert.Contains("instead of using @All", error, StringComparison.Ordinal);
+        Assert.Contains("use @Diff", error, StringComparison.Ordinal);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 

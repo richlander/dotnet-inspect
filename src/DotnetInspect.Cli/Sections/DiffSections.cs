@@ -55,6 +55,11 @@ public sealed record DiffSectionCatalog(
 
 public static class DiffSections
 {
+    public static IReadOnlySet<string> ExactOnlySections { get; } =
+        new HashSet<string>(
+            [FindingTransitions.Name],
+            StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The reusable fixed-domain catalog for Diff queries.</summary>
     public static InspectionQueryCatalog<DiffQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
@@ -90,10 +95,17 @@ public static class DiffSections
         SectionPipeline<DiffDiscoveryModel> pipeline)
     {
         pipeline
+            .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
-            .Add<FindingTransitions>();
+            .Add<FindingTransitions>()
+            .AddBaseCategory(
+                SectionCategoryNames.Diff,
+                Changes.Name,
+                AnalysisDiff.Name,
+                ImplementationDiff.Name);
     }
 
     public static InspectionQueryRegistry<DiffQueryContext> CreateQueryRegistry()

@@ -88,7 +88,9 @@ snapshot:
   or silently converted into a package request.
 
 Framework Library results are outside this managed activation-plan family.
-The Browser opens them through its existing realization path under the
+The Browser opens them through
+[framework declaration activation](inspect-web-framework-declaration-activation.md)
+and its source-owner realization path under the
 [Spotlight presentation boundary](#spotlight-presentation-boundary).
 
 The decision uses membership and registration as relevance evidence. It does
@@ -418,7 +420,8 @@ design evidence, not implementation conformance.
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Shared Package/Library/Type/Member ancestry, focus, reconciliation, and exact action authority |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Canonical location, history, effect installation, and consumer synchronization |
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Grouping, labels, accessibility, and opaque-action interaction |
-| Browser framework-Library realization | Internal target, Library acquisition, catalog, and source-specific focus without a Spotlight Platform destination |
+| [Inspect Web framework declaration activation](inspect-web-framework-declaration-activation.md) | Exact framework occurrence binding, Browser-local Library/Type actions, and detached effects |
+| PlatformHouse and Browser framework realization | Internal target, view, Library acquisition, catalog, projection, and provenance |
 | [Workspace Definitions](workspace-definitions.md), Artifact Acquisition, and retained Browser host | Complete external-package activation, non-install cleanup and drainage, collection publication, and active identity |
 
 Production adoption is staged by owner:
