@@ -166,22 +166,8 @@ public static class CommandLineBuilder
         string parentName,
         string childName)
     {
-        // System.CommandLine treats `--value=` as bare and can consume the child token.
-        if (args.FirstOrDefault() != parentName)
-            return args;
-
-        int childIndex = -1;
-        for (int i = 1; i < args.Length; i++)
-        {
-            if (args[i] == "--")
-                return args;
-            if (args[i] == childName)
-            {
-                childIndex = i;
-                break;
-            }
-        }
-        if (childIndex < 0)
+        if (args.FirstOrDefault() != parentName
+            || !args.TakeWhile(static token => token != "--").Contains(childName))
             return args;
 
         Command? parent = rootCommand.Subcommands.FirstOrDefault(
@@ -190,9 +176,15 @@ public static class CommandLineBuilder
             return args;
 
         List<string>? result = null;
-        for (int i = 1; i < childIndex; i++)
+        for (int i = 1; i < args.Length; i++)
         {
             string token = args[i];
+            if (token == "--")
+            {
+                result?.AddRange(args[i..]);
+                break;
+            }
+
             int separator = token.Length - 1;
             if (separator <= 0
                 || token[separator] is not ('=' or ':'))
@@ -221,8 +213,14 @@ public static class CommandLineBuilder
         if (result is null)
             return args;
 
-        result.AddRange(args[childIndex..]);
-        return [.. result];
+        string[] expanded = [.. result];
+        // Let the parser establish which literal `coordinate` token is the child.
+        CommandResult selected = rootCommand.Parse(expanded).CommandResult;
+        return selected.Command.Name == childName
+            && selected.Parent is CommandResult selectedParent
+            && selectedParent.Command.Name == parentName
+                ? expanded
+                : args;
     }
 
     private static bool UsesImplicitVersionDirectionPresence(

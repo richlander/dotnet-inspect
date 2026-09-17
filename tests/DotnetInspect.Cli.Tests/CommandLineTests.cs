@@ -1219,6 +1219,36 @@ public class CommandLineTests
             result);
     }
 
+    [Fact]
+    public void PreprocessArgs_FindsCoordinateAfterParentOptionValueNamedCoordinate()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [
+                "library",
+                "--type",
+                "coordinate",
+                "--package=",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ]);
+
+        Assert.Equal(
+            [
+                "library",
+                "--type",
+                "coordinate",
+                "--package",
+                "",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ],
+            result);
+    }
+
     [Theory]
     [InlineData("--columns=", "--columns", "--columns")]
     [InlineData("--columns", "--columns=", "--columns")]

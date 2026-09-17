@@ -2185,6 +2185,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_RejectsInlineEmptyParentValueAfterCoordinateValue()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--type",
+            "coordinate",
+            "--package=",
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--package cannot be combined with library coordinate",
+            error);
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_RejectsParentOperation()
     {
         string missingLibrary = Path.Combine(
