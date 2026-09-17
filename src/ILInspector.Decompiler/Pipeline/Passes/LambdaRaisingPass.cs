@@ -460,6 +460,9 @@ public sealed class LambdaRaisingPass : IIrPass
             ReturnsVoid = returnsVoid,
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
             SynthesizedLocalNames = body.SynthesizedLocalNames,
+            LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
+            LocalDeclarationBindings = body.LocalDeclarationBindings,
+            LocalNameImportCauses = body.LocalNameImportCauses,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };
         lambda.InheritSourceOffset(provenance);
@@ -504,6 +507,7 @@ public sealed class LambdaRaisingPass : IIrPass
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
             return false;
+        statements = PdbLocalScopePass.WithoutLexicalBlocks(statements);
 
         for (int i = 0; i < statements.Count; i++)
         {

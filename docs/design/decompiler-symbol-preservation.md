@@ -83,11 +83,26 @@ mismatch.
 Field-like and MethodImpl event shortcuts validate both semantic accessor
 signatures before omitting their bodies.
 
-Retained local allocation similarly uses one printer-owned collision relation
-for output and fidelity. Exact names in sibling arms of the same raised switch
-expression may be reused because their scopes are disjoint. Two bindings in
-one arm, an enclosing reservation, or a flattened local-function declaration
-still collides and lowers fidelity when the exact local cannot be emitted.
+Retained local allocation uses one printer-owned collision relation for output
+and fidelity. Exact names may be reused only in disjoint emitted declaration
+scopes. Disjoint debug ranges do not by themselves establish disjoint C#
+declarations: a declaration hoisted by the printer reserves its wider scope.
+Two bindings in one scope, an enclosing reservation, or a flattened
+local-function declaration still collide and lower fidelity when the exact
+local cannot be emitted. Structured statement ranges may retain an explicit
+block when needed to preserve disjoint names; retaining that block must not
+strand another binder's uses or change control flow.
+
+A PDB local's identity includes its source method, local-variable row, physical
+IL slot, and half-open scope range. Import must not replace two such identities
+with whichever name happens to be read last. A reused slot may become separate
+logical locals only when IL dataflow proves that no value or escaping storage
+reference crosses the proposed split. Unknown, overlapping, or uncovered
+associations retain storage semantics and report the naming limitation rather
+than applying one scope's name to another. These are Decompiler obligations over
+already acquired PDB records; they do not change symbol acquisition.
+`PdbLocalNameScopeTests` and `PdbLocalDeclarationScopeTests` own the Release
+fixtures for [#5617](https://github.com/richlander/dotnet-inspect/issues/5617).
 Printer-only receiver recomposition does not elide a slot carrying an exact PDB
 name; an unnamed receiver slot that is elided reserves no presentation name.
 The existing single-await-return recipe likewise retains an exact named
@@ -120,12 +135,22 @@ substitutes. Value-type receiver copies are not covered by this rule.
 
 ### Portable PDB boundary
 
-The current Decompiler PDB consumer reads `LocalVariable` names and
-`LocalScope` ranges, but collapses them into at most one name and one
-scope-derived placement fact per IL slot. It does not consume every table or
-custom debug record in a Portable PDB. A matching PDB therefore improves local
-naming only where the compiler emitted a slot-backed local, named that slot,
-and the current per-slot model can represent the evidence.
+The Decompiler PDB consumer reads `LocalVariable` names and `LocalScope` ranges.
+These records can distinguish multiple names for one reused physical slot.
+They do not establish storage independence, lexical syntax, or the identity of
+an initializer outside the recorded range. The consumer does not read every
+table or custom debug record in a Portable PDB. A matching PDB therefore
+improves local naming only where the compiler emitted a slot-backed local,
+named it, and the reconstruction can preserve its binding.
+
+The analogous ILSpy implementation is evidence, not authority:
+[`PortableDebugInfoProvider.TryGetName`](https://github.com/icsharpcode/ILSpy/blob/712ad1aed113f58a7e2230690acada80246e2751/ICSharpCode.ILSpyX/PdbProvider/PortableDebugInfoProvider.cs#L155-L175)
+selects one name per slot without a range parameter, while
+[`SplitVariables`](https://github.com/icsharpcode/ILSpy/blob/712ad1aed113f58a7e2230690acada80246e2751/ICSharpCode.Decompiler/IL/Transforms/SplitVariables.cs#L49-L180)
+separately limits splitting by reaching definitions and address use. This
+contract deliberately preserves more naming evidence while retaining the
+distinction between a debug name and independent storage. The survey transfers
+no implementation from that MIT-licensed source.
 
 Two examples make the boundary concrete:
 
@@ -190,7 +215,7 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 | Scenario | Current contract | Probe | Regression gate |
 | -------- | ---------------- | ----- | --------------- |
 | Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. For body-bearing methods, parameter and retained-local identities without a lossless C# spelling or binding lower body fidelity; this includes an exact parameter or authenticated flattened local-function declaration colliding with a method generic or flattened declaration. Type self-declarations can return a typed refusal. Synthesized method parameters and printer-generated helpers yield to exact binders. Until #5778, an accessor whose sibling body disagrees about an explicit parameter name or whose body cannot use C#'s implicit `value` binder fails visibly; MethodSemantics supplies that role independently of the accessor MethodDef name, and field-like/MethodImpl shortcuts do not bypass validation. Static argument zero named `this` and bodyless-member refusal remain explicit gaps (P29 and P30). Full Unicode admission remains incomplete (P28). | P1, P25, P26, P28, P29, P30 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `MetadataExtensionFindingsTests.GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `RaisingPassTests.StackAlloc_SyntheticHelperAvoidsMethodGenericParameter`, `LocalFunctionRaisingPassTests.LocalFunctionNameCollidingWithMethodGeneric_DegradesToPartial`, `UnspeakableNameFidelityTests.SynthesizedOuterParameterYieldsToExactCapturedLambdaParameter`, `UnspeakableNameFidelityTests.ExactParameterConflictingWithFlattenedLocalFunction_DegradesToPartial`, `MemberBodyProducerMemberRenderTests.ProduceMember_MissingSetterValueName_FailsVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_RenamedEventValueNames_FailVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_FieldLikeEventParameterNames_RequireImplicitValue`, `MemberBodyProducerMemberRenderTests.ProduceMember_IndexerAccessorParameterNames_RequireSharedDeclaration`, `MemberBodyProducerMemberRenderTests.Project_IncompatibleFieldLikeEventValueName_FailsWholeTypeVisibly`, `ApiOutputFormatterTests.FormatSourceWithDeclaration_UsesBodyOwnedParameterNames`, and `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`. |
-| PDB local variables | Prefer an admitted Portable PDB local name associated with the exact IL slot and scope when the current per-slot model and collision allocation can represent it. Sibling arms of one raised switch expression may preserve the same exact name; same-arm reuse, wider reservations, and flattened local-function declarations still collide. Eliminated, unreferenced, or unnamed printer-elided slots do not reserve names from surviving binders; receiver recomposition does not elide an exact named slot. P24 and P27 record the remaining general scope-reuse gaps. | P2, P24, P27 | `RaisingPassTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`, `StructReceiverInliningPassTests.ExactNamedReceiver_IsNotFolded`, `RaisingPassTests.StoreElement_PreservesExactNamedReceiverTemp`, `PatternSwitchExpressionPassTests.ProductTargetMethod_SelfRaisesToPatternSwitchExpression`, `UnspeakableNameFidelityTests.EliminatedDuplicateLocal_DoesNotReserveSurvivingExactName`, `UnspeakableNameFidelityTests.RaisedLambdaUnreferencedDuplicateLocal_DoesNotReserveSurvivingExactName`, and the remaining local-collision gates in `UnspeakableNameFidelityTests`; P24 is manually probed, while `PdbLocalNameScopeTests.ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss` pins P27's artifact shape and current loss. |
+| PDB local variables | Preserve an admitted Portable PDB name bound to its exact method, local row, slot, and scope. Reused storage splits only with independent IL evidence; uncertain bindings keep physical storage and report Partial rather than selecting the last name. Exact names may repeat in disjoint emitted declaration scopes, including raised nested bodies. Wider reservations and overlapping emitted uses still collide. Eliminated, unreferenced, or unnamed printer-elided slots do not reserve names; receiver recomposition does not elide an exact named slot. | P2, P24, P27 | `PdbLocalNameScopeTests`, `PdbLocalDeclarationScopeTests`, `PdbLocalScopeFidelityTests`, `PdbLocalNamePropagationTests`, `RaisingPassTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`, `StructReceiverInliningPassTests.ExactNamedReceiver_IsNotFolded`, `RaisingPassTests.StoreElement_PreservesExactNamedReceiverTemp`, and the retained-local/collision gates in `UnspeakableNameFidelityTests`. P27 is synthetic artifact evidence, not compiler-produced slot-reuse or independent compile-back evidence. |
 | Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. Current C# permits nested parameters and locals to reuse enclosing parameter or local names; same-list duplicates and collisions with an actually referenced enclosing binder lower fidelity. | P3, P26 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda`, `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda`, the `*ReusingOuter*` gates, and `UnspeakableNameFidelityTests` |
 | Expression-tree lambda parameters | When the fully owned expression-tree factory shape raises, preserve each `Expression.Parameter` string as the lambda parameter identity. | P23 | `ExpressionTreeFidelityTests.SimpleArithmeticLambda_RecoversLambda_StaysFull` |
 | Dynamic member names | When the authenticated runtime-binder call-site shape raises, preserve its member-name string as the dynamic member identity. | P23 | `DynamicCallSitePassTests.CanonicalPositive_PrintsDynamicMemberAccess` |
@@ -222,8 +247,7 @@ output does not preserve it.
 | Generated backing-field and primary-constructor names | Auto-property fields have matching property rows; primary-constructor captures can be bound to exact constructor parameters and compiler-generated owner evidence. | Current output decodes `<Property>k__BackingField` from grammar plus the property row and `<parameter>P` from grammar alone. | Authenticate each generated field and its exact source-symbol binding before decoding. | [#5595](https://github.com/richlander/dotnet-inspect/issues/5595), P22 |
 | Full C# identifier grammar in semantic-name consumers | Owned expression-tree and dynamic lowerings retain identifier strings; anonymous types retain property metadata names. | Combining-mark names make all three raises decline because they share the narrow `IsEscapableIdentifier` admission. | Admit the compiler-supported grammar only after each lowering establishes the string or metadata name's typed binding. | [#5616](https://github.com/richlander/dotnet-inspect/issues/5616), P23 |
 | Full C# identifier grammar across metadata and authenticated generated names | Metadata and certified iterator/classic-async lowerings retain exact identifier identities, including keywords and combining-mark names. | Some method, type-segment, generic-parameter, and generated-local paths still use the narrower `IsEscapable` admission. Valid names can lower fidelity or fall back to `V_n`. | Use one compiler-characterized, position-aware admission contract while keeping metadata, generated, semantic-literal, and PDB evidence ownership distinct. | [#5657](https://github.com/richlander/dotnet-inspect/issues/5657), P28 |
-| Same-named PDB locals in disjoint scopes | Distinct PDB local rows bind `same` to different IL slots and non-overlapping `LocalScope` ranges. | The function-wide allocator preserves the first `same` and replaces the second despite the legal disjoint scopes. | Allocate final names against lexical overlap rather than whole-function use, while retaining collision safety. | [#5617](https://github.com/richlander/dotnet-inspect/issues/5617), P24 |
-| Different PDB names for one reused slot | Distinct PDB local rows bind `first` and `second` to the same IL slot in non-overlapping `LocalScope` ranges. | The per-slot importer keeps only the later name and can apply `second` to uses in the earlier `first` scope. | Carry scope-qualified local identity through import and final declaration placement. | [#5617](https://github.com/richlander/dotnet-inspect/issues/5617), P27 |
+| Debug-disjoint locals whose raised uses overlap | Distinct PDB local rows bind `same` to different IL slots and non-overlapping `LocalScope` ranges. Evaluation-stack carry and expression inlining can extend the first reconstructed local's uses into the second one's declaration range. | The allocator preserves the first `same`, replaces the second, and reports Partial rather than introducing overlapping declarations or manufacturing value snapshots. | Preserve or materialize the independently owned value before its source-local scope ends, then allocate against the actual emitted scopes. | [#6127](https://github.com/richlander/dotnet-inspect/issues/6127), P24 `SequentialStackCarry` |
 | Tuple element names on composed fields | `TupleElementNamesAttribute` identifies the field's element names, and the metadata view decodes them. | Type source renders `ValueTuple<int, string> NamedTupleField` while neighboring property and event declarations retain tuple names. | Carry the field's typed tuple-name evidence into composed C# field declarations. | [#5618](https://github.com/richlander/dotnet-inspect/issues/5618), P6 |
 
 The current decline behavior is itself gated:
@@ -239,9 +263,10 @@ The current decline behavior is itself gated:
   current fallback spelling until #5586.
 
 The combining-mark half of P14, both P22 generated-field paths, all three P23
-Unicode paths, P24, both P28 paths, and P6's composed-field result are manual
-fixture probes. P27 is an automated synthetic-artifact probe of the current
-loss. Their issues own the missing target-positive and close-negative gates.
+Unicode paths, both P28 paths, and P6's composed-field result are manual
+fixture probes. Their issues own the missing target-positive and close-negative
+gates. P27 separately automates synthetic-artifact preservation and decline
+boundaries.
 
 Those tests are safety rails, not declarations that the gaps are complete.
 
@@ -793,13 +818,54 @@ inspect_member \
   CSharpText.Tests.PdbScopeFixtures \
   DisjointScopeLocals \
   "$CSHARP_TEXT"
+
+inspect_member \
+  CSharpText.Tests.PdbScopeFixtures \
+  SequentialScopeLocals \
+  "$CSHARP_TEXT"
+
+inspect_member \
+  CSharpText.Tests.PdbScopeFixtures \
+  LambdaScopes \
+  "$CSHARP_TEXT"
+
+inspect_member \
+  CSharpText.Tests.PdbScopeFixtures \
+  LocalFunctionScopes \
+  "$CSHARP_TEXT"
+
+inspect_member \
+  CSharpText.Tests.PdbScopeFixtures \
+  SequentialStackCarry \
+  "$CSHARP_TEXT"
+
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+  -class '*PdbLocalDeclarationScopeTests' \
+  -class '*PdbLocalScopeFidelityTests'
 ```
 
-The PDB binds `same` to two distinct slots with disjoint scopes. Current output
-preserves the first name but renders the second as a stable or readable
-fallback and reports Partial because the second exact identity was not
-represented. This is a manual fixture probe; #5617 owns the
-lexical-scope-aware allocation gate that can preserve both identities.
+The first four compiler-produced fixtures bind `same` to distinct slots in
+disjoint source scopes. Final name allocation uses the printer's actual
+declaration scopes; minimal lexical blocks retain disjointness when structuring
+would otherwise flatten those scopes. Both `int same` and `string same` survive,
+including inside a raised lambda or local function. This does not promise the
+original `else` syntax: a retained standalone block is sufficient to preserve
+the names and bindings.
+
+`PdbLocalDeclarationScopeTests` gates those positives, unchanged no-PDB output,
+existing sibling blocks, overlapping-use and parameter-reservation declines,
+and pass idempotence. `PdbLocalScopeFidelityTests` independently compiles the
+two ordinary-method outputs and requires the existing normalized Exact verdict;
+that verdict is not a whole-program or exception-handling equivalence claim.
+
+`SequentialStackCarry` is the remaining boundary. Release compilation carries
+an accumulator on the evaluation stack, and the raised final expression still
+reads the first local alongside the second. Debug-disjoint ranges alone do not
+make those emitted uses disjoint. The fixture keeps its prior output and Partial
+name fidelity; scope retention does not manufacture a snapshot or move effects.
+`InlinedStackCarry_DoesNotPretendScopesAreDisjoint` gates that decline.
+[#6127](https://github.com/richlander/dotnet-inspect/issues/6127) owns its
+value-lifetime follow-up.
 
 ### P25: unnamed metadata parameter synthesis
 
@@ -865,14 +931,28 @@ artifact identity and remain collision-resolved across nested scopes.
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  --filter-method '*ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss*'
+  --filter-class '*PdbLocalNameScopeTests'
 ```
 
-The synthetic artifact has one IL local slot. Its matching Portable PDB names
-that slot `first` in scope `[3,14)` and `second` in scope `[14,27)`. Current
-import retains only `second` and can use it in both ranges. The fixture test
-pins that evidence and current loss; #5617 owns the scope-qualified target
-representation and close negative cases.
+The synthetic artifact has one IL local slot. Its supplied Portable PDB names
+that slot `first` in scope `[3,14)` and `second` in scope `[14,27)`. Independent
+raw control-flow and definite-assignment evidence allow two logical locals;
+the final body uses `Escape(ref first)` and `Escape(ref second)` in the
+corresponding branches. Equal-text rows also remain separate identities.
+
+The same class gates overlapping and equal ranges, uncovered uses,
+cross-scope reaching stores, backward re-entry, retained byref aliases,
+sequential address-taking, pinned/ref storage, exception regions, incomplete
+evidence, and no-PDB behavior. A declined binding retains physical storage,
+does not select either competing name, and reports a typed
+`scoped-local-name-unavailable` cause. `PdbLocalNamePropagationTests` gates
+retention of imported causes when bodies become lambdas, local functions,
+iterators, or classic async methods.
+
+This is hand-authored IL/PDB evidence, not original C# source. The
+`ReleaseCompilerDistinctSlots_PreservesExactScopeRows` control independently
+compiles C# and preserves both names, but the compiler uses distinct slots.
+It does not certify reused-slot reconstruction by compile-back.
 
 ### P28: full identifier grammar across authenticated name paths
 
