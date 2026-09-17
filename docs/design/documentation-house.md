@@ -949,7 +949,10 @@ is settled, the Library owner can retire before serialization, and the
 source-generated JSON contract round trips the separately copied portable
 snapshot. Neighboring unavailable, contribution-rejected, and top-level
 lease-rejected results remain visible rather than becoming empty
-documentation.
+documentation. `SnapshotContract_ContainsOnlyPortableValues` provides full
+public-type-closure coverage for the claim that this snapshot contains only
+primitive, string, enum, nullable, immutable-array, and Queries-owned snapshot
+values.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

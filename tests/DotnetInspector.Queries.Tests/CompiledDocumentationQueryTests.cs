@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
@@ -27,6 +29,50 @@ public sealed class CompiledDocumentationQueryTests
             maxRetainedTextCharacters: 20_000_000);
     private static readonly Lazy<byte[]> s_realAssembly =
         new(() => File.ReadAllBytes(RealAsset("System.Text.Json.dll")));
+
+    [Fact]
+    public void SnapshotContract_ContainsOnlyPortableValues()
+    {
+        var visited = new HashSet<Type>();
+
+        Visit(typeof(CompiledDocumentationQuerySnapshot));
+
+        void Visit(Type type)
+        {
+            if (!visited.Add(type)
+                || type == typeof(string)
+                || type.IsPrimitive
+                || type.IsEnum)
+            {
+                return;
+            }
+            if (Nullable.GetUnderlyingType(type) is { } nullable)
+            {
+                Visit(nullable);
+                return;
+            }
+            if (type.IsGenericType
+                && type.GetGenericTypeDefinition()
+                    == typeof(ImmutableArray<>))
+            {
+                Visit(type.GetGenericArguments()[0]);
+                return;
+            }
+
+            Assert.Equal(
+                typeof(CompiledDocumentationQuerySnapshot).Namespace,
+                type.Namespace);
+            Assert.StartsWith(
+                "CompiledDocumentation",
+                type.Name,
+                StringComparison.Ordinal);
+            foreach (PropertyInfo property in type.GetProperties(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                Visit(property.PropertyType);
+            }
+        }
+    }
 
     [Fact]
     public async Task
