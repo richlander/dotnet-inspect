@@ -2001,6 +2001,37 @@ public partial class CommandExecutionTests
         Assert.Equal(legacy.Error, child.Error);
     }
 
+    [Theory]
+    [InlineData("--il-offset", "not-a-coordinate")]
+    [InlineData("--il-offsets", "/definitely/missing-coordinate-file.txt")]
+    [InlineData("--heap", "#Strings:0x1a4")]
+    public async Task LibraryCoordinateCommand_RejectsParentCoordinateModesBeforeAcquisition(
+        string parentOption,
+        string parentValue)
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            parentOption,
+            parentValue,
+            "coordinate",
+            "0x06000001+0x0",
+            "--library",
+            missingLibrary,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{parentOption} cannot be combined with library coordinate",
+            error);
+        Assert.DoesNotContain(missingLibrary, error);
+    }
+
     [Fact]
     public async Task LibraryCoordinateCommand_HelpShowsFocusAndNamedSources()
     {

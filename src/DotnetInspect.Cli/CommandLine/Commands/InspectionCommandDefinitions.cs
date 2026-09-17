@@ -413,7 +413,11 @@ public static class InspectionCommandDefinitions
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
         assemblyCommand.Subcommands.Add(
-            LibraryCoordinateCommandDefinitions.Create(opts));
+            LibraryCoordinateCommandDefinitions.Create(
+                opts,
+                ilOffsetOption,
+                ilOffsetsOption,
+                heapOption));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {

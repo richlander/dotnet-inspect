@@ -9,7 +9,11 @@ namespace DotnetInspect.Cli.CommandLine;
 
 internal static class LibraryCoordinateCommandDefinitions
 {
-    internal static Command Create(SharedOptions opts)
+    internal static Command Create(
+        SharedOptions opts,
+        Option<string?> parentIlOffsetOption,
+        Option<string?> parentIlOffsetsOption,
+        Option<string?> parentHeapOption)
     {
         var command = new Command(
             "coordinate",
@@ -98,6 +102,23 @@ internal static class LibraryCoordinateCommandDefinitions
         opts.AddPrintOptionTo(command);
         opts.AddShapeProjectionOptionsTo(command);
         opts.AddNuGetOptionsTo(command);
+
+        command.Validators.Add(result =>
+        {
+            foreach (Option option in new Option[]
+            {
+                parentIlOffsetOption,
+                parentIlOffsetsOption,
+                parentHeapOption,
+            })
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"{option.Name} cannot be combined with library coordinate.");
+                }
+            }
+        });
 
         command.SetAction(async (parseResult, _) =>
         {
