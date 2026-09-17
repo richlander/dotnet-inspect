@@ -101,27 +101,18 @@ public static class ProjectionDiagnostics
     }
 
     /// <summary>
-    /// Compares requested field/column names against rendered output.
-    /// Writes a note to stderr for valid names that produced no data.
+    /// Reports requested names whose resolved structural identities are absent from typed render
+    /// evidence. A pattern has data when any concrete name it selected was emitted.
     /// </summary>
-    public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
-    {
-        var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
-        WriteMissing(missing);
-    }
-
-    /// <summary>
-    /// Compares projected patterns against rendered output after resolving them to concrete
-    /// schema names. A pattern has data when any name it selected was rendered.
-    /// </summary>
-    public static void DiagnoseRendered(
+    public static void DiagnoseProjected(
         string[]? requestedNames,
-        string renderedOutput,
+        IEnumerable<string> presentNames,
         IEnumerable<string> availableNames)
     {
         if (requestedNames is not { Length: > 0 })
             return;
 
+        var present = presentNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = availableNames
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -130,34 +121,104 @@ public static class ProjectionDiagnostics
             {
                 var matches = SelectResolver.ResolveSingle(name, candidates)
                     .Matches;
-                string[] concreteNames = matches.Count > 0
-                    ? [.. matches]
-                    : [name];
-                return DocumentSchema.DiagnoseRendered(
-                    concreteNames, renderedOutput).Length
-                    == concreteNames.Length;
+                return matches.Count == 0
+                    ? !present.Contains(name)
+                    : !matches.Any(present.Contains);
             })
             .ToArray();
         WriteMissing(missing);
     }
 
-    /// <summary>
-    /// Reports requested names that matched the schema but are absent from a typed projection.
-    /// </summary>
-    public static void DiagnoseProjected(
+    internal static void DiagnoseProjected(
         string[]? requestedNames,
-        IEnumerable<string> presentNames)
+        RenderedSectionManifest manifest,
+        DocumentSchema schema,
+        string itemKind,
+        IReadOnlyCollection<string>? sections,
+        bool fieldSectionsAsColumns)
     {
         if (requestedNames is not { Length: > 0 })
             return;
 
-        var candidates = presentNames
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        IReadOnlySet<string> rootNames =
+            manifest.GetRootRenderedNames(itemKind);
+        string[] scopedSections = sections is { Count: > 0 }
+            ? [.. sections]
+            : schema.SectionNames;
         var missing = requestedNames
-            .Where(name => SelectResolver.ResolveSingle(name, candidates).Matches.Count == 0)
+            .Where(requested =>
+            {
+                if (MatchesRenderedName(
+                    requested,
+                    rootNames,
+                    rootNames))
+                {
+                    return false;
+                }
+
+                foreach (string sectionName in scopedSections)
+                {
+                    var section = schema.GetSection(sectionName);
+                    if (section is null)
+                        continue;
+
+                    string[] candidates;
+                    if (itemKind.Equals(
+                            "column",
+                            StringComparison.OrdinalIgnoreCase)
+                        && fieldSectionsAsColumns
+                        && section.ItemKind.Equals(
+                            "field",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidates = ["Field", "Value"];
+                    }
+                    else if (section.ItemKind.Equals(
+                        itemKind,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidates =
+                        [
+                            .. section.Items.Select(
+                                static item => item.Name)
+                        ];
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    if (MatchesRenderedName(
+                        requested,
+                        candidates,
+                        manifest.GetSectionRenderedNames(
+                            itemKind,
+                            sectionName)))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
             .ToArray();
         WriteMissing(missing);
+    }
+
+    private static bool MatchesRenderedName(
+        string requested,
+        IEnumerable<string> availableNames,
+        IReadOnlySet<string> presentNames)
+    {
+        string[] candidates = availableNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        IReadOnlyList<string> matches = SelectResolver.ResolveSingle(
+            requested,
+            candidates).Matches;
+        return matches.Count == 0
+            ? presentNames.Contains(requested)
+            : matches.Any(presentNames.Contains);
     }
 
     private static void WriteMissing(string[] missing)

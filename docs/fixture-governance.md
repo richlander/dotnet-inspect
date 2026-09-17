@@ -111,6 +111,17 @@ metadata just because consumers observe them from another assembly.
 - Add or update contract tests when introducing a new boundary so the semantic
   axis cannot be erased by later cleanup.
 
+That rule applies to reusable inspected fixture binaries. Test-local runtime
+compilation remains appropriate when construction is intrinsic to the case,
+such as compiling product-emitted source, a parameterized source matrix,
+malformed input, or an isolated semantic seam. The owning test must assert the
+observable product outcome.
+
+Do not enforce this distinction with source scans, compiler-call counts, or
+reviewed reason manifests. Repository source is trusted, and those inventories
+measure implementation syntax rather than fixture role, behavior, or resource
+cost.
+
 ## Compiler-produced test sources
 
 Compiler-produced source in a test project should live in a feature-focused
