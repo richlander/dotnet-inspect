@@ -87,6 +87,19 @@ operation plan, capability, producer reader or transferred lease. Lease
 settlement is recorded only after disposal; cancellation remains cancellation
 after owned cleanup.
 
+Deadline expiry must cooperatively stop an outstanding source read and settle
+`Incomplete` after its owned cleanup. Checking the clock only after retrieval
+returns is insufficient: a stalled, cancellation-aware source must not require
+unrelated caller cancellation to release the operation. Caller cancellation
+remains distinct from deadline expiry.
+
+An unreadable SourceLink map remains producer failure evidence when it prevents
+authorized remote-source resolution. If no permitted candidate succeeds, that
+failure cannot become authoritative `Unavailable`. Independently usable local
+or repository source may still succeed, retaining the map's diagnostic; an
+optional URL-map failure does not invalidate otherwise authoritative local-only
+settlement.
+
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
 its callers. The three-delivery adapter-first path and overall twelve-step
@@ -753,6 +766,8 @@ The PR-fast suite runs in the ordinary CI contracts shard:
 | Embedded PDB use and bounded expansion accounting | `EmbeddedPdb_ReturnsSourceAndChargesExpandedBytes`, `EmbeddedPdb_UsesStricterHouseLimitAndChargesDeclaredBytes` |
 | Correspondence rejection versus producer uncertainty | `ForeignLease_IsRejectedAndSettled`, `MismatchedClaimedPdb_RejectsOwnerCorrespondence`, `ExactTargetMismatch_IsRejected`, `TargetMissingUnderInspectionFailure_IsFailedNotRejected` |
 | Candidate-local failure and retained incomplete evidence | `CapabilityFailures_AreRetainedAndLaterCandidateCanSucceed`, `FiniteBoundary_ReturnsIncomplete`, `CandidateAttemptBoundary_PreservesMappingAndEarlierAttempt`, `SourceByteBoundary_PreservesRejectedAttemptAndObservedBytes`, `DeadlineAfterCapability_RecordsCompletedAttemptAndWork` |
+| Cooperative deadline settlement, exception parity and long finite deadlines | `DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete`, `LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete`, `DeadlineBeyondSingleTimerRange_CanCompleteNormally` |
+| SourceLink-map failure relevance and successful independent fallback | `UnusableSourceLinkMap_RemoteExhaustionIsFailed`, `UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed`, `UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable` |
 | Transferred ownership and detached outcomes | `NullRequest_StillSettlesTransferredLease`, `CancellationDuringCapability_SettlesLease`, `UnexpectedCapabilityException_PropagatesAfterSettlement`, `OwnerAndArtifactRetirement_DrainIssuedOperation`, `PublicOutcomeClosureRetainsNoLiveAuthority` |
 
 These cases gate the authored-only delivery, not production-host parity,

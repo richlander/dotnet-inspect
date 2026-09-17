@@ -334,6 +334,148 @@ public sealed class AuthoredSourceHouseTests
     }
 
     [Fact]
+    public async Task
+        UnusableSourceLinkMap_RemoteExhaustionIsFailed()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] malformedPdb =
+            MalformSourceLinkMap(
+                File.ReadAllBytes(asset.PdbPath));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                malformedPdb);
+
+        SourceHouseOutcome.Failed failed =
+            Assert.IsType<SourceHouseOutcome.Failed>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "remote",
+                                SourceHouseCapabilityCategory.Remote,
+                                (candidate, _, _) =>
+                                {
+                                    Assert.Null(
+                                        candidate.Document.ResolvedUrl);
+                                    return ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Unavailable(
+                                                    new("NoRemoteUrl")));
+                                }),
+                        ])));
+
+        Assert.Equal(
+            SourceHouseFailureStage.SourceLinkInspection,
+            failed.Failure.Stage);
+        Assert.Equal(
+            "SourceLinkMapUnusable",
+            failed.Failure.Code);
+        Assert.Equal(
+            SourceLinkMapStatus.Unusable,
+            failed.PdbContribution.SourceLinkMap?.Map.Status);
+        Assert.Contains(
+            failed.PdbContribution.Observations,
+            observation =>
+                observation.Stage
+                    == SourceHouseNativeObservationStage.SourceLink
+                && observation.Detail.Length > 0);
+        SourceHouseSourceAttempt attempt = Assert.Single(
+            failed.AuthoredAttempt.SourceAttempts);
+        Assert.Equal(
+            SourceHouseSourceAttemptKind.Unavailable,
+            attempt.Kind);
+        Assert.Equal("NoRemoteUrl", attempt.Observation?.Code);
+    }
+
+    [Fact]
+    public async Task
+        UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] sourceBytes = File.ReadAllBytes(asset.SourcePath);
+        byte[] malformedPdb =
+            MalformSourceLinkMap(
+                File.ReadAllBytes(asset.PdbPath));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                malformedPdb);
+
+        SourceHouseOutcome.Available available =
+            Assert.IsType<SourceHouseOutcome.Available>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "repository",
+                                SourceHouseCapabilityCategory.Repository,
+                                (_, _, _) =>
+                                    ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Available(sourceBytes))),
+                        ])));
+
+        Assert.Equal(
+            SourceLinkMapStatus.Unusable,
+            available.PdbContribution.SourceLinkMap?.Map.Status);
+        Assert.Contains(
+            available.PdbContribution.Observations,
+            observation =>
+                observation.Stage
+                    == SourceHouseNativeObservationStage.SourceLink);
+        Assert.Equal(
+            SourceHouseSourceAttemptKind.Available,
+            Assert.Single(available.Source.SourceAttempts).Kind);
+    }
+
+    [Fact]
+    public async Task
+        UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] malformedPdb =
+            MalformSourceLinkMap(
+                File.ReadAllBytes(asset.PdbPath));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                malformedPdb);
+
+        SourceHouseOutcome.Unavailable unavailable =
+            Assert.IsType<SourceHouseOutcome.Unavailable>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "local",
+                                SourceHouseCapabilityCategory.Local,
+                                (_, _, _) =>
+                                    ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Unavailable(
+                                                    new("NotLocal")))),
+                        ])));
+
+        Assert.Equal(
+            SourceLinkMapStatus.Unusable,
+            unavailable.PdbContribution.SourceLinkMap?.Map.Status);
+        Assert.Single(unavailable.AuthoredAttempt.SourceAttempts);
+    }
+
+    [Fact]
     public async Task MissingPortablePdb_IsUnavailable()
     {
         RealAsset asset = MemberSlicingAsset();
@@ -997,7 +1139,15 @@ public sealed class AuthoredSourceHouseTests
                             async (_, _, token) =>
                             {
                                 started.SetResult();
-                                await release.Task.WaitAsync(token);
+                                try
+                                {
+                                    await release.Task.WaitAsync(token);
+                                }
+                                catch (OperationCanceledException)
+                                    when (token.IsCancellationRequested)
+                                {
+                                }
+
                                 return new SourceHouseCapabilityOutcome
                                     .Available(sourceBytes);
                             }),
@@ -1033,6 +1183,191 @@ public sealed class AuthoredSourceHouseTests
         Assert.Equal(
             sourceBytes.Length,
             incomplete.Work.SourceBytesObserved);
+    }
+
+    [Fact]
+    public async Task
+        DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+        using var callerCancellation =
+            new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        LibraryOperationLease operation = library.IssueOperation();
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        ValueTask<SourceHouseOutcome> execution =
+            SourceHouse.ExecuteAuthoredAsync(
+                Request(
+                    library,
+                    asset.MemberTarget,
+                    [
+                        Capability(
+                            "earlier",
+                            SourceHouseCapabilityCategory.Local,
+                            (_, _, _) =>
+                                ValueTask.FromResult<
+                                    SourceHouseCapabilityOutcome>(
+                                        new SourceHouseCapabilityOutcome
+                                            .Unavailable(
+                                                new("NotPresent")))),
+                        Capability(
+                            "cooperative",
+                            SourceHouseCapabilityCategory.Repository,
+                            async (_, _, token) =>
+                            {
+                                started.SetResult();
+                                await Task.Delay(
+                                    Timeout.InfiniteTimeSpan,
+                                    token);
+                                throw new InvalidOperationException();
+                            }),
+                    ],
+                    deadline:
+                        DateTimeOffset.UtcNow
+                            .AddMilliseconds(200)),
+                operation,
+                callerCancellation.Token);
+        await started.Task.WaitAsync(callerCancellation.Token);
+
+        SourceHouseOutcome.Incomplete incomplete =
+            Assert.IsType<SourceHouseOutcome.Incomplete>(
+                await execution);
+        stopwatch.Stop();
+
+        Assert.Equal(
+            SourceHouseIncompleteBoundary.Deadline,
+            incomplete.Boundary);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Deadline settlement took {stopwatch.Elapsed}.");
+        Assert.NotNull(incomplete.AuthoredAttempt.Mapping);
+        Assert.Equal(
+            2,
+            incomplete.AuthoredAttempt.SourceAttempts.Count);
+        SourceHouseSourceAttempt earlier =
+            incomplete.AuthoredAttempt.SourceAttempts[0];
+        Assert.Equal(
+            SourceHouseSourceAttemptKind.Unavailable,
+            earlier.Kind);
+        Assert.Equal("NotPresent", earlier.Observation?.Code);
+        SourceHouseSourceAttempt attempt =
+            incomplete.AuthoredAttempt.SourceAttempts[1];
+        Assert.Equal(
+            SourceHouseSourceAttemptKind.Incomplete,
+            attempt.Kind);
+        Assert.Equal(
+            "DeadlineExpiredDuringCapability",
+            attempt.Observation?.Code);
+        Assert.Equal(2, incomplete.Work.CandidateAttempts);
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        DeadlineBeyondSingleTimerRange_CanCompleteNormally()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] sourceBytes = File.ReadAllBytes(asset.SourcePath);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+        LibraryOperationLease operation = library.IssueOperation();
+
+        SourceHouseOutcome.Available available =
+            Assert.IsType<SourceHouseOutcome.Available>(
+                await SourceHouse.ExecuteAuthoredAsync(
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "verified",
+                                SourceHouseCapabilityCategory.Local,
+                                (_, _, _) =>
+                                    ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Available(sourceBytes))),
+                        ],
+                        deadline: DateTimeOffset.UtcNow.AddDays(100)),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "public static string? ExtractMemberText(",
+            available.Source.Text,
+            StringComparison.Ordinal);
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+
+        SourceHouseOutcome.Incomplete incomplete =
+            Assert.IsType<SourceHouseOutcome.Incomplete>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "late-io",
+                                SourceHouseCapabilityCategory.Local,
+                                async (_, _, token) =>
+                                {
+                                    try
+                                    {
+                                        await Task.Delay(
+                                            Timeout.InfiniteTimeSpan,
+                                            token);
+                                    }
+                                    catch (OperationCanceledException)
+                                        when (token.IsCancellationRequested)
+                                    {
+                                        throw new IOException(
+                                            "late transport failure");
+                                    }
+
+                                    throw new InvalidOperationException();
+                                }),
+                        ],
+                        deadline:
+                            DateTimeOffset.UtcNow
+                                .AddMilliseconds(200))));
+
+        Assert.Equal(
+            SourceHouseIncompleteBoundary.Deadline,
+            incomplete.Boundary);
+        SourceHouseSourceAttempt attempt = Assert.Single(
+            incomplete.AuthoredAttempt.SourceAttempts);
+        Assert.Equal(
+            SourceHouseSourceAttemptKind.Incomplete,
+            attempt.Kind);
+        Assert.Equal(
+            "DeadlineExpiredDuringCapability",
+            attempt.Observation?.Code);
+        Assert.Contains(
+            "late transport failure",
+            attempt.Observation?.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1107,7 +1442,8 @@ public sealed class AuthoredSourceHouseTests
     }
 
     [Fact]
-    public async Task CancellationDuringCapability_SettlesLease()
+    public async Task
+        CallerCancellationBeforeDeadline_PreservesTokenAndSettlesLease()
     {
         RealAsset asset = MemberSlicingAsset();
         await using LibraryFixture library =
@@ -1135,7 +1471,9 @@ public sealed class AuthoredSourceHouseTests
                 Request(
                     library,
                     asset.MemberTarget,
-                    [capability]),
+                    [capability],
+                    deadline:
+                        DateTimeOffset.UtcNow.AddSeconds(5)),
                 operation,
                 cancellation.Token);
         await started.Task;
@@ -1437,6 +1775,18 @@ public sealed class AuthoredSourceHouseTests
             originalPath);
     }
 
+    private static byte[] MalformSourceLinkMap(byte[] portablePdb)
+    {
+        byte[] malformed = [.. portablePdb];
+        ReadOnlySpan<byte> marker = "{\"documents\":"u8;
+        int offset = malformed.AsSpan().IndexOf(marker);
+        Assert.True(
+            offset >= 0,
+            "The real portable PDB did not contain a SourceLink map.");
+        malformed[offset] = (byte)'!';
+        return malformed;
+    }
+
     private static byte[] BuildMalformedTargetSurface()
     {
         var metadata = new MetadataBuilder();
@@ -1723,6 +2073,19 @@ public sealed class AuthoredSourceHouseTests
                 assembly,
                 pdb: null,
                 declaredIdentity);
+
+        public static async Task<LibraryFixture> CreateAsync(
+            string assemblyPath,
+            byte[] portablePdb)
+        {
+            byte[] assembly = await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken);
+            return await CreateAsync(
+                assembly,
+                portablePdb,
+                ReadAssemblyIdentity(assemblyPath));
+        }
 
         private static async Task<LibraryFixture> CreateAsync(
             byte[] assembly,

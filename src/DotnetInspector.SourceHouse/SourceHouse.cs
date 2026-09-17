@@ -580,6 +580,14 @@ public static class SourceHouse
                             observations),
                         observedWork));
             }
+            if (map.Map.Status == SourceLinkMapStatus.Unusable)
+            {
+                observations.Add(
+                    new(
+                        SourceHouseNativeObservationStage.SourceLink,
+                        map.Map.Error
+                        ?? "The SourceLink map is unusable."));
+            }
 
             failureStage = SourceHouseFailureStage.TargetMapping;
             observationStage =
@@ -910,6 +918,13 @@ public static class SourceHouse
                 prepared.Mapping);
         }
 
+        await using DeadlineCancellation operationDeadline =
+            DeadlineCancellation.Start(
+                request.Plan.Deadline,
+                cancellationToken);
+        CancellationToken operationCancellation =
+            operationDeadline.Token;
+
         foreach (ISourceHouseSourceCapability capability
             in capabilities)
         {
@@ -954,13 +969,33 @@ public static class SourceHouse
                     await capability.ReadAsync(
                             prepared.Candidate,
                             remainingBytes,
-                            cancellationToken)
+                            operationCancellation)
                         .ConfigureAwait(false)
                     ?? throw new InvalidOperationException(
                         "A source capability returned no outcome.");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException exception)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (operationDeadline.IsDeadlineCancellationRequested)
+                {
+                    attempts.Add(
+                        Attempt(
+                            capability,
+                            SourceHouseSourceAttemptKind.Incomplete,
+                            BytesObserved: 0,
+                            ChecksumVerification: null,
+                            new(
+                                "DeadlineExpiredDuringCapability",
+                                ExceptionDetail(exception))));
+                    return Incomplete(
+                        SourceHouseIncompleteBoundary.Deadline,
+                        prepared.PdbContribution,
+                        Charge(),
+                        prepared.Mapping,
+                        attempts);
+                }
+
                 throw;
             }
             catch (Exception exception) when (
@@ -970,7 +1005,27 @@ public static class SourceHouse
                     or ArgumentException
                     or NotSupportedException)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string detail = ExceptionDetail(exception);
+                if (operationDeadline.IsDeadlineCancellationRequested)
+                {
+                    attempts.Add(
+                        Attempt(
+                            capability,
+                            SourceHouseSourceAttemptKind.Incomplete,
+                            BytesObserved: 0,
+                            ChecksumVerification: null,
+                            new(
+                                "DeadlineExpiredDuringCapability",
+                                detail)));
+                    return Incomplete(
+                        SourceHouseIncompleteBoundary.Deadline,
+                        prepared.PdbContribution,
+                        Charge(),
+                        prepared.Mapping,
+                        attempts);
+                }
+
                 attempts.Add(
                     Attempt(
                         capability,
@@ -1239,6 +1294,25 @@ public static class SourceHouse
                 prepared.Mapping,
                 attempts,
                 observedFailure.Detail);
+        }
+
+        SourceLinkMapInspection? map =
+            prepared.PdbContribution.SourceLinkMap?.Map;
+        if (map?.Status == SourceLinkMapStatus.Unusable
+            && prepared.Candidate.Document.ResolvedUrl is null
+            && capabilities.Any(
+                static capability =>
+                    capability.Category
+                        == SourceHouseCapabilityCategory.Remote))
+        {
+            return Failed(
+                SourceHouseFailureStage.SourceLinkInspection,
+                "SourceLinkMapUnusable",
+                prepared.PdbContribution,
+                Charge(),
+                prepared.Mapping,
+                attempts,
+                map.Error);
         }
 
         return Unavailable(
@@ -1579,6 +1653,90 @@ public static class SourceHouse
 
         internal SourceHouseFailureStage Stage { get; }
         internal SourceHouseNativeObservationStage ObservationStage { get; }
+    }
+
+    private sealed class DeadlineCancellation : IAsyncDisposable
+    {
+        private static readonly TimeSpan s_maximumTimerDelay =
+            TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
+
+        private readonly DateTimeOffset _deadline;
+        private readonly CancellationTokenSource _deadlineCancellation =
+            new();
+        private readonly CancellationTokenSource _schedulerStop =
+            new();
+        private readonly CancellationTokenSource _operationCancellation;
+        private readonly Task _scheduler;
+
+        private DeadlineCancellation(
+            DateTimeOffset deadline,
+            CancellationToken callerCancellation)
+        {
+            _deadline = deadline;
+            _operationCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    callerCancellation,
+                    _deadlineCancellation.Token);
+            _scheduler = ScheduleAsync(
+                deadline,
+                _deadlineCancellation,
+                _schedulerStop.Token);
+        }
+
+        internal CancellationToken Token =>
+            _operationCancellation.Token;
+
+        internal bool IsDeadlineCancellationRequested =>
+            _deadlineCancellation.IsCancellationRequested
+            || DateTimeOffset.UtcNow >= _deadline;
+
+        internal static DeadlineCancellation Start(
+            DateTimeOffset deadline,
+            CancellationToken callerCancellation) =>
+            new(deadline, callerCancellation);
+
+        public async ValueTask DisposeAsync()
+        {
+            _schedulerStop.Cancel();
+            try
+            {
+                await _scheduler.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (_schedulerStop.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                _operationCancellation.Dispose();
+                _deadlineCancellation.Dispose();
+                _schedulerStop.Dispose();
+            }
+        }
+
+        private static async Task ScheduleAsync(
+            DateTimeOffset deadline,
+            CancellationTokenSource deadlineCancellation,
+            CancellationToken schedulerStop)
+        {
+            while (true)
+            {
+                TimeSpan remaining =
+                    deadline - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    deadlineCancellation.Cancel();
+                    return;
+                }
+
+                await Task.Delay(
+                        remaining <= s_maximumTimerDelay
+                            ? remaining
+                            : s_maximumTimerDelay,
+                        schedulerStop)
+                    .ConfigureAwait(false);
+            }
+        }
     }
 
     private sealed record MappingPreparation(
