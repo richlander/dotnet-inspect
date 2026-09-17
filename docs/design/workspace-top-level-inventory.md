@@ -6,10 +6,10 @@ This is the target design for
 [#7219](https://github.com/richlander/dotnet-inspect/issues/7219), the focused
 Workspace adoption of the
 [location and result cardinality pattern](command-transition-model.md#location-and-result-cardinality).
-The host-neutral content, snapshot query, selection receipt, Share basis, and
-admitted L2 operation are implemented. CLI and Inspect Web adoption remain
-unimplemented, so the overall target is partially implemented and verified at
-the shared-operation boundary.
+The host-neutral content, snapshot query, selection receipt, Share basis,
+admitted L2 operation, and CLI adoption are implemented. Inspect Web adoption
+remains unimplemented, so the overall target is partially implemented and
+verified through the CLI production host.
 
 The operator approved one host-neutral inventory with direct CLI and Inspect
 Web adoption, and required the command experience to work from both an
@@ -87,11 +87,15 @@ WorkspaceTopLevelInventoryShareBasis
                          NonProjectable(reason)
 ```
 
-For packet or definition restoration, the host derives this basis from the
-Definitions-owned `CompleteRestorationResult.Activated` before publishing the
-Workspace. `Projection` retains that owner's exact canonical packet or typed
-non-projectable reason. The basis copies no construction authority, effect
-authority, restoration recipe, Navigation disposition, or live Workspace.
+For complete packet or definition restoration, the host derives this basis
+from the Definitions-owned `CompleteRestorationResult.Activated` before
+publishing the Workspace. The current CLI inventory route instead uses a
+Definitions-owned, strictly version-dispatched resource-free realization plan
+and receives its projection receipt only after the plan, realized Package
+roots, and published Scope are associated exactly. `Projection` retains that
+owner's exact canonical packet or typed non-projectable reason. The basis
+copies no construction authority, effect authority, restoration recipe,
+Navigation disposition, or live Workspace.
 
 A projectable basis is constructible only from a
 `WorkspaceDefinitionShareProjectionReceipt`. Workspace Definitions issues that
@@ -119,12 +123,12 @@ infer top-level Package membership from `WorkspacePlan.Contexts`.
 The CLI and Inspect Web therefore share one semantic operation without
 pretending that their construction inputs are the same. The CLI adapts its
 explicit Package inputs and registrations, or a Definitions-owned Workspace
-packet restoration recipe, into one ephemeral coordinator candidate. Inspect
-Web uses its existing Definitions-owned restoration recipe and realization
-host. Construction, acquisition, Scope publication, candidate completion,
-cutover, admission, cancellation, retirement, and settlement keep their
-existing owner-issued outcomes and cleanup contracts outside the inventory
-envelope.
+packet inventory realization plan, into one ephemeral coordinator candidate.
+Inspect Web uses its existing Definitions-owned restoration recipe and
+realization host. Construction, acquisition, Scope publication, candidate
+completion, cutover, admission, cancellation, retirement, and settlement keep
+their existing owner-issued outcomes and cleanup contracts outside the
+inventory envelope.
 
 The query validates that the Scope snapshot carries the same
 `WorkspaceScopeRevision` as the `WorkspaceDefinitionSnapshot`. Production
@@ -144,8 +148,19 @@ routes:
    `WorkspacePlan` plus the explicit Package-membership construction inputs
    needed by the current invocation.
 2. **Packet restoration.** One canonical Workspace packet is decoded and
-   lowered by Workspace Definitions into its `WorkspacePlan` and complete
-   restoration recipe.
+   lowered by Workspace Definitions into a resource-free inventory realization
+   plan through strict format dispatch. The plan retains the exact packet and
+   every direct Package member from every context. The CLI acquires those
+   members in plan order, logically coalesces exact duplicate roots, and
+   publishes that complete Package membership before operation admission. A
+   packet containing a group subscription or non-Package context member is
+   rejected visibly rather than certified after dropping construction intent;
+   complete restoration of those packets remains #7027. Each declaration is
+   associated with its acquisition result before coalescing, so floating and
+   exact declarations that resolve to one logical Root retain exact packet
+   evidence while Scope applies its duplicate policy. Declaration association
+   compares the requested target with the acquisition coordinate; selected and
+   effective compatible targets remain realized Scope facts.
 
 Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
@@ -155,8 +170,8 @@ definition/scope state produces equal inventory content.
 
 The routes differ only in available Share evidence:
 
-- packet restoration retains the Definitions activation projection and supplies
-  its exact `PacketInput` basis;
+- packet restoration retains the Definitions-issued packet projection receipt
+  and supplies its exact `PacketInput` basis;
 - direct explicit construction supplies `RealizedWorkspace` with
   `NonProjectable(NoRetainedDefinitionProjection)`; and
 - a direct host that independently obtained and retained a valid
@@ -169,10 +184,9 @@ construction merely to make the result shareable.
 
 A packet is inert input, not acquisition authority. Packet decode, migration,
 Registry resolution, source authorization, acquisition, Scope publication,
-Navigation restoration, projection, cancellation, and cleanup retain the
-typed outcomes and ordering defined by Workspace Definitions and their owning
-services. Failure before operation admission does not become an inventory
-`Unavailable` result.
+projection, cancellation, and cleanup retain the typed outcomes and ordering
+defined by Workspace Definitions and their owning services. Failure before
+operation admission does not become an inventory `Unavailable` result.
 
 The CLI owner defines the packet option spelling and its exact option
 compatibility. The packet cannot be combined with direct top-level construction
@@ -183,8 +197,11 @@ descendant Navigation options may refine the packet's restored active subject
 without changing the inventory basis.
 
 Accepting a packet does not create an inventory-specific packet format. The
-command consumes the existing complete Workspace packet and the same
-Definitions-owned restoration pipeline used by other hosts.
+command consumes the existing canonical packet formats through the focused
+Definitions-owned inventory realization adapter. It validates and retains
+committed View and Navigation state but does not install them. This route does
+not claim the complete restoration transaction tracked by
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027).
 
 ## Terminal outcomes
 
@@ -528,15 +545,21 @@ Implementation proceeds as independently reviewable slices:
    query, Definitions-owned Share projection receipt, Share basis, and admitted
    L2 operation are implemented in `DotnetInspector.Queries` and
    `DotnetInspector.Sections`.
-2. **CLI adoption.** Construct one ephemeral realization through
+2. **CLI adoption (implemented).** Construct one ephemeral realization through
    `WorkspaceRealizationCoordinator` from either explicit construction inputs
-   or one Workspace packet restoration recipe, keeping explicit Package
-   membership separate from `WorkspacePlan`; preserve every owner-issued
-   packet, migration, acquisition, Scope publication, activation, admission,
+   or one Definitions-owned packet inventory realization plan, keeping
+   explicit Package membership separate from `WorkspacePlan`; acquire Package
+   members from every packet context and preserve every owner-issued packet,
+   migration, acquisition, Scope publication, activation, admission,
    cancellation, retirement, and settlement outcome. Replace Package-only row
    reconstruction with the shared operation, add focused
    registration/filter/packet controls, render through Markout, and preserve
-   exact Package occurrence drill-down through the receipt.
+   exact Package occurrence drill-down through the receipt. The CLI spells the
+   controls as `--packet`, `--register-library`,
+   `--register-package-prefix`, `--register-ecosystem`, and repeatable
+   `--kind`; verbose human rows disclose Package-specific detail, while Share,
+   kind filtering, and packet restoration remain top-level-inventory controls
+   that reject Package Navigation under the focused deferral above.
 3. **Inspect Web adoption.** Consume the admitted operation from
    `BrowserWorkspaceRealizationHost`, render the same semantic document in the
    existing Workspace surface, and bind actions through retained managed

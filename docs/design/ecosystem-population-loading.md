@@ -18,9 +18,9 @@ processing.
 This is a new focused cross-cutting pattern. It defines the loader binding,
 explicit load request, execution boundary, result algebra, association, and
 non-action rules. Static Ecosystem Packs, Workspace Ecosystem Registration
-Handoff, PlatformHouse, Workspace admission, Navigation, CLI, and Inspect Web
-adopt the pattern in separately reviewed efforts. This document does not
-redefine those owners.
+Handoff, PlatformHouse, PackageHouse, Workspace admission, Navigation, CLI,
+and Inspect Web adopt the pattern in separately reviewed efforts. This document
+does not redefine those owners.
 
 The first production consumers are the CLI and Browser/Wasm Workspace
 experiences. They use the same host-neutral loader operation. Host composition
@@ -62,6 +62,64 @@ It consumes without redefining:
 - Library ownership and borrowing;
 - Navigation subjects, routes, and contribution relations; and
 - host source authorization and presentation.
+
+## Architectural role and House composition
+
+An Ecosystem is the product-facing aggregate, not a source or settlement
+domain. One Ecosystem registration may describe ordinary package populations
+and special source-native platform populations together because both are
+relevant to the same user-visible area. Their shared Ecosystem identity does
+not merge their source identity, evidence, lifetime, or ownership.
+
+Ecosystem Population Loading is the application service boundary for explicitly
+realizing a selected special population. It preserves the association from the
+Ecosystem registration to every owner-issued child request and typed outcome.
+The consuming Ecosystem operation composes that result with independently
+processed ordinary populations. Neither layer is an `EcosystemHouse`, and
+neither issues replacement source authority, settlement, receipt, or Library
+ownership contracts.
+
+| Role | Owned responsibility |
+| --- | --- |
+| Ecosystem | Product identity, registration, and aggregation of package and platform populations |
+| Ecosystem Population Loading | Bounded special-population orchestration preserving owner-issued child requests, outcomes, and receipts |
+| PlatformHouse | Exact platform-target and platform-source settlement, cleanup, receipts, and atomic Platform-origin Library ownership transfer |
+| PackageHouse | Exact or selecting package settlement, package-source acquisition and cleanup, receipts, and Package-origin ownership transfer |
+
+The Houses remain independent even when one product flow presents both under
+the same Ecosystem. Each actual operation uses that domain's owner-issued
+request and capability plan and retains the corresponding outcome and receipt.
+Composition cannot reinterpret a package coordinate as a platform target,
+infer Platform membership from package identity, or use one House's success as
+the other House's settlement.
+
+The initial `.NET` and `ASP.NET Core` special loaders delegate their
+source-native populations to PlatformHouse. Their ordinary package-prefix
+registrations remain inert relevance for already admitted Package occurrences.
+When a separately selected bounded package operation produces a PackageHouse
+receipt and Workspace admits the resulting Package-origin Libraries, the
+prefix may relate those occurrences to the Ecosystem. It does not initiate that
+operation or admission. The Package-origin and Platform-origin relations
+compose only in the consuming Ecosystem or Navigation result. This
+clarification changes no current loading or admission behavior.
+
+```text
+independently selected package operation
+  -> PackageHouse outcome and receipt
+  -> ordinary Workspace admission
+  -> Package-origin Library occurrence
+  -> inert PackagePrefix("System.") supplies .NET Ecosystem relation
+
+selected .NET special runtime population
+  -> Ecosystem Population Loading
+  -> PlatformHouse outcome and receipt
+  -> ordinary Workspace admission
+  -> Platform-origin Library occurrence
+  -> exact .NET Ecosystem relation
+
+Workspace or Navigation result
+  -> presents both source-distinct populations under the .NET Ecosystem
+```
 
 ## User experience
 
@@ -410,7 +468,7 @@ ordinary resource-free contributions. They do not serialize:
 - delegates or loader instances;
 - application assembly or type names;
 - capability plans or source credentials;
-- PlatformHouse requests or receipts;
+- PlatformHouse or PackageHouse requests or receipts;
 - loaded Library owners; or
 - a claim that the Ecosystem is currently realized.
 
