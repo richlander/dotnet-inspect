@@ -312,6 +312,7 @@ The coordinate-replacement Release gates are in
 | Owned claim | Test method |
 | --- | --- |
 | The real Avalonia forwarded Type and constructor survive a source-retiring replacement with exact destination inventory, inspector request, actions, and no implicit source Package | `RetainsRealForwardedTypeAndMember` |
+| A declared Avalonia extension Member remains exact despite its receiver-projected inventory row; active Member and ancestor Type retain their inspectors, and completion releases protection | `RetainsExtensionDeclarationDespiteReceiverProjection` |
 | Member non-success falls back to the exact Type and does not transfer the Member inspector | `MemberNonSuccessFallsBackToExactType` |
 | An active entry Library remains at its exact pair when the lower Type moves to another defining Library | `ActiveLibraryTruncatesForwardedLowerContext` |
 | Active Workspace and Package ancestors retain their own subject and exact inspector while lower context follows the forwarded Type | `ActiveAncestorsKeepOwnInspectorAndForwardedContext` |

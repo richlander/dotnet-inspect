@@ -285,6 +285,71 @@ public sealed class NavigationCoordinateReplacementTests
             acknowledged.AuthorityResult);
     }
 
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProtectedReplacement_RetainsExtensionDeclarationDespiteReceiverProjection(
+        bool activeMember)
+    {
+        using var packages = new ApiCoordinateMatchTestPackages();
+        PackageRootBinding source =
+            await packages.BindingAsync("Avalonia", "11.3.14", "net8.0");
+        PackageRootBinding destination =
+            await packages.BindingAsync("Avalonia", "12.1.2", "net8.0");
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Avalonia", ["AvaloniaObjectExtensions"])).Name;
+        await using var workspace = new InspectionWorkspace();
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationFacetAvailabilityProvider availability = AllAvailable(registry);
+        string facet = activeMember ? "member.overview" : "type.metadata";
+        PreparedSource prepared = await PrepareSourceAsync(
+            workspace, source, registry, availability,
+            activeMember ? StructuralSubjectKind.Member : StructuralSubjectKind.Type,
+            "GetObservable", facet, declaringType: typeName,
+            memberSignature: "System.IObservable<object?> GetObservable(Avalonia.AvaloniaObject o, Avalonia.AvaloniaProperty property)");
+        StructuralSubjectIdentity.MemberSubject original =
+            prepared.Initialization.State.InstalledSnapshot.RetainedContext!.Member!;
+        Assert.Equal(2, prepared.Initialization.State.InstalledSnapshot.Inventory!
+            .Types.Rows.SelectMany(type => type.Members)
+            .Count(row => row.Subject == original));
+
+        NavigationTransition completed = await ReplaceAsync(
+            workspace, prepared, source, destination, registry, availability);
+
+        var committed = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            completed.Result!.ScopeResult);
+        Assert.Equal("12.1.2",
+            committed.RequestedOccurrence!.Occurrence.Package.PackageVersion);
+        Assert.Equal("12.1.2",
+            Assert.Single(completed.State.Snapshot.Packages).Version);
+        NavigationCoordinateRetentionResult retention = completed.Result.CoordinateRetention!;
+        Assert.Equal(NavigationCoordinateRetentionDisposition.ExactPath,
+            retention.Disposition);
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact,
+            retention.TypeCorrespondence!.Status);
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact,
+            retention.MemberCorrespondence!.Status);
+        Assert.NotEqual(original, retention.Initialization.Context!.Member);
+        Assert.Equal(activeMember ? StructuralSubjectKind.Member : StructuralSubjectKind.Type,
+            completed.State.Snapshot.ActiveSubject.Kind);
+        Assert.Equal(facet, completed.State.Snapshot.LensOutcome.Request!.Facet);
+        Assert.Equal(NavigationLensBasisKind.ExactRequest,
+            completed.State.Snapshot.LensOutcome.Basis);
+        Assert.Null(completed.State.Data.ProtectedScope);
+        Assert.Null(NavigationTransitions.Begin(
+            completed.State,
+            completed.State.Snapshot.Lenses.First(row => row.Action is not null).Action!)
+            .AdmissionRefusal);
+        NavigationTransition installed = NavigationTransitions.RecordConsumerInstallation(
+            completed.State, completed.Result.Consumer.Authority!);
+        Assert.Equal(NavigationAuthorityResult.Accepted,
+            NavigationTransitions.Acknowledge(
+                installed.State, completed.Result.Consumer.Authority!).AuthorityResult);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task ProtectedReplacement_UnchangedCoordinateRetainsExactTypeAndInspector()
@@ -893,7 +958,8 @@ public sealed class NavigationCoordinateReplacementTests
         string facet,
         PackageRootBinding? retained = null,
         bool retainApiContext = true,
-        MetadataTypeDefinitionName? declaringType = null)
+        MetadataTypeDefinitionName? declaringType = null,
+        string? memberSignature = null)
     {
         WorkspaceScopeSnapshot initial =
             Assert.IsType<WorkspaceScopeReadResult.Available>(
@@ -952,9 +1018,11 @@ public sealed class NavigationCoordinateReplacementTests
             : Assert.Single(
                 type.Members,
                 row =>
-                    memberName == ".ctor"
+                    (memberName == ".ctor"
                         ? row.ProducerRow.Kind == "constructor"
-                        : row.ProducerRow.Name == memberName);
+                        : row.ProducerRow.Name == memberName)
+                    && (memberSignature is null
+                        || row.ProducerRow.Signature == memberSignature));
         var context = new NavigationRetainedSubjectContext(
             packageSubject,
             retainApiContext ? type.Subject.Library : null,

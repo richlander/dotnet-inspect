@@ -730,7 +730,8 @@ public static class NavigationScopeOperations
     {
         NavigationMemberInventoryRow row =
             basis.Inventory?.Types.Rows
-                .SelectMany(type => type.Members)
+                .SingleOrDefault(type => type.Subject == member.DeclaringType)
+                ?.Members
                 .SingleOrDefault(candidate => candidate.Subject == member)
             ?? throw new InvalidOperationException(
                 "The retained source Member has no exact inventory row.");
