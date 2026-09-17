@@ -260,6 +260,83 @@ public sealed class BrowserMemberFindingCensusTests
             }]);
         Assert.Single(unavailableEnvelope.AnnotatedSource.FindingEvidence);
 
+        JsonElement reverseOrderDocument = JsonSerializer.SerializeToElement(
+            new AnnotatedSourceDocument(
+                "stackalloc int[1]; stackalloc int[2]",
+                [
+                    new AnnotatedSourceNode(
+                        0,
+                        "StackAllocationExpression",
+                        SourceLineKind.CSharp,
+                        [new AnnotatedSourceSpan(0, 17)],
+                        Provenance:
+                            new AnnotatedSourceNodeProvenance([9])),
+                    new AnnotatedSourceNode(
+                        1,
+                        "StackAllocationExpression",
+                        SourceLineKind.CSharp,
+                        [new AnnotatedSourceSpan(19, 17)],
+                        Provenance:
+                            new AnnotatedSourceNodeProvenance([2])),
+                ],
+                [],
+                [],
+                []),
+            AnnotatedSourceDocumentCompactJsonContext.Default
+                .AnnotatedSourceDocument);
+        BrowserMemberFindingCensus reverseOrderEnvelope = Create(
+            projection,
+            [available with
+            {
+                Coordinates =
+                [
+                    new(2, BrowserCalleeEvidenceKind.Localloc),
+                    new(9, BrowserCalleeEvidenceKind.Localloc),
+                ],
+                Document = reverseOrderDocument,
+                NodeIds = [0, 1],
+            }]);
+        Assert.Equal(
+            [0, 1],
+            Assert.Single(
+                reverseOrderEnvelope.AnnotatedSource.FindingEvidence)
+                .NodeIds);
+
+        JsonElement sharedNodeDocument = JsonSerializer.SerializeToElement(
+            new AnnotatedSourceDocument(
+                "stackalloc int[1]",
+                [
+                    new AnnotatedSourceNode(
+                        0,
+                        "StackAllocationExpression",
+                        SourceLineKind.CSharp,
+                        [new AnnotatedSourceSpan(0, 17)],
+                        Provenance:
+                            new AnnotatedSourceNodeProvenance([2, 9])),
+                ],
+                [],
+                [],
+                []),
+            AnnotatedSourceDocumentCompactJsonContext.Default
+                .AnnotatedSourceDocument);
+        BrowserMemberFindingCensus sharedNodeEnvelope = Create(
+            projection,
+            [available with
+            {
+                Coordinates =
+                [
+                    new(2, BrowserCalleeEvidenceKind.Localloc),
+                    new(9, BrowserCalleeEvidenceKind.Localloc),
+                ],
+                Document = sharedNodeDocument,
+                NodeIds = [0],
+            }]);
+        Assert.Equal(
+            [0],
+            Assert.Single(
+                sharedNodeEnvelope.AnnotatedSource.FindingEvidence)
+                .NodeIds);
+
         InvalidOperationException offsetError =
             Assert.Throws<InvalidOperationException>(() =>
                 Create(

@@ -225,6 +225,31 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 [coordinate, laterCoordinate]);
         Assert.Null(reorderedFailure);
         Assert.Equal([0, 1], reorderedIds);
+
+        var sharedNode = new AnnotatedSourceDocument(
+            "a",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 1)],
+                    Provenance:
+                        new AnnotatedSourceNodeProvenance(
+                            [
+                                coordinate.Location.ILOffset!.Value,
+                                9,
+                            ])),
+            ],
+            [],
+            [],
+            []);
+        (int[] sharedIds, string? sharedFailure) =
+            AssemblyContextMemberProjectionQuery.FindEvidenceNodes(
+                sharedNode,
+                [coordinate, laterCoordinate]);
+        Assert.Null(sharedFailure);
+        Assert.Equal([0], sharedIds);
     }
 
     [Fact]

@@ -424,6 +424,32 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     }),
   );
   assert.deepEqual(reverseSourceOrder.findingEvidence[0]?.nodeIds, [0, 1]);
+  const sharedNode = createAnnotatedSourceViewerModel(
+    calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      coordinates: [
+        {
+          ilOffset: 2,
+          kind: "Localloc",
+        },
+        {
+          ilOffset: 9,
+          kind: "Localloc",
+        },
+      ],
+      document: {
+        ...sampleCalleeDocument,
+        nodes: [{
+          ...sampleCalleeDocument.nodes[0],
+          provenance: {
+            il_offsets: [2, 9],
+          },
+        }],
+      },
+      nodeIds: [0],
+    }),
+  );
+  assert.deepEqual(sharedNode.findingEvidence[0]?.nodeIds, [0]);
   assert.throws(
     () => createAnnotatedSourceViewerModel({
       ...calleeEvidenceResult(),
