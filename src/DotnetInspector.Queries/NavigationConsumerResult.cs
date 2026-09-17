@@ -122,6 +122,14 @@ public sealed record NavigationConsumerScopeOutcome(
     WorkspaceScopeRejection? Rejection = null,
     ArtifactRootFailure? Failure = null);
 
+/// <summary>Navigation's coordinate decision; native evidence remains on the operation result.</summary>
+public sealed record NavigationConsumerCoordinateOutcome(
+    NavigationCoordinateRetentionDisposition Disposition,
+    string Detail,
+    CoordinateLibraryPairingStatus? LibraryPairing,
+    ApiCoordinateCorrespondenceStatus? TypeCorrespondence,
+    ApiCoordinateCorrespondenceStatus? MemberCorrespondence);
+
 /// <summary>Transport currency only. None of these strings is a portable subject identity.</summary>
 public sealed record NavigationAction(
     string Session,
@@ -274,6 +282,8 @@ public sealed record NavigationConsumerOutcome(
     NavigationConsumerScopeOutcome? Scope = null)
 {
     public ImmutableArray<NavigationConsumerDiagnostic> Diagnostics { get; init; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NavigationConsumerCoordinateOutcome? CoordinateRetention { get; init; }
 }
 
 /// <summary>
