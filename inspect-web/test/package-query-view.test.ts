@@ -1045,6 +1045,8 @@ class FakeElement {
   scrollHeight = 0;
   clientHeight = 0;
   innerHTML = "";
+  open = false;
+  parentDisclosure: FakeElement | null = null;
   value = "";
   checked = false;
   selectionStart: number | null = null;
@@ -1081,6 +1083,16 @@ class FakeElement {
   querySelector<T extends Element>(selector: string): T | null {
     const found = this.elements.get(selector)?.[0] ?? null;
     // Test fake implements exactly the subset consumed by the binder.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    return found as unknown as T | null;
+  }
+
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
+  closest<T extends Element>(selector: string): T | null {
+    const found = selector === "details.query-library-literal"
+      ? this.parentDisclosure
+      : null;
+    // Test fake implements exactly the subset consumed by focus restoration.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return found as unknown as T | null;
   }
@@ -1399,6 +1411,63 @@ test("library-literal editor spelling survives a full render", () => {
 
   assert.equal(replacement.value, String.raw`\r\\tail`);
   assert.deepEqual(replacement.selectionRange, [2, 4]);
+});
+
+test("semantic editors reopen their disclosure instead of using fallback", () => {
+  for (const id of [
+    "package-query-library-literal",
+    "package-query-library-tfm",
+  ]) {
+    const active = new FakeElement({}, id);
+    active.selectionStart = 1;
+    active.selectionEnd = 2;
+    const disclosure = new FakeElement();
+    const replacement = new FakeElement({}, id);
+    replacement.parentDisclosure = disclosure;
+    const prefix = new FakeElement({}, "package-query-prefix");
+    prefix.value = "Contoso.Package";
+    const root = new FakeRoot(active);
+    root.add(`#${id}`, replacement);
+    root.add("#package-query-prefix", prefix);
+    // Test fake implements the Document and ParentNode subset consumed by the helpers.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const documentRoot = root as unknown as Document;
+
+    const snapshot = capturePackageQueryFocus(documentRoot);
+    const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+    assert.equal(restoration, "restored");
+    assert.equal(disclosure.open, true);
+    assert.equal(replacement.focusCount, 1);
+    assert.equal(prefix.focusCount, 0);
+    assert.equal(prefix.value, "Contoso.Package");
+  }
+});
+
+test("semantic editor snapshots never modify a fallback control", () => {
+  const active = new FakeElement({}, "package-query-library-literal");
+  active.value = "";
+  active.selectionStart = 0;
+  active.selectionEnd = 0;
+  const replacement = new FakeElement(
+    {},
+    "package-query-library-literal");
+  replacement.rendered = false;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.Package";
+  const root = new FakeRoot(active);
+  root.add("#package-query-library-literal", replacement);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(prefix.value, "Contoso.Package");
+  assert.equal(prefix.selectionRange, null);
 });
 
 test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {

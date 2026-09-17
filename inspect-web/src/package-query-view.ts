@@ -121,6 +121,12 @@ function supportsEditableValue(
     && typeof element.value === "string";
 }
 
+function revealLibraryLiteralControl(element: Element | null): void {
+  const disclosure =
+    element?.closest<HTMLDetailsElement>("details.query-library-literal");
+  if (disclosure) disclosure.open = true;
+}
+
 function termControl(
   value: string | undefined,
 ): "operator" | "value" | "apply" | "remove" | null {
@@ -305,6 +311,10 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
+  if (snapshot.kind === "library-literal"
+    || snapshot.kind === "library-tfm") {
+    revealLibraryLiteralControl(target);
+  }
   if (!isFocusableQueryElement(target)
     || !focusRenderedElement(target, { preventScroll: true })) {
     target = root.querySelector(
@@ -316,11 +326,13 @@ export function restorePackageQueryFocus(
   if (!isFocusableQueryElement(target)) return "none";
   if (usedFallback
     && !focusRenderedElement(target, { preventScroll: true })) return "none";
-  if (snapshot.kind === "library-literal"
+  if (!usedFallback
+    && snapshot.kind === "library-literal"
     && supportsEditableValue(target)) {
     target.value = snapshot.editorValue;
   }
-  if ((snapshot.kind === "prefix"
+  if (!usedFallback
+    && (snapshot.kind === "prefix"
       || snapshot.kind === "library-literal"
       || snapshot.kind === "library-tfm")
     && supportsSelectionRange(target)

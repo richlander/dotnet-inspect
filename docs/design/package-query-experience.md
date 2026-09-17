@@ -150,6 +150,9 @@ break. The ordinary package editor supplies either one exact package ID,
 resolved to its latest eligible listed version, or one terminal-star prefix
 admitting at most five candidates. Activating the literal operand clears facets
 and terms; clearing it restores ordinary Package Query defaults.
+The disclosure remains open while either editor retains focus, so clearing the
+operand or editing the framework cannot redirect an in-progress edit into the
+package selector.
 
 The framework follows the existing selector's exact-group semantics: a package
 without that framework group is `NotApplicable`, not a semantic non-match. The
