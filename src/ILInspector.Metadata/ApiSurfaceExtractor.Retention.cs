@@ -270,6 +270,12 @@ public static partial class ApiSurfaceExtractor
             foreach (TypeParameterConstraint constraint in parameter.StructuredConstraints)
                 AddText(ref count, constraint.Value);
         }
+        if (parameter.ConstraintTypeDefinitionNames is not null)
+        {
+            foreach (MetadataTypeDefinitionName name
+                in parameter.ConstraintTypeDefinitionNames)
+                AddText(ref count, name);
+        }
     }
 
     static void AddText(ref long count, MetadataTypeDefinitionName? name)

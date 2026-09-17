@@ -333,6 +333,9 @@ public static partial class ApiSurfaceExtractor
             };
             beforeRetain?.Invoke(typeParam.Name);
             var structured = new List<TypeParameterConstraint>();
+            var constraintTypeDefinitionNames =
+                new List<MetadataTypeDefinitionName>();
+            bool constraintTypeDefinitionNamesAvailable = true;
 
             var attrs = param.Attributes;
             if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
@@ -369,8 +372,27 @@ public static partial class ApiSurfaceExtractor
                     context,
                     beforeRetain,
                     beforeDecodeWork);
-                if (constraintTypeName is "System.ValueType" or "System.Object")
+                ConstraintTypeDefinitionNameReadResult? constraintIdentity =
+                    ConstraintTypeDefinitionNameReader.Read(
+                        reader,
+                        constraint.Type,
+                        context,
+                        allowUnmanagedValueTypeEncoding: isUnmanaged);
+                if (IsExactPseudoConstraint(
+                        constraintTypeName,
+                        constraintIdentity))
+                {
                     continue;
+                }
+                if (constraintIdentity is null)
+                {
+                    constraintTypeDefinitionNamesAvailable = false;
+                }
+                else
+                {
+                    constraintTypeDefinitionNames.AddRange(
+                        constraintIdentity.DefinitionNames);
+                }
                 var formatted = FormatConstraintType(
                     reader,
                     constraint,
@@ -399,6 +421,10 @@ public static partial class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
+            typeParam.ConstraintTypeDefinitionNames =
+                constraintTypeDefinitionNamesAvailable
+                ? [.. constraintTypeDefinitionNames.Distinct()]
+                : null;
             typeParam.TypeKind = TypeParameterKindClassifier.Classify(
                 reader,
                 paramHandle,
@@ -411,6 +437,26 @@ public static partial class ApiSurfaceExtractor
 
         constraintResolution?.Track(subject, tracked);
         return parameters;
+    }
+
+    private static bool IsExactPseudoConstraint(
+        string constraintTypeName,
+        ConstraintTypeDefinitionNameReadResult? constraintIdentity)
+    {
+        if (constraintIdentity is not
+            {
+                IsCoreLibraryPseudoConstraint: true,
+                DefinitionNames: [var definitionName],
+            }
+            || definitionName.Namespace != "System"
+            || definitionName.Segments is not [var simpleName])
+        {
+            return false;
+        }
+
+        return (constraintTypeName, simpleName) is
+            ("System.Object", "Object")
+            or ("System.ValueType", "ValueType");
     }
 
     private static string FormatConstraintType(
