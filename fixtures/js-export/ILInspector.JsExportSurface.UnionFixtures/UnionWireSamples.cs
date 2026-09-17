@@ -18,6 +18,8 @@ public union ReferenceArrayUnion(string?[], int);
 public union NestedUnion(ScalarUnion, bool);
 public union ObjectUnion(PackageSummary, PackageProblem);
 public union NumberUnion(int, double);
+public union JsonElementUnion(JsonElement, int);
+public union JsonElementArrayUnion(JsonElement[], int);
 
 [JsonConverter(typeof(CustomUnionConverter))]
 public union CustomUnion(int, string);
@@ -38,6 +40,18 @@ public sealed record ParametricNullableValueArrayRecord<T>(T?[] Items)
 public sealed record ConditionalGenericRecord<T>(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     T Payload);
+public sealed record ConditionalUnionRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    JsonElementUnion Payload);
+public sealed record ConditionalGenericUnionRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    GenericUnion<JsonElement> Payload);
+public sealed record ConditionalOpenGenericUnionRecord<T>(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    GenericUnion<T> Payload);
+public sealed record ConditionalJsonElementArrayUnionRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    JsonElementArrayUnion Payload);
 public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
 public sealed record GlobalConcreteArrayRecord<Collision>(
     Collision Value,
@@ -226,6 +240,51 @@ public static partial class UnionExports
     }
 
     [JSExport]
+    public static string GetConditionalUnionRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalUnionRecord(
+                new JsonElementUnion(document.RootElement.Clone())),
+            UnionJsonContext.Default.ConditionalUnionRecord);
+    }
+
+    [JSExport]
+    public static string GetConditionalGenericUnionRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalGenericUnionRecord(
+                new GenericUnion<JsonElement>(
+                    document.RootElement.Clone())),
+            UnionJsonContext.Default.ConditionalGenericUnionRecord);
+    }
+
+    [JSExport]
+    public static string GetConditionalOpenGenericUnionRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalOpenGenericUnionRecord<JsonElement>(
+                new GenericUnion<JsonElement>(
+                    document.RootElement.Clone())),
+            UnionJsonContext.Default
+                .ConditionalOpenGenericUnionRecordJsonElement);
+    }
+
+    [JSExport]
+    public static string GetConditionalJsonElementArrayUnionRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalJsonElementArrayUnionRecord(
+                new JsonElementArrayUnion(
+                    new[] { document.RootElement.Clone() })),
+            UnionJsonContext.Default
+                .ConditionalJsonElementArrayUnionRecord);
+    }
+
+    [JSExport]
     public static string GetConcreteArrayRecord() =>
         JsonSerializer.Serialize(
             new ConcreteArrayRecord<int>(7, [new(8)]),
@@ -276,6 +335,7 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NestedUnion))]
 [JsonSerializable(typeof(ObjectUnion))]
 [JsonSerializable(typeof(NumberUnion))]
+[JsonSerializable(typeof(JsonElementArrayUnion))]
 [JsonSerializable(typeof(CustomUnion))]
 [JsonSerializable(typeof(UnionEnvelope))]
 [JsonSerializable(typeof(OrdinaryValue))]
@@ -285,6 +345,10 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NonParametricNestedAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(ParametricNullableValueArrayRecord<int>))]
 [JsonSerializable(typeof(ConditionalGenericRecord<JsonElement>))]
+[JsonSerializable(typeof(ConditionalUnionRecord))]
+[JsonSerializable(typeof(ConditionalGenericUnionRecord))]
+[JsonSerializable(typeof(ConditionalOpenGenericUnionRecord<JsonElement>))]
+[JsonSerializable(typeof(ConditionalJsonElementArrayUnionRecord))]
 [JsonSerializable(typeof(ConcreteArrayRecord<int>))]
 [JsonSerializable(typeof(GlobalConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

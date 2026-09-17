@@ -263,6 +263,13 @@ every authenticated closed instantiation, and `property?: T` becomes unsound
 when a supported argument maps to `unknown`. Generation fails visibly rather
 than publishing that declaration.
 
+A conditional member whose union alias can collapse to `unknown` is likewise
+unsupported. This includes a top-level `JsonElement` case supplied directly or
+through a closed generic union argument, and an open record generic parameter
+flowing through a union case. Nested `JsonElement` values inside an array,
+collection, dictionary, or record do not collapse the member's present-value
+type and therefore do not require the `JsonValue` helper.
+
 A bidirectional record whose serialize and deserialize presence differs still
 fails visibly. Separate input and output declarations are a later
 direction-specific contract, not a shape the emitter guesses in this slice.

@@ -345,6 +345,7 @@ static class DtsEmitter
             EmitRecord(
                 sb,
                 record,
+                surface.Unions,
                 surface.WireDirections.TryGetValue(
                     record,
                     out JsonWireDirection recordDirections)
@@ -894,6 +895,7 @@ static class DtsEmitter
     static void EmitRecord(
         StringBuilder sb,
         ApiType record,
+        IReadOnlyList<JsExportUnion> unions,
         JsonWireDirection directions,
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -1007,6 +1009,17 @@ static class DtsEmitter
                         + $"'{conditionalParameter}' has no exact "
                         + "present-value mapping");
             }
+            if (presence == JsonWireMemberPresence.Conditional
+                && TsJsonUnionMapper.CanCollapseToUnknown(
+                    member.SignatureModel?.ReturnTypeShape,
+                    unions,
+                    declaredTypesByScopedIdentity))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{record.Name}.{member.Name}",
+                    "conditional union present-value type can collapse "
+                        + "to unknown");
+            }
             if (TryGetArrayParameter(
                     member.SignatureModel,
                     record.TypeParameters,
@@ -1094,16 +1107,8 @@ static class DtsEmitter
         IReadOnlyList<TypeParameter> parameters,
         out string? parameterName)
     {
-        ApiTypeShape? type = signature?.ReturnTypeShape;
-        if (type is
-            {
-                Kind: ApiTypeShapeKind.GenericInstance,
-                Definition.FullName: "System.Nullable`1",
-                TypeArguments: [var nullable],
-            })
-        {
-            type = nullable;
-        }
+        ApiTypeShape? type = UnwrapNullableShape(
+            signature?.ReturnTypeShape);
 
         if (type is
             {
@@ -1120,6 +1125,20 @@ static class DtsEmitter
 
         parameterName = null;
         return false;
+    }
+
+    static ApiTypeShape? UnwrapNullableShape(ApiTypeShape? type)
+    {
+        return type is
+        {
+            Kind: ApiTypeShapeKind.GenericInstance,
+            Definition: { } definition,
+            TypeArguments: [var nullable],
+        }
+            && definition.FullName == "System.Nullable`1"
+            && IsAuthenticFrameworkMapping(definition)
+            ? nullable
+            : type;
     }
 
     static bool TryGetArrayParameter(
@@ -1648,33 +1667,15 @@ static class DtsEmitter
                         member.SignatureModel,
                         type.TypeParameters,
                         out _)
-                    && ContainsJsonElement(
+                    && IsJsonElementPresentValue(
                         member.SignatureModel?.ReturnTypeShape));
         });
     }
 
-    static bool ContainsJsonElement(ApiTypeShape? type)
-    {
-        if (type is null)
-            return false;
-
-        var pending = new Stack<ApiTypeShape>();
-        pending.Push(type);
-        while (pending.TryPop(out ApiTypeShape? current))
-        {
-            if (current.Definition is { } identity
-                && identity.FullName == "System.Text.Json.JsonElement"
-                && IsAuthenticFrameworkMapping(identity))
-            {
-                return true;
-            }
-            if (current.ElementType is { } element)
-                pending.Push(element);
-            foreach (ApiTypeShape argument in current.TypeArguments)
-                pending.Push(argument);
-        }
-        return false;
-    }
+    static bool IsJsonElementPresentValue(ApiTypeShape? type) =>
+        UnwrapNullableShape(type)?.Definition is { } identity
+        && identity.FullName == "System.Text.Json.JsonElement"
+        && IsAuthenticFrameworkMapping(identity);
 
     static bool IsInertStringIdentity(
         ApiTypeReferenceIdentity identity) =>

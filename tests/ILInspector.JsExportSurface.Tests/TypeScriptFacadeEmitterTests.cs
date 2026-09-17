@@ -1587,6 +1587,83 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_DoesNotReserveJsonValueForNestedJsonElement()
+    {
+        var jsonElementIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.JsonElement");
+        var jsonValue = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "JsonValue",
+            Kind = "class",
+        };
+        var nested = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Nested",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Payload",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "System.Text.Json.JsonElement[]?",
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                    ],
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Text.Json.JsonElement[]?",
+                        ReturnTypeReferences = [jsonElementIdentity],
+                        ReturnTypeShape = ApiTypeShape.SzArray(
+                            ApiTypeShape.Named(
+                                jsonElementIdentity,
+                                isValueType: true)),
+                    },
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [jsonValue, nested],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [jsonValue] = JsonWireDirection.Serialize,
+                        [nested] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export interface JsonValue {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export type JsonValue =",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly Payload?: ReadonlyArray<unknown>;",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_AllocatesAfterEveryDigestPrefixIsReserved()
     {
         JsExportFunction function = Function(

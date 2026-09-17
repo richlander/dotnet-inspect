@@ -352,6 +352,67 @@ public sealed class JsonUnionWireTests
                 "./dotnet.js"));
     }
 
+    [Theory]
+    [InlineData(
+        nameof(UnionExports.GetConditionalUnionRecord),
+        "{\"payload\":{\"value\":1}}")]
+    [InlineData(
+        nameof(UnionExports.GetConditionalGenericUnionRecord),
+        "{\"payload\":{\"value\":1}}")]
+    [InlineData(
+        nameof(UnionExports.GetConditionalOpenGenericUnionRecord),
+        "{\"payload\":{\"value\":1}}")]
+    public void Emit_RejectsConditionalUnionThatCanCollapseToUnknown(
+        string method,
+        string expectedPayload)
+    {
+        string payload = method switch
+        {
+            nameof(UnionExports.GetConditionalUnionRecord) =>
+                UnionExports.GetConditionalUnionRecord(),
+            nameof(UnionExports.GetConditionalGenericUnionRecord) =>
+                UnionExports.GetConditionalGenericUnionRecord(),
+            _ => UnionExports.GetConditionalOpenGenericUnionRecord(),
+        };
+        Assert.Equal(expectedPayload, payload);
+
+        var surface = Build(method);
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "conditional union present-value type can collapse to unknown",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Throws<UnsupportedWireContractException>(
+            () => TypeScriptFacadeEmitter.Emit(
+                surface,
+                "./dotnet.js"));
+    }
+
+    [Fact]
+    public void Emit_AllowsConditionalUnionWithNestedJsonElement()
+    {
+        Assert.Equal(
+            """{"payload":[{"value":1}]}""",
+            UnionExports.GetConditionalJsonElementArrayUnionRecord());
+
+        var surface = Build(
+            nameof(UnionExports.GetConditionalJsonElementArrayUnionRecord));
+        string declaration = DtsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "export type JsonElementArrayUnion = "
+                + "ReadonlyArray<unknown> | number | null;",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly payload?: JsonElementArrayUnion;",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Emit_DoesNotConfuseConcreteArrayTypesWithGenericParameters()
     {
