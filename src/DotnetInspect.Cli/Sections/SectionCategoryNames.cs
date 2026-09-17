@@ -88,11 +88,11 @@ public static class SectionCategoryNames
     public const string Context = "@Context";
 
     /// <summary>
-    /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members
-    /// plus <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose
-    /// applicability is a capability predicate, each member's applicability is evidence-based
-    /// (a cheap reference probe), so the whole category hyper-subscribes away for a library
-    /// with no integrations.
+    /// Ecosystem integration sections (library scope): observed <c>Integrations</c> plus
+    /// <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose applicability
+    /// is a capability predicate, each member's applicability is evidence-based (a cheap
+    /// reference probe), so the whole category hyper-subscribes away for a library with no
+    /// integrations.
     /// </summary>
     public const string Integrations = "@Integrations";
 

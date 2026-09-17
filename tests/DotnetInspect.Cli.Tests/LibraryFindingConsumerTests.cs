@@ -1399,7 +1399,7 @@ public class LibraryFindingConsumerTests
         Assert.True(LibraryCommand.FailureAffectsSection("Switches", "Library Info"));
         Assert.True(LibraryCommand.FailureAffectsSection(
             LibraryIntegrationCatalog.RollupName,
-            IntegrationSectionNames.AI));
+            IntegrationSectionNames.Integrations));
         Assert.False(LibraryCommand.FailureAffectsSection("Custom Attributes", "Type Forwarders"));
     }
 
