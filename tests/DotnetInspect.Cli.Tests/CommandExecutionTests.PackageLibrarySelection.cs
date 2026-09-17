@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -148,6 +149,43 @@ public partial class CommandExecutionTests
             Assert.StartsWith("name\t", exact.Output);
             Assert.DoesNotContain("library\t", exact.Output);
 
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AggregateIntegrationsRetainProducerLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalIntegrationPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Integrations",
+                "--tsv",
+                "--rows", "40",
+                "--tips", "q");
+
+            Assert.True(
+                result.Exit == 0,
+                $"Exit {result.Exit}: {result.Error}");
+            Assert.StartsWith("library\t", result.Output);
+            Assert.Contains(
+                "lib/net11.0/Microsoft.Extensions.Configuration.dll",
+                result.Output);
+            Assert.Contains(
+                "lib/net11.0/Microsoft.Extensions.Configuration.Json.dll",
+                result.Output);
+            Assert.Contains(
+                "Microsoft.Extensions.Configuration."
+                    + "JsonConfigurationExtensions.AddJsonFile(...)",
+                result.Output);
+            Assert.Empty(result.Error);
         }
         finally
         {
@@ -773,6 +811,40 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalIntegrationPackage(params string[] assemblyNames)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory =
+            Path.Combine(packageRoot, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+
+        foreach (string assemblyName in assemblyNames)
+        {
+            var (path, _, _, error) =
+                PlatformResolver.ResolveAssembly(assemblyName);
+            Assert.True(
+                error is null && path is not null,
+                $"Could not resolve platform assembly '{assemblyName}': "
+                    + error);
+            File.Copy(
+                path,
+                Path.Combine(
+                    libraryDirectory,
+                    Path.GetFileName(path)));
+        }
+
+        string packagePath =
+            Path.Combine(tempDir, "Test.Integrations.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
     }
 
     private static (string PackagePath, string TempDir)

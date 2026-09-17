@@ -372,19 +372,24 @@ public class LibraryCommand
             if (options.IntegrationQuery.HasFilter)
             {
                 string[] integrationSections =
-                    [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities];
+                    [
+                        IntegrationSectionNames.Integrations,
+                        IntegrationSectionNames.Opportunities,
+                    ];
                 if (options.IncludeSections is not { Count: > 0 })
                 {
                     options = options with
                     {
-                        IncludeSections = [.. integrationSections],
+                        IncludeSections =
+                            [IntegrationSectionNames.Integrations],
                         FixedOverview = false,
                     };
                 }
                 else if (!options.IncludeSections.Overlaps(integrationSections))
                 {
                     CommandError.Write(
-                        "--where ecosystem=... targets Integrations. Omit -S or include an Integration section.");
+                        "Integration --where predicates target Integrations. "
+                        + "Omit -S or include Integrations or Integration Opportunities.");
                     return 1;
                 }
             }
@@ -3301,7 +3306,12 @@ public class LibraryCommand
         }
 
         if (options.IntegrationQuery.HasFilter
-            && section.StartsWith(IntegrationSectionNames.Prefix, StringComparison.OrdinalIgnoreCase))
+            && (section.Equals(
+                    IntegrationSectionNames.Integrations,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    IntegrationSectionNames.Opportunities,
+                    StringComparison.OrdinalIgnoreCase)))
             return false;
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
@@ -3363,12 +3373,15 @@ public class LibraryCommand
 
         if (failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal))
         {
-            return section.Equals(IntegrationSectionNames.OpenTelemetry, StringComparison.OrdinalIgnoreCase);
+            return section.Equals(
+                IntegrationSectionNames.Integrations,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
-               && LibraryIntegrationCatalog.All.Any(
-                   descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
+               && section.Equals(
+                   IntegrationSectionNames.Integrations,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)

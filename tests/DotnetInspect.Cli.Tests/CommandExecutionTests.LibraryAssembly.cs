@@ -1429,14 +1429,20 @@ public partial class CommandExecutionTests
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
                      "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
-                     "Integration: Opportunities"
+                     "Integration Opportunities"
                  })
         {
             Assert.Contains(expected, names);
         }
 
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
-        Assert.Contains(names, name => name.StartsWith("Integration: ", StringComparison.Ordinal));
+        Assert.Contains(IntegrationSectionNames.Integrations, names);
+        Assert.Contains(IntegrationSectionNames.Opportunities, names);
+        Assert.DoesNotContain(
+            names,
+            name => name.StartsWith(
+                "Integration: ",
+                StringComparison.Ordinal));
 
         // The topical category doors lead the catalog, in
         // alphabetical order, and every category row precedes every section row. @Metadata is
@@ -3371,10 +3377,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForAwsS3_ShowsCloudClientSuggestions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AWSSDK.S3", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "AWSSDK.S3", "-S", "Integration Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains("| Integration | API | Integration Type | Look For |", output);
         Assert.Contains("| Aspire | `Amazon.S3.AmazonS3Client` | AppHost resource builder | IResourceBuilder&lt;T&gt;, Add*, *Resource |", output);
         Assert.Contains("| Dependency Injection | `Amazon.S3.AmazonS3Client` | IServiceCollection registration | IServiceCollection, Add* |", output);
@@ -3385,10 +3391,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForCognito_ShowsAuthenticationSuggestion()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Amazon.Extensions.CognitoAuthentication", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Amazon.Extensions.CognitoAuthentication", "-S", "Integration Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains("| Authentication | `Amazon.Extensions.CognitoAuthentication.CognitoUser` | Authentication/Identity registration | AuthenticationBuilder, Add*Identity*, Add*Cognito* |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3397,10 +3403,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForNpgsql_ShowsResourceSuggestions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Npgsql", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Npgsql", "-S", "Integration Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains("| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder | IResourceBuilder&lt;T&gt;, Add*, *Resource |", output);
         Assert.Contains("| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration | IHealthChecksBuilder, Add* |", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3410,10 +3416,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IntegrationOpportunities_ForAzureAppConfiguration_ShowsConfigurationSuggestion()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Data.AppConfiguration", "-S", "Integration: Opportunities", "--rows", "20");
+            "package", "Azure.Data.AppConfiguration", "-S", "Integration Opportunities", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains("| Configuration | `Azure.Data.AppConfiguration.ConfigurationClient` | IConfigurationBuilder source | IConfigurationBuilder, AddAzureAppConfiguration |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3425,12 +3431,12 @@ public partial class CommandExecutionTests
             "library",
             typeof(Npgsql.NpgsqlConnection).Assembly.Location,
             "-S",
-            "Integration: Opportunities",
+            "Integration Opportunities",
             "--rows",
             "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains(
             "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
             output);
@@ -3447,13 +3453,13 @@ public partial class CommandExecutionTests
             "library",
             "System.Data.Common",
             "-S",
-            "Integration: Opportunities",
+            "Integration Opportunities",
             "--trace",
             "--tips",
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains("## Integration Opportunities", output);
         Assert.Contains(
             "query prerequisites  Assembly context integrations",
             error);
@@ -3463,14 +3469,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForSystemsManager_ShowsConfigurationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Amazon.Extensions.Configuration.SystemsManager", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Amazon.Extensions.Configuration.SystemsManager", "-S", "Integrations", "--rows", "20");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Configuration", output);
-        Assert.Contains("| Kind | API |", output);
-        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.SystemsManagerExtensions.AddSystemsManager(...)` |", output);
-        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.AppConfigExtensions.AddAppConfig(...)` |", output);
-        Assert.Contains("| Provider | `Amazon.Extensions.Configuration.SystemsManager.SystemsManagerConfigurationProvider` |", output);
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("| Configuration | Configuration Source | API | `Microsoft.Extensions.Configuration.SystemsManagerExtensions.AddSystemsManager(...)` |", output);
+        Assert.Contains("| Configuration | Configuration Source | API | `Microsoft.Extensions.Configuration.AppConfigExtensions.AddAppConfig(...)` |", output);
+        Assert.Contains("| Configuration | Provider | Type | `Amazon.Extensions.Configuration.SystemsManager.SystemsManagerConfigurationProvider` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3478,14 +3484,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForJson_ShowsConfigurationProviderShape()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.Json", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.Json", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Configuration", output);
-        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)` |", output);
-        Assert.Contains("| Configuration Source | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonStream(...)` |", output);
-        Assert.Contains("| Provider | `Microsoft.Extensions.Configuration.Json.JsonConfigurationProvider` |", output);
-        Assert.Contains("| Source | `Microsoft.Extensions.Configuration.Json.JsonConfigurationSource` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Configuration | Configuration Source | API | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)` |", output);
+        Assert.Contains("| Configuration | Configuration Source | API | `Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonStream(...)` |", output);
+        Assert.Contains("| Configuration | Provider | Type | `Microsoft.Extensions.Configuration.Json.JsonConfigurationProvider` |", output);
+        Assert.Contains("| Configuration | Source | Type | `Microsoft.Extensions.Configuration.Json.JsonConfigurationSource` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3493,11 +3499,11 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForUserSecrets_ShowsConfigurationApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.UserSecrets", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.UserSecrets", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Configuration", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("| `Microsoft.Extensions.Configuration.UserSecretsConfigurationExtensions.AddUserSecrets(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3506,12 +3512,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForBinder_ShowsBindingApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Configuration.Binder", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Configuration.Binder", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Configuration", output);
-        Assert.Contains("| Binding | `Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(...)` |", output);
-        Assert.Contains("| Binding | `Microsoft.Extensions.Configuration.ConfigurationBinder.GetValue(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Configuration | Binding | API | `Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(...)` |", output);
+        Assert.Contains("| Configuration | Binding | API | `Microsoft.Extensions.Configuration.ConfigurationBinder.GetValue(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3519,10 +3525,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_ConfigurationIntegration_ForOptionsConfiguration_ShowsOptionsBindingApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Options.ConfigurationExtensions", "-S", "Integration: Configuration", "--rows", "20");
+            "package", "Microsoft.Extensions.Options.ConfigurationExtensions", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Configuration", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("| `Microsoft.Extensions.DependencyInjection.OptionsBuilderConfigurationExtensions.BindConfiguration(...)` |", output);
         Assert.Contains("| `Microsoft.Extensions.DependencyInjection.OptionsConfigurationServiceCollectionExtensions.Configure(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3532,13 +3538,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionIntegration_ForScrutor_ShowsScanningAndDecorationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Scrutor", "-S", "Integration: Dependency Injection", "--rows", "20");
+            "package", "Scrutor", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Dependency Injection", output);
-        Assert.Contains("| Assembly Scanning | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.Scan(...)` |", output);
-        Assert.Contains("| Decoration | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.Decorate(...)` |", output);
-        Assert.Contains("| Decoration | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.TryDecorate(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Dependency Injection | Assembly Scanning | API | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.Scan(...)` |", output);
+        Assert.Contains("| Dependency Injection | Decoration | API | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.Decorate(...)` |", output);
+        Assert.Contains("| Dependency Injection | Decoration | API | `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.TryDecorate(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3546,10 +3552,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OptionsIntegration_ForValidationPackage_ShowsValidationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "ReHackt.Extensions.Options.Validation", "-S", "Integration: Options", "--rows", "20");
+            "package", "ReHackt.Extensions.Options.Validation", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Options", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("| `Microsoft.Extensions.DependencyInjection.OptionsBuilderValidationExtensions.ValidateDataAnnotationsRecursively(...)` |", output);
         Assert.Contains("| `Microsoft.Extensions.DependencyInjection.ServiceCollectionExtensions.ConfigureAndValidate(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3559,10 +3565,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HealthChecksIntegration_ForAspNetCoreMiddleware_ShowsUseHealthChecks()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Diagnostics.HealthChecks", "-S", "Integration: Health Checks", "--rows", "20");
+            "package", "Microsoft.AspNetCore.Diagnostics.HealthChecks", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Health Checks", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("| `Microsoft.AspNetCore.Builder.HealthCheckApplicationBuilderExtensions.UseHealthChecks(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3571,10 +3577,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HostingIntegration_ForHostedServiceRegistration_ShowsHostedServiceApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "App.Metrics.Extensions.Hosting", "-S", "Integration: Hosting", "--rows", "20");
+            "package", "App.Metrics.Extensions.Hosting", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Hosting", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("| `Microsoft.Extensions.DependencyInjection.ServiceCollectionMetricsReportingExtensions.AddMetricsReportingHostedService(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3583,12 +3589,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenApiIntegration_ForAnnotations_ShowsAnnotationSupport()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Swashbuckle.AspNetCore.Annotations", "-S", "Integration: OpenAPI", "--rows", "20");
+            "package", "Swashbuckle.AspNetCore.Annotations", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenAPI", output);
-        Assert.Contains("| Annotation | `Swashbuckle.AspNetCore.Annotations.SwaggerOperationAttribute` |", output);
-        Assert.Contains("| Configuration | `Microsoft.Extensions.DependencyInjection.AnnotationsSwaggerGenOptionsExtensions.EnableAnnotations(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| OpenAPI | Annotation | Type | `Swashbuckle.AspNetCore.Annotations.SwaggerOperationAttribute` |", output);
+        Assert.Contains("| OpenAPI | Configuration | API | `Microsoft.Extensions.DependencyInjection.AnnotationsSwaggerGenOptionsExtensions.EnableAnnotations(...)` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3596,12 +3602,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetryIntegration_ForSerilogSink_ShowsOtlpLoggingApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.Sinks.OpenTelemetry", "-S", "Integration: OpenTelemetry", "--rows", "20");
+            "package", "Serilog.Sinks.OpenTelemetry", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenTelemetry", output);
-        Assert.Contains("| Logging | `Serilog.OpenTelemetryLoggerConfigurationExtensions.OpenTelemetry(...)` |", output);
-        Assert.Contains("| OpenTelemetry | `Serilog.Sinks.OpenTelemetry.OpenTelemetrySinkOptions` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| OpenTelemetry | Logging | API | `Serilog.OpenTelemetryLoggerConfigurationExtensions.OpenTelemetry(...)` |", output);
+        Assert.Contains("| OpenTelemetry | OpenTelemetry | Type | `Serilog.Sinks.OpenTelemetry.OpenTelemetrySinkOptions` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3609,12 +3615,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForOpenIddictValidation_ShowsValidationApi()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "OpenIddict.Validation.AspNetCore", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "OpenIddict.Validation.AspNetCore", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| Validation | `Microsoft.Extensions.DependencyInjection.OpenIddictValidationAspNetCoreExtensions.UseAspNetCore(...)` |", output);
-        Assert.Contains("| Validation | `OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreHandler` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Authentication | Validation | API | `Microsoft.Extensions.DependencyInjection.OpenIddictValidationAspNetCoreExtensions.UseAspNetCore(...)` |", output);
+        Assert.Contains("| Authentication | Validation | Type | `OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreHandler` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3622,12 +3628,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForBlazorAuthorization_ShowsAuthenticationStateApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Components.Authorization", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "Microsoft.AspNetCore.Components.Authorization", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| Authentication State | `Microsoft.Extensions.DependencyInjection.CascadingAuthenticationStateServiceCollectionExtensions.AddCascadingAuthenticationState(...)` |", output);
-        Assert.Contains("| Authorization UI | `Microsoft.AspNetCore.Components.Authorization.AuthorizeView` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Authentication | Authentication State | API | `Microsoft.Extensions.DependencyInjection.CascadingAuthenticationStateServiceCollectionExtensions.AddCascadingAuthenticationState(...)` |", output);
+        Assert.Contains("| Authentication | Authorization UI | Type | `Microsoft.AspNetCore.Components.Authorization.AuthorizeView` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3635,20 +3641,20 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationIntegration_ForGraphQlPackages_ShowsAuthorizationBuilderApis()
     {
         var (hotChocolateExit, hotChocolateOutput, hotChocolateError) = await RunAppAsync(
-            "package", "HotChocolate.Authorization", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "HotChocolate.Authorization", "-S", "Integrations", "--rows", "20");
         var (graphQlExit, graphQlOutput, graphQlError) = await RunAppAsync(
-            "package", "GraphQL.Authorization", "-S", "Integration: Authentication", "--rows", "20");
+            "package", "GraphQL.Authorization", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, hotChocolateExit);
-        Assert.Contains("## Integration: Authentication", hotChocolateOutput);
-        Assert.Contains("| Authorization | `Microsoft.Extensions.DependencyInjection.AuthorizeRequestExecutorBuilder.AddAuthorizationCore(...)` |", hotChocolateOutput);
-        Assert.Contains("| Handler | `HotChocolate.Authorization.IAuthorizationHandler` |", hotChocolateOutput);
+        Assert.Contains("## Integrations", hotChocolateOutput);
+        Assert.Contains("| Authentication | Authorization | API | `Microsoft.Extensions.DependencyInjection.AuthorizeRequestExecutorBuilder.AddAuthorizationCore(...)` |", hotChocolateOutput);
+        Assert.Contains("| Authentication | Handler | Type | `HotChocolate.Authorization.IAuthorizationHandler` |", hotChocolateOutput);
         Assert.DoesNotContain("Tip:", hotChocolateError);
 
         Assert.Equal(0, graphQlExit);
-        Assert.Contains("## Integration: Authentication", graphQlOutput);
-        Assert.Contains("| Authorization | `GraphQL.AuthorizationGraphQLBuilderExtensions.AddAuthorization(...)` |", graphQlOutput);
-        Assert.Contains("| Requirement | `GraphQL.Authorization.IAuthorizationRequirement` |", graphQlOutput);
+        Assert.Contains("## Integrations", graphQlOutput);
+        Assert.Contains("| Authentication | Authorization | API | `GraphQL.AuthorizationGraphQLBuilderExtensions.AddAuthorization(...)` |", graphQlOutput);
+        Assert.Contains("| Authentication | Requirement | Type | `GraphQL.Authorization.IAuthorizationRequirement` |", graphQlOutput);
         Assert.DoesNotContain("Tip:", graphQlError);
     }
 
@@ -3656,10 +3662,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForDiagnosticSource_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integration: OpenTelemetry");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenTelemetry", output);
+        Assert.Contains("## Integrations", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3676,59 +3682,61 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsRenderableIntegrationSections()
+    public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsUnifiedSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
-            "--effective", "--table");
+            "--effective", "--namesake-library", "--table");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("Integration: AI", output);
-        Assert.Contains("Integration: Dependency Injection", output);
-        Assert.DoesNotContain("Integration: Configuration", output);
-        Assert.DoesNotContain("Integration: Logging", output);
-        Assert.DoesNotContain("Integration: OpenTelemetry", output);
-        Assert.DoesNotContain("Integration: Options", output);
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("Integrations  section", output);
+        Assert.DoesNotContain("Integration Opportunities", output);
+        Assert.DoesNotContain("Integration: ", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectIntegrationsCategory_RendersIntegrationSections()
+    public async Task LibraryCommand_SelectIntegrationsCategory_RendersUnifiedRows()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "-S", "@Integrations", "--rows", "6");
+            "package", "Microsoft.Extensions.AI", "-S", "@Integrations", "--rows", "80");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("## Integration: Dependency Injection", output);
-        Assert.DoesNotContain("## Integration: Logging", output);
-        Assert.DoesNotContain("## Integration: OpenTelemetry", output);
-        Assert.DoesNotContain("## Integration: Options", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| AI |", output);
+        Assert.Contains("| Dependency Injection |", output);
+        Assert.DoesNotContain("| Logging |", output);
+        Assert.DoesNotContain("| OpenTelemetry |", output);
+        Assert.DoesNotContain("| Options |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectRetiredIntegrationsRollup_ResolvesToIntegrationsCategory()
+    public async Task LibraryCommand_SelectIntegrations_RendersOneConcreteSection()
     {
-        // "Integrations" was a rollup section before the per-integration decomposition. It keeps
-        // resolving as a category alias, exactly like the retired "Performance Triage" monolith.
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "-S", "Integrations", "--rows", "6");
+            "package", "Microsoft.Extensions.AI", "-S", "Integrations", "--rows", "80");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("## Integration: Dependency Injection", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Equal(
+            1,
+            output.Split(
+                "## Integrations",
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("| AI |", output);
+        Assert.Contains("| Dependency Injection |", output);
     }
 
     [Fact]
     public async Task LibraryCommand_LoggingSection_ForLoggingAbstractions_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integration: Logging");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Logging", output);
+        Assert.Contains("## Integrations", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3736,15 +3744,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AISection_DetectsAiCurrencyTypes()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI.Abstractions", "-S", "Integration: AI", "--rows", "80");
+            "package", "Microsoft.Extensions.AI.Abstractions", "-S", "Integrations", "--rows", "80");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("| Kind | Type |", output);
-        Assert.DoesNotContain("| API |", output);
-        Assert.Contains("| Chat | `Microsoft.Extensions.AI.IChatClient` |", output);
-        Assert.Contains("| Embeddings | `Microsoft.Extensions.AI.IEmbeddingGenerator` |", output);
-        Assert.Contains("| Tools | `Microsoft.Extensions.AI.AITool` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("Microsoft.Extensions.AI.IChatClient", output);
+        Assert.Contains("Microsoft.Extensions.AI.IEmbeddingGenerator", output);
+        Assert.Contains("Microsoft.Extensions.AI.AITool", output);
         Assert.DoesNotContain("Assembly Reference", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3754,11 +3761,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Aspire.OpenAI", "--preview",
-            "-S", "Integration: AI", "--rows", "40");
+            "-S", "Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("| Kind | API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("AspireOpenAIExtensions.AddOpenAIClient(...)", output);
         Assert.Contains("AspireOpenAIClientBuilderChatClientExtensions.AddChatClient(...)", output);
         Assert.Contains("AspireOpenAIClientBuilderEmbeddingGeneratorExtensions.AddEmbeddingGenerator(...)", output);
@@ -3775,15 +3782,15 @@ public partial class CommandExecutionTests
             "package", "Microsoft.Extensions.AI.OpenAI", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("| Kind | API |", output);
-        Assert.Contains("| Chat | `Microsoft.Extensions.AI.OpenAIClientExtensions.AsIChatClient(...)` |", output);
-        Assert.Contains("| Embeddings | `Microsoft.Extensions.AI.OpenAIClientExtensions.AsIEmbeddingGenerator(...)` |", output);
-        Assert.Contains("| Images | `Microsoft.Extensions.AI.OpenAIClientExtensions.AsIImageGenerator(...)` |", output);
-        Assert.Contains("| Realtime | `Microsoft.Extensions.AI.OpenAIRealtimeClient` |", output);
-        Assert.Contains("| Speech to Text | `Microsoft.Extensions.AI.OpenAIClientExtensions.AsISpeechToTextClient(...)` |", output);
-        Assert.Contains("| Text to Speech | `Microsoft.Extensions.AI.OpenAIClientExtensions.AsITextToSpeechClient(...)` |", output);
-        Assert.Contains("| Tools | `OpenAI.Responses.MicrosoftExtensionsAIResponsesExtensions.AsAITool(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIClientExtensions.AsIChatClient(...)", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIClientExtensions.AsIEmbeddingGenerator(...)", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIClientExtensions.AsIImageGenerator(...)", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIRealtimeClient", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIClientExtensions.AsISpeechToTextClient(...)", output);
+        Assert.Contains("Microsoft.Extensions.AI.OpenAIClientExtensions.AsITextToSpeechClient(...)", output);
+        Assert.Contains("OpenAI.Responses.MicrosoftExtensionsAIResponsesExtensions.AsAITool(...)", output);
         Assert.DoesNotContain("Dependency Injection", output);
         Assert.DoesNotContain("Assembly Reference", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3797,13 +3804,14 @@ public partial class CommandExecutionTests
             "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: AI", output);
-        Assert.Contains("## Integration: OpenTelemetry", output);
-        Assert.Contains("## Integration: Hosting", output);
-        Assert.DoesNotContain("## Integration: Aspire", output);
-        Assert.DoesNotContain("## Integration: Dependency Injection", output);
-        Assert.DoesNotContain("## Integration: Logging", output);
-        Assert.DoesNotContain("## Integration: Options", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| AI |", output);
+        Assert.Contains("| OpenTelemetry |", output);
+        Assert.Contains("| Hosting |", output);
+        Assert.DoesNotContain("| Aspire |", output);
+        Assert.DoesNotContain("| Dependency Injection |", output);
+        Assert.DoesNotContain("| Logging |", output);
+        Assert.DoesNotContain("| Options |", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3811,13 +3819,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspireSection_ForAspireHostingRedis_ShowsResourceCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Aspire.Hosting.Redis", "-S", "Integration: Aspire", "--rows", "20");
+            "package", "Aspire.Hosting.Redis", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Aspire", output);
-        Assert.Contains("| Kind | API |", output);
-        Assert.Contains("| Resource Builder | `Aspire.Hosting.RedisBuilderExtensions.AddRedis(...)` |", output);
-        Assert.Contains("| Resource | `Aspire.Hosting.ApplicationModel.RedisResource` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("Aspire.Hosting.RedisBuilderExtensions.AddRedis(...)", output);
+        Assert.Contains("Aspire.Hosting.ApplicationModel.RedisResource", output);
         Assert.DoesNotContain("IDistributedApplicationBuilder", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3829,7 +3837,7 @@ public partial class CommandExecutionTests
             "package", "Aspire.Hosting.Redis", "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Aspire", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("RedisBuilderExtensions.AddRedis(...)", output);
         Assert.DoesNotContain("Dependency Injection", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3840,11 +3848,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Aspire.OpenAI", "--preview",
-            "-S", "Integration: Hosting");
+            "-S", "Integrations");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Hosting", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("AspireOpenAIExtensions.AddOpenAIClient(...)", output);
         Assert.Contains("AspireOpenAIExtensions.AddKeyedOpenAIClient(...)", output);
         Assert.DoesNotContain("IHostApplicationBuilder", output);
@@ -3858,12 +3866,12 @@ public partial class CommandExecutionTests
             "package", "Aspire.Confluent.Kafka", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenTelemetry", output);
-        Assert.Contains("| Kind | API |", output);
-        Assert.Contains("| Metrics | `Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableMetrics` |", output);
-        Assert.Contains("| Metrics | `Aspire.Confluent.Kafka.KafkaProducerSettings.DisableMetrics` |", output);
-        Assert.Contains("| Tracing | `Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableTracing` |", output);
-        Assert.Contains("| Tracing | `Aspire.Confluent.Kafka.KafkaProducerSettings.DisableTracing` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableMetrics", output);
+        Assert.Contains("Aspire.Confluent.Kafka.KafkaProducerSettings.DisableMetrics", output);
+        Assert.Contains("Aspire.Confluent.Kafka.KafkaConsumerSettings.DisableTracing", output);
+        Assert.Contains("Aspire.Confluent.Kafka.KafkaProducerSettings.DisableTracing", output);
         Assert.DoesNotContain("OpenTelemetry.Instrumentation.ConfluentKafka", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3872,13 +3880,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_DetectsLoggingPrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integration: Logging");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Logging", output);
-        Assert.Contains("| Type |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("| `Microsoft.Extensions.Logging.ILogger` |", output);
-        Assert.DoesNotContain("| Kind |", output);
         Assert.Contains("Microsoft.Extensions.Logging.ILogger", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3890,11 +3897,10 @@ public partial class CommandExecutionTests
             "package", "AWS.Logger.AspNetCore", "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Logging", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("AWSLoggerBuilderExtensions.AddAWSProvider(...)", output);
         Assert.Contains("AWSLoggerFactoryExtensions.AddAWSProvider(...)", output);
-        Assert.DoesNotContain("| Type |", output);
         Assert.DoesNotContain("AWSLoggerBuilderExtensions` |", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3903,11 +3909,11 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_ForSerilog_ShowsProviderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.Extensions.Logging", "-S", "Integration: Logging", "--rows", "20");
+            "package", "Serilog.Extensions.Logging", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Logging", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("SerilogLoggingBuilderExtensions.AddSerilog(...)", output);
         Assert.Contains("SerilogLoggerFactoryExtensions.AddSerilog(...)", output);
         Assert.DoesNotContain("SerilogLoggingBuilderExtensions` |", output);
@@ -3918,14 +3924,15 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionSection_ShowsActionableTypesOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "-S", "Integration: Dependency Injection");
+            "library", "--package", "Microsoft.Extensions.AI",
+            "-S", "Integrations",
+            "--where", "integration=integration.dependency-injection");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Dependency Injection", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("ChatClientBuilderServiceCollectionExtensions.AddChatClient(...)", output);
         Assert.Contains("EmbeddingGeneratorBuilderServiceCollectionExtensions.AddEmbeddingGenerator(...)", output);
-        Assert.DoesNotContain("| Kind |", output);
         Assert.DoesNotContain("Assembly Reference", output);
         Assert.DoesNotContain("Microsoft.Extensions.DependencyInjection.IServiceCollection", output);
         Assert.DoesNotContain("Tip:", error);
@@ -3935,11 +3942,11 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DependencyInjectionSection_ForAzureClients_ShowsServiceRegistrationApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.Azure", "-S", "Integration: Dependency Injection", "--rows", "20");
+            "package", "Microsoft.Extensions.Azure", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Dependency Injection", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("AzureClientServiceCollectionExtensions.AddAzureClients(...)", output);
         Assert.Contains("AzureClientServiceCollectionExtensions.AddAzureClientsCore(...)", output);
         Assert.DoesNotContain("AzureClientServiceCollectionExtensions` |", output);
@@ -3954,8 +3961,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Dependency Injection", output);
-        Assert.Contains("## Integration: Health Checks", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("SqlServerHealthCheckBuilderExtensions.AddSqlServer(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -3967,10 +3974,10 @@ public partial class CommandExecutionTests
             "package", "Microsoft.AspNetCore.Authentication.JwtBearer", "-S", "@Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| Authentication | `Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(...)` |", output);
-        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions` |", output);
-        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(...)", output);
+        Assert.Contains("Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions", output);
+        Assert.Contains("Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3978,13 +3985,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForAuthenticationCore_ShowsMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Authentication", "-S", "Integration: Authentication", "--rows", "40");
+            "package", "Microsoft.AspNetCore.Authentication", "-S", "Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| Authentication | `Microsoft.Extensions.DependencyInjection.AuthenticationServiceCollectionExtensions.AddAuthentication(...)` |", output);
-        Assert.Contains("| Middleware | `Microsoft.AspNetCore.Builder.AuthAppBuilderExtensions.UseAuthentication(...)` |", output);
-        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.AuthenticationServiceCollectionExtensions.AddAuthentication(...)", output);
+        Assert.Contains("Microsoft.AspNetCore.Builder.AuthAppBuilderExtensions.UseAuthentication(...)", output);
+        Assert.Contains("Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -3992,13 +3999,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AuthenticationSection_ForAuthorization_ShowsAuthorizationCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.Authorization", "-S", "Integration: Authentication", "--rows", "40");
+            "package", "Microsoft.AspNetCore.Authorization", "-S", "Integrations", "--rows", "40");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| Authorization | `Microsoft.Extensions.DependencyInjection.AuthorizationServiceCollectionExtensions.AddAuthorizationCore(...)` |", output);
-        Assert.Contains("| Builder | `Microsoft.AspNetCore.Authorization.AuthorizationBuilder` |", output);
-        Assert.Contains("| Configuration | `Microsoft.AspNetCore.Authorization.AuthorizationOptions` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.AuthorizationServiceCollectionExtensions.AddAuthorizationCore(...)", output);
+        Assert.Contains("Microsoft.AspNetCore.Authorization.AuthorizationBuilder", output);
+        Assert.Contains("Microsoft.AspNetCore.Authorization.AuthorizationOptions", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4009,8 +4016,8 @@ public partial class CommandExecutionTests
             "package", "Amazon.AspNetCore.Identity.Cognito", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Authentication", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("CognitoServiceCollectionExtensions.AddCognitoIdentity(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -4022,10 +4029,10 @@ public partial class CommandExecutionTests
             "package", "Swashbuckle.AspNetCore.Swagger", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenAPI", output);
-        Assert.Contains("| Configuration | `Swashbuckle.AspNetCore.Swagger.SwaggerOptions` |", output);
-        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.MapSwagger(...)` |", output);
-        Assert.Contains("| Middleware | `Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.UseSwagger(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Swashbuckle.AspNetCore.Swagger.SwaggerOptions", output);
+        Assert.Contains("Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.MapSwagger(...)", output);
+        Assert.Contains("Microsoft.AspNetCore.Builder.SwaggerBuilderExtensions.UseSwagger(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4033,13 +4040,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenApiSection_ForMicrosoftOpenApi_ShowsServiceAndEndpointApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.AspNetCore.OpenApi", "-S", "Integration: OpenAPI", "--rows", "20");
+            "package", "Microsoft.AspNetCore.OpenApi", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenAPI", output);
-        Assert.Contains("| Configuration | `Microsoft.AspNetCore.OpenApi.OpenApiOptions` |", output);
-        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.OpenApiEndpointRouteBuilderExtensions.MapOpenApi(...)` |", output);
-        Assert.Contains("| Service Registration | `Microsoft.Extensions.DependencyInjection.OpenApiServiceCollectionExtensions.AddOpenApi(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Microsoft.AspNetCore.OpenApi.OpenApiOptions", output);
+        Assert.Contains("Microsoft.AspNetCore.Builder.OpenApiEndpointRouteBuilderExtensions.MapOpenApi(...)", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.OpenApiServiceCollectionExtensions.AddOpenApi(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4047,13 +4054,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForSerilog_ShowsMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Serilog.AspNetCore", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "package", "Serilog.AspNetCore", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: ASP.NET Core", output);
-        Assert.Contains("| Kind | API |", output);
-        Assert.Contains("| Configuration | `Serilog.AspNetCore.RequestLoggingOptions` |", output);
-        Assert.Contains("| Middleware | `Serilog.SerilogApplicationBuilderExtensions.UseSerilogRequestLogging(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("Serilog.AspNetCore.RequestLoggingOptions", output);
+        Assert.Contains("Serilog.SerilogApplicationBuilderExtensions.UseSerilogRequestLogging(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4061,13 +4068,13 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForHangfire_ShowsEndpointAndMiddlewareCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Hangfire.AspNetCore", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "package", "Hangfire.AspNetCore", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: ASP.NET Core", output);
-        Assert.Contains("| Endpoint | `Hangfire.HangfireEndpointRouteBuilderExtensions.MapHangfireDashboard(...)` |", output);
-        Assert.Contains("| Middleware | `Hangfire.HangfireApplicationBuilderExtensions.UseHangfireDashboard(...)` |", output);
-        Assert.Contains("| Middleware | `Hangfire.HangfireApplicationBuilderExtensions.UseHangfireServer(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Hangfire.HangfireEndpointRouteBuilderExtensions.MapHangfireDashboard(...)", output);
+        Assert.Contains("Hangfire.HangfireApplicationBuilderExtensions.UseHangfireDashboard(...)", output);
+        Assert.Contains("Hangfire.HangfireApplicationBuilderExtensions.UseHangfireServer(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4078,9 +4085,9 @@ public partial class CommandExecutionTests
             "package", "Grpc.AspNetCore.Server", "-S", "@Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: ASP.NET Core", output);
-        Assert.Contains("| Endpoint | `Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService(...)` |", output);
-        Assert.Contains("## Integration: Dependency Injection", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService(...)", output);
+        Assert.Contains("## Integrations", output);
         Assert.Contains("GrpcServicesExtensions.AddGrpc(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -4089,11 +4096,15 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3",
+            "-S", "Integrations",
+            "--where", "integration=integration.aspnetcore",
+            "--rows", "20");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("## Integration: ASP.NET Core", output);
-        Assert.Contains("| API |", output);
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("## Libraries", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("Microsoft.AspNetCore.DataProtection.AzureStorageBlobDataProtectionBuilderExtensions.PersistKeysToAzureBlobStorage(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -4102,11 +4113,15 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3",
+            "-S", "Integrations",
+            "--where", "integration=integration.aspnetcore",
+            "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: ASP.NET Core", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Libraries", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("Microsoft.AspNetCore.DataProtection.AzureDataProtectionKeyVaultKeyBuilderExtensions.ProtectKeysWithAzureKeyVault(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
@@ -4115,11 +4130,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HostingSection_ForMassTransit_ShowsHostBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "MassTransit", "-S", "Integration: Hosting", "--rows", "20");
+            "library", "--package", "MassTransit",
+            "-S", "Integrations",
+            "--where", "integration=integration.hosting",
+            "--rows", "20");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: Hosting", output);
-        Assert.Contains("| API |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
         Assert.Contains("DependencyInjectionHostingExtensions.UseMassTransit(...)", output);
         Assert.Contains("DependencyInjectionHostingExtensions.UseMediator(...)", output);
         Assert.DoesNotContain("Tip:", error);
@@ -4129,14 +4147,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForAzureMonitorExporter_ShowsBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Monitor.OpenTelemetry.Exporter", "-S", "Integration: OpenTelemetry", "--rows", "30");
+            "package", "Azure.Monitor.OpenTelemetry.Exporter", "-S", "Integrations", "--rows", "30");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenTelemetry", output);
-        Assert.Contains("| Logging | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorLogExporter(...)` |", output);
-        Assert.Contains("| Metrics | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorMetricExporter(...)` |", output);
-        Assert.Contains("| OpenTelemetry | `Azure.Monitor.OpenTelemetry.Exporter.OpenTelemetryBuilderExtensions.UseAzureMonitorExporter(...)` |", output);
-        Assert.Contains("| Tracing | `Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorTraceExporter(...)` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorLogExporter(...)", output);
+        Assert.Contains("Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorMetricExporter(...)", output);
+        Assert.Contains("Azure.Monitor.OpenTelemetry.Exporter.OpenTelemetryBuilderExtensions.UseAzureMonitorExporter(...)", output);
+        Assert.Contains("Azure.Monitor.OpenTelemetry.Exporter.AzureMonitorExporterExtensions.AddAzureMonitorTraceExporter(...)", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -4148,11 +4166,11 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("OpenTelemetry", output);
-        Assert.Contains("## Integration: HTTP Client", output);
-        Assert.Contains("| Kind | API |", output);
-        var diagnosticsRow = "| HTTP Diagnostics | `Microsoft.Extensions.Http.Diagnostics.HttpDependencyMetadataResolver` |";
-        var latencyRow = "| HTTP Latency | `Microsoft.Extensions.DependencyInjection.HttpClientLatencyTelemetryExtensions.AddHttpClientLatencyTelemetry(...)` |";
-        var loggingRow = "| HTTP Logging | `Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)` |";
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        var diagnosticsRow = "| HTTP Client | HTTP Diagnostics | Type | `Microsoft.Extensions.Http.Diagnostics.HttpDependencyMetadataResolver` |";
+        var latencyRow = "| HTTP Client | HTTP Latency | API | `Microsoft.Extensions.DependencyInjection.HttpClientLatencyTelemetryExtensions.AddHttpClientLatencyTelemetry(...)` |";
+        var loggingRow = "| HTTP Client | HTTP Logging | API | `Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)` |";
         Assert.Contains(diagnosticsRow, output);
         Assert.Contains(latencyRow, output);
         Assert.Contains(loggingRow, output);
@@ -4160,9 +4178,9 @@ public partial class CommandExecutionTests
             < output.IndexOf(latencyRow, StringComparison.Ordinal));
         Assert.True(output.IndexOf(latencyRow, StringComparison.Ordinal)
             < output.IndexOf(loggingRow, StringComparison.Ordinal));
-        Assert.Contains("| HTTP Logging | `Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)` |", output);
+        Assert.Contains("Microsoft.Extensions.DependencyInjection.HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)", output);
         Assert.Contains("HttpClientLoggingHttpClientBuilderExtensions.AddExtendedHttpClientLogging(...)", output);
-        Assert.Contains("| HTTP Logging | `Microsoft.Extensions.Http.Logging.LoggingOptions` |", output);
+        Assert.Contains("Microsoft.Extensions.Http.Logging.LoggingOptions", output);
         Assert.Contains("Microsoft.Extensions.Http.Logging.IHttpClientLogEnricher", output);
         Assert.Contains("Microsoft.Extensions.Http.Logging.LoggingOptions", output);
         Assert.DoesNotContain("Microsoft.Extensions.Telemetry.Internal", output);
@@ -4174,14 +4192,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_DetectsDiagnosticSourcePrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integration: OpenTelemetry");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Integration: OpenTelemetry", output);
-        Assert.Contains("| Kind | Type |", output);
-        Assert.Contains("| Tracing | `System.Diagnostics.ActivitySource` |", output);
-        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.Meter` |", output);
-        Assert.Contains("| Metrics | `System.Diagnostics.Metrics.UpDownCounter<T>` |", output);
+        Assert.Contains("## Integrations", output);
+        Assert.Contains("| Integration | Kind | Shape | Symbol |", output);
+        Assert.Contains("System.Diagnostics.ActivitySource", output);
+        Assert.Contains("System.Diagnostics.Metrics.Meter", output);
+        Assert.Contains("System.Diagnostics.Metrics.UpDownCounter<T>", output);
         Assert.Contains("System.Diagnostics.ActivitySource", output);
         Assert.Contains("System.Diagnostics.Metrics.Meter", output);
         Assert.DoesNotContain("UpDownCounter&#96;1", output);
@@ -4218,7 +4236,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Text.Json")]
     [InlineData("System.Runtime.InteropServices")]
     // System.Data.Common is the only offline assembly found that renders
-    // "Integration: Opportunities" (two DbDataSource rows), so it is what gives that section any
+    // "Integration Opportunities" (two DbDataSource rows), so it is what gives that section any
     // alone-vs-together coverage at all. The group-query registry contract separately gates the
     // typed Integrations prerequisite and its transitive cost.
     [InlineData("System.Data.Common")]
@@ -5124,7 +5142,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tips",
                 "q");
 
