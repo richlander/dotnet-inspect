@@ -59,7 +59,7 @@ public sealed record MemberSearchOutcome(
 /// whose name matches one or more patterns. This is the metadata-layer, offline "operate within a
 /// set" counterpart to type search — it reads local assemblies via
 /// <see cref="AssemblyReader.ExtractApiSurface(string, bool, bool)"/> and matches with the shared
-/// <see cref="TypeMatcher"/> name semantics (exact/case-insensitive or glob). It performs no
+/// <see cref="TypeMatcher"/> name semantics (direct/case-insensitive or glob). It performs no
 /// package resolution or network access; populating the set is a separate, higher-layer concern.
 /// </summary>
 public static class MemberSearch
@@ -69,8 +69,9 @@ public static class MemberSearch
     /// any pattern in <paramref name="patterns"/>. A member is emitted once per pattern it matches.
     /// </summary>
     /// <param name="assemblyPaths">The closed set of assembly file paths to search.</param>
-    /// <param name="patterns">Member-name patterns. Exact names match case-insensitively; patterns
-    /// containing <c>*</c> or <c>?</c> are treated as globs.</param>
+    /// <param name="patterns">Member-name patterns. Direct names match case-insensitively and
+    /// <c>this[]</c> matches indexer metadata names; patterns containing <c>*</c> or <c>?</c> are
+    /// treated as globs.</param>
     /// <param name="includeAll">When true, non-public members are included; otherwise public only.</param>
     /// <param name="limit">Optional cap on the number of results collected across the whole set.</param>
     /// <remarks>
