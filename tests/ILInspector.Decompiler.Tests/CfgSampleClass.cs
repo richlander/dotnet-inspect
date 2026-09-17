@@ -5536,6 +5536,29 @@ public static class StructuringRegionExitSamples
     done:
         return value;
     }
+
+    public static int PrefixedRegionExitInsideTailInfiniteLoop(int a)
+    {
+        int value = 0;
+        try
+        {
+            while (true)
+            {
+                if (a == 0)
+                {
+                    value = 7;
+                    goto done;
+                }
+                a--;
+            }
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
 }
 
 public interface IJoinShape

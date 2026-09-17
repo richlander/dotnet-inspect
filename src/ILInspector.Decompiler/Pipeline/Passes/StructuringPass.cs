@@ -1224,7 +1224,7 @@ public sealed class StructuringPass : IIrPass
                     {
                         if (!IsBareRegionExitBlock(ctx, falseStart))
                         {
-                            if (!CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop))
+                            if (!CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop, continueTarget))
                             {
                                 ctx.Recorder?.Record("prefixed-region-exit-ownership-unproven");
                                 return false;
@@ -2084,8 +2084,15 @@ public sealed class StructuringPass : IIrPass
         => IsRegionExitTerminator(ctx, blockIndex)
             && ctx.Blocks[blockIndex].Children.Count == 1;
 
-    static bool CanDissolvePrefixedRegionExit(Ctx ctx, int falseStart, int target, int stop) =>
-        target < stop
+    static bool CanDissolvePrefixedRegionExit(
+        Ctx ctx,
+        int falseStart,
+        int target,
+        int stop,
+        int? continueTarget) =>
+        // An infinite-loop body's end flows to its head, not the protected-region continuation.
+        continueTarget is null
+        && target < stop
         && ReachesProtectedRegionEnd(ctx, stop)
         && !RegionExternallyEntered(ctx, falseStart, target);
 
@@ -2967,7 +2974,7 @@ public sealed class StructuringPass : IIrPass
                     if (falseStart + 1 == target && IsRegionExitTerminator(ctx, falseStart))
                     {
                         if (!IsBareRegionExitBlock(ctx, falseStart)
-                            && !CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop))
+                            && !CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop, continueTarget))
                         {
                             throw new InvalidOperationException("Validated prefixed region-exit ownership was not buildable.");
                         }

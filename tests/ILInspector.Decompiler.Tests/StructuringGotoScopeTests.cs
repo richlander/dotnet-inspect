@@ -475,6 +475,28 @@ public class StructuringGotoScopeTests
         }
     }
 
+    [Fact]
+    public void PrefixedRegionExitInsideTailInfiniteLoop_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop));
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop));
+
+        Assert.Contains("goto", output);
+        var reconstructed = Compile(output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                StructuringRegionExitSamples.PrefixedRegionExitInsideTailInfiniteLoop(input),
+                reconstructed(input));
+        }
+    }
+
     [Theory]
     [InlineData(0x0077, 0x0062, false)]
     [InlineData(0x005E, 0x0062, false)]
