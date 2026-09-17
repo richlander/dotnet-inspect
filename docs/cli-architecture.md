@@ -51,23 +51,14 @@ text, or hide a failed producer behind an empty section.
 ### Workspace top-level inventory
 
 The `workspace` command constructs one ephemeral
-`WorkspaceRealizationCoordinator` candidate from either direct Package and
-registration inputs or one Definitions-lowered canonical packet. Direct
-Package membership remains separate from the `WorkspacePlan`; packet input
-acquires Package members from every plan context and logically coalesces exact
-duplicate roots. Both routes complete, activate, and admit the same realization
-before calling
+`WorkspaceRealizationCoordinator` candidate from direct Package and
+registration inputs, or delegates current-format packet input to the
+Definitions-owned complete restoration transaction. Direct Package membership
+remains separate from the `WorkspacePlan`. Complete restoration owns packet
+decoding and version dispatch, complete context loading, Scope publication,
+retained Navigation restoration, projection, cancellation, and cleanup. Both
+routes activate and admit one realization before calling
 `WorkspaceTopLevelInventoryOperation`.
-The packet plan validates each declaration against its acquired Root before
-coalescing, preserving floating/exact declaration evidence when both resolve
-to one logical Scope occurrence. Requested target association uses the
-acquisition coordinate, while selected and effective compatible targets are
-verified through realized Scope.
-
-The focused packet route accepts direct Package context members only. Group
-subscriptions and non-Package context members are rejected visibly until the
-complete Workspace restoration owner can realize them without discarding
-construction intent.
 
 The CLI does not read current Scope and registration collections separately.
 It lowers the shared typed document through Markout as compact `Kind`,
@@ -76,12 +67,11 @@ entry arms. Kind filtering occurs in the shared operation and does not change
 construction.
 
 Direct construction supplies a non-projectable realized-Workspace Share
-basis. Packet lowering retains a Definitions-owned realization plan and issues
-projectable Share evidence only after validating the exact plan, complete
-realized Package-root sequence, Workspace identity, and published Package
-Scope. The unfiltered packet route therefore re-emits the exact canonical
-packet without letting the CLI independently pair packet text with a definition
-snapshot.
+basis. Packet restoration derives its basis from the exact
+`CompleteRestorationResult.Activated`, including the owner-issued definition
+and projection. The unfiltered packet route therefore re-emits the exact
+canonical packet without letting the CLI independently pair packet text with a
+definition snapshot.
 
 The existing `--active-package` path resolves Package source order through the
 operation's selection receipt, validates the exact occurrence identity, and

@@ -21,12 +21,14 @@ public sealed class NavigationState
     public string Id => Data.Projection.Session;
     public InspectionWorkspaceIdentity Workspace => Data.Installed.Workspace.Identity;
     public NavigationConsumerSnapshot Snapshot => Data.Consumer;
+    public NavigationConsumerScopeStatus Scope => Data.Scope;
     public NavigationPublication Publication => new(Data.Revision, Data.Consumer.Generation);
 }
 
 internal sealed record NavigationStateData(
     NavigationWorkspaceSnapshot Installed,
     NavigationConsumerSnapshot Consumer,
+    NavigationConsumerScopeStatus Scope,
     NavigationProjectionState Projection,
     ImmutableDictionary<string, NavigationActionTarget> Actions)
 {
@@ -44,6 +46,7 @@ internal sealed record NavigationStateData(
     internal NavigationPublication? Acknowledged { get; init; }
     internal NavigationEffectAuthority? Effect { get; init; }
     internal NavigationEffectAuthority? ConsumerInstallation { get; init; }
+    internal NavigationScopeEvaluationRequest? ProtectedScope { get; init; }
 }
 
 /// <summary>Exact identity of one product-issued request, including queued work.</summary>
@@ -96,6 +99,35 @@ public sealed class NavigationEvaluationRequest
     internal NavigationWorkspaceSnapshot Basis { get; }
     internal NavigationActionTarget? Target { get; }
     internal NavigationConsumerRequest? ConsumerRequest { get; }
+}
+
+/// <summary>
+/// Exact resource-free Navigation attempt protecting one Scope association.
+/// It carries correlation data, never Scope submission or preparation authority.
+/// </summary>
+public sealed class NavigationScopeEvaluationRequest
+{
+    internal NavigationScopeEvaluationRequest(
+        NavigationRequest request,
+        string attempt,
+        string intent,
+        WorkspaceScopeOperationAssociation association,
+        NavigationWorkspaceSnapshot basis)
+    {
+        Identity = request;
+        Attempt = attempt;
+        Intent = intent;
+        Association = association;
+        Basis = basis;
+    }
+
+    public NavigationRequest Identity { get; }
+    public string Request => Identity.Id;
+    public string Attempt { get; }
+    public string Intent { get; }
+    public InspectionWorkspaceIdentity Workspace => Association.Workspace;
+    public WorkspaceScopeOperationAssociation Association { get; }
+    internal NavigationWorkspaceSnapshot Basis { get; }
 }
 
 /// <summary>Facts for one invocation. Availability is never retained in state or results.</summary>
@@ -266,6 +298,70 @@ public abstract record NavigationPreparation
     public sealed record Aborted(string Message) : NavigationPreparation;
 }
 
+/// <summary>
+/// Invocation-local preparation for one protected Scope settlement. Ready facts
+/// may name an exact Navigation-owned subject/context/lens successor.
+/// </summary>
+public abstract record NavigationScopePreparation
+{
+    private protected NavigationScopePreparation() { }
+
+    public sealed record Ready(
+        NavigationEvaluationFacts Facts,
+        NavigationInitialization? Initialization = null)
+        : NavigationScopePreparation;
+
+    public sealed record Unavailable(
+        string Message,
+        NavigationInitialization? Initialization = null)
+        : NavigationScopePreparation;
+
+    public sealed record Failed(
+        string Message,
+        NavigationInitialization? Initialization = null)
+        : NavigationScopePreparation;
+
+    public sealed record Aborted(
+        string Message,
+        NavigationInitialization? Initialization = null)
+        : NavigationScopePreparation;
+
+    public sealed record Historical : NavigationScopePreparation;
+}
+
+/// <summary>
+/// Detached protected-Scope evaluation evidence. Only correlated completion may
+/// issue consumer effect authority.
+/// </summary>
+public sealed class NavigationScopeEvaluationResult
+{
+    internal NavigationScopeEvaluationResult(
+        NavigationScopeEvaluationRequest request,
+        WorkspaceScopeOperationResult settlement,
+        NavigationWorkspaceSnapshot snapshot,
+        NavigationConsumerScopeStatus scope,
+        NavigationConsumerOutcome outcome,
+        NavigationTypeInventoryOutcome? incompleteInventory = null,
+        NavigationLensActivationResult? resolution = null)
+    {
+        Request = request;
+        Settlement = settlement;
+        Snapshot = snapshot;
+        Scope = scope;
+        Outcome = outcome;
+        IncompleteInventory = incompleteInventory;
+        Resolution = resolution;
+    }
+
+    public NavigationScopeEvaluationRequest Request { get; }
+    public WorkspaceScopeOperationResult Settlement { get; }
+    public NavigationConsumerScopeStatus Scope { get; }
+    public NavigationConsumerOutcome Outcome { get; }
+    public NavigationLensActivationResult? Resolution { get; }
+    internal NavigationWorkspaceSnapshot Snapshot { get; }
+    internal NavigationTypeInventoryOutcome? IncompleteInventory { get; }
+}
+
 /// <summary>Detached evaluation evidence; only completion may issue effect authority.</summary>
 public sealed class NavigationEvaluationResult
 {
@@ -306,7 +402,36 @@ public enum NavigationCompletionRejection
     ForeignSession,
     WrongTicket,
     StaleAttempt,
+    WrongScopeAssociation,
+    WrongScopeAttempt,
 }
+
+public enum NavigationAdmissionRefusalKind
+{
+    ProtectedScopeOperation,
+    HistoricalScope,
+    ForeignWorkspace,
+}
+
+/// <summary>A synchronous refusal before ordinary Navigation admission.</summary>
+public sealed record NavigationAdmissionRefusal(
+    NavigationAdmissionRefusalKind Kind,
+    string Message);
+
+public enum NavigationScopeCancellationObservationKind
+{
+    NoSettlement,
+    CorrelatedSettlement,
+}
+
+/// <summary>
+/// Navigation's interpretation of Scope cancellation control. Only a correlated
+/// Settled response carries mutation settlement.
+/// </summary>
+public sealed record NavigationScopeCancellationObservation(
+    NavigationScopeCancellationObservationKind Kind,
+    WorkspaceScopeCancellationResult Control,
+    WorkspaceScopeOperationResult? Settlement = null);
 
 /// <summary>Exact product-peer evidence returned by this operation, never a session side channel.</summary>
 public sealed record NavigationLensResolution(
@@ -318,7 +443,8 @@ public sealed record NavigationLensResolution(
 
 public sealed record NavigationOperationResult(
     NavigationConsumerResult Consumer,
-    NavigationLensResolution? LensResolution);
+    NavigationLensResolution? LensResolution,
+    WorkspaceScopeOperationResult? ScopeResult = null);
 
 public enum NavigationActionPublicationKind
 {
@@ -326,6 +452,7 @@ public enum NavigationActionPublicationKind
     Stale,
     Unavailable,
     Rejected,
+    Refused,
 }
 
 /// <summary>
@@ -350,7 +477,9 @@ public sealed class NavigationTransition
         NavigationOperationResult? result = null,
         NavigationAuthorityResult? authorityResult = null,
         NavigationCompletionRejection? rejection = null,
-        NavigationActionPublicationResult? actionPublication = null)
+        NavigationActionPublicationResult? actionPublication = null,
+        NavigationScopeEvaluationRequest? scopeWork = null,
+        NavigationAdmissionRefusal? admissionRefusal = null)
     {
         Previous = previous;
         State = ReferenceEquals(previous.Data, next) ? previous : new(next);
@@ -360,6 +489,8 @@ public sealed class NavigationTransition
         AuthorityResult = authorityResult;
         Rejection = rejection;
         ActionPublication = actionPublication;
+        ScopeWork = scopeWork;
+        AdmissionRefusal = admissionRefusal;
     }
 
     internal NavigationState Previous { get; }
@@ -370,4 +501,6 @@ public sealed class NavigationTransition
     public NavigationAuthorityResult? AuthorityResult { get; }
     public NavigationCompletionRejection? Rejection { get; }
     public NavigationActionPublicationResult? ActionPublication { get; }
+    public NavigationScopeEvaluationRequest? ScopeWork { get; }
+    public NavigationAdmissionRefusal? AdmissionRefusal { get; }
 }

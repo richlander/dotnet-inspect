@@ -2395,11 +2395,13 @@ public static class WorkspaceContextLoader
         {
             return new WorkspacePackageRootAcquisitionOutcome.Acquired(
                 sourceProducer is null
-                    ? PackageRootBinding.CreateFromResolved(
+                    ? PackageRootBinding
+                        .CreateFromResolvedWithCompatibleSelection(
                         acquired,
                         framework,
                         member.PackageId)
-                    : PackageRootBinding.CreateFromResolved(
+                    : PackageRootBinding
+                        .CreateFromResolvedWithCompatibleSelection(
                         acquired,
                         framework,
                         member.PackageId,
