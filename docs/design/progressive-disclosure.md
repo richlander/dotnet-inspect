@@ -49,6 +49,9 @@ determines which authored members each door exposes.
 Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
 Diff`, and `Implementation Diff` views. Its focused, non-composable `Finding
 Transitions` view remains a standalone exact-name section.
+Project uses `@Project` as its base category for package-authored `Skills` and
+`Package README file` documents from restored direct dependencies. Bare `-S`
+retains `Skills`; selecting `@Project` explicitly requests both inventories.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -154,9 +157,9 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Package, type-listing, member, and diff catalogs follow this model. Commands
-not yet migrated may retain their existing discovery behavior; new work should
-follow the reference model rather than copy a legacy command.
+Package, type-listing, member, diff, and project catalogs follow this model.
+Commands not yet migrated may retain their existing discovery behavior; new
+work should follow the reference model rather than copy a legacy command.
 
 ## Query discovery
 
