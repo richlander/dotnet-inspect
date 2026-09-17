@@ -9,7 +9,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
-public sealed class PackageHouseExecutionTests
+public sealed partial class PackageHouseExecutionTests
 {
     private const string PackageId = "microsoft.extensions.logging";
     private const string Version = "10.0.0";
@@ -428,13 +428,20 @@ public sealed class PackageHouseExecutionTests
                     Failure.Timeout.Kind:
                         PackageSourceTimeoutKind.Operation,
                 });
-        Assert.IsType<PackageHouseFailure.Timeout>(
-            result.Evidence.Failures.Last());
+        PackageHouseFailure.Timeout timeout =
+            Assert.IsType<PackageHouseFailure.Timeout>(
+                result.Evidence.Failures.Last());
+        Assert.Equal(
+            PackageHouseTimeoutKind.Operation,
+            timeout.Kind);
+        Assert.Equal(
+            request.Operation.OperationTimeout,
+            timeout.Duration);
         await environment.AssertRootSettledAsync();
     }
 
     [Fact]
-    public async Task VersionPopulationOperationTimeoutDuringVectorConstructionRetainsDiscovery()
+    public async Task VersionPopulationOperationTimeoutRetainsEnumeratedVersions()
     {
         const int versionCount = 8_000;
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -455,14 +462,26 @@ public sealed class PackageHouseExecutionTests
 
         Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
             result);
-        Assert.Equal(
-            PackageVersionDiscoveryState.Authoritative,
-            result.Evidence.Discovery?.State);
+        PackageVersionDiscoveryResult discovery =
+            Assert.IsType<PackageVersionDiscoveryResult>(
+                result.Evidence.Discovery);
+        // The deadline can be observed by discovery's final check or by the
+        // population's final check; both must retain the completed evidence.
+        Assert.True(
+            discovery.State is PackageVersionDiscoveryState.Authoritative
+                or PackageVersionDiscoveryState.Failed);
         Assert.Equal(
             versionCount,
-            result.Evidence.Discovery?.Versions.Count);
-        Assert.IsType<PackageHouseFailure.Timeout>(
-            result.Evidence.Failures.Last());
+            discovery.Versions.Count);
+        PackageHouseFailure.Timeout timeout =
+            Assert.IsType<PackageHouseFailure.Timeout>(
+                result.Evidence.Failures.Last());
+        Assert.Equal(
+            PackageHouseTimeoutKind.Operation,
+            timeout.Kind);
+        Assert.Equal(
+            request.Operation.OperationTimeout,
+            timeout.Duration);
         await environment.AssertRootSettledAsync();
     }
 

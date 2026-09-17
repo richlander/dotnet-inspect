@@ -84,6 +84,10 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. Its
+  [Pairwise Library Direct-Use Clustering](design/pairwise-library-direct-use-clusters.md)
+  owns the deterministic connected-component partition of exact directed
+  source-method to target-method pair-use evidence, without assigning semantic
+  feature names or package-removal policy. Its
   proposed [coordinate Library pairing](design/coordinate-library-pairing.md)
   selects one exact destination API Library within an explicitly designated
   Package-occurrence pair, using a complete selected population and a
@@ -330,7 +334,7 @@ substrates, and inspection producers that will extend that space.
   provenance. PackageHouse, PlatformHouse, and direct-library adapters produce
   the shared representation; SourceLink, Decompiler, artifact lifetime,
   documentation, and host presentation remain with their focused owners.
-- The target
+- The
   [DocumentationHouse Composition](design/documentation-house.md) owner defines
   the sole host-neutral documentation settlement facade over one exact
   library-scoped type or member subject, an exact shared Library reference,
@@ -341,7 +345,10 @@ substrates, and inspection producers that will extend that space.
   conflicts instead of overwriting one source. PackageHouse, PlatformHouse,
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
-  ownership, and host presentation retain their focused authority.
+  ownership, and host presentation retain their focused authority. Its
+  contracts and core now implement the bounded compiled-XML attempt and
+  resource-free receipt; adapters, authored settlement, and host adoption
+  remain staged.
 - `src/DotnetInspector.LibraryMetadata/` owns
   [Library-Metadata correspondence](design/library-metadata-correspondence.md):
   bounded Metadata extraction inside one exact Library API-content snapshot
@@ -377,6 +384,15 @@ substrates, and inspection producers that will extend that space.
   newly constructed Workspace. Workspace construction itself remains empty and
   has no curated option; the handoff does not move catalog identity, display
   actions, or source execution downward.
+- The target
+  [Ecosystem Population Loading](design/ecosystem-population-loading.md) owner
+  defines one explicit host-neutral operation over a statically selected
+  Ecosystem loader binding. It preserves exact Workspace, registration,
+  capability, source-result, and admission correspondence while keeping loader
+  execution out of catalog discovery, registration, construction, and
+  restoration. The `.NET` and `ASP.NET Core` Ecosystems are the first
+  consumers; each composes its exact PlatformHouse family without exposing a
+  user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -652,6 +668,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
+- [Workspace default target framework](design/workspace-default-target-framework.md):
+  one configurable, host-neutral fallback target retained by every Workspace,
+  with `net11.0` as the product default and explicit required-versus-preferred
+  selection intent.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
@@ -708,7 +728,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   integrations, Findings, characteristics, and package/type lenses.
 - [Inspection graph modes](design/inspection-graph-modes.md): single-seed,
   peer-seed, and induced-set requests over member, type, assembly, and package
-  subjects.
+  subjects, plus the target split between subject-local Graph children and
+  top-level Workspace construction or packet reopening.
 - [Call graph characteristics](design/call-graph-characteristics.md):
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
@@ -757,6 +778,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
+- [Coordinate child command](design/coordinate-child-command.md): when a
+  required subordinate point or bounded coordinate population earns a child
+  request under an already selected subject, initially `library coordinate`.
 - [Row query and ordering](design/row-query-order.md): typed predicate and
   order resolution, baseline ordering, and per-`Top` ranking identities.
 - [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
@@ -782,6 +806,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   population, and Integration contributions, typed projection outcomes, and
   Ecosystems-owned construction of the one curated
   Platform/ASP.NET Core/Microsoft.Extensions Workspace.
+- [Ecosystem Population Loading](design/ecosystem-population-loading.md):
+  explicit execution of one statically selected special loader for one exact
+  Workspace Ecosystem registration, with typed outcomes and owner-preserving
+  handoff to ordinary Workspace admission.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,

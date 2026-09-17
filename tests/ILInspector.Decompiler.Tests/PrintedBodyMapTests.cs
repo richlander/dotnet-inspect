@@ -1344,8 +1344,10 @@ public class PrintedBodyMapTests
         Assert.Equal("NameExpression", fact.Kind);
     }
 
-    [Fact]
-    public void SynthesizedStackallocDeclarationsStayOutsideStatementRanges()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SynthesizedStackallocDeclarationsStayOutsideStatementRanges(bool materialized)
     {
         static int SlotOf(PrintedRangeMap map, IrNode node)
             => map.Select((range, index) => (range.Node, index))
@@ -1355,7 +1357,9 @@ public class PrintedBodyMapTests
         var intType = TypeRef.CoreLib("System", "Int32");
         var pointerType = TypeRef.Pointer(intType);
         var allocation = new StackAllocate(new Constant(16, intType));
-        var store = new StoreLocal(0, pointerType, allocation);
+        IrNode store = materialized
+            ? new StoreLocal(0, pointerType, allocation)
+            : new StoreStackSlot(0, allocation);
         var block = new Block(0);
         block.Add(store);
         block.Add(new Return(null));
@@ -1369,14 +1373,18 @@ public class PrintedBodyMapTests
                 [],
                 HasThis: false,
                 GenericParameterCount: 0),
-            [pointerType],
+            materialized ? [pointerType] : [],
             container);
 
         var result = CSharpPrinter.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);
         Assert.True(ranges.TryGetRange(store, out var storeRange));
-        Assert.Equal("int* V_0 = (int*)__stackalloc;\n", ranges.Output[storeRange]);
+        Assert.Equal(
+            materialized
+                ? "int* V_0 = (int*)__stackalloc;\n"
+                : "byte* S_0 = __stackalloc;\n",
+            ranges.Output[storeRange]);
         Assert.True(ranges.TryGetRange(allocation, out var allocationRange));
         Assert.Equal("stackalloc byte[16]", ranges.Output[allocationRange]);
         Assert.True(SlotOf(ranges, allocation) < SlotOf(ranges, store));
@@ -1394,7 +1402,7 @@ public class PrintedBodyMapTests
         Assert.NotNull(imported);
         CSharpPrinter.PrintRaised(imported!, out var importedRanges);
         var slotStore = Assert.Single(
-            imported!.Descendants.OfType<StoreStackSlot>(),
+            imported!.Descendants.OfType<StoreLocal>(),
             candidate => candidate.Value is StackAllocate);
         var slotAllocation = Assert.IsType<StackAllocate>(slotStore.Value);
 

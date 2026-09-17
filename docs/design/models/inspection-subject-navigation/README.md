@@ -48,8 +48,10 @@ read that way:
   Workspace Scope and Expansion removal, replacement, invalidation, and
   scope-operation results, are outside this structural design and are not
   modelled. The model's opaque `coordinate` intent represents Navigation-local
-  coordinate activation and variation. Protected Navigation consumption of
-  scope results remains #5584.
+  coordinate activation and variation. The separate
+  [protected Scope-operation composition](../navigation-scope-operation-consumption/)
+  models #5584's association, barrier, and complete-result consumption without
+  importing those effects into these three ordinary Navigation models.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   and rendering belong to [Inspect Web Navigation
   Presentation](../../inspect-web-navigation-presentation.md); focus movement

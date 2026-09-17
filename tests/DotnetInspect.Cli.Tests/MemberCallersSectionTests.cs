@@ -77,8 +77,8 @@ public class MemberCallersSectionTests
     public async Task EffectiveDiscovery_ListsCallersStructurally_WhenNoInAssemblyCallers()
     {
         // Orphan has no callers in this assembly. Index-backed sections are opt-in and listed
-        // by their structural CanRender gate, not a content probe, so Callers (and Calls /
-        // Unsafe Operations) still appear in effective -D without opening the whole-assembly index.
+        // by their structural CanRender gate, not a content probe, so the @Calls sections still
+        // appear in effective discovery without opening the whole-assembly index.
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeof(MemberCallersFixture).FullName!,
@@ -86,7 +86,7 @@ public class MemberCallersSectionTests
             MemberFilter = [nameof(MemberCallersFixture.Orphan)],
             OverloadIndex = 1,
             TipLevel = TipLevel.Quiet,
-            Discover = [],
+            Discover = [SectionCategoryNames.Calls],
             Verbosity = Verbosity.Normal,
             Tabular = true,
             Tsv = true,
@@ -97,7 +97,6 @@ public class MemberCallersSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Callers\tsection", result.Output);
         Assert.Contains("Calls\tsection", result.Output);
-        Assert.Contains("Unsafe Operations\tsection", result.Output);
         Assert.DoesNotContain("(opt-in)", result.Output);
     }
 

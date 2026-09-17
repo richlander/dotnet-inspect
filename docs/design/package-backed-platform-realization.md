@@ -641,7 +641,9 @@ counted step.
 After 5a and 5b:
 
 1. step 6 adopts shared Library construction and ownership handoff in
-   PlatformHouse;
+   PlatformHouse; its package-backed one-Library source materialization is
+   implemented under #7304 without moving package acquisition or provenance
+   ownership into PlatformHouse;
 2. step 7 moves target-bound type indexing behind PlatformHouse and integrates
    transparent .NET Standard resolution;
 3. step 8 adopts PlatformHouse in the assembly-reference ladder, Workspace,

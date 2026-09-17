@@ -1,0 +1,5 @@
+states/
+*.out
+*_TTrace_*
+*.bin
+*.dot

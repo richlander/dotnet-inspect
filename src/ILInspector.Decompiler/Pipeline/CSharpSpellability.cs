@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -39,10 +40,14 @@ internal static class CSharpSpellability
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
-    public static bool CanSpellSzArrayStorageType(TypeRef type, IrFunction host)
+    public static bool CanSpellArrayStorageType(TypeRef type, IrFunction host)
         // An array local and a by-value parameter use the same explicit type
         // spelling. Reuse its constituent-shape and host-name checks.
-        => type.Kind == TypeRefKind.SzArray
+        => type.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellPointerStorageType(TypeRef type, IrFunction host)
+        => type.Kind == TypeRefKind.Pointer
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
 
     public static bool CanSpellNamedReferenceStorageType(TypeRef type, IrFunction host)
@@ -55,6 +60,20 @@ internal static class CSharpSpellability
             && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
             && !IsByRefLikeType(type, host)
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
+    public static bool CanSpellGenericParameterStorageType(TypeRef type, IrFunction host)
+    {
+        if (type.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            || !CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value))
+            return false;
+
+        var parameters = type.Kind == TypeRefKind.MethodGenericParameter
+            ? host.Signature.GenericParameters : host.DeclaringTypeParameters;
+        return !parameters.IsDefaultOrEmpty
+            && parameters.Where(parameter => parameter.Index == type.GenericParameterIndex).ToArray()
+                is [{ Attributes: var attributes }]
+            && (attributes & GenericParameterAttributes.AllowByRefLike) == 0;
+    }
 
     public static bool CanSpellExplicitParameterType(
         TypeRef type,

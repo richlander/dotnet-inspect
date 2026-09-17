@@ -9,9 +9,10 @@ Library.
 The resource-free `LibraryReference`, `LibraryContentReference`, closed content
 roles, exact Artifact/Metadata correspondence floor, `LibraryContentOwner`,
 `LibraryOperationLease`, scoped single/pair borrowing, and asynchronous
-retirement are implemented in `DotnetInspector.Libraries`. PackageHouse,
-PlatformHouse, Workspace, SourceHouse, and DocumentationHouse adoption remains
-planned.
+retirement are implemented in `DotnetInspector.Libraries`. The compiled-XML
+DocumentationHouse operation now consumes and settles one transferred
+operation lease. PackageHouse, PlatformHouse, Workspace, SourceHouse, and the
+authored DocumentationHouse channel remain planned adopters.
 
 It expands step 15 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
@@ -467,11 +468,17 @@ focused slices:
    gates over the implemented Artifact content-child floor (**implemented**);
 3. implement owner construction, operation transfer, scoped content snapshots,
    release, and pathological `System.Text.Json` gates (**implemented**);
-4. adopt the contract in PackageHouse;
+4. adopt the contract in PackageHouse (**implemented**): the separately
+   compiled execution adapter binds one exact acquired compile handoff to its
+   live payload generation, publishes selected assembly/XML contents through
+   Artifact and Metadata, and transfers separate Library and Artifact
+   authorities;
 5. adopt it in PlatformHouse;
 6. adopt it in Workspace and the Workspace-owned direct-library adapter;
 7. adopt it in SourceHouse; and
 8. adopt it in DocumentationHouse through both CLI and Browser/Wasm consumers.
+   The host-neutral compiled-XML operation now consumes and settles the lease;
+   source adapters and production hosts remain staged.
 
 Each adoption changes one owner and retires that owner's consumer-specific
 ready wrapper or hidden captured lease. The implementation slices update
@@ -479,10 +486,11 @@ the corresponding #6544 steps 15, 18 through 20, 22, and 23 without combining
 those owners into one PR.
 
 The direct product result is DocumentationHouse reading the compiled XML
-companion of the .NET 11 Platform `System.Text.Json` Library while SourceHouse
-can independently read its implementation assembly and PDB. Both consume
-separate Library operation leases over the same owner-issued reference; neither
-defines a private lifetime wrapper.
+companion of a PackageHouse-materialized `System.Text.Json` Library while
+another consumer can independently read its implementation assembly. Both
+consume separate Library operation leases over the same owner-issued reference;
+neither defines a private lifetime wrapper. The thin PackageHouse-to-
+DocumentationHouse host adoption remains owned by DocumentationHouse slice 8.
 
 ## Evidence plan
 
@@ -504,6 +512,13 @@ gates:
 - foreign-generation, foreign-assembly, source-identity, and PDB-role
   mismatches are rejected (`Construction_RejectsCrossGenerationContent` and
   `Construction_RejectsUncorrelatedContent`).
+
+The PackageHouse adopter Release gates use real `System.Text.Json` 10.0.0
+assembly and compiled-XML content. They prove the exact three-content handoff,
+single-content dual assembly roles, optional XML, handoff-generation
+correspondence across byte-identical payloads, visible missing/limit/metadata/
+identity failures, cancellation cleanup, and Library-before-Artifact
+retirement.
 
 The live owner Release suite gates:
 

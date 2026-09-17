@@ -188,9 +188,11 @@ public sealed class SlotMaterializationPass : IIrPass
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
-                        || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellArrayStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellPointerStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
-                        || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function));
+                        || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
                 if (!exactStorage)
                     candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
                 else if (candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))

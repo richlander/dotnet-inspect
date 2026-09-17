@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
@@ -41,6 +42,7 @@ public sealed record SectionQueryCatalog(
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
             "package query" => [],
             "find" => [],
+            "graph libraries" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
@@ -110,11 +112,35 @@ public sealed record SectionQueryCatalog(
                     [IntegrationQueryOptions.QueryKey]));
             }
         }
+        if (command == "graph libraries")
+        {
+            foreach (string section in new[]
+            {
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
+                LibraryCallUseCommand.CallSitesSection,
+            })
+            {
+                queries.Add(new(
+                    section,
+                    "An exact Cluster=... equality predicate scopes the pair occurrence population "
+                    + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
+                    [LibraryCallUseQueryOptions.QueryKey]));
+            }
+        }
 
         ImmutableArray<string> sections = command switch
         {
             "find" => ["Results", "Members"],
             "package query" => [PackageProfileSections.Packages],
+            "graph libraries" =>
+            [
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.DirectUseClustersSection,
+                LibraryCallUseCommand.CallSitesSection,
+            ],
             _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))
                 .Distinct(StringComparer.OrdinalIgnoreCase)],

@@ -120,13 +120,73 @@ executor, because the installed source contracts do not issue exact aggregate
 work observations. It neither guesses those observations nor turns selected
 payload size into a claim about all source work.
 
+Package-backed successful-result materialization is implemented in
+`DotnetInspector.PlatformHouse.Execution.Packages` under #7304. It accepts only
+adapter-issued successful package reference and implementation results for one
+exact assembly demand. Source-specific preparation selects one equivalent
+immutable member per requested view and retains package candidate, configured
+authority, producer identity, content generation, payload origin, member
+coordinate, and digest evidence as resource-free Artifact provenance.
+
+Installed and package-backed preparation both invoke the source-neutral
+Artifact materialization kernel in
+`DotnetInspector.PlatformHouse.Execution`. The kernel bounds one Artifact
+generation to the selected content, obtains Metadata's exact projections,
+rejects physical managed-identity mismatch, invokes the generic one-Library
+executor, and owns query/content authority cleanup and Artifact retirement
+precedence. Source projects retain only source-specific selection and
+provenance; they consume the narrow typed composition contract without friend
+access and do not duplicate publication or cleanup behavior.
+
+The completed package-backed result, like the installed result, returns the
+`LibraryContentOwner` and `ArtifactSetSession` as separate caller-owned
+authorities. Package Source settlement may complete before either authority is
+retired because successful package Platform realizations already own detached
+immutable bytes. No source client, Package Source lease, package payload, or
+store lifetime enters the Artifact, Library, or House result.
+
+Installed reference-only complete-population materialization is implemented in
+`DotnetInspector.PlatformHouse.Execution.Installed` under #7322. It consumes one
+authoritative adapter-issued installed reference population, preserves source
+order, publishes every distinct managed assembly into one finite Artifact
+generation, obtains Metadata's exact projection for each Artifact, and
+constructs one ordinary `LibraryContentOwner` per reference-only Library.
+
+The population operation accepts all content authorities atomically.
+Completion transfers the ordered owners beside resource-free Library references
+and returns the Artifact session separately. Every terminal, cancellation, or
+partial-construction path retires accepted owners and releases unaccepted
+content children before Artifact retirement. One population-wide source
+contribution appears once in the House settlement rather than once per Library.
+
+Installed implementation-only complete-population materialization is
+implemented under #7339. It consumes one authoritative adapter-issued
+manifest-defined implementation closure, preserves source order, and reuses the
+same population-wide bounded Artifact publication, exact Metadata projection,
+atomic owner transfer, cleanup, and settlement contracts. Platform-owned
+implementation declaration-surface evidence assigns each selected runtime
+content both mandatory Library roles. Package-backed population materialization
+remains a later focused step-6 slice.
+
+Installed paired complete-population materialization is implemented under issue #7354.
+It consumes independently authoritative adapter-issued reference and
+implementation populations, publishes both into one finite Artifact generation,
+and joins exact managed identities through the source-neutral PlatformHouse
+kernel. The result is the deterministic lossless union defined above: paired
+Libraries retain separate API and implementation content, unmatched references
+remain reference-only, and unmatched implementations retain the
+implementation-only declaration-surface role closure. Both source contributions
+settle once. Completion transfers every Library owner beside the separate
+Artifact session; terminal and cancellation paths transfer neither authority.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
-are implemented, including installed Artifact publication and retirement
-stages. Internal Library operation leases, cleanup-failure production by
-non-owning operations, whole-population realization, source-adapter Artifact
-materialization for package-backed sources, and product adoption remain
-unverified. Further PlatformHouse adoption continues under #7177 and #6621
-slice 5; this installed materialization slice is tracked by #7269.
+are implemented, including installed and package-backed Artifact publication
+and retirement stages. Internal Library operation leases, cleanup-failure
+production by non-owning operations, package-backed population realization, and
+product adoption remain unverified.
+Further PlatformHouse adoption continues under #7177 and #6621 slice 5; the
+source materialization slices are tracked by #7269, #7304, #7322, #7339, and
+issue #7354.
 
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
@@ -403,6 +463,17 @@ not relabel that cost as a one-file operation.
 Reference success does not satisfy implementation demand. A reference-only
 source can complete API inspection while implementation-body or call-graph
 requests remain visibly unavailable.
+
+For complete paired populations, each source retains its independently authored
+membership and provenance while PlatformHouse owns their correspondence. The
+House pairs only equal complete managed assembly identities. It preserves every
+reference member in reference-source order, attaches an exact matching
+implementation when present, then appends unmatched implementation members in
+implementation-source order. Unmatched references remain reference-only;
+unmatched implementations use the implementation-only declaration-surface
+rule. Equal simple names with different version, culture, or public-key token
+remain distinct Libraries. Filename, path, manifest coordinate, and display
+text do not establish correspondence.
 
 ## Source plans and contributions
 
@@ -1406,13 +1477,27 @@ owner in #6621 slice 3 implemented, step 6 is active. Step 6a, implemented
 under #7237, accepts already selected Artifact-backed content for one exact
 Library, closes its requested roles, constructs the shared Library owner and
 reference atomically, and transfers the owner beside a resource-free composed
-receipt. Step 6b adapts source values into that Artifact-backed handoff. Step 6b.1,
-implemented under #7269, materializes successful installed reference and
+receipt. Step 6b adapts source values into that Artifact-backed handoff. Step
+6b.1, implemented under #7269, materializes successful installed reference and
 implementation values for one exact assembly demand while returning Artifact
 and Library ownership separately. Installed target/source selection and
-terminal source-attempt settlement remain with later orchestration. Step 6b.2
-will adapt package-backed values. Complete-population realization remains a
-later step-6 slice.
+terminal source-attempt settlement remain with later orchestration. Step 6b.2,
+implemented under #7304, materializes equivalent package-backed values while
+retaining package authority, producer, content-generation, origin, coordinate,
+and digest evidence as resource-free provenance. Both source-specific projects
+invoke one shared Artifact publication, Metadata projection, and cleanup
+kernel. Step 6c adopts complete-population realization one view and source at a
+time. Step 6c.1, implemented under #7322, materializes one authoritative
+installed reference population into an ordered all-or-nothing set of
+reference-only Library owners plus one separately returned Artifact session.
+Step 6c.2, implemented under #7339, applies the same atomic handoff to one
+authoritative installed implementation closure and assigns each runtime content
+both Library roles under Platform-owned declaration-surface evidence. Paired
+step 6c.3, implemented under #7354, joins independent authoritative installed
+reference and implementation populations by exact managed assembly identity
+and transfers their lossless union as one all-or-nothing population. Package-
+backed population materialization and internal Metadata operations remain later
+step-6 slices.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
@@ -1607,8 +1692,13 @@ The implementation and adoption slices own these Release gates:
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
 | Shared Library construction | The .NET 11 Platform `System.Text.Json` realization constructs one source-distinct `LibraryReference` with reference-pack `ApiAssembly` and runtime-pack `ImplementationAssembly` content, exact Platform target/source/provenance, and view correspondence; an equal-identity NuGet Library cannot substitute. |
 | Installed Artifact materialization | Successful installed reference-pack and implementation-layout `System.Text.Json` snapshots publish into one bounded Artifact generation without reopening installed files; source provenance, exact House contributions, Metadata projections, and Library roles remain correspondent. |
+| Package Artifact materialization | Successful package-backed reference-pack and runtime-pack `System.Text.Json` snapshots publish into one bounded Artifact generation without package rediscovery or reacquisition; candidate, authority, producer, content generation, payload origin, member coordinate, digest, exact House contributions, Metadata projections, and Library roles remain correspondent. |
 | Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
 | Separate installed authorities | Installed one-Library completion returns the Library owner and adjacent Artifact session separately; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
+| Installed reference population ownership | One authoritative installed reference population produces one source-ordered Library owner per distinct managed identity and one population-wide selected source settlement. Completion transfers every owner beside one Artifact session; terminal, cancellation, duplicate identity, incomplete work, and partial construction transfer none and release every accepted or unaccepted content authority. |
+| Installed implementation population ownership | One authoritative installed manifest-defined implementation closure produces one source-ordered Library owner per distinct managed identity, assigns each exact runtime content both Library roles under population declaration-surface evidence, and records one selected source settlement. Completion transfers every owner beside one Artifact session; terminal and cancellation paths transfer neither authority. |
+| Installed paired population ownership | Independently authoritative installed reference and implementation populations publish into one bounded Artifact generation and settle once each. Exact managed identities pair; same-name non-equivalent identities and unmatched members remain distinct in a reference-first lossless union. Completion transfers every Library owner beside one Artifact session; terminal and cancellation paths transfer neither authority. |
+| Separate package authorities | Package-backed one-Library completion returns the Library owner and adjacent Artifact session separately after Package Source operations settle; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
 | Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
 | Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
@@ -1663,9 +1753,92 @@ terminal/cancellation cleanup:
   `SuccessfulSourcePairing_IsAdapterIssued` cover the resource-free boundary
   and owner-issued live-value/contribution association.
 
-Package-backed source adoption must add its equivalent real path before the
-full shared-Library construction row above is satisfied. Each later
-implementation slice adds the smallest gate covering its adopted property.
+The implemented step-6b.2 gates add the real package-backed `System.Text.Json`
+reference and runtime path, exact package-source-to-Artifact-to-Metadata
+correspondence, common publication/cleanup behavior, and separate Library and
+Artifact authority retirement:
+
+- `GallerySystemTextJsonMaterializesPairedLibraryAuthorities` covers pinned
+  nuget.org reference/runtime packages, detached Package Source lifetime,
+  package provenance, Metadata identity, role closure, borrowing, and ordered
+  retirement;
+- `PackageSystemTextJson_TransfersLibraryAndArtifactAuthorities` covers the
+  fast paired path and exact candidate, authority, producer,
+  content-generation, contribution, and digest correspondence;
+- `PackageReferenceOnly_ClosesOneApiRole` and
+  `PackageImplementationOnly_AssignsBothRoles` cover neighboring view shapes;
+- `ForeignSuccessfulResult_IsRejectedBeforePublication` and
+  `MissingPriorSourceEvidence_ReturnsTerminalAfterCleanup` cover exact
+  request/result pairing and terminal-path ownership;
+- `CancellationPrecedesArtifactOwnership` covers cancellation before Artifact
+  acceptance; and
+- `PackageArtifactProvenance_IsResourceFree` and
+  `SuccessfulSourcePairing_IsAdapterIssued` cover the resource-free boundary
+  and adapter-issued live-value/contribution association.
+
+The implemented step-6c.1 gates add installed reference-only complete
+population ownership:
+
+- `InstalledReferencePopulation_TransfersOrderedLibraryAuthorities` covers the
+  real installed .NET 11 `System.Runtime` and `System.Text.Json` reference
+  images, source order, exact source-to-Artifact-to-Metadata correspondence, one
+  selected population contribution, borrowing, all-owner transfer, and Artifact
+  retirement after the last Library retires;
+- `ReferencePopulationRealizer_TransfersOrderedOwnersAtomically` covers the
+  source-neutral two-Library handoff and exact owner/value/receipt index
+  correspondence;
+- `ReferencePopulationRealizer_RejectsDuplicateIdentityAndCleansLeases` and
+  `ReferencePopulationRealizer_IncompleteWorkCleansTransferredLease` cover
+  distinct population membership and finite-work terminal cleanup;
+- `PopulationArtifactMaterializer_RejectsDuplicateIdentityBeforePublication`
+  proves invalid duplicate membership cannot open or publish population
+  content;
+- `ReferencePopulationRealizer_RetiresPartialOwnerOnInvalidAuthority` covers
+  the partial-construction boundary where an earlier accepted owner must retire
+  before the Artifact generation can retire; and
+- `ReferencePopulationRealizer_CancellationCleansTransferredLease` covers
+  cancellation only after the population operation releases transferred
+  content authority.
+
+The implemented step-6c.2 gates add installed implementation-only complete
+population ownership:
+
+- `InstalledImplementationPopulation_TransfersOrderedLibraryAuthorities`
+  covers a real two-assembly .NET implementation closure, source order, exact
+  source-to-Artifact-to-Metadata correspondence, implementation provenance,
+  declaration-surface role closure, one source settlement, borrowing, atomic
+  owner transfer, and Artifact retirement after every Library retires;
+- `ImplementationPopulationRealizer_AssignsBothRolesAtomically` covers the
+  source-neutral two-Library implementation handoff, exact owner/value index
+  correspondence, population view evidence, and the same-content two-role
+  invariant; and
+- `ImplementationPopulationArtifactMaterializer_RejectsForeignContributionBeforePublication`,
+  `ForeignImplementationPopulation_ReturnsTerminal`, and
+  `ImplementationPopulationCancellationPrecedesArtifactOwnership` cover
+  foreign owner evidence before content opening, installed terminal projection,
+  and cancellation before population Artifact acceptance.
+
+The implemented step-6c.3 gates add installed paired complete-population
+ownership:
+
+- `InstalledPairedPopulation_TransfersLosslessUnionAuthorities` covers real
+  installed paired, reference-only, and implementation-only members; exact
+  identity correspondence; reference-first ordering; two source settlements;
+  atomic owner transfer; and Artifact retirement after every Library retires;
+- `PairedPopulationRealizer_PreservesLosslessUnionAndCorrespondence` covers
+  source-neutral pairing, unmatched-member retention, exact owner/value index
+  correspondence, population view evidence, and both role-closure shapes;
+- `PairedPopulationRealizer_DoesNotPairSameNameDifferentIdentities` proves that
+  assembly versions, rather than simple names, control correspondence;
+- `PairedPopulationArtifactMaterializer_RejectsForeignContributionBeforePublication`
+  proves that either facet's foreign source evidence cannot open or publish
+  population content; and
+- `PairedPopulationRealizer_IncompleteWorkCleansBothFacets` and
+  `PairedPopulationRealizer_CancellationCleansBothFacets` cover finite aggregate
+  work and cancellation after both facets transfer content authority.
+
+Each later implementation slice adds the smallest gate covering its adopted
+property.
 
 The House carries typed operation data but defines no presentation. Markout
 and host-specific rendering are not part of this owner.

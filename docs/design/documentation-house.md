@@ -12,6 +12,24 @@ settles compiled XML documentation and documentation extracted from authored
 source over one exact shared Library reference and transferred operation lease,
 without acquiring packages, platforms, PDBs, or source bytes itself.
 
+The source-neutral request, contribution, attempt, outcome, and receipt floor
+and the compiled-XML operation are implemented in
+`DotnetInspector.DocumentationHouse.Contracts` and
+`DotnetInspector.DocumentationHouse`. The subject consumes owner-issued
+Library-Metadata correspondence rather than pairing independently acquired
+Metadata with a Library by assembly identity. The operation consumes one transferred
+`LibraryOperationLease`, snapshots one exact associated XML content reference
+into bounded detached bytes, ends the borrow, invokes the bounded CSharpText
+reader, and settles the lease before publishing resource-free evidence.
+Cancellation and the absolute deadline are observed at each synchronous stage
+boundary; CSharpText's document, member, child, depth, and retained-text limits
+bound the non-interruptible scan itself. Its current `XmlException` contract
+maps malformed and parser-limit-exhausted input to a visible **Failed**
+compiled attempt, while House contribution, byte, and deadline exhaustion
+remain typed **Incomplete** evidence.
+Source-specific adapters, Queries and host adoption, the authored channel,
+field settlement, and legacy retirement remain staged.
+
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
 documentation settlement moves from
@@ -48,6 +66,9 @@ The design depends on:
 - [Library ownership and borrowing](library-ownership-and-borrowing.md) for the
   exact realized Library reference, selected content references, transferred
   operation authority, synchronous snapshots, and resource-free evidence;
+- [Library-Metadata correspondence](library-metadata-correspondence.md) for
+  bounded owner-issued correspondence between one exact Metadata surface and
+  the realized Library API content that supplied it;
 - [PDB acquisition](../pdb-acquisition.md) for SourceLink interpretation,
   checksum semantics, and authored-source evidence; and
 - [Resource ownership and borrowing](resource-ownership-and-borrowing.md) for
@@ -209,7 +230,9 @@ consumer.
 Every request names one type or member in one exact library context. The
 subject retains:
 
-- the exact Metadata type or member target;
+- owner-issued correspondence between one exact Metadata surface and the
+  realized Library API content that supplied it;
+- the exact type or member selected from that correspondence's surface;
 - the exact compiler XML-documentation identity when compiled XML is
   requested;
 - the exact realized `LibraryReference`;
@@ -240,9 +263,10 @@ ordinals, and rendered signatures are not substitute identity.
 
 ## Library input and operation ownership
 
-The primary House inputs are one exact resource-free `LibraryReference`, one
-request-selected API-declaration `LibraryContentReference`, and ownership of one
-matching `LibraryOperationLease`.
+The primary House inputs are one owner-issued resource-free Library-Metadata
+correspondence, the exact `LibraryReference` and API-declaration
+`LibraryContentReference` it retains, and ownership of one matching
+`LibraryOperationLease`.
 
 The reference supplies:
 
@@ -253,13 +277,14 @@ The reference supplies:
 - Artifact registration, generation, and provenance evidence; and
 - the exact resource-free content identities that contributions may name.
 
-The request-selected API content must belong to the exact Library, carry the
-`ApiAssembly` role, and correspond to Metadata's declaration supplier for the
-documentation subject. An eligible compiled-XML content reference must belong
-to that Library, carry the `CompiledXmlDocumentation` role, and name that API
-content as its associated assembly. Authored demand additionally names the
-exact implementation content and target preserved by the applicable
-source-owner and Metadata correspondence.
+The subject selects its type or member only from the correspondence's exact
+`ApiSurface`; it does not accept an independently acquired surface or recreate
+association through equivalent assembly identity. An eligible compiled-XML
+content reference must belong to that Library, carry the
+`CompiledXmlDocumentation` role, and name the correspondence's API content as
+its associated assembly. Authored demand additionally names the exact
+implementation content and target preserved by the applicable source-owner
+and Metadata correspondence.
 
 The resource-free references carry no stream, callback, opener, or other live
 authority. The transferred lease authorizes synchronous snapshots of exact
@@ -411,6 +436,39 @@ classifies the effect on settlement:
 An adapter may provide explicit precedence among several associated
 companions. DocumentationHouse does not infer precedence from path order,
 framework spelling, package layout, or file timestamps.
+
+The PackageHouse adapter is implemented in the separately compiled
+`DotnetInspector.DocumentationHouse.Packages` project. It accepts one exact
+`PackageHouseLibraryMaterializationReceipt` and the caller's documentation
+subject, then binds the receipt's Library and API content to the exact
+API-associated compiled-XML content materialized by PackageHouse. A present
+companion becomes one candidate contribution; a completed materialization
+without that companion becomes authoritative absence.
+
+The adapter creates only resource-free contribution evidence. It does not
+retain the PackageHouse payload, `LibraryContentOwner`, `ArtifactSetSession`,
+or a `LibraryOperationLease`, and it does not invoke LibraryMetadata or
+DocumentationHouse. Orchestration retains the two owners, issues and settles a
+first operation lease while obtaining
+`LibraryApiSurfaceCorrespondence`, then issues a distinct second operation
+lease and transfers it to `DocumentationHouse.ExecuteAsync`.
+
+The direct-Library adapter is implemented in the separately compiled
+`DotnetInspector.DocumentationHouse.Direct` project. It accepts one exact
+direct Artifact-backed `LibraryReference` and the caller's documentation
+subject, then emits one candidate for every compiled-XML content reference
+associated with that Library's exact API assembly. It does not invent
+precedence when the direct Library contains several companions, so
+DocumentationHouse retains its ordinary ambiguity behavior.
+
+A direct Library with no admitted XML companion produces unavailable evidence,
+not authoritative absence. Unlike PackageHouse's completed materialization
+receipt, a bare direct Library does not prove that its producer exhaustively
+searched an external source for companions. The adapter rejects a
+source-coordinated Library rather than relabeling package, platform, project,
+or local-source evidence as direct-Library evidence. It retains no
+`LibraryContentOwner`, `ArtifactSetSession`, or `LibraryOperationLease` and
+does not invoke LibraryMetadata or DocumentationHouse.
 
 ## Authored-source documentation contribution
 
@@ -766,9 +824,10 @@ assembly and XML companion in the .NET 11 reference pack.
    PlatformHouse;
 2. reconcile DocumentationHouse inputs, contributions, and lifetime with the
    shared Library ownership contract under #6950;
-3. implement compiled-XML attempt and receipt settlement over CSharpText;
-4. add the PackageHouse adapter;
-5. add the direct-library adapter;
+3. **Completed.** Implement compiled-XML attempt and receipt settlement over
+   CSharpText;
+4. **Completed.** Add the PackageHouse adapter;
+5. **Completed.** Add the direct-library adapter;
 6. add the shared Queries compiled-documentation result;
 7. adopt package compiled documentation in Inspect Web;
 8. adopt package and direct-library compiled documentation in the CLI;
@@ -829,6 +888,28 @@ Implementation and adoption slices own these Release gates:
 | Browser portability | In-memory package and platform content requires no filesystem path. |
 | Host parity | Representative CLI and Browser requests produce equivalent House demand and settlement. |
 | Retirement | #6497 deletes its owned legacy XML readers; DocumentationHouse adoption deletes host-local companion selection and merge policy; final CSharpText adoption deletes `DocCommentParser`. |
+
+`CompiledXmlDocumentationHouseTests` is the Release gate for the implemented
+slice. It exercises the real `System.Text.Json` 10.0.0 assembly and XML
+companion, equal-ID cross-Library substitution, readable absence, unavailable
+and partial selection, distinct-content precedence with duplicate
+observations, malformed and bounded XML, stage-boundary deadline and
+cancellation, in-flight owner retirement, and the resource-free result
+closure.
+
+`PackageHouseExecutionTests` gates the PackageHouse adapter over real
+`System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
+separate LibraryMetadata and DocumentationHouse operation leases, exact
+candidate settlement, authoritative missing-companion absence, detached
+documentation, owner retirement, and rejection when byte-identical content
+from another PackageHouse materialization is offered for the selected subject.
+
+`CompiledXmlDocumentationHouseTests` also gates the direct-Library adapter over
+a real direct Artifact-backed `System.Text.Json` 10.0.0 Library. It demonstrates
+exact candidate settlement, unavailable evidence when no XML companion was
+admitted, preservation of multiple companions without invented precedence,
+rejection of source-coordinated Libraries, and rejection when byte-identical
+content from another direct Library is offered for the selected subject.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.
