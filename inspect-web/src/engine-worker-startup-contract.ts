@@ -6,7 +6,7 @@ import type {
 import type {
   BrowserPackageChangesPackageSetCatalog,
   BrowserPackageQueryCatalog,
-  BrowserPackageQueryFacetTier,
+  BrowserPackageQueryAcquisitionTier,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
@@ -47,7 +47,7 @@ function array<T>(value: unknown, parse: (entry: unknown) => T): T[] {
   return value.map(parse);
 }
 
-function tier(value: unknown): BrowserPackageQueryFacetTier {
+function tier(value: unknown): BrowserPackageQueryAcquisitionTier {
   if (value === "Nuspec" || value === "PackageContent" || value === "SearchMetadata") return value;
   return number(value);
 }
@@ -148,16 +148,23 @@ export const engineStartupOperations = {
       const data = record(value);
       return {
         ...data,
-        facets: array(data.facets, rawFacet => {
-          const facet = record(rawFacet);
+        presets: array(data.presets, rawPreset => {
+          const preset = record(rawPreset);
           return {
-            ...facet,
-            id: text(facet.id), label: text(facet.label), summary: text(facet.summary),
-            weight: number(facet.weight), tier: tier(facet.tier),
-            selectionGroupId: nullableText(facet.selectionGroupId),
-            combinesWithinSelectionGroup: boolean(facet.combinesWithinSelectionGroup),
-            displayGroupId: nullableText(facet.displayGroupId),
-            displayGroupLabel: nullableText(facet.displayGroupLabel),
+            ...preset,
+            key: text(preset.key),
+            operator: text(preset.operator),
+            value: text(preset.value),
+            label: text(preset.label),
+            summary: text(preset.summary),
+            weight: number(preset.weight),
+            tier: tier(preset.tier),
+            selectionGroupId: nullableText(preset.selectionGroupId),
+            combinesWithinSelectionGroup: boolean(
+              preset.combinesWithinSelectionGroup),
+            replacementGroupId: nullableText(preset.replacementGroupId),
+            displayGroupId: nullableText(preset.displayGroupId),
+            displayGroupLabel: nullableText(preset.displayGroupLabel),
           };
         }),
         terms: array(data.terms, rawTerm => {

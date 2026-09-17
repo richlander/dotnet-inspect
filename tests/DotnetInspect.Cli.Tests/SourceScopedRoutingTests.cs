@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using NuGetFetch.Plugins;
@@ -658,35 +659,32 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task LatestVersionSettlement_PreservesHouseReceiptAfterCompositionCloses()
+    public async Task LatestVersionSettlement_PreservesEnvelopeAfterCompositionCloses()
     {
         const string PackageName = "System.Text.Json";
         string local = Path.Combine(_testRoot, "latest-house");
         WriteLocalPackage(local, PackageName, "8.0.5");
         WriteLocalPackage(local, PackageName, "9.0.0-preview.7.24405.7");
-        PackageHouseResult result;
-        var selection = new PackageVersionSelectionRequest.AlwaysLatest(
-            PackageName, includePrerelease: false);
+        InspectionEnvelope<PackageVersionSettlementOutcome> envelope;
         await using (var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5)))
         {
-            result = await composition.SettleVersionAsync(
-                selection,
-                new NuGetSourceOptions { Sources = [local] },
-                cancellationToken: TestContext.Current.CancellationToken);
+            using var operation = composition.IssueSettlementOperation(
+                TestContext.Current.CancellationToken);
+            envelope = await PackageVersionSettlementInspection.ExecuteAsync(
+                new PackageCoordinate(PackageName),
+                composition.CreateSettlementHouse(
+                    PackageName, new NuGetSourceOptions { Sources = [local] }),
+                operation);
         }
 
-        var settled = Assert.IsType<PackageHouseResult.Settled>(result);
-        var demand = Assert.IsType<PackageHouseDemand.Selecting>(settled.Request.Demand);
-        Assert.Same(selection, demand.Request);
-        Assert.Equal(PackageHouseOperationProfile.Settle, settled.Request.Operation.Profile);
-        var receipt = Assert.IsType<PackageVersionResolutionReceipt.Resolved>(
-            settled.Decision!.VersionResolution);
-        Assert.Equal("8.0.5", receipt.Coordinate.Version);
-        Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, receipt.Freshness);
-        Assert.Single(receipt.Candidate.Authorities);
-        Assert.Null(settled.Evidence.Acquisition);
-        Assert.Null(settled.Evidence.Realization);
+        var settled = Assert.IsType<PackageVersionSettlementOutcome.Settled>(envelope.Content);
+        Assert.Equal("8.0.5", settled.Result.Coordinate.Version);
+        Assert.Equal("system.text.json", settled.Result.Request.PackageId);
+        Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, settled.Result.Freshness);
+        Assert.Single(settled.Result.SourceListings);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
     }
 
     [Theory]
@@ -751,6 +749,31 @@ public sealed class SourceScopedRoutingTests : IDisposable
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             packageName, "1.0.0",
             ["package", packageName, "--latest-version", "--source", SecondSource]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Correct the package command input", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.Empty(requests);
+    }
+
+    [Theory]
+    [InlineData("bad/id")]
+    [InlineData("bad id")]
+    public async Task RangeVersionSettlement_InvalidInputIsReportedBeforeDiscovery(
+        string packageName)
+    {
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..2.0.0",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -859,6 +882,72 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("requires credentials", error);
         Assert.DoesNotContain("Could not retrieve versions", error);
+    }
+
+    [Fact]
+    public async Task RangeVersionListing_EnumeratesOnceWithoutAcquiringPayload()
+    {
+        string packageName = $"HouseRange{Guid.NewGuid():N}";
+        string[] versions = ["1.0.0", "1.1.0", "2.0.0"];
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                versions,
+                [
+                    "package",
+                    $"{packageName}@2.0.0..1.0.0",
+                    "--versions",
+                    "--verbose",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            versions.Reverse(),
+            output.ReplaceLineEndings("\n").Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains("Fetching versions from ", error);
+        Assert.Contains(SecondSource, error);
+        string versionIndex =
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json";
+        Assert.Equal(
+            1,
+            requests.Count(request => request.Equals(
+                versionIndex,
+                StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task RangeVersionListing_ReportsTheMissingEndpoint()
+    {
+        string packageName = $"HouseRangeMissing{Guid.NewGuid():N}";
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..3.0.0",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("does not contain range endpoint 3.0.0", error);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

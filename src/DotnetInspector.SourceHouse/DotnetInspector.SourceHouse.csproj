@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Host-neutral authored SourceHouse settlement</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
+    <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../Inspector.Findings/Inspector.Findings.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
+    <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
+  </ItemGroup>
+
+</Project>

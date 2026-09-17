@@ -436,7 +436,8 @@ public static class PackageCommandDefinitions
                 {
                     Plan = ((PackageQueryPlanResult.Accepted)PackageQuery.PlanInput(
                         "dotnet-inspect",
-                        maximumMatches: null)).Plan,
+                        maximumMatches: null,
+                        rowSelection: rowSelection)).Plan,
                     Discover = discover,
                     Tree = opts.ParseTree(parseResult),
                     JsonOutput = format == OutputFormat.Json,
@@ -446,7 +447,6 @@ public static class PackageCommandDefinitions
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
-                    RowSelection = rowSelection,
                     Count = parseResult.GetValue(opts.Count),
                 };
                 return await PackageQueryCommand.ExecuteAsync(
@@ -500,7 +500,6 @@ public static class PackageCommandDefinitions
 
             options = options! with
             {
-                RowSelection = rowSelection,
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = format == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),

@@ -28,7 +28,9 @@ public class CompileBackNativeReferenceTests
         var resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(target) { ExcludeTargetAssembly = true });
 
-        var native = resolver.ResolveAll().FirstOrDefault(dependency =>
+        AssemblyResolutionResult resolution = resolver.ResolveAll();
+        Assert.Empty(resolution.Diagnostics);
+        var native = resolution.Items.FirstOrDefault(dependency =>
             Path.GetFileName(dependency.Path)
                 .Equals("aspnetcorev2_inprocess.dll", StringComparison.OrdinalIgnoreCase));
 

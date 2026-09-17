@@ -654,8 +654,11 @@ public sealed class PackageHouse
                     await sourceOperation.DiscoverVersionsAsync(
                         request.Range.PackageId,
                         authorization,
-                        PackageVersionDiscoveryContract
-                            .CompleteVersionEnumeration,
+                        request.IncludeUnlisted
+                            ? PackageVersionDiscoveryContract
+                                .CompleteVersionEnumerationIncludingUnlisted
+                            : PackageVersionDiscoveryContract
+                                .CompleteVersionEnumeration,
                         _log)
                     .ConfigureAwait(false);
                 List<PackageHouseFailure> failures =
