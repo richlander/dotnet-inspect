@@ -222,6 +222,27 @@ public static partial class PackageQuery
             ?? throw new InvalidOperationException(
                 "Listed package resolution returned no source observation.");
         yield return new PackageQueryInputEvent.Acquired(1);
+        SearchResult? metadata = null;
+        if (plan.RequiresSearchMetadata)
+        {
+            var (searchMetadata, searchFailure) =
+                await AcquireExactSearchMetadataAsync(
+                    source,
+                    input.Coordinate.PackageId,
+                    plan.IncludePrerelease,
+                    cancellationToken).ConfigureAwait(false);
+            if (searchFailure is not null)
+            {
+                yield return new PackageQueryInputEvent.Failure(searchFailure);
+                yield return new PackageQueryInputEvent.Completed(
+                    1, PackageQueryCompletionKind.Failed);
+                yield break;
+            }
+            metadata = searchMetadata
+                ?? throw new InvalidOperationException(
+                    "Exact search metadata returned no value or failure.");
+        }
+
         PackageManifestFacts? manifest = null;
         if (plan.RequiresManifest)
         {
@@ -241,9 +262,69 @@ public static partial class PackageQuery
 
         yield return new PackageQueryInputEvent.Match(new PackageQueryPackage(
             input.Coordinate.PackageId, candidate.Coordinate.Version,
-            [], null, null, candidate.Source, manifest, manifest?.Description?.ToString()));
+            [
+                .. (metadata?.Owners ?? [])
+                    .Where(owner => !string.IsNullOrWhiteSpace(owner)),
+            ],
+            metadata?.TotalDownloads,
+            metadata?.Verified,
+            candidate.Source,
+            manifest,
+            manifest?.Description?.ToString() ?? metadata?.Description));
         yield return new PackageQueryInputEvent.Completed(
             1, PackageQueryCompletionKind.ExactPackageComplete);
+    }
+
+    static async ValueTask<(SearchResult? Metadata, PackageQueryFailure? Failure)>
+        AcquireExactSearchMetadataAsync(
+            IPackageSourceClient source,
+            string packageId,
+            bool includePrerelease,
+            CancellationToken cancellationToken)
+    {
+        PackageSourceOperationResult<PackageSearchResult> operation =
+            await source.SearchAsync(
+                packageId,
+                take: 20,
+                includePrerelease,
+                cancellationToken).ConfigureAwait(false);
+        if (operation.Failure is { } failure)
+        {
+            return (null, new PackageQueryFailure(
+                packageId,
+                null,
+                failure.Source,
+                PackageQueryFailureKind.Search,
+                failure.Message));
+        }
+
+        PackageSearchResult result = operation.Value
+            ?? throw new InvalidOperationException(
+                "Exact package search returned no value or failure.");
+        foreach (PackageSearchMatch match in result.Matches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (PackageProfileQuery.ValidateSearchCandidate(
+                source, string.Empty, match) is { } invalid)
+            {
+                return (null, FromProfileFailure(invalid));
+            }
+
+            if (string.Equals(
+                match.Metadata.Id,
+                packageId,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return (match.Metadata, null);
+            }
+        }
+
+        return (null, new PackageQueryFailure(
+            packageId,
+            null,
+            source.Source,
+            PackageQueryFailureKind.Search,
+            "The package source did not return search metadata for the resolved package."));
     }
 
     static async IAsyncEnumerable<PackageQueryInputEvent> AcquirePrefixMetadataAsync(

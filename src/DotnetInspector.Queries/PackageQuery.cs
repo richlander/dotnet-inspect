@@ -81,7 +81,7 @@ public sealed record PackageQueryRequestFailure
             $"The package-query candidate limit must be between 1 and {PackageQuery.MaximumCandidates}; "
             + $"package-content terms admit at most {PackageQuery.MaximumPackageContentCandidates} candidates.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
-            $"The package-query match limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
+            $"The package-query match limit must be between 1 and {PackageQuery.MaximumCandidates}.",
         PackageQueryRequestFailureReason.UnknownVocabulary =>
             "The Package Query vocabulary is not available in this build.",
         PackageQueryRequestFailureReason.UnknownTerm =>
@@ -160,6 +160,9 @@ public sealed class PackageQueryPlan
     public SourceSelector PackageInput { get; }
     public bool RequiresPackageContent =>
         BoundTerms.Any(term => term.Predicate.RequiresPackageContent);
+    internal bool RequiresSearchMetadata =>
+        BoundTerms.Any(term =>
+            term.Descriptor.Tier == PackageQueryAcquisitionTier.SearchMetadata);
     public bool RequiresManifest =>
         BoundTerms.Any(term =>
             term.Descriptor.Tier is PackageQueryAcquisitionTier.Nuspec

@@ -250,6 +250,51 @@ public sealed class PackageQueryTests
                         "microsoft.extensions.dependencyinjection"),
                 ]));
         Assert.Single(normalized.Terms);
+
+        PackageQueryPlan exclusiveNormalized = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms:
+                [
+                    Term(PackageQuery.DownloadsTermKey, "1m"),
+                    Term(PackageQuery.DownloadsTermKey, "1M"),
+                ]));
+        Assert.Single(exclusiveNormalized.Terms);
+
+        PackageQueryPlan reverseExclusiveNormalized = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms:
+                [
+                    Term(PackageQuery.DownloadsTermKey, "1M"),
+                    Term(PackageQuery.DownloadsTermKey, "1m"),
+                ]));
+        Assert.Equal(
+            exclusiveNormalized.Intent.Terms,
+            reverseExclusiveNormalized.Intent.Terms);
+
+        PackageQueryPlan structuralNormalized = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.DependencyInjection",
+                terms:
+                [
+                    Term(
+                        PackageQuery.PackageTermKey,
+                        "microsoft.extensions.dependencyinjection"),
+                ]));
+        Assert.Single(
+            structuralNormalized.Intent.Terms,
+            term => term.Key == PackageQuery.PackageTermKey);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                terms:
+                [
+                    Term(PackageQuery.DownloadsTermKey, "100k"),
+                    Term(PackageQuery.DownloadsTermKey, "1m"),
+                ])).Reason);
     }
 
     [Fact]
@@ -420,6 +465,20 @@ public sealed class PackageQueryTests
             expected,
             Assert.IsType<PackageQueryPlanResult.Rejected>(result)
                 .Failure.Reason);
+    }
+
+    [Fact]
+    public void Plan_InvalidMatchLimitReportsTheAcceptedRange()
+    {
+        PackageQueryRequestFailure failure = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    MaximumMatches: PackageQuery.MaximumCandidates + 1)));
+
+        Assert.Equal(
+            $"The package-query match limit must be between 1 and {PackageQuery.MaximumCandidates}.",
+            failure.Message);
     }
 
     [Fact]
