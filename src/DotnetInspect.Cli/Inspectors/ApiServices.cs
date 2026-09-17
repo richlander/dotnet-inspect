@@ -276,8 +276,28 @@ internal static class ApiServices
             return null;
 
         var loadedLibraries = new List<LoadedApiSurface>();
+        var participantFailures =
+            new List<ApiSurfaceInspectionFailure>();
         foreach (string path in selection.Paths)
         {
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    path)
+                .Replace('\\', '/');
+            switch (TfmSelector.ClassifyPackageLibraryImage(path))
+            {
+                case TfmSelector.PackageLibraryImageKind.NonAssembly:
+                    continue;
+                case TfmSelector.PackageLibraryImageKind.Unreadable:
+                    participantFailures.Add(
+                        PackageLibraryAcquisitionFailure(
+                            path,
+                            "Unreadable",
+                            $"Package Library '{relativePath}' is not "
+                                + "a readable managed assembly image."));
+                    continue;
+            }
+
             LoadedApiSurface? loaded = LoadFullApi(
                 path,
                 runtimeAssemblyPath: null,
@@ -293,9 +313,20 @@ internal static class ApiServices
                 useTypedSelection,
                 platformFramework);
             if (loaded is null)
-                return null;
+            {
+                participantFailures.Add(
+                    PackageLibraryAcquisitionFailure(
+                        path,
+                        "Unavailable",
+                        $"API extraction failed for package Library "
+                            + $"'{relativePath}'."));
+                continue;
+            }
             loadedLibraries.Add(loaded);
         }
+
+        if (loadedLibraries.Count == 0)
+            return null;
 
         LoadedApiSurface first = loadedLibraries[0];
         var aggregateTypes = new List<ApiType>();
@@ -352,6 +383,7 @@ internal static class ApiServices
             [
                 .. loadedLibraries.SelectMany(
                     static loaded => loaded.Api.InspectionFailures),
+                .. participantFailures,
             ],
             TypeForwarders =
             [
@@ -387,6 +419,21 @@ internal static class ApiServices
                     : bindingContexts,
             IsPackageAggregate: true);
     }
+
+    private static ApiSurfaceInspectionFailure
+        PackageLibraryAcquisitionFailure(
+            string path,
+            string kind,
+            string detail) =>
+        new(
+            "acquire package Library API surface",
+            0,
+            MetadataTypeNameFailureMechanism.Metadata,
+            kind,
+            detail)
+        {
+            SourceAssemblyPath = path,
+        };
 
     private readonly record struct AggregateTypeIdentity(
         string SourceAssemblyPath,

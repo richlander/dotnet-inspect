@@ -1141,6 +1141,18 @@ public class LibraryCommand
                     CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
+                if (inspections.Count > 1
+                    && (options.Print
+                        || options.Value
+                        || options.Urls
+                        || options.Paths))
+                {
+                    CommandError.Write(
+                        "Scalar Library projections require one exact Library. "
+                        + "Narrow the package with --library <asset> "
+                        + "or --namesake-library.");
+                    return 1;
+                }
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;

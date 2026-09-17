@@ -3312,6 +3312,8 @@ for (const preferred of [other, empty]) {
       const overview = page.locator(".library-overview-surface");
       await expect(overview.getByRole("heading", { level: 1 })).toHaveText("All libraries");
       await expect(overview.locator(".overview-subject-label")).toHaveText("Libraries");
+      await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+      await expect(page.locator('[data-library-lens]:not([data-library-lens="overview"])')).toHaveCount(0);
       await expect(overview.locator(".section-title")).toContainText("3 admitted");
       await expect(overview.locator(".library-list [data-lib-scope]")).toHaveCount(3);
       await expect(overview.locator('[data-lib-scope="asset:core"]')).toContainText(core.name);

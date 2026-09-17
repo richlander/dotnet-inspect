@@ -1047,6 +1047,10 @@ test("typed package inspection owns package-root request coordination", () => {
   assert.match(
     dependenciesLoader,
     /async function loadPackageDependencies\(\) \{[\s\S]*return packageInspection\.loadDependencies\(/);
+  assert.match(
+    dependenciesLoader,
+    /const assemblyId = state\.atLibraryRoot \? library\?\.id : pkg\.assemblyId;\s*if \(!assemblyId\)\s*throw new Error\("References requires one exact Library\."\)/);
+  assert.doesNotMatch(dependenciesLoader, /library\?\.id \?\? pkg\.assemblyId/);
   assert.match(appSource, /packageInspection\.ensureWorkspaceDependencies\(\)/);
   assert.match(appSource, /packageInspection\.loadIntegrations\(/);
   assert.match(appSource, /packageInspection\.loadOpportunities\(/);
@@ -1056,6 +1060,16 @@ test("typed package inspection owns package-root request coordination", () => {
     packageInspectionSource,
     /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+});
+
+test("aggregate Library scope exposes only aggregate-capable lenses", () => {
+  const libraryLensFilter =
+    appSource.match(/function libraryLensesFor\([\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    libraryLensFilter,
+    /state\.rootKind !== "platform"[\s\S]*state\.atLibraryRoot[\s\S]*state\.libraryScope === null[\s\S]*return id === "overview"/);
 });
 
 test("typed package view owns package navigation bindings", () => {

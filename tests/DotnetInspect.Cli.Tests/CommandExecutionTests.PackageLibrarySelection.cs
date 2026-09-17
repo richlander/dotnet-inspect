@@ -32,6 +32,46 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task LibraryCommand_AggregateRejectsScalarProjection(
+        string projection)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var arguments = new List<string>
+            {
+                "library",
+                packagePath,
+                "-S",
+                projection == "--print"
+                    ? "Context: Source Location"
+                    : "Library Info",
+            };
+            if (projection == "--print")
+                arguments.AddRange(["--il-offset", "0x06000001+0x0"]);
+            arguments.AddRange([projection, "--tips", "q"]);
+
+            var result = await RunAppAsync(arguments.ToArray());
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Scalar Library projections require one exact Library",
+                result.Error);
+            Assert.Contains("--library <asset>", result.Error);
+            Assert.Contains("--namesake-library", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_UnreadableAggregateParticipantIsVisible()
     {
@@ -172,6 +212,94 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(
             "ambiguous across the selected libraries",
             exact.Error);
+    }
+
+    [Fact]
+    public async Task MemberCommand_AggregateUnsafeAnalysisUsesDefiningLibrary()
+    {
+        string packagePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageLibrarySelection",
+            "avalonia.12.1.2.nupkg");
+
+        var result = await RunAppAsync(
+            "member",
+            "Avalonia.OpenGL.GlInterface",
+            "--package", packagePath,
+            "--tfm", "net8.0",
+            "-S", "Unsafe Members",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("## Unsafe Members", result.Output);
+        Assert.Contains("Unsafe signature", result.Output);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task ApiCommand_UnreadableAggregateParticipantPreservesHealthySurface(
+        string command)
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithAdditionalLibrary(
+                "Invalid.dll",
+                [1, 2, 3]);
+        try
+        {
+            var result = command == "type"
+                ? await RunAppAsync(
+                    "type", packagePath,
+                    "-t", "CommandExecutionTests",
+                    "--table", "--columns", "Type,Library",
+                    "--tips", "q")
+                : await RunAppAsync(
+                    "member",
+                    "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                    "--package", packagePath,
+                    "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains(
+                "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                result.Output);
+            Assert.Contains(
+                "API inspection rejected 1 metadata row",
+                result.Output + result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCommand_NonAssemblyAggregateParticipantIsExcluded()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithAdditionalLibrary(
+                "Text.dll",
+                "not an assembly"u8.ToArray());
+        try
+        {
+            var result = await RunAppAsync(
+                "type", packagePath,
+                "-t", "CommandExecutionTests",
+                "--table", "--columns", "Type,Library",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                result.Output);
+            Assert.DoesNotContain("Text.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -583,6 +711,33 @@ public partial class CommandExecutionTests
 
         string packagePath =
             Path.Combine(tempDir, $"{packageId}.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreatePackageWithAdditionalLibrary(
+            string additionalLibraryName,
+            byte[] additionalLibraryContent)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDir, "Healthy.dll"));
+        File.WriteAllBytes(
+            Path.Combine(libDir, additionalLibraryName),
+            additionalLibraryContent);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Aggregate.Participant.Sample.1.0.0.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);

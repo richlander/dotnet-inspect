@@ -4180,6 +4180,10 @@ function packageLensesFor(pkg: AppPackage | null) {
 
 function libraryLensesFor(pkg: AppPackage | null) {
   return libraryLenses.filter(([id]) => {
+    if (state.rootKind !== "platform"
+      && state.atLibraryRoot
+      && state.libraryScope === null)
+      return id === "overview";
     if (id === "compare")
       return pkg?.source.kind === "nuget.org" && !pkg.isRuntimePack;
     return !pkg?.isRuntimePack || id !== "references";
@@ -6177,10 +6181,13 @@ const packageInspection = createPackageInspectionCoordinator({
 async function loadPackageDependencies() {
   const pkg = currentPackage();
   const library = selectedLibrary();
+  const assemblyId = state.atLibraryRoot ? library?.id : pkg.assemblyId;
+  if (!assemblyId)
+    throw new Error("References requires one exact Library.");
   return packageInspection.loadDependencies(
     {
       ...pkg,
-      assemblyId: library?.id ?? pkg.assemblyId,
+      assemblyId,
     },
     packageDependenciesSignature());
 }

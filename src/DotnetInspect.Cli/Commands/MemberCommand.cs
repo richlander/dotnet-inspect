@@ -773,7 +773,9 @@ public static class MemberCommand
 
             if (effectiveOptions.OverloadIndex is null
                 && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
-                && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
+                && (apiType.SourceAssemblyPath
+                    ?? runtimeAssemblyPath
+                    ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
             }
