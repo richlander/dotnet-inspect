@@ -1,3 +1,7 @@
+declare const inertStringBrand: unique symbol;
+export type InertString = string & {
+    readonly [inertStringBrand]: "InertString";
+};
 export type BrowserCloneCandidateAnalysisBlockerKind = "MetadataReadFailure" | "MethodLimit" | "SeedUnsupported" | "SeedProductionLimit" | "SeedProductionFailure" | "CandidateProductionLimit" | "CandidateProductionFailure" | number;
 export type BrowserCloneCandidateBreadth = "Everything" | "Self" | "SelfAndRegisteredEcosystems" | number;
 export type BrowserCloneCandidateDiscovery = "SimilarNames" | "All" | number;
@@ -11,6 +15,8 @@ export type BrowserCloneCandidateRetrievalDisposition = "Completed" | "Unsupport
 export type BrowserCloneCandidateSeedKind = "Library" | "Type" | "Member" | number;
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
+export type InspectionDiagnosticSeverity = number;
+export type JsonValueKind = number;
 export interface BrowserAllocationFact {
     readonly kind: string;
     readonly type: string | null;
@@ -297,6 +303,7 @@ export interface BrowserPackageIntegrations {
     readonly isComplete: boolean;
     readonly inspectionError: string | null;
     readonly compileLibrary: BrowserCompileLibraryAvailability;
+    readonly inspection: InspectionEnvelope<unknown> | null;
 }
 export interface BrowserPackageOpportunities {
     readonly package: string;
@@ -307,6 +314,7 @@ export interface BrowserPackageOpportunities {
     readonly isComplete: boolean;
     readonly inspectionError: string | null;
     readonly compileLibrary: BrowserCompileLibraryAvailability;
+    readonly inspection: InspectionEnvelope<unknown> | null;
 }
 export interface BrowserPackagePerformance {
     readonly members: ReadonlyArray<BrowserPerformanceMember>;
@@ -344,6 +352,21 @@ export interface BrowserSafetyFact {
     readonly requirement: string;
     readonly evidence: string;
 }
+export interface InspectionDiagnostic {
+    readonly code: string;
+    readonly severity: InspectionDiagnosticSeverity;
+    readonly summary: InertString;
+    readonly correspondence: InertString | null;
+}
+export interface InspectionEnvelope<T0> {
+    readonly content: T0;
+    readonly share: InspectionShare;
+    readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+}
+export interface InspectionShare {
+    readonly fullUrl: string | null;
+    readonly packet: string | null;
+}
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
     readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
@@ -359,3 +382,4 @@ export declare function queryPackagePerformance(packageId: string, version: stri
 export declare function queryPlatformIntegrations(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
 export declare function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
+export {};

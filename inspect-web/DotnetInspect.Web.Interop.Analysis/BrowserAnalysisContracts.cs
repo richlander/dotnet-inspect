@@ -1,4 +1,7 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Analysis;
 
@@ -40,7 +43,10 @@ public sealed record BrowserPackageIntegrations(
     int TotalSignals,
     bool IsComplete,
     string? InspectionError,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    BrowserCompileLibraryAvailability CompileLibrary)
+{
+    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+}
 
 public sealed record BrowserIntegrationCategory(
     string Integration,
@@ -61,7 +67,10 @@ public sealed record BrowserPackageOpportunities(
     int TotalOpportunities,
     bool IsComplete,
     string? InspectionError,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    BrowserCompileLibraryAvailability CompileLibrary)
+{
+    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+}
 
 public sealed record BrowserOpportunityCategory(
     string Integration,
@@ -168,6 +177,9 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<JsonElement>),
+    TypeInfoPropertyName = "JsonInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]
 [JsonSerializable(typeof(BrowserCloneCandidateResult))]
