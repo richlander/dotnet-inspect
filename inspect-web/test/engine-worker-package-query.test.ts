@@ -398,6 +398,227 @@ function semanticInspected(): BrowserPackageQueryResult {
   };
 }
 
+function semanticCandidateFailureInspected(): BrowserPackageQueryResult {
+  const valid = semanticInspected();
+  const inspection = valid.inspection;
+  if (inspection === null) {
+    throw new Error("Expected semantic Package Query inspection.");
+  }
+  const content = inspection.content;
+  const semantic = content.assemblySemantic;
+  if (semantic === null) {
+    throw new Error("Expected semantic Package Query Document.");
+  }
+  const matched = semantic.candidateOutcomes[0]!;
+  return {
+    ...valid,
+    inspection: {
+      ...inspection,
+      content: {
+        ...content,
+        results: [],
+        failures: [{
+          packageId: matched.packageId,
+          version: matched.version,
+          producer: matched.producer,
+          kind: "AssemblyEvaluation",
+          message: "Semantic evaluation failed.",
+          manifestFailureReason: null,
+        }],
+        completion: {
+          ...content.completion,
+          matches: 0,
+          failures: 1,
+          occurrences: 0,
+        },
+        assemblySemantic: {
+          ...semantic,
+          results: [],
+          candidateOutcomes: [{
+            ...matched,
+            kind: "Failure",
+            result: null,
+            failureKind: "Evaluation",
+            failureStage: "Assembly",
+            message: "Semantic evaluation failed.",
+          }],
+          matchedPackageCount: 0,
+          occurrenceCount: 0,
+          failureCount: 1,
+          completion: {
+            ...semantic.completion,
+            hasFailures: true,
+            isSemanticEvaluationComplete: false,
+          },
+        },
+      },
+    },
+  };
+}
+
+function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
+  const valid = semanticInspected();
+  const inspection = valid.inspection;
+  if (inspection === null) {
+    throw new Error("Expected semantic Package Query inspection.");
+  }
+  const content = inspection.content;
+  const semantic = content.assemblySemantic;
+  if (semantic === null) {
+    throw new Error("Expected semantic Package Query Document.");
+  }
+  const failure = {
+    candidateOrdinal: null,
+    packageId: null,
+    version: null,
+    authority: "nuget-gallery",
+    kind: "Timeout",
+    message: "The package source operation deadline expired.",
+    timeoutKind: "Operation",
+    timeoutSeconds: 25,
+  };
+  return {
+    ...valid,
+    inspection: {
+      ...inspection,
+      content: {
+        ...content,
+        results: [],
+        failures: [{
+          packageId: null,
+          version: null,
+          producer: "nuget-gallery",
+          kind: "Search",
+          message: failure.message,
+          manifestFailureReason: null,
+        }],
+        completion: {
+          ...content.completion,
+          candidates: 0,
+          matches: 0,
+          failures: 1,
+          kind: "Failed",
+          sourceCandidates: 0,
+          occurrences: 0,
+        },
+        assemblySemantic: {
+          ...semantic,
+          population: {
+            requestedCandidates: 1,
+            candidates: 0,
+            completion: "SourceFailed",
+            isRequestedPopulationComplete: false,
+            failures: [failure],
+          },
+          results: [],
+          candidateOutcomes: [],
+          candidateCount: 0,
+          evaluatedCandidateCount: 0,
+          matchedPackageCount: 0,
+          occurrenceCount: 0,
+          completion: {
+            population: "SourceFailed",
+            isRequestedPopulationComplete: false,
+            allCandidatesHaveTerminalOutcomes: true,
+            hasFailures: true,
+            isSemanticEvaluationComplete: false,
+            isOperationDeadlineExpired: true,
+          },
+        },
+      },
+    },
+  };
+}
+
+function semanticInspectedWithOccurrences(
+  count: number,
+  candidateCount = 1,
+): BrowserPackageQueryResult {
+  const valid = semanticInspected();
+  const inspection = valid.inspection;
+  if (inspection === null) {
+    throw new Error("Expected semantic Package Query inspection.");
+  }
+  const content = inspection.content;
+  const semantic = content.assemblySemantic;
+  if (semantic === null) {
+    throw new Error("Expected semantic Package Query Document.");
+  }
+  const result = semantic.results[0]!;
+  const occurrence = result.occurrences[0]!;
+  const occurrences = Array.from({ length: count }, () => occurrence);
+  const row = content.results[0]!;
+  const evidence = row.evidence[0]!;
+  const populationCompletion = candidateCount === 1
+    ? "ExactPackageComplete"
+    : "PrefixExhausted";
+  const expandedResults = Array.from(
+    { length: candidateCount },
+    (_value, index) => ({
+      ...result,
+      candidateOrdinal: index + 1,
+      packageId: `contoso.library.${index + 1}`,
+      occurrences,
+    }));
+  const occurrenceCount = count * candidateCount;
+  return {
+    ...valid,
+    inspection: {
+      ...inspection,
+      content: {
+        ...content,
+        results: expandedResults.map(expandedResult => ({
+          ...row,
+          packageId: expandedResult.packageId,
+          evidence: [{
+            ...evidence,
+            summary: {
+              count,
+              preview: evidence.summary!.preview,
+            },
+          }],
+        })),
+        completion: {
+          ...content.completion,
+          candidateLimit: candidateCount,
+          matchLimit: candidateCount,
+          candidates: candidateCount,
+          matches: candidateCount,
+          kind: candidateCount === 1
+            ? "ExactPackageComplete"
+            : "Exhausted",
+          sourceCandidates: candidateCount,
+          occurrences: occurrenceCount,
+        },
+        assemblySemantic: {
+          ...semantic,
+          population: {
+            ...semantic.population,
+            requestedCandidates: candidateCount,
+            candidates: candidateCount,
+            completion: populationCompletion,
+          },
+          results: expandedResults,
+          candidateOutcomes: expandedResults.map(expandedResult => ({
+            ...semantic.candidateOutcomes[0]!,
+            candidateOrdinal: expandedResult.candidateOrdinal,
+            packageId: expandedResult.packageId,
+            result: expandedResult,
+          })),
+          candidateCount,
+          evaluatedCandidateCount: candidateCount,
+          matchedPackageCount: candidateCount,
+          occurrenceCount,
+          completion: {
+            ...semantic.completion,
+            population: populationCompletion,
+          },
+        },
+      },
+    },
+  };
+}
+
 function canceled(reason: string): BrowserPackageQueryResult {
   return {
     version: 3,
@@ -1303,6 +1524,39 @@ test("Package Query Worker rejects inconsistent semantic Document accounting", (
   assert.match(
     settlement.diagnostic,
     /assembly-semantic outcome accounting is inconsistent/);
+});
+
+test("Package Query Worker accepts producer-valid semantic failure completion", () => {
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(
+      semanticCandidateFailureInspected()).kind,
+    "succeeded",
+  );
+});
+
+test("Package Query Worker accepts an operation deadline before candidate admission", () => {
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(
+      semanticZeroCandidateDeadlineInspected()).kind,
+    "succeeded",
+  );
+});
+
+test("Package Query Worker accepts the full Browser semantic occurrence maximum", () => {
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(
+      semanticInspectedWithOccurrences(10_000, 5)).kind,
+    "succeeded",
+  );
+});
+
+test("Package Query Worker rejects occurrences above the Analysis maximum", () => {
+  const settlement = mapEngineWorkerPackageQueryResult(
+    semanticInspectedWithOccurrences(10_001));
+  assert.equal(settlement.kind, "failed");
+  if (settlement.kind !== "failed")
+    throw new Error("Expected oversized semantic settlement failure.");
+  assert.match(settlement.diagnostic, /exceeds 10000 collection items/);
 });
 
 test("Package Query Worker accepts owner maximum manifest collections", () => {

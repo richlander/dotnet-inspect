@@ -333,8 +333,9 @@ function semanticAssessmentSucceeded(
           completion: {
             ...base.inspection.content.assemblySemantic.completion,
             hasFailures: failureCount > 0 || hasOperationDeadline,
-            isSemanticEvaluationComplete: notEvaluated === 0,
-            isOperationDeadlineExpired: notEvaluated > 0,
+            isSemanticEvaluationComplete:
+              notEvaluated === 0 && failureCount === 0,
+            isOperationDeadlineExpired: hasOperationDeadline,
           },
         },
       },
@@ -577,7 +578,9 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
     assert.equal(
       completion.notEvaluatedCount,
       kind === "NotEvaluated" ? 1 : 0);
-    assert.equal(completion.complete, kind !== "NotEvaluated");
+    assert.equal(
+      completion.complete,
+      kind === "NoMatch" || kind === "NotApplicable");
   }
 });
 

@@ -211,11 +211,90 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
   assert.match(html, /value="net10\.0"/);
   assert.match(html, /Showing 3 of 5 occurrences/);
   assert.match(html, /1 matching package · 5 occurrences/);
+  assert.match(html, /exact package population complete/);
   assert.match(html, /data-query-root-request="opaque-root"/);
   assert.match(html, /Facets are unavailable while Library literal qualification is active/);
   assert.match(html, /Terms are unavailable while Library literal qualification is active/);
   assert.doesNotMatch(html, /data-query-facet=/);
   assert.doesNotMatch(html, /data-query-term-add=/);
+});
+
+test("library-literal completion distinguishes exhausted and bounded populations", () => {
+  const request = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.*"),
+    "shared-literal-use-marker",
+    "net10.0");
+  const render = (
+    population: "PrefixExhausted" | "SourcePageLimitReached",
+    complete: boolean,
+  ) => renderPackageQueryView({
+    state: {
+      request,
+      outcome: withCompletion(emptyOutcome(), {
+        kind: "library-literal",
+        population,
+        candidateCount: 5,
+        evaluatedCandidateCount: 5,
+        notEvaluatedCount: 0,
+        matchedPackageCount: 0,
+        occurrenceCount: 0,
+        semanticMissCount: 5,
+        notApplicableCount: 0,
+        failureCount: 0,
+        complete,
+      }),
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  const exhausted = render("PrefixExhausted", true);
+  const bounded = render("SourcePageLimitReached", false);
+
+  assert.match(exhausted, /No matching package libraries/);
+  assert.match(exhausted, /prefix population exhausted/);
+  assert.doesNotMatch(exhausted, /not a confirmed empty result/);
+  assert.match(
+    bounded,
+    /No matching package libraries in the completed work/);
+  assert.match(bounded, /source page limit reached; operation incomplete/);
+  assert.match(bounded, /not a confirmed empty result/);
+  assert.notEqual(exhausted, bounded);
+});
+
+test("library-literal result footer discloses an incomplete population", () => {
+  const request = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.*"),
+    "shared-literal-use-marker",
+    "net10.0");
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: withCompletion(
+        appendRows(emptyOutcome(), [row("Contoso.Package")]),
+        {
+          kind: "library-literal",
+          population: "SourcePageLimitReached",
+          candidateCount: 5,
+          evaluatedCandidateCount: 5,
+          notEvaluatedCount: 0,
+          matchedPackageCount: 1,
+          occurrenceCount: 1,
+          semanticMissCount: 4,
+          notApplicableCount: 0,
+          failureCount: 0,
+          complete: false,
+        }),
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /1 matching package · 1 occurrence · source page limit reached; operation incomplete/);
 });
 
 test("active terms render above the product-issued available-term palette", () => {

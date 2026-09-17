@@ -5,6 +5,7 @@ import type {
   QueryResultRow,
   QuerySourceSelection,
   QueryTermDescriptor,
+  TerminalQueryCompletion,
 } from "./package-query.ts";
 import { createQueryRequest } from "./package-query.ts";
 import {
@@ -685,6 +686,9 @@ function renderCompletionFooter(
 ): string {
   const { completion } = outcome;
   const partialFailure = outcome.failures.length > 0;
+  const libraryLiteralScope = completion.kind === "library-literal"
+    ? renderLibraryLiteralCompletionScope(completion)
+    : null;
   const label = completion.kind === "streaming"
     ? "streaming…"
     : completion.kind === "idle"
@@ -698,7 +702,7 @@ function renderCompletionFooter(
         : completion.kind === "exact"
           ? "exact package selection complete"
         : completion.kind === "library-literal"
-          ? `${completion.matchedPackageCount.toLocaleString()} matching package${completion.matchedPackageCount === 1 ? "" : "s"} · ${completion.occurrenceCount.toLocaleString()} occurrence${completion.occurrenceCount === 1 ? "" : "s"}`
+          ? `${completion.matchedPackageCount.toLocaleString()} matching package${completion.matchedPackageCount === 1 ? "" : "s"} · ${completion.occurrenceCount.toLocaleString()} occurrence${completion.occurrenceCount === 1 ? "" : "s"} · ${libraryLiteralScope}`
         : completion.kind === "failed"
           ? `failed: ${escapeHtml(completion.reason)}`
           : "cancelled";
@@ -711,6 +715,40 @@ function renderCompletionFooter(
       <span>${outcome.rows.length} ${resultLabel} · ${label}</span>
       ${cancelButton}
     </div>`;
+}
+
+function renderLibraryLiteralCompletionScope(
+  completion: Extract<
+    TerminalQueryCompletion,
+    { kind: "library-literal" }
+  >,
+): string {
+  let population: string;
+  switch (completion.population) {
+    case "ExactPackageComplete":
+      population = "exact package population complete";
+      break;
+    case "PrefixExhausted":
+      population = "prefix population exhausted";
+      break;
+    case "CandidateLimitReached":
+      population = "candidate limit reached";
+      break;
+    case "SourcePageLimitReached":
+      population = "source page limit reached";
+      break;
+    case "ClientPageLimitReached":
+      population = "client page limit reached";
+      break;
+    case "SourceFailed":
+      population = "source population failed";
+      break;
+    default: {
+      const unreachable: never = completion.population;
+      return unreachable;
+    }
+  }
+  return completion.complete ? population : `${population}; operation incomplete`;
 }
 
 function renderLibraryLiteralControls(
@@ -853,11 +891,14 @@ function renderEmptyState(
       </section>`;
   }
   if (completion.kind === "library-literal") {
+    const scope = renderLibraryLiteralCompletionScope(completion);
     return `
       <section class="query-empty">
         <span class="large-glyph">◇</span>
-        <h2>No matching package libraries</h2>
-        <p>The selected primary implementation libraries produced no package Result. Candidate outcomes remain listed above.</p>
+        <h2>${completion.complete
+          ? "No matching package libraries"
+          : "No matching package libraries in the completed work"}</h2>
+        <p>Scope: ${scope}. The selected primary implementation libraries produced no package Result.${completion.complete ? "" : " This is not a confirmed empty result for the requested population."} Candidate outcomes remain listed above.</p>
       </section>`;
   }
   if (state.outcome.failures.length) {

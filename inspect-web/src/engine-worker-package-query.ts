@@ -65,6 +65,25 @@ const maximumEventCollectionItems =
   + maximumManifestPackageTypes
   + maximumManifestDependencyGroups
   + maximumManifestDependencies;
+// Match the Browser semantic request bound and the Analysis-owned default
+// budget for each selected implementation library.
+const maximumSemanticCandidates = 5;
+const maximumSemanticOccurrencesPerCandidate = 10_000;
+const maximumSemanticDecodedCharactersPerCandidate = 4_000_000;
+const maximumSemanticPopulationFailures = maximumSemanticCandidates + 1;
+// Matched Results are serialized once in the Result population and once in
+// their typed candidate outcomes.
+const maximumSemanticCollectionItems =
+  maximumSemanticPopulationFailures
+  + maximumSemanticCandidates * 2
+  + maximumSemanticCandidates
+    * maximumSemanticOccurrencesPerCandidate
+    * 2;
+const maximumSemanticCharacters =
+  maximumEventCharacters
+  + maximumSemanticCandidates
+  * maximumSemanticDecodedCharactersPerCandidate
+  * 2;
 // System.Text.Json can encode one UTF-16 code unit as six JSON characters.
 // Repeated contract structure is bounded separately by the maximum collection
 // shape, while fixed event structure fits within the final allowance.
@@ -1185,6 +1204,10 @@ function parseInspection(
     remainingCharacters: maximumEventCharacters,
     remainingItems: maximumInspectionItems,
   };
+  const semanticBudget = {
+    remainingCharacters: maximumSemanticCharacters,
+    remainingItems: maximumSemanticCollectionItems,
+  };
   const content: EngineWorkerPackageQueryDocument = {
     results: arrayItems(
       documentRecord.results,
@@ -1211,7 +1234,7 @@ function parseInspection(
       ? null
       : parseAssemblySemanticDocument(
           documentRecord.assemblySemantic,
-          documentBudget),
+          semanticBudget),
   };
   if (content.completion.matches !== content.results.length
       || content.completion.failures !== content.failures.length) {
@@ -1365,7 +1388,9 @@ function parseInspection(
       occurrences: arrayItems(
         result.occurrences,
         "assembly-semantic Result occurrences",
-        budget).map(item => parseAssemblySemanticOccurrence(item, budget)),
+        budget,
+        maximumSemanticOccurrencesPerCandidate)
+        .map(item => parseAssemblySemanticOccurrence(item, budget)),
     };
   }
 
@@ -1565,7 +1590,8 @@ function parseInspection(
       failures: arrayItems(
         populationValue.failures,
         "assembly-semantic population failures",
-        budget).map(item =>
+        budget,
+        maximumSemanticPopulationFailures).map(item =>
           parseAssemblySemanticPopulationFailure(item, budget)),
     };
     const completionValue = dataRecord(document.completion, [
@@ -1579,11 +1605,15 @@ function parseInspection(
     const results = arrayItems(
       document.results,
       "assembly-semantic Results",
-      budget).map(item => parseAssemblySemanticResult(item, budget));
+      budget,
+      maximumSemanticCandidates)
+      .map(item => parseAssemblySemanticResult(item, budget));
     const candidateOutcomes = arrayItems(
       document.candidateOutcomes,
       "assembly-semantic candidate outcomes",
-      budget).map(item => parseAssemblySemanticOutcome(item, budget));
+      budget,
+      maximumSemanticCandidates)
+      .map(item => parseAssemblySemanticOutcome(item, budget));
     const projected: BrowserPackageAssemblySemanticDocument = {
       population,
       results,
@@ -1678,6 +1708,12 @@ function parseInspection(
     const occurrenceCount = results.reduce(
       (total, result) => total + result.occurrences.length,
       0);
+    const operationDeadlineExpired = population.failures.some(failure =>
+      failure.kind === "Timeout" && failure.timeoutKind === "Operation");
+    const semanticEvaluationComplete =
+      projected.notEvaluatedCount === 0
+      && projected.failureCount === 0
+      && !operationDeadlineExpired;
     if (outcomeCounts.Matched !== projected.matchedPackageCount
       || outcomeCounts.NoMatch !== projected.semanticMissCount
       || outcomeCounts.NotApplicable !== projected.notApplicableCount
@@ -1692,9 +1728,9 @@ function parseInspection(
         !== (projected.failureCount > 0
           || projected.population.failures.length > 0)
       || projected.completion.isSemanticEvaluationComplete
-        !== (projected.notEvaluatedCount === 0)
+        !== semanticEvaluationComplete
       || projected.completion.isOperationDeadlineExpired
-        !== (projected.notEvaluatedCount > 0)) {
+        !== operationDeadlineExpired) {
       throw new PackageQueryPayloadError(
         "Package Query assembly-semantic outcome accounting is inconsistent.");
     }
