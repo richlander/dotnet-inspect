@@ -467,11 +467,12 @@ rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
 rejects malformed or ambiguous matches. Preliminary classification preserves
 raw current-module TypeRef scope when structured decoding rejects the type, so
 malformed local metadata cannot be reclassified as an ordinary foreign
-reference. A MethodDef candidate's signature-declared generic count must equal
-its `GenericParam` row count before signature matching.
+reference. A MethodDef candidate's `GenericParam` rows must exactly declare its
+signature generic parameters by count and zero-based contiguous index before
+signature matching.
 `SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind` gates that rule
 for full analysis with a well-formed neighboring control, while
-`UnsafeEvidencePresence_MismatchedTargetGenericDeclarationFailsVisibly` gates
+`UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly` gates
 the bounded absence claim.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible

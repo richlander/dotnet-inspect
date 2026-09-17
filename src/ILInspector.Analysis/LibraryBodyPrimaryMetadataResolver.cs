@@ -311,9 +311,10 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         TypeRef returnType;
         byte signatureHeader;
         int requiredParameterCount;
-        bool hasMismatchedGenericParameterCount = false;
-        int genericArity =
-            methodDef.GetGenericParameters().Count;
+        GenericParameterHandleCollection genericParameters =
+            methodDef.GetGenericParameters();
+        int genericArity = genericParameters.Count;
+        bool hasInvalidGenericParameterDeclaration = false;
         if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
         {
             var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
@@ -321,9 +322,11 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType = signature.ReturnType;
             signatureHeader = signature.Header.RawValue;
             requiredParameterCount = signature.RequiredParameterCount;
-            hasMismatchedGenericParameterCount =
-                signature.GenericParameterCount
-                    != genericArity;
+            hasInvalidGenericParameterDeclaration =
+                !MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    genericParameters,
+                    signature.GenericParameterCount);
         }
         else
         {
@@ -349,8 +352,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
-            HasMismatchedGenericParameterCount =
-                hasMismatchedGenericParameterCount,
+            HasInvalidGenericParameterDeclaration =
+                hasInvalidGenericParameterDeclaration,
             IsVirtualDispatchOpen =
                 DispatchCanTargetOverride(
                     _reader.GetTypeDefinition(typeHandle),
@@ -958,11 +961,15 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             int typeParameterCount =
                 typeDefinition.GetGenericParameters()
                     .Count;
+            GenericParameterHandleCollection
+                methodGenericParameters =
+                    methodDefinition.GetGenericParameters();
             int methodParameterCount =
-                methodDefinition.GetGenericParameters()
-                    .Count;
-            if (signature.GenericParameterCount
-                    != methodParameterCount
+                methodGenericParameters.Count;
+            if (!MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    methodGenericParameters,
+                    signature.GenericParameterCount)
                 || SignatureTypeFacts.IsMalformed(
                     signature.ReturnType,
                     typeParameterCount,

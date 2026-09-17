@@ -130,13 +130,16 @@ public class UnsafeEvidencePresenceTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
     public void
-        UnsafeEvidencePresence_MismatchedTargetGenericDeclarationFailsVisibly()
+        UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly(
+            int genericParameterIndex)
     {
         ImmutableArray<byte> image =
             BuildTargetGenericDeclarationAssembly(
-                addGenericParameterRow: false);
+                genericParameterIndex);
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
@@ -151,16 +154,17 @@ public class UnsafeEvidencePresenceTests
     }
 
     [Theory]
-    [InlineData(false, CallTreeStatus.External)]
-    [InlineData(true, CallTreeStatus.Leaf)]
+    [InlineData(-1, CallTreeStatus.External)]
+    [InlineData(0, CallTreeStatus.Leaf)]
+    [InlineData(1, CallTreeStatus.External)]
     public void
         SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind(
-            bool addGenericParameterRow,
+            int genericParameterIndex,
             CallTreeStatus expectedStatus)
     {
         ImmutableArray<byte> image =
             BuildTargetGenericDeclarationAssembly(
-                addGenericParameterRow);
+                genericParameterIndex);
         string path = Path.Combine(
             Path.GetTempPath(),
             $"target-generic-declaration-{Guid.NewGuid():N}.dll");
@@ -1638,11 +1642,11 @@ public class UnsafeEvidencePresenceTests
 
     static ImmutableArray<byte>
         BuildTargetGenericDeclarationAssembly(
-            bool addGenericParameterRow)
+            int genericParameterIndex)
     {
         MetadataBuilder metadata =
             CreateMetadata(
-                addGenericParameterRow
+                genericParameterIndex == 0
                     ? "MatchingTargetGenericDeclaration"
                     : "MismatchedTargetGenericDeclaration");
         TypeDefinitionHandle targetType =
@@ -1707,13 +1711,13 @@ public class UnsafeEvidencePresenceTests
             AddVoidMethodSignature(metadata),
             callerBody,
             MetadataTokens.ParameterHandle(1));
-        if (addGenericParameterRow)
+        if (genericParameterIndex >= 0)
         {
             metadata.AddGenericParameter(
                 targetMethod,
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString("T"),
-                index: 0);
+                index: genericParameterIndex);
         }
 
         return Serialize(metadata, bodies);

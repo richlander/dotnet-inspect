@@ -152,7 +152,7 @@ internal sealed class MethodDefinitionMap
         MethodIdentity candidate,
         int declaringTypeParameterCount,
         MemberRef callee)
-        => !candidate.HasMismatchedGenericParameterCount
+        => !candidate.HasInvalidGenericParameterDeclaration
             && SignatureMatches(
                 candidate.ParameterTypes,
                 candidate.ReturnType,

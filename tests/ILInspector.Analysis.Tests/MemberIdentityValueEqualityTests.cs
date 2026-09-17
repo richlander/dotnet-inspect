@@ -1761,6 +1761,10 @@ public class MemberIdentityValueEqualityTests
         {
             RequiredParameterCount = 2,
         };
+        MethodIdentity invalidGenericDeclaration = first with
+        {
+            HasInvalidGenericParameterDeclaration = true,
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
@@ -1772,6 +1776,7 @@ public class MemberIdentityValueEqualityTests
         Assert.NotEqual(first, differentDuplicates);
         Assert.NotEqual(first, differentHeader);
         Assert.NotEqual(first, differentRequiredCount);
+        Assert.NotEqual(first, invalidGenericDeclaration);
     }
 
     [Fact]
