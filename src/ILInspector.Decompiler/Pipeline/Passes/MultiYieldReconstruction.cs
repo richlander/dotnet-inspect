@@ -67,6 +67,7 @@ internal static class MultiYieldReconstruction
         // Commit the predicted locals (order must match the prediction above).
         for (var i = 0; i < moveNext.Locals.Length; i++)
             kickoff.AddLocal(moveNext.Locals[i], NameOf(moveNext, i));
+        CopyLocalScopeEvidence(moveNext, kickoff, localOffset);
         // Carry the transplanted temps' eliminated-slot markings to their new
         // kickoff indices (localOffset + i). A dead <>y__InlineArrayN buffer raised
         // inside MoveNext is copied above but renders nowhere; without re-marking it
@@ -89,6 +90,34 @@ internal static class MultiYieldReconstruction
 
     static string? NameOf(IrFunction function, int index)
         => index < function.LocalNames.Length ? function.LocalNames[index] : null;
+
+    static void CopyLocalScopeEvidence(IrFunction source, IrFunction target, int targetOffset)
+    {
+        if (!source.LocalDeclaredInNestedScope.IsDefaultOrEmpty)
+        {
+            var nested = target.LocalDeclaredInNestedScope;
+            while (nested.Length < target.Locals.Length)
+                nested = nested.Add(false);
+            for (int i = 0; i < source.Locals.Length; i++)
+            {
+                if (i < source.LocalDeclaredInNestedScope.Length)
+                    nested = nested.SetItem(targetOffset + i, source.LocalDeclaredInNestedScope[i]);
+            }
+            target.LocalDeclaredInNestedScope = nested;
+        }
+        if (!source.LocalDeclarationBindings.IsDefaultOrEmpty)
+        {
+            var bindings = target.LocalDeclarationBindings;
+            while (bindings.Length < target.Locals.Length)
+                bindings = bindings.Add(null);
+            for (int i = 0; i < source.Locals.Length; i++)
+            {
+                if (i < source.LocalDeclarationBindings.Length)
+                    bindings = bindings.SetItem(targetOffset + i, source.LocalDeclarationBindings[i]);
+            }
+            target.LocalDeclarationBindings = bindings;
+        }
+    }
 
     static void Reanchor(IrNode node, int offset)
     {

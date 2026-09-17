@@ -1487,15 +1487,15 @@ test asserting only "not established" would pass with the rule it names deleted.
 the form a user is most likely to click, so it is held to the same rule and
 gated by
 `SourceLinkProvenanceTests.ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin`.
-`SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`
-pins the raw-host reader set by set equality. SourceLink document-map behavior
-is gated at the untrusted JSON boundary by
+These provenance tests exercise recognized hosts, ambiguous spellings,
+redirects, and spoofing shapes at the untrusted URL and map boundary. No
+repository-source census is part of that behavioral claim. SourceLink
+document-map behavior is likewise gated at the untrusted JSON boundary by
 `SourceLinkMapConformanceTests.TheSpecifiedUrl_IsProducedByTheSourceLinkOwner`
 and
 `SourceLinkMapConformanceTests.TheSpecifiedUrl_IsProducedThroughTheMetadataEntryPoint`,
 which drive the same specification rows through the owner and the supported
-delegating entry point. No repository-source census is part of that behavioral
-claim.
+delegating entry point.
 
 ### Artifact-derived source URLs use an SSRF-hardened client
 
