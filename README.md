@@ -308,7 +308,8 @@ diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### ReadyToRun and raw metadata
@@ -638,7 +639,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### Compatibility and change tracking
@@ -932,7 +934,7 @@ dotnet-inspect graph libraries \
 The drill-down names every source member, source token, target member, target
 token, call kind, evidence method, evidence token, and IL offset in that
 cluster. Use source and target identities for ordinary `member` inspection.
-Use the evidence token with the IL offset for `library --il-offset`, because a
+Use the evidence token with the IL offset for `library coordinate`, because a
 compiler-generated physical body can differ from the attributed source member.
 The cluster remains structural evidence rather than a source-inlining verdict.
 
@@ -957,8 +959,8 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library ./Consumer.dll \
-  --il-offset "<EvidenceToken>+<ILOffset>"
+dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+  --library ./Consumer.dll
 ```
 
 ### Workspace sharing and built-in guidance
