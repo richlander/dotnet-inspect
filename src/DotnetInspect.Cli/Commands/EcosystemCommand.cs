@@ -65,15 +65,6 @@ public static class EcosystemCommand
         DocumentSchema schema = CreateSchema(sections);
         string[]? projectedColumns = ResolveProjectedColumns(options);
 
-        if (ContainsRemovedIntegrationsAlias(options.Discover)
-            || ContainsRemovedIntegrationsAlias(options.Select))
-        {
-            CommandError.Write(
-                "Ecosystem section alias 'Integrations' has been removed; "
-                + "use '@Integrations' or exact 'Known Integrations'.");
-            return 1;
-        }
-
         if (options.Schema && options.Discover is null)
         {
             CommandError.Write("--schema requires -D/--discover.");
@@ -116,7 +107,8 @@ public static class EcosystemCommand
             catalog.SelectableSectionNames,
             catalog.InfoSectionNames,
             catalog.SelectionCategoryMap,
-            selectDefault: options.SelectDefault);
+            selectDefault: options.SelectDefault,
+            expandCategoryAliases: false);
         if (SelectOutput.WriteUnresolved(selection))
             return 1;
 
@@ -716,11 +708,6 @@ public static class EcosystemCommand
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
     }
-
-    private static bool ContainsRemovedIntegrationsAlias(string[]? values) =>
-        values?.Any(value => value.Equals(
-            "Integrations",
-            StringComparison.OrdinalIgnoreCase)) == true;
 
     private static EcosystemSection[] PrepareRenderSections(
         IEnumerable<EcosystemSection> sections,

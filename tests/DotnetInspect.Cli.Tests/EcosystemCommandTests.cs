@@ -575,7 +575,7 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
-    public async Task RemovedIntegrationsAliasReportsAuthoredReplacement()
+    public async Task UnprefixedIntegrationsIsNotASelector()
     {
         var removed = await ExecuteAsync(new EcosystemOptions
         {
@@ -591,10 +591,7 @@ public sealed class EcosystemCommandTests
         Assert.Equal(1, removed.ExitCode);
         Assert.Empty(removed.Output);
         Assert.Contains(
-            "Ecosystem section alias 'Integrations' has been removed",
-            removed.Error);
-        Assert.Contains(
-            "use '@Integrations' or exact 'Known Integrations'",
+            "Select value 'Integrations' not found.",
             removed.Error);
 
         Assert.Equal(0, exact.ExitCode);

@@ -314,13 +314,18 @@ public static class SelectResolver
     /// spellable, and resolved here rather than through a <c>@Default</c> category entry so it
     /// works the same on pipelines that publish no poles. See #3547.
     /// </param>
+    /// <param name="expandCategoryAliases">
+    /// Whether bare aliases for authored categories participate after exact section matching.
+    /// Commands with an exact authored vocabulary can disable this shared convenience.
+    /// </param>
     public static SelectResult ResolveSelectAsSections(
         string[]? select,
         IReadOnlyList<string> knownSections,
         IReadOnlyList<string>? infoSections = null,
         IReadOnlyDictionary<string, string[]>? categories = null,
         bool selectDefault = false,
-        IReadOnlySet<string>? exactOnlySections = null)
+        IReadOnlySet<string>? exactOnlySections = null,
+        bool expandCategoryAliases = true)
     {
         if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
@@ -368,7 +373,8 @@ public static class SelectResolver
                 // Fall back to a category alias (e.g. retired "Performance Triage" / bare
                 // "Performance" -> @Performance) when the value is not an exact section here.
                 var isExact = knownSections.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
-                if (!isExact
+                if (expandCategoryAliases
+                    && !isExact
                     && CategoryAliases.TryGetValue(value, out var aliasCategory)
                     && categories.TryGetValue(aliasCategory, out var aliasSections))
                 {
