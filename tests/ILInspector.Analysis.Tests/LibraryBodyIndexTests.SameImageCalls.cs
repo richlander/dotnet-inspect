@@ -23,6 +23,41 @@ namespace ILInspector.Analysis.Tests;
 
 public partial class LibraryBodyIndexTests
 {
+    [Theory]
+    [InlineData(FixtureIds.AnalysisCallOverloads, "Call", CallerUnsafeMode.Explicit, true)]
+    [InlineData(FixtureIds.AnalysisCallOverloads, "CallGeneric", CallerUnsafeMode.None, true)]
+    [InlineData(FixtureIds.AnalysisCallGenericScope, "Call", CallerUnsafeMode.None, false)]
+    [InlineData(FixtureIds.AnalysisCallGenericScope, "CallVarArg", CallerUnsafeMode.None, false)]
+    [InlineData(FixtureIds.AnalysisCallFunctionPointerScope, "Call", CallerUnsafeMode.None, true)]
+    public void SameImageCalls_PreserveOpenIdentityAndGenericScope(
+        string fixtureId,
+        string callerName,
+        CallerUnsafeMode expectedMode,
+        bool expectedPresence)
+    {
+        string path = FixtureCatalog.Get(fixtureId).AssemblyPath();
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            candidate => candidate.Caller.Name == callerName
+                && candidate.Callee.Name == "Invoke");
+
+        Assert.Empty(index.Diagnostics);
+        Assert.Equal(expectedMode, call.TargetCallerUnsafeMode);
+        Assert.Equal(
+            expectedMode == CallerUnsafeMode.Explicit,
+            index.UnsafeEvidence.Any(evidence =>
+                evidence.Member.Name == callerName
+                && evidence.Reason == "Unsafe call"));
+        Assert.Equal(
+            expectedPresence,
+            LibraryBodyIndex.HasUnsafeEvidence(
+                path,
+                ImmutableArray.Create(File.ReadAllBytes(path))));
+    }
+
     [Fact]
     public void SameImageCalls_UseNormalizedCallerContracts()
     {

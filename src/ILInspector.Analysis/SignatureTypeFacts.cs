@@ -63,14 +63,14 @@ internal static class SignatureTypeFacts
                 pending.Push(
                     (function.ReturnType,
                         current.TypeParameterCount,
-                        function.GenericParameterCount));
+                        current.MethodParameterCount));
                 foreach (TypeRef parameter
                     in function.ParameterTypes)
                 {
                     pending.Push(
                         (parameter,
                             current.TypeParameterCount,
-                            function.GenericParameterCount));
+                            current.MethodParameterCount));
                 }
                 continue;
             }

@@ -375,6 +375,14 @@ internal join currency; `DirectCall` preserves its `None`, `Implicit`,
 `Explicit`, or `Unavailable` contract without changing the established operand
 and peeled-token identities.
 
+Definition correspondence compares open signatures before generic substitution:
+`Invoke(!0)` and `Invoke(int)` remain distinct even on a constructed `Target<int>`.
+Constructed parameter and return views do not replace that identity. Generic
+variables in a declaring TypeSpec and optional vararg arguments belong to the
+caller's scope; variables in the open return and required-parameter signature
+belong to the target's scope. Nested function-pointer signatures retain their
+enclosing type and method generic scope.
+
 Call-contract composition uses the primary image's declared module name to
 recognize same-module `ModuleRef` aliases, including aliases nested in signature
 types. Full analysis and the bounded presence resolver share
@@ -407,6 +415,15 @@ alias provenance.
 presence agreement for matching, case-variant, and foreign module scopes,
 including local array-element aliases and a foreign signature under a local
 declaring type. These tiny generated-image cases are PR-fast, not corpus scans.
+`SameImageCalls_PreserveOpenIdentityAndGenericScope` gates distinct open
+overloads that collapse after construction, caller-scoped TypeSpec and optional
+vararg arguments, and enclosing method parameters inside function-pointer
+signatures. The three
+cataloged compiler fixtures stay separate because the public presence query
+short-circuits at the first positive: combining their assemblies would mask
+negative or malformed-result regressions. Their ordinary build and tiny-image
+analysis are PR-fast; the function-pointer control retains structural signature
+evidence while rejecting a false `Unsafe call`.
 `UnsafeEvidencePresence_RejectsSameImageCorrespondenceAboveBudget` and
 `UnsafeEvidencePresence_RejectsAggregateTypeSpecAndMethodSpecWork` gate the
 public query's bounded failure paths. The presence matcher examines only the

@@ -168,7 +168,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
                     _reader.GetTypeDefinition(
                             declaringHandle)
                         .GetGenericParameters()
-                        .Count);
+                        .Count,
+                    scope);
                 return new(
                     declaring,
                     name,
@@ -218,7 +219,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 ThrowIfMalformedPresenceSignature(
                     declaring,
                     signature,
-                    int.MaxValue);
+                    int.MaxValue,
+                    scope);
                 ImmutableArray<TypeRef> typeArguments =
                     declaring.Kind
                             == TypeRefKind.GenericInstance
@@ -359,25 +361,37 @@ internal sealed class LibraryBodyMethodReferenceResolver
     static void ThrowIfMalformedPresenceSignature(
         TypeRef declaringType,
         MethodSignature<TypeRef> signature,
-        int typeParameterCount)
+        int typeParameterCount,
+        GenericScope callerScope)
     {
-        if (SignatureTypeFacts.IsMalformed(
-                declaringType,
-                typeParameterCount,
-                signature.GenericParameterCount)
-            || SignatureTypeFacts.IsMalformed(
-                signature.ReturnType,
-                typeParameterCount,
-                signature.GenericParameterCount)
-            || signature.ParameterTypes.Any(
-                parameter =>
-                    SignatureTypeFacts.IsMalformed(
-                        parameter,
-                        typeParameterCount,
-                        signature.GenericParameterCount)))
+        Validate(
+            declaringType,
+            callerScope.TypeParameters.Length,
+            callerScope.MethodParameters.Length);
+        Validate(
+            signature.ReturnType,
+            typeParameterCount,
+            signature.GenericParameterCount);
+        for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
-            throw new BadImageFormatException(
-                "The method signature contains an unsupported or malformed type.");
+            bool optionalArgument =
+                signature.Header.CallingConvention == SignatureCallingConvention.VarArgs
+                && i >= signature.RequiredParameterCount;
+            Validate(
+                signature.ParameterTypes[i],
+                optionalArgument ? callerScope.TypeParameters.Length : typeParameterCount,
+                optionalArgument
+                    ? callerScope.MethodParameters.Length
+                    : signature.GenericParameterCount);
+        }
+
+        static void Validate(TypeRef type, int typeCount, int methodCount)
+        {
+            if (SignatureTypeFacts.IsMalformed(type, typeCount, methodCount))
+            {
+                throw new BadImageFormatException(
+                    "The method signature contains an unsupported or malformed type.");
+            }
         }
     }
 

@@ -895,11 +895,6 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     {
         TypeDefinition typeDefinition =
             _reader.GetTypeDefinition(typeHandle);
-        ImmutableArray<TypeRef> typeArguments =
-            member.DeclaringType.Kind
-                == TypeRefKind.GenericInstance
-                    ? member.DeclaringType.TypeArguments
-                    : [];
         MethodDefinitionHandle resolved = default;
         foreach (MethodDefinitionHandle methodHandle
             in typeDefinition.GetMethods())
@@ -945,10 +940,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                         & MethodAttributes.Static) != 0,
                     signature.Header.RawValue,
                     signature.RequiredParameterCount,
-                    typeArguments,
-                    member.TypeArguments,
-                    member.ParameterTypes,
-                    member.ReturnType,
+                    member.OpenSignatureParameters,
+                    member.OpenSignatureReturn,
                     member.GenericArity,
                     member.HasThis,
                     member.SignatureHeader,

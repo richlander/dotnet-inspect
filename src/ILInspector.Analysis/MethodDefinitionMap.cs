@@ -54,7 +54,7 @@ internal sealed class MethodDefinitionMap
 
     public bool CouldResolveToCurrentModule(DirectCall call)
         => call.Callee.Kind != MemberKind.Unsupported
-            && CanResolveToCurrentModule(call.Callee.DeclaringType);
+            && _signatureComparer.CanResolveToCurrentModule(call.Callee.DeclaringType);
 
     public int Resolve(DirectCall call)
         => Resolve(
@@ -127,10 +127,8 @@ internal sealed class MethodDefinitionMap
             candidate.IsStatic,
             candidate.SignatureHeader,
             candidate.RequiredParameterCount,
-            typeArguments,
-            callee.TypeArguments,
-            callee.ParameterTypes,
-            callee.ReturnType,
+            callee.OpenSignatureParameters,
+            callee.OpenSignatureReturn,
             callee.GenericArity,
             callee.HasThis,
             callee.SignatureHeader,
@@ -145,8 +143,6 @@ internal sealed class MethodDefinitionMap
         bool candidateIsStatic,
         byte candidateSignatureHeader,
         int candidateRequiredParameterCount,
-        ImmutableArray<TypeRef> typeArguments,
-        ImmutableArray<TypeRef> methodArguments,
         ImmutableArray<TypeRef> parameterTypes,
         TypeRef returnType,
         int genericArity,
@@ -196,9 +192,7 @@ internal sealed class MethodDefinitionMap
         for (int i = 0; i < comparedParameterCount; i++)
         {
             if (!typeMatches(
-                    candidateParameterTypes[i].Instantiate(
-                        typeArguments,
-                        methodArguments),
+                    candidateParameterTypes[i],
                     parameterTypes[i]))
             {
                 return false;
@@ -206,9 +200,7 @@ internal sealed class MethodDefinitionMap
         }
 
         return typeMatches(
-            candidateReturnType.Instantiate(
-                typeArguments,
-                methodArguments),
+            candidateReturnType,
             returnType);
     }
 
