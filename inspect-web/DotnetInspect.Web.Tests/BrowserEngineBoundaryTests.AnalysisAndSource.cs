@@ -125,7 +125,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
+        string surfaceJson = await QueryPackageSurfaceJson(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -413,7 +413,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
+        string surfaceJson = await QueryPackageSurfaceJson(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -482,7 +482,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
+        string surfaceJson = await QueryPackageSurfaceJson(
             PackageId,
             "1.0.0",
             "net11.0");
