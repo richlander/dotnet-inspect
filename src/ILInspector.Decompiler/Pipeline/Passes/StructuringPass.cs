@@ -2094,7 +2094,8 @@ public sealed class StructuringPass : IIrPass
         continueTarget is null
         && target < stop
         && ReachesProtectedRegionEnd(ctx, stop)
-        && !RegionExternallyEntered(ctx, falseStart, target);
+        && !RegionExternallyEntered(ctx, falseStart, target)
+        && !RegionExternallyEntered(ctx, target, stop);
 
     static bool ReachesProtectedRegionEnd(Ctx ctx, int start)
     {

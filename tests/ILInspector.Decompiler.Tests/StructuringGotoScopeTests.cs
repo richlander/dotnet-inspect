@@ -476,6 +476,36 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void PrefixedRegionExitTakenArmWithExternalEntry_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry));
+        var tryBody = Assert.Single(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody)).TryBody;
+        var externallyEnteredBlock = Assert.Single(
+            tryBody.Blocks,
+            block => block.Children.Count == 1
+                && block.Children[0] is StoreLocal);
+        Assert.Contains(
+            tryBody.Descendants.OfType<Leave>(),
+            leave => leave.TargetOffset == externallyEnteredBlock.StartOffset
+                && !ReferenceEquals(leave.Parent, externallyEnteredBlock));
+
+        string output = PrintFixture(
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry));
+
+        Assert.Contains("goto", output);
+        var reconstructed = Compile(output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                StructuringRegionExitSamples.PrefixedRegionExitTakenArmWithExternalEntry(input),
+                reconstructed(input));
+        }
+    }
+
+    [Fact]
     public void PrefixedRegionExitInsideTailInfiniteLoop_StaysFlatAndPreservesOutcome()
     {
         var before = ImportFixtureBeforeStructuring(

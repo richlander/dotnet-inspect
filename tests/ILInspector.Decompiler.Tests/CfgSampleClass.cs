@@ -5537,6 +5537,36 @@ public static class StructuringRegionExitSamples
         return value;
     }
 
+    public static int PrefixedRegionExitTakenArmWithExternalEntry(int a)
+    {
+        int value = 0;
+        try
+        {
+            try
+            {
+                if (a == 2)
+                    goto success;
+            }
+            finally
+            {
+                CfgSampleClass.LastValue++;
+            }
+
+            if (a == 0)
+                goto success;
+            value = 7;
+            goto done;
+        success:
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+
     public static int PrefixedRegionExitInsideTailInfiniteLoop(int a)
     {
         int value = 0;
