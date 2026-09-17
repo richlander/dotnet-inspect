@@ -3572,7 +3572,10 @@ public partial class LibraryBodyIndexTests
         IReadOnlyList<int?> moduleMarkers,
         bool includePointerSignature = true,
         MemorySafetyCallTarget callTarget =
-            MemorySafetyCallTarget.PointerOnly)
+            MemorySafetyCallTarget.PointerOnly,
+        string aliasModuleName = "AnalysisMemorySafety.dll",
+        bool includeLocalParameter = false,
+        string? parameterModuleName = null)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -3624,6 +3627,37 @@ public partial class LibraryBodyIndexTests
                 isInstance: false,
                 parameterCount: 0,
                 _ => { });
+        TypeReferenceHandle localType = metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"));
+        TypeReferenceHandle moduleAliasType = metadata.AddTypeReference(
+            metadata.AddModuleReference(metadata.GetOrAddString(aliasModuleName)),
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"));
+        TypeReferenceHandle parameterAliasType = parameterModuleName is null
+            ? moduleAliasType
+            : metadata.AddTypeReference(
+                metadata.AddModuleReference(
+                    metadata.GetOrAddString(parameterModuleName)),
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Target"));
+        BlobHandle localSignature = includeLocalParameter
+            ? AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: false,
+                parameterCount: 1,
+                parameters => parameters.AddParameter().Type()
+                    .SZArray().Type(localType, isValueType: false))
+            : emptyMethodSignature;
+        BlobHandle aliasSignature = includeLocalParameter
+            ? AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: false,
+                parameterCount: 1,
+                parameters => parameters.AddParameter().Type()
+                    .SZArray().Type(parameterAliasType, isValueType: false))
+            : emptyMethodSignature;
         var varArgTargetSignature = new BlobBuilder();
         new BlobEncoder(varArgTargetSignature)
             .MethodSignature(
@@ -3705,7 +3739,7 @@ public partial class LibraryBodyIndexTests
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("AttributeOnly"),
-                emptyMethodSignature,
+                localSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle varArgAttributeOnly =
@@ -3730,6 +3764,11 @@ public partial class LibraryBodyIndexTests
                         metadata.GetOrAddString("Target")),
                     metadata.GetOrAddString("AttributeOnly"),
                     emptyMethodSignature),
+            MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
+                metadata.AddMemberReference(
+                    moduleAliasType,
+                    metadata.GetOrAddString("AttributeOnly"),
+                    aliasSignature),
             MemorySafetyCallTarget
                 .MethodDefinitionParentVarArgAttributeOnly =>
                     metadata.AddMemberReference(
@@ -3775,6 +3814,10 @@ public partial class LibraryBodyIndexTests
             callerInstructions.LoadConstantI4(1);
             callerInstructions.LoadConstantI4(2);
         }
+        else if (includeLocalParameter)
+        {
+            callerInstructions.OpCode(ILOpCode.Ldnull);
+        }
         callerInstructions.Call(callerTarget);
         callerInstructions.OpCode(ILOpCode.Ret);
         int callerBodyOffset =
@@ -3794,6 +3837,8 @@ public partial class LibraryBodyIndexTests
                     MemorySafetyCallTarget
                         .LocalTypeReferenceAttributeOnly =>
                             "CallsLocalAlias",
+                    MemorySafetyCallTarget.ModuleReferenceAttributeOnly =>
+                        "CallsModuleAlias",
                     MemorySafetyCallTarget
                         .ExternalSameNameAttributeOnly =>
                             "CallsExternalAlias",

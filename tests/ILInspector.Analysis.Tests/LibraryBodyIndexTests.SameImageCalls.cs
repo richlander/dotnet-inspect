@@ -249,6 +249,61 @@ public partial class LibraryBodyIndexTests
                 ImmutableArray.Create(image)));
     }
 
+    [Theory]
+    [InlineData("AnalysisMemorySafety.dll", false, true)]
+    [InlineData("ANALYSISMEMORYSAFETY.DLL", false, true)]
+    [InlineData("Other.netmodule", false, false)]
+    [InlineData("AnalysisMemorySafety.dll", true, true)]
+    [InlineData("ANALYSISMEMORYSAFETY.DLL", true, true)]
+    [InlineData("Other.netmodule", true, false)]
+    [InlineData("AnalysisMemorySafety.dll", true, false, "Other.netmodule")]
+    public void SameImageCalls_ModuleReferenceAliasesMatchPresence(
+        string moduleName,
+        bool includeLocalParameter,
+        bool expected,
+        string? parameterModuleName = null)
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget: MemorySafetyCallTarget.ModuleReferenceAttributeOnly,
+            aliasModuleName: moduleName,
+            includeLocalParameter: includeLocalParameter,
+            parameterModuleName: parameterModuleName);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"analysis-module-alias-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                candidate => candidate.Caller.Name == "CallsModuleAlias");
+
+            Assert.Equal(
+                expected,
+                LibraryBodyIndex.HasUnsafeEvidence(
+                    path,
+                    ImmutableArray.Create(image)));
+            Assert.Equal(
+                expected ? CallerUnsafeMode.Explicit : (CallerUnsafeMode?)null,
+                call.TargetCallerUnsafeMode);
+            Assert.Equal(
+                expected,
+                index.UnsafeEvidence.Any(evidence =>
+                    evidence.Member.Name == "CallsModuleAlias"
+                    && evidence.Reason == "Unsafe call"
+                    && evidence.OperandToken == call.OperandToken));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void
         SameImageCalls_ResolveMethodDefinitionParentVarArg()
@@ -301,6 +356,7 @@ public partial class LibraryBodyIndexTests
         PointerOnly,
         AttributeOnly,
         LocalTypeReferenceAttributeOnly,
+        ModuleReferenceAttributeOnly,
         ExternalSameNameAttributeOnly,
         MethodDefinitionParentVarArgAttributeOnly,
     }

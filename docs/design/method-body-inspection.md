@@ -375,6 +375,15 @@ internal join currency; `DirectCall` preserves its `None`, `Implicit`,
 `Explicit`, or `Unavailable` contract without changing the established operand
 and peeled-token identities.
 
+Call-contract composition uses the primary image's declared module name to
+recognize same-module `ModuleRef` aliases, including aliases nested in signature
+types. Full analysis and the bounded presence resolver share
+`SameImageSignatureComparer` for exact signature provenance. Module names
+compare ordinally ignoring case; foreign module scopes do not bind to
+primary-image definitions.
+Data-only method maps without that module identity retain their conservative
+unresolved result for these aliases.
+
 For a resolved same-image invocation, `Implicit` and `Explicit` produce
 `Unsafe call` evidence, `None` does not, and `Unavailable` remains visible on
 the call without being recast as safe or unsafe evidence. Calls to
@@ -393,7 +402,11 @@ overloads with different generic arity and caller contracts.
 `MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix` gates vararg
 correspondence. `UnsafeEvidencePresence_ResolvesPointerFreeLocalTypeReferenceAlias`
 and `UnsafeEvidencePresence_DoesNotBindExternalSameNameReference` gate local
-alias provenance, while
+alias provenance.
+`SameImageCalls_ModuleReferenceAliasesMatchPresence` gates full-index and
+presence agreement for matching, case-variant, and foreign module scopes,
+including local array-element aliases and a foreign signature under a local
+declaring type. These tiny generated-image cases are PR-fast, not corpus scans.
 `UnsafeEvidencePresence_RejectsSameImageCorrespondenceAboveBudget` and
 `UnsafeEvidencePresence_RejectsAggregateTypeSpecAndMethodSpecWork` gate the
 public query's bounded failure paths. The presence matcher examines only the

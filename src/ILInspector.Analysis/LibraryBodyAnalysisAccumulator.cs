@@ -87,7 +87,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 .Where(static result => result.HasCaller)
                 .Select(static result => result.Caller!),
         ];
-        var methodMap = MethodDefinitionMap.Create(physicalMethods);
+        var methodMap = MethodDefinitionMap.Create(
+            physicalMethods,
+            _primaryMetadataResolver.ModuleName);
         Dictionary<int, MethodIdentity> methodsByToken =
             physicalMethods.ToDictionary(
                 static method => method.MetadataToken);

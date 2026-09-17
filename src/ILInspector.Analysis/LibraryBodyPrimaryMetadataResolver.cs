@@ -19,6 +19,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly string _assemblyName;
     readonly string _moduleName;
     readonly AssemblyReferenceIdentity? _assemblyIdentity;
+    readonly SameImageSignatureComparer _signatureComparer;
     readonly Guid _mvid;
     readonly MemorySafetyMetadataIndex _memorySafety;
     readonly Func<
@@ -73,6 +74,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             ? AssemblyReferenceIdentity
                 .FromAssemblyDefinition(reader)
             : null;
+        _signatureComparer = new(_assemblyIdentity, _moduleName);
         _mvid = mvid;
         _resolveMethod = resolveMethod;
         _resolvePresenceMethod =
@@ -93,6 +95,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         _memorySafety.Rules;
 
     internal string AssemblyName => _assemblyName;
+
+    internal string ModuleName => _moduleName;
 
     internal Guid Mvid => _mvid;
 
@@ -948,7 +952,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     member.GenericArity,
                     member.HasThis,
                     member.SignatureHeader,
-                    member.RequiredParameterCount))
+                    member.RequiredParameterCount,
+                    _signatureComparer.Matches))
             {
                 continue;
             }

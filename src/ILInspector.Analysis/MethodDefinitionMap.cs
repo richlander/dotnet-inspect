@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Runtime.CompilerServices;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -11,19 +9,21 @@ internal sealed class MethodDefinitionMap
     readonly Dictionary<string, List<MethodIdentity>>
         _methodsByDeclaringTypeAndName =
             new(StringComparer.Ordinal);
-    readonly AssemblyReferenceIdentity? _currentAssembly;
+    readonly SameImageSignatureComparer _signatureComparer;
 
     MethodDefinitionMap(
-        ImmutableArray<MethodIdentity> methods)
+        ImmutableArray<MethodIdentity> methods,
+        string? currentModuleName)
     {
+        AssemblyReferenceIdentity? assembly = null;
         foreach (MethodIdentity method in methods)
         {
-            if (_currentAssembly is null
+            if (assembly is null
                 && Definition(method.DeclaringType).Resolution?.Origin
                     is TypeReferenceOrigin.CurrentAssembly
                     { Assembly: { } currentAssembly })
             {
-                _currentAssembly = currentAssembly;
+                assembly = currentAssembly;
             }
 
             _methodTokens.Add(method.MetadataToken);
@@ -41,11 +41,13 @@ internal sealed class MethodDefinitionMap
                 _methodsByDeclaringTypeAndName[key] = [method];
             }
         }
+        _signatureComparer = new(assembly, currentModuleName);
     }
 
     public static MethodDefinitionMap Create(
-        ImmutableArray<MethodIdentity> methods)
-        => new(methods);
+        ImmutableArray<MethodIdentity> methods,
+        string? currentModuleName = null)
+        => new(methods, currentModuleName);
 
     public bool ContainsToken(int token)
         => _methodTokens.Contains(token);
@@ -62,7 +64,7 @@ internal sealed class MethodDefinitionMap
         if (_methodTokens.Contains(calleeDefinitionToken))
             return calleeDefinitionToken;
         if (callee.Kind == MemberKind.Unsupported
-            || !CanResolveToCurrentModule(
+            || !_signatureComparer.CanResolveToCurrentModule(
                 callee.DeclaringType))
         {
             return 0;
@@ -107,21 +109,6 @@ internal sealed class MethodDefinitionMap
         return resolvedToken;
     }
 
-    bool CanResolveToCurrentModule(TypeRef type)
-    {
-        TypeReferenceOrigin? origin =
-            Definition(type).Resolution?.Origin;
-        return origin switch
-        {
-            null => true,
-            TypeReferenceOrigin.CurrentAssembly => true,
-            TypeReferenceOrigin.AssemblyReference reference =>
-                _currentAssembly is { } current
-                && reference.Assembly.IsEquivalentTo(current),
-            _ => false,
-        };
-    }
-
     bool SignatureMatches(
         MethodIdentity candidate,
         ImmutableArray<TypeRef> typeArguments,
@@ -144,43 +131,9 @@ internal sealed class MethodDefinitionMap
             callee.HasThis,
             callee.SignatureHeader,
             callee.RequiredParameterCount,
-            LocalSignatureTypeMatches);
+            _signatureComparer.Matches);
 
     internal static bool SignatureMatches(
-        ImmutableArray<TypeRef> candidateParameterTypes,
-        TypeRef candidateReturnType,
-        int candidateTypeParameterCount,
-        int candidateGenericArity,
-        bool candidateIsStatic,
-        byte candidateSignatureHeader,
-        int candidateRequiredParameterCount,
-        ImmutableArray<TypeRef> typeArguments,
-        ImmutableArray<TypeRef> methodArguments,
-        ImmutableArray<TypeRef> parameterTypes,
-        TypeRef returnType,
-        int genericArity,
-        bool hasThis,
-        byte signatureHeader,
-        int requiredParameterCount)
-        => SignatureMatches(
-            candidateParameterTypes,
-            candidateReturnType,
-            candidateTypeParameterCount,
-            candidateGenericArity,
-            candidateIsStatic,
-            candidateSignatureHeader,
-            candidateRequiredParameterCount,
-            typeArguments,
-            methodArguments,
-            parameterTypes,
-            returnType,
-            genericArity,
-            hasThis,
-            signatureHeader,
-            requiredParameterCount,
-            TypeRef.ExactSignatureEquals);
-
-    static bool SignatureMatches(
         ImmutableArray<TypeRef> candidateParameterTypes,
         TypeRef candidateReturnType,
         int candidateTypeParameterCount,
@@ -255,129 +208,6 @@ internal sealed class MethodDefinitionMap
             returnType);
     }
 
-    bool LocalSignatureTypeMatches(
-        TypeRef left,
-        TypeRef right)
-    {
-        if (!TypeRef.ExactSignatureEquals(left, right))
-            return false;
-
-        var pending =
-            new Stack<(TypeRef Left, TypeRef Right)>();
-        var visited =
-            new HashSet<(TypeRef Left, TypeRef Right)>(
-                TypeRefPairReferenceComparer.Instance);
-        pending.Push((left, right));
-        while (pending.Count > 0)
-        {
-            (TypeRef currentLeft, TypeRef currentRight) =
-                pending.Pop();
-            if (!visited.Add((currentLeft, currentRight)))
-                continue;
-
-            if (!SignatureOriginsMatch(
-                    currentLeft,
-                    currentRight))
-            {
-                return false;
-            }
-
-            if (currentLeft.ElementType is not null)
-            {
-                pending.Push((
-                    currentLeft.ElementType,
-                    currentRight.ElementType!));
-            }
-            if (currentLeft.ModifierType is not null)
-            {
-                pending.Push((
-                    currentLeft.ModifierType,
-                    currentRight.ModifierType!));
-            }
-            if (currentLeft.UnmodifiedType is not null)
-            {
-                pending.Push((
-                    currentLeft.UnmodifiedType,
-                    currentRight.UnmodifiedType!));
-            }
-            for (int i = 0;
-                i < currentLeft.TypeArguments.Length;
-                i++)
-            {
-                pending.Push((
-                    currentLeft.TypeArguments[i],
-                    currentRight.TypeArguments[i]));
-            }
-            if (currentLeft.FunctionPointerSignature
-                    is { } leftSignature)
-            {
-                MethodSignature<TypeRef> rightSignature =
-                    currentRight.FunctionPointerSignature!.Value;
-                pending.Push((
-                    leftSignature.ReturnType,
-                    rightSignature.ReturnType));
-                for (int i = 0;
-                    i < leftSignature.ParameterTypes.Length;
-                    i++)
-                {
-                    pending.Push((
-                        leftSignature.ParameterTypes[i],
-                        rightSignature.ParameterTypes[i]));
-                }
-            }
-        }
-
-        return true;
-    }
-
-    bool SignatureOriginsMatch(
-        TypeRef left,
-        TypeRef right)
-    {
-        TypeRef leftDefinition = Definition(left);
-        TypeRef rightDefinition = Definition(right);
-        if (leftDefinition.Assembly == TypeRef.CoreLibrary
-            && rightDefinition.Assembly == TypeRef.CoreLibrary)
-        {
-            return leftDefinition.TrustedFrameworkAssembly
-                && rightDefinition.TrustedFrameworkAssembly;
-        }
-
-        TypeReferenceOrigin? leftOrigin =
-            leftDefinition.Resolution?.Origin;
-        TypeReferenceOrigin? rightOrigin =
-            rightDefinition.Resolution?.Origin;
-        if (leftOrigin is null || rightOrigin is null)
-            return true;
-
-        return (leftOrigin, rightOrigin) switch
-        {
-            (TypeReferenceOrigin.CurrentAssembly,
-                TypeReferenceOrigin.CurrentAssembly) => true,
-            (TypeReferenceOrigin.CurrentAssembly,
-                TypeReferenceOrigin.AssemblyReference reference) =>
-                IsCurrentAssembly(reference.Assembly),
-            (TypeReferenceOrigin.AssemblyReference reference,
-                TypeReferenceOrigin.CurrentAssembly) =>
-                IsCurrentAssembly(reference.Assembly),
-            (TypeReferenceOrigin.AssemblyReference leftReference,
-                TypeReferenceOrigin.AssemblyReference rightReference) =>
-                leftReference.Assembly.IsEquivalentTo(
-                    rightReference.Assembly),
-            (TypeReferenceOrigin.IntrinsicCoreLibrary,
-                TypeReferenceOrigin.IntrinsicCoreLibrary) => true,
-            (TypeReferenceOrigin.ModuleReference leftModule,
-                TypeReferenceOrigin.ModuleReference rightModule) =>
-                leftModule.ModuleName == rightModule.ModuleName,
-            _ => false,
-        };
-    }
-
-    bool IsCurrentAssembly(
-        AssemblyReferenceIdentity assembly)
-        => _currentAssembly is { } current
-            && assembly.IsEquivalentTo(current);
-
     static TypeRef Definition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
@@ -389,23 +219,4 @@ internal sealed class MethodDefinitionMap
         => $"{declaringType.Assembly}|"
             + $"{declaringType.Namespace}|"
             + $"{declaringType.Name}|{name}";
-
-    sealed class TypeRefPairReferenceComparer
-        : IEqualityComparer<(TypeRef Left, TypeRef Right)>
-    {
-        internal static TypeRefPairReferenceComparer Instance
-            { get; } = new();
-
-        public bool Equals(
-            (TypeRef Left, TypeRef Right) x,
-            (TypeRef Left, TypeRef Right) y)
-            => ReferenceEquals(x.Left, y.Left)
-                && ReferenceEquals(x.Right, y.Right);
-
-        public int GetHashCode(
-            (TypeRef Left, TypeRef Right) pair)
-            => HashCode.Combine(
-                RuntimeHelpers.GetHashCode(pair.Left),
-                RuntimeHelpers.GetHashCode(pair.Right));
-    }
 }
