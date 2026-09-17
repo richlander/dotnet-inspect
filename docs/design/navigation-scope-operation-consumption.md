@@ -276,7 +276,8 @@ Each method name below is prefixed with `ProtectedScope_`:
 | Historical unavailability persists through later admission and maintenance | `UnavailableRetainsHistoricalEvidenceWithoutCurrentAuthority` |
 | Cancellation control cannot settle mutation; control failures remain visible | `CancellationControlCannotManufactureSettlement` |
 | Explicit duplicate activation uses the exact requested occurrence; no-intent duplicates preserve Workspace selection | `ExplicitDuplicateUsesExactRequestedOccurrence`, `DuplicateHonorsActivationWithRetainedWorkspaceContext` |
-| The retained request, not its effective fallback or availability, preserves inspector intent | `RetainsUnavailableExactInspectorRequest` |
+| The retained request, not its effective fallback or availability, preserves inspector intent, including Workspace without an active occurrence | `RetainsUnavailableExactInspectorRequest`, `WorkspaceRetainsExactInspectorWithoutActiveOccurrence` |
+| Fallback from a descendant recommends a Workspace inspector rather than carrying the descendant's request | `WorkspaceFallbackDoesNotCarryDescendantInspector` |
 | Membership-preparation failure publishes current membership and typed failure | `MembershipPreparationFailurePublishesCurrentFailure` |
 | Semantic revision, generation, effect authority, installation, and composite acknowledgement remain distinct | `ConsumesEveryCompleteCurrentSettlementSnapshot`, `MembershipPreparationFailurePublishesCurrentFailure` |
 | Retained state/results erase invocation resources | `RetainedStateAndResultsDoNotRetainInvocationAuthority` |

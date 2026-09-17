@@ -883,6 +883,92 @@ public sealed class NavigationScopeOperationTests
     }
 
     [Fact]
+    public async Task ProtectedScope_WorkspaceFallbackDoesNotCarryDescendantInspector()
+    {
+        await using NavigationSessionTests.Fixture fixture =
+            await NavigationSessionTests.Fixture.CreateAsync();
+        NavigationAction metadata = fixture.Session.Snapshot.Lenses
+            .Single(row => row.Facet.Id == "library.metadata").Action!;
+        await fixture.Session.ExecuteAsync(metadata, TestContext.Current.CancellationToken);
+        Assert.Equal(NavigationLensBasisKind.ExactRequest,
+            fixture.Session.Snapshot.LensOutcome.Basis);
+        WorkspaceScopeRequest request = fixture.Workspace.IssueClearScopeRequest(
+            fixture.Scope.Revision, Deadline);
+        NavigationTransition accepted = NavigationTransitions.AcceptScopeOperation(
+            fixture.Session.State, request.Association);
+        var settlement = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await fixture.Workspace.SubmitScopeRequestAsync(
+                request, TestContext.Current.CancellationToken));
+        NavigationScopeEvaluationResult evaluation =
+            NavigationTransitions.EvaluateScopeOperation(
+                accepted.ScopeWork!,
+                settlement,
+                new NavigationScopePreparation.Ready(
+                    new(settlement.Snapshot, null, fixture.Availability)),
+                fixture.Registry);
+        NavigationTransition completed = NavigationTransitions.CompleteScopeOperation(
+            accepted.State, accepted.ScopeWork!, evaluation);
+
+        Assert.Equal(StructuralSubjectKind.Workspace,
+            completed.State.Snapshot.ActiveSubject.Kind);
+        Assert.Equal(NavigationLensBasisKind.Recommendation,
+            completed.State.Snapshot.LensOutcome.Basis);
+        Assert.Null(completed.State.Snapshot.LensOutcome.Request);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProtectedScope_WorkspaceRetainsExactInspectorWithoutActiveOccurrence(
+        bool wasUnavailable)
+    {
+        await using NavigationSessionTests.Fixture fixture =
+            await NavigationSessionTests.Fixture.CreateAsync(selectPackage: false);
+        var lens = new NavigationLensIdentity(
+            fixture.Session.InstalledSnapshot.Workspace,
+            new ViewFacetId("workspace.overview"));
+        fixture.Override = id => wasUnavailable && id == lens.Facet
+            ? new ViewFacetAvailability.Unavailable(
+                ViewFacetUnavailableReason.CapabilityAbsent("overview unavailable"))
+            : null;
+        await fixture.Session.ActivateLensAsync(lens, TestContext.Current.CancellationToken);
+        NavigationState initial = fixture.Session.State;
+        Assert.Null(initial.InstalledSnapshot.ActiveOccurrence);
+        Assert.Equal(NavigationLensBasisKind.ExactRequest,
+            initial.Snapshot.LensOutcome.Basis);
+
+        WorkspaceScopeRequest request = fixture.Workspace.IssueAddPackagesRequest(
+            fixture.Scope.Revision, [fixture.Bindings[0]], Deadline);
+        NavigationTransition accepted =
+            NavigationTransitions.AcceptScopeOperation(initial, request.Association);
+        var settlement = Assert.IsType<WorkspaceScopeOperationResult.NoEffect>(
+            await fixture.Workspace.SubmitScopeRequestAsync(
+                request, TestContext.Current.CancellationToken));
+        fixture.Override = null;
+        NavigationScopeEvaluationResult evaluation =
+            NavigationTransitions.EvaluateScopeOperation(
+                accepted.ScopeWork!,
+                settlement,
+                new NavigationScopePreparation.Ready(
+                    new(settlement.Snapshot, null, fixture.Availability)),
+                fixture.Registry);
+        NavigationTransition completed = NavigationTransitions.CompleteScopeOperation(
+            accepted.State, accepted.ScopeWork!, evaluation);
+
+        Assert.Equal(StructuralSubjectKind.Workspace,
+            completed.State.Snapshot.ActiveSubject.Kind);
+        Assert.Null(completed.State.Snapshot.ActivePackage);
+        Assert.Equal(NavigationLensBasisKind.ExactRequest,
+            completed.State.Snapshot.LensOutcome.Basis);
+        Assert.Equal("workspace.overview",
+            completed.State.Snapshot.LensOutcome.Request!.Facet);
+        Assert.Equal("workspace.overview",
+            completed.State.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        if (!wasUnavailable)
+            Assert.Equal(initial.Publication.Revision, completed.State.Publication.Revision);
+    }
+
+    [Fact]
     public async Task ProtectedScope_NoEffectConsumesNewerInventoryThanNavigation()
     {
         await using NavigationSessionTests.Fixture fixture =

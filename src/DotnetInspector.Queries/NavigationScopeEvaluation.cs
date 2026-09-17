@@ -284,6 +284,11 @@ internal static class NavigationScopeEvaluation
         NavigationInitialization? initialization,
         bool explicitActivation)
     {
+        NavigationLensIdentity? retainedLens =
+            request.Basis.LensOutcome.Basis
+                is NavigationLensEvaluationBasis.ExactRequest retained
+                ? retained.Request
+                : null;
         if (selected is null)
         {
             if (initialization?.Context is not null
@@ -294,9 +299,15 @@ internal static class NavigationScopeEvaluation
                     "Workspace fallback cannot retain a Package descendant.",
                     nameof(initialization));
             }
+            NavigationLensIdentity? workspaceLens = initialization?.Lens;
+            if (initialization is null
+                && request.Basis.ActiveSubject == request.Basis.Workspace)
+            {
+                workspaceLens = retainedLens;
+            }
             return new NavigationInitialization(
                 request.Basis.Workspace,
-                Lens: initialization?.Lens);
+                Lens: workspaceLens);
         }
 
         StructuralSubjectIdentity.PackageSubject package =
@@ -307,16 +318,11 @@ internal static class NavigationScopeEvaluation
             && !explicitActivation
             && selected == request.Basis.ActiveOccurrence)
         {
-            NavigationLensIdentity? exact =
-                request.Basis.LensOutcome.Basis
-                    is NavigationLensEvaluationBasis.ExactRequest retained
-                    ? retained.Request
-                    : null;
             return new(
                 request.Basis.ActiveSubject,
                 request.Basis.RetainedContext
                     ?? new NavigationRetainedSubjectContext(package),
-                exact);
+                retainedLens);
         }
         if (initialization?.Context is { } context
             && context.Package.Occurrence != selected)
