@@ -350,7 +350,7 @@ public static class TypeMatcher
 
     /// <summary>
     /// Checks whether a member name matches any filter in the set.
-    /// Supports exact (case-insensitive) and glob patterns.
+    /// Supports direct (case-insensitive, including the indexer alias) and glob patterns.
     /// </summary>
     public static bool MatchesMemberFilter(string name, HashSet<string> filter)
     {

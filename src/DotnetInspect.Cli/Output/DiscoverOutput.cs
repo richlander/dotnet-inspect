@@ -31,7 +31,8 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
         RowSelectionIntent<string>? semanticRowSelection = null,
-        string semanticSelectionName = "Discovery")
+        string semanticSelectionName = "Discovery",
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -41,7 +42,14 @@ public static class DiscoverOutput
         // not the shape they would have been rendered in.
         if (LensProjection.IsRequested(request))
         {
-            var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+            var projectedRows = GetDiscoveryRows(
+                discover,
+                schema,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                exactOnlySections);
             if (projectedRows == null)
                 return 1;
             if (!TryApplyRowSelection(
@@ -82,7 +90,8 @@ public static class DiscoverOutput
                 request,
                 projectedColumns,
                 semanticRowSelection,
-                semanticSelectionName);
+                semanticSelectionName,
+                exactOnlySections);
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -92,7 +101,11 @@ public static class DiscoverOutput
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))
-            && ResolvedSectionCount(discover, schema, sectionCategories) > 1)
+            && ResolvedSectionCount(
+                discover,
+                schema,
+                sectionCategories,
+                exactOnlySections) > 1)
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
@@ -116,7 +129,8 @@ public static class DiscoverOutput
                 request.Rows,
                 semanticRowSelection,
                 semanticSelectionName,
-                output);
+                output,
+                exactOnlySections);
             if (exitCode != 0)
                 return exitCode;
 
@@ -124,7 +138,14 @@ public static class DiscoverOutput
             return 0;
         }
 
-        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+        var rows = GetDiscoveryRows(
+            discover,
+            schema,
+            sectionCostAnnotations,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            exactOnlySections);
         if (rows == null)
             return 1;
         if (!TryApplyRowSelection(
@@ -211,7 +232,8 @@ public static class DiscoverOutput
         DiscoveryOutputRequest request,
         IReadOnlyList<string> columns,
         RowSelectionIntent<string>? semanticRowSelection,
-        string semanticSelectionName)
+        string semanticSelectionName,
+        IReadOnlySet<string>? exactOnlySections)
     {
         var rows = GetDiscoveryRows(
             discover,
@@ -219,7 +241,8 @@ public static class DiscoverOutput
             sectionCostAnnotations,
             sectionCategories,
             catalogHiddenSections,
-            listedCategoryDoors);
+            listedCategoryDoors,
+            exactOnlySections);
         if (rows == null)
             return 1;
 
@@ -280,7 +303,8 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
         RowSelectionIntent<string>? semanticRowSelection = null,
-        string semanticSelectionName = "Discovery")
+        string semanticSelectionName = "Discovery",
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -312,7 +336,11 @@ public static class DiscoverOutput
         if (discover is { Length: > 0 } && fullSchema != null)
         {
             var remaining = FilterEmptyEffectiveSections(
-                discover, filtered, fullSchema, sectionCategories);
+                discover,
+                filtered,
+                fullSchema,
+                sectionCategories,
+                exactOnlySections);
             if (remaining == null)
             {
                 if (!TryApplyRowSelection(
@@ -364,7 +392,8 @@ public static class DiscoverOutput
                 request,
                 projectedColumns,
                 semanticRowSelection,
-                semanticSelectionName);
+                semanticSelectionName,
+                exactOnlySections);
         }
 
         return Execute(
@@ -377,7 +406,8 @@ public static class DiscoverOutput
             catalogHiddenSections,
             listedCategoryDoors,
             semanticRowSelection: semanticRowSelection,
-            semanticSelectionName: semanticSelectionName);
+            semanticSelectionName: semanticSelectionName,
+            exactOnlySections: exactOnlySections);
     }
 
     /// <summary>
@@ -392,7 +422,8 @@ public static class DiscoverOutput
         string[] discover,
         DocumentSchema effective,
         DocumentSchema fullSchema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? exactOnlySections)
     {
         var remaining = new List<string>();
         bool emittedNote = false;
@@ -424,14 +455,20 @@ public static class DiscoverOutput
                 continue;
             }
 
-            var (effMatches, _) = SelectResolver.ResolveSingle(name, effective.SectionNames, singleGlob: true);
+            var (effMatches, _) = ResolveDiscoveryMatches(
+                name,
+                effective.SectionNames,
+                exactOnlySections);
             if (effMatches.Count >= 1)
             {
                 remaining.Add(name);
                 continue;
             }
 
-            var (fullMatches, _) = SelectResolver.ResolveSingle(name, fullSchema.SectionNames, singleGlob: true);
+            var (fullMatches, _) = ResolveDiscoveryMatches(
+                name,
+                fullSchema.SectionNames,
+                exactOnlySections);
             if (fullMatches.Count >= 1)
             {
                 foreach (var match in fullMatches)
@@ -631,7 +668,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
-        IReadOnlySet<string>? listedCategoryDoors = null)
+        IReadOnlySet<string>? listedCategoryDoors = null,
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         // Bare -D. Curated pipelines (listedCategoryDoors provided) lead with the topical category
         // doors, then a single alpha group of effective sections, with no cost annotations. Legacy
@@ -702,7 +740,10 @@ public static class DiscoverOutput
                 return null;
             }
 
-            var resolved = ResolveDiscoverSection(name, schema);
+            var resolved = ResolveDiscoverSection(
+                name,
+                schema,
+                exactOnlySections);
             if (resolved == null)
                 return null;
 
@@ -742,7 +783,8 @@ public static class DiscoverOutput
     private static int ResolvedSectionCount(
         string[] discover,
         DocumentSchema schema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? exactOnlySections)
     {
         int count = 0;
         foreach (var name in discover)
@@ -758,7 +800,10 @@ public static class DiscoverOutput
                 continue;
             }
 
-            var (matches, _) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
+            var (matches, _) = ResolveDiscoveryMatches(
+                name,
+                schema.SectionNames,
+                exactOnlySections);
             if (matches.Count == 1)
                 count++;
         }
@@ -769,9 +814,15 @@ public static class DiscoverOutput
     /// Resolves a section name for discovery. Supports exact match (case-insensitive)
     /// and glob patterns (* / ?). Globs must match exactly one section.
     /// </summary>
-    private static string? ResolveDiscoverSection(string name, DocumentSchema schema)
+    private static string? ResolveDiscoverSection(
+        string name,
+        DocumentSchema schema,
+        IReadOnlySet<string>? exactOnlySections)
     {
-        var (matches, miss) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
+        var (matches, miss) = ResolveDiscoveryMatches(
+            name,
+            schema.SectionNames,
+            exactOnlySections);
 
         if (miss == null && matches.Count == 1)
             return matches[0];
@@ -798,6 +849,36 @@ public static class DiscoverOutput
         }
 
         return null;
+    }
+
+    private static (List<string> Matches, SelectMiss? Miss)
+        ResolveDiscoveryMatches(
+            string name,
+            IReadOnlyList<string> knownSections,
+            IReadOnlySet<string>? exactOnlySections)
+    {
+        var direct = SelectResolver.ResolveSingleWithProvenance(
+            name,
+            knownSections,
+            singleGlob: true);
+        if (direct.IsExact
+            || exactOnlySections is null
+            || exactOnlySections.Count == 0
+            || (!name.Contains('*')
+                && !name.Contains('?')))
+        {
+            return (direct.Matches, direct.Miss);
+        }
+
+        string[] wildcardSections =
+        [
+            .. knownSections.Where(section =>
+                !exactOnlySections.Contains(section)),
+        ];
+        return SelectResolver.ResolveSingle(
+            name,
+            wildcardSections,
+            singleGlob: true);
     }
 
     internal static bool WriteUnresolvedSections(
@@ -865,7 +946,8 @@ public static class DiscoverOutput
         RowWindow? rows = null,
         RowSelectionIntent<string>? semanticRowSelection = null,
         string semanticSelectionName = "Discovery",
-        TextWriter? output = null)
+        TextWriter? output = null,
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -890,7 +972,10 @@ public static class DiscoverOutput
                     continue;
                 }
 
-                var resolved = ResolveDiscoverSection(name, schema);
+                var resolved = ResolveDiscoverSection(
+                    name,
+                    schema,
+                    exactOnlySections);
                 if (resolved == null) return 1;
 
                 var section = schema.GetSection(resolved);

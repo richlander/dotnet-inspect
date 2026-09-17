@@ -129,7 +129,7 @@ public class ImplementationProfilesSectionTests
 
     [Fact]
     public async Task
-        TypeImplementationProfiles_AllDocumentJsonSkipsExactOnlySection()
+        TypeImplementationProfiles_BroadDocumentJsonSkipsExactOnlySection()
     {
         var result = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(new TypeOptions
@@ -139,13 +139,16 @@ public class ImplementationProfilesSectionTests
                     + "ImplementationProfileSample",
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                Select = ["@All"],
+                Select = ["*"],
                 JsonOutput = true,
                 TipLevel = TipLevel.Quiet,
             }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
+        Assert.DoesNotContain(
+            "Implementation Profiles",
+            result.Error,
+            StringComparison.Ordinal);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
             JsonValueKind.Object,
