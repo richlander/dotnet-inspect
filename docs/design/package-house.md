@@ -456,15 +456,15 @@ The selected projection preserves these distinct outcomes:
   no compile assets;
 - no compile slices;
 - no applicable target-framework slice;
-- ambiguous selection;
 - invalid asset correspondence; and
 - operation or owner failure.
 
 Selected-empty is successful package realization with zero Library handoffs.
-No slices and no applicable slice are `NoMatch`; ambiguity and invalid
-correspondence retain their existing typed House outcomes. Failures do not
-become an empty projection. PackageHouse preserves all completed acquisition
-and selection evidence in every arm.
+No slices and no applicable slice are `NoMatch`. Invalid compile
+correspondence, including lower implementation ambiguity that the compile
+owner normalizes as invalid, is `Rejected`. Failures do not become an empty
+projection. PackageHouse preserves all completed acquisition and selection
+evidence in every arm.
 
 The compile asset-selection owner decides slice ranking, NuGet compatibility,
 reference-versus-implementation preference, explicit empty-group meaning, and
@@ -1265,7 +1265,7 @@ them.
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
 | Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
-| Compile inventory | Selected, selected-empty, no-slice, and no-applicable-slice outcomes retain every owner-issued available compile slice and candidate from the acquired generation. |
+| Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
 | Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
