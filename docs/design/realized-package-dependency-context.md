@@ -140,11 +140,17 @@ RealizedPackageDependencyContext
 - no dependency groups; and
 - no matching target framework.
 
-Those states are Package Dependency Evidence, not context success or failure
+`Available` also retains complete or incomplete
+`PackageDependencyEvidenceRoot` values. When Package Dependency Evidence
+preserves surviving declarations alongside typed declaration failures, the
+context carries that incomplete root without discarding either side.
+
+These states are adjacent-owner evidence, not context success or failure
 inventions. `NoManifest` remains unavailable rather than becoming an empty
-selected group. A manifest access, decode, identity, declaration, or
-group-selection failure remains the adjacent owner's typed failure and cannot
-produce `Available`.
+selected group. A `PackageDependencyGroupsResult.Failed` that prevents
+evidence-root construction remains `Failed`. Once Package Dependency Evidence
+constructs a root, this owner does not reinterpret its completion or internal
+failures as context failure.
 
 Cancellation follows the existing query cancellation contract and is not
 rewritten as package evidence.
@@ -253,6 +259,7 @@ silently move to another package occurrence.
 | Group selection receives the Root request's compile target and compatible-selection authorization, independently from whether asset fallback was used; selected asset and group frameworks may differ without losing either outcome. | Selector-spy table covering framework-neutral, exact-only, exact asset with compatible-only group, compatible asset fallback, no-match, and differing-nearest-framework cases. |
 | Polly.Core `netstandard2.0` retains its four declarations and direct assembly references; compatible `net11.0` realization retains the selected empty `net8.0` group as a separate context. | Pinned `Polly.Core@8.8.0` integration test plus equivalent deterministic fixtures. |
 | Selected empty, no dependency groups, no matching framework, no manifest, and dependency-group failure remain distinct result arms. | Closed result-algebra table tests. |
+| A selected group containing one surviving declaration and one conflicting declaration produces an available incomplete context that retains both the usable edge and typed declaration failure. | Mixed valid/conflicting declaration projection and traversal test. |
 | Equal coordinates under different content generations or selection identities cannot exchange contexts. | Same-coordinate cross-generation and independently repeated selection tests. |
 | The detached result's public shape contains the Root request, exact opaque identities, and dependency evidence needed by consumers. | Public consumer construction/observation test plus post-Workspace-close evidence test. |
 | Reacquisition issues a new binding, selection, and context without transferring the old association; same-snapshot cache reuse may preserve generation identity, while replacement content changes it. | Same-generation cache-hit and replacement-generation reacquisition tests across independent Workspaces. |
