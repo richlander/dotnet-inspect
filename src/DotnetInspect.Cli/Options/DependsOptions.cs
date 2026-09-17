@@ -5,19 +5,10 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
-/// <summary>The explicit root families admitted by asset-mode <c>depends</c>.</summary>
-public enum DependsAssetRootKind
-{
-    Package,
-    Nuspec,
-    Library,
-    Project,
-}
-
 /// <summary>One explicit asset root in command-line occurrence order.</summary>
 public sealed record DependsAssetRoot(
     int OccurrenceIndex,
-    DependsAssetRootKind Kind,
+    DependencyInspectionRootKind Kind,
     string Value);
 
 /// <summary>

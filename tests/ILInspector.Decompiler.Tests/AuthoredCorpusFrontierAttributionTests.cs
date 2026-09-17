@@ -7,9 +7,9 @@ namespace ILInspector.Decompiler.Tests;
 public sealed class AuthoredCorpusFrontierAttributionTests
 {
     [Fact]
-    public void MethodologyV3_IsTheFrontierAttributionVersion()
+    public void CurrentMethodology_PreservesV3FrontierAttribution()
     {
-        Assert.Equal(3, AuthoredCorpusMethodology.Version);
+        Assert.Equal(4, AuthoredCorpusMethodology.Version);
         Assert.Equal(AuthoredCorpusMethodology.Version, AuthoredCorpusBenchmark.MethodologyVersion);
     }
 
