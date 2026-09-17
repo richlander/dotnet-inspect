@@ -618,11 +618,14 @@ cannot identify one retained occurrence.
 [PackageHouse Composition](package-house.md) owns package-local compile
 selection policy and preserves the compile selector's available slices,
 selected projection, requested-versus-selected framework, roles, and
-correspondence. Navigation receives one exact Package occurrence and that
-owner-issued selected projection. It neither reselects a TFM nor ranks package
-asset paths. The compile-selection owner resolves exact asset IDs within that
-projection. Library admission and Metadata supply the exact admitted Library
-identities and managed assembly facts used by narrowing.
+correspondence. Artifact acquisition and package realization bind that receipt
+and its admitted Library outcomes to one exact Package occurrence in one
+`PackageLibraries` basis. Navigation consumes that composed value, not
+separately pairable occurrence and projection arguments. It neither reselects
+a TFM nor ranks package asset paths. The compile-selection owner resolves exact
+asset IDs within that projection. Library admission and Metadata supply the
+exact admitted Library identities and managed assembly facts used by
+narrowing.
 
 The `ArtifactRoot*` names in the adjacent Artifact owner describe one physical
 realization and publication unit and remain correct. Issue #6293 replaces
@@ -1071,10 +1074,10 @@ Library/API recommendation selects:
 2. The exact Package when no aggregate is available.
 
 The aggregate contains every admitted Library from one PackageHouse-selected
-compile projection. Its cardinality may be one or many; cardinality never
-changes its identity into a one-Library subject. The former primary and
-declaration-order Library preferences do not participate in initial subject
-selection.
+compile projection in the exact `PackageLibraries` basis. Its cardinality may
+be one or many; cardinality never changes its identity into a one-Library
+subject. The former primary and declaration-order Library preferences do not
+participate in initial subject selection.
 
 Participant rejection, decode failure, or inspection failure remains attached
 to the aggregate result. Healthy participant evidence may remain usable, but
@@ -1137,7 +1140,10 @@ inventory basis before snapshot-relative descriptors are composed:
 ```text
 NavigationLibraryInventoryBasis
   = OneLibrary(exact Workspace-bound Library occurrence)
-  | PackageLibraries(exact Package occurrence, complete admitted Libraries)
+  | PackageLibraries(
+      exact Package occurrence and Artifact Root correspondence,
+      exact PackageHouse compile realization receipt,
+      ordered selected assets and admitted Library participant outcomes)
 ```
 
 The first arm serves direct and Ecosystem-routed Library subjects without
@@ -1145,12 +1151,16 @@ Package ancestry. The second preserves the existing one-Library and
 `All libraries` behavior inside one exact Package. This owner defines no
 Workspace-wide or Ecosystem-wide Type aggregate.
 
-Participant outcomes exact-join the admitted Library basis by owner-issued
-acquisition registration. A foreign Workspace, foreign basis, reordered,
-duplicated, or unexplained missing outcome is invalid input rather than
-evidence about subject availability. A Package-bound basis additionally
-requires its existing exact occurrence association; a direct Library basis
-does not manufacture one.
+The Package-bound basis is one owner-issued association. Its occurrence's
+Artifact Root correspondence, House acquisition generation and coordinate,
+realization request and requested/selected framework, selected asset IDs, and
+admitted Library package associations must all describe the same realization.
+Participant outcomes exact-join that admitted Library basis by owner-issued
+acquisition registration. A foreign Workspace, occurrence, settlement,
+generation, framework, asset, basis, reordered, duplicated, or unexplained
+missing outcome is invalid input before recommendation or narrowing rather
+than evidence about subject availability. A direct Library basis does not
+manufacture Package correspondence.
 
 The generation-free classification follows this table:
 
@@ -1208,6 +1218,8 @@ Those gates describe pre-#7318 behavior and retire with its implementation.
 The aggregate-first replacement remains **unverified** and requires
 `InitialRecommendation_PrefersAggregateThenPackage`,
 `InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`,
+`PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`,
+`PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`,
 `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`,
 `ExactLibraryNarrowing_NonSuccessDoesNotFallback`,
 `NamesakeLibraryNarrowing_UsesOwnerIssuedAssemblyIdentity`,
@@ -2262,6 +2274,8 @@ The eventual subject-navigation implementation must include named gates for:
 - `ExplicitDirectLibraryActivation_SelectsExactLibrary`
 - `InitialRecommendation_PrefersAggregateThenPackage`
 - `InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`
+- `PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`
+- `PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`
 - `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`
 - `ExactLibraryNarrowing_NonSuccessDoesNotFallback`
 - `NamesakeLibraryNarrowing_UsesOwnerIssuedAssemblyIdentity`
@@ -2558,6 +2572,7 @@ must preserve the same typed outcomes and fresh destination content.
 | Coordinate correspondence falls back from Member to Type | Type receives its own recommendation, never the Member's inspector request |
 | Ordinary package | Package-scoped `All libraries` subject with the aggregate-capable recommended lens; exact Package remains explicitly reachable |
 | Single-Library package | Package-scoped `All libraries` subject containing one Library; cardinality does not implicitly narrow |
+| Package occurrence paired with another settlement, generation, or selected TFM | Invalid `PackageLibraries` basis rejected before recommendation, aggregate identity construction, or narrowing |
 | Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
 | Missing, ambiguous, or indeterminate namesake | Typed unavailable, ambiguous, or failed result with ordered candidates and participant evidence; no declaration-order, aggregate, or Package fallback |
