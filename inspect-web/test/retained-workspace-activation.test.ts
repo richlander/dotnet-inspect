@@ -185,6 +185,208 @@ test("publication order rejects a late response from an older cutover", async ()
   );
 });
 
+test("late publication still observes distinct predecessor settlement", async () => {
+  const fixture = createFixture();
+  const initial = fixture.controller.retain({
+    label: "Initial",
+    canonicalLocation: "/initial",
+    canonicalPacket: "packet-initial",
+  });
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectInitial = fixture.controller.activate(initial.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(initial.id, "realization-1"),
+    failure: null,
+  });
+  await selectInitial;
+
+  const selectFirst = fixture.controller.activate(first.id);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[2]!.resolve({
+    status: "activated",
+    installation: installation(
+      second.id,
+      "realization-3",
+      "settlement-a",
+    ),
+    failure: null,
+  });
+  await selectSecond;
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(
+      first.id,
+      "realization-2",
+      "settlement-initial",
+    ),
+    failure: null,
+  });
+  await selectFirst;
+  await Promise.resolve();
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-1", "realization-3"],
+  );
+  assert.deepEqual(
+    fixture.client.settlements,
+    ["settlement-a", "settlement-initial"],
+  );
+  assert.equal(fixture.settled.length, 2);
+});
+
+test("repeated no-effect evidence observes predecessor once", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const secondInstallation = installation(
+    second.id,
+    "realization-2",
+    "settlement-first",
+  );
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: secondInstallation,
+    failure: null,
+  });
+  await selectSecond;
+
+  const selectSecondAgain = fixture.controller.activate(second.id);
+  fixture.client.activations[2]!.resolve({
+    status: "noEffect",
+    installation: secondInstallation,
+    failure: null,
+  });
+  await selectSecondAgain;
+  await Promise.resolve();
+
+  assert.deepEqual(fixture.client.settlements, ["settlement-first"]);
+  assert.equal(fixture.settled.length, 1);
+});
+
+test("displaced activation blocks deletion and exposes cleanup failure", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  const selectSecond = fixture.controller.activate(second.id);
+
+  await assert.rejects(
+    fixture.controller.delete(first.id),
+    /cannot be deleted until its activation settles/,
+  );
+
+  fixture.client.activations[0]!.resolve({
+    status: "failed",
+    installation: null,
+    failure: {
+      kind: "CleanupFailed",
+      message: "A cleanup failed.",
+    },
+  });
+  await selectFirst;
+
+  assert.equal(fixture.controller.state.lastFailure, "A cleanup failed.");
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [second.id],
+  );
+
+  await fixture.controller.delete(first.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.controller.state.pendingDefinitionId, second.id);
+
+  fixture.client.activations[1]!.resolve({
+    status: "superseded",
+    installation: null,
+    failure: null,
+  });
+  await selectSecond;
+});
+
+test("overlapping activations retain deletion barrier until all settle", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const firstSelection = fixture.controller.activate(first.id);
+  const secondSelection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "superseded",
+    installation: null,
+    failure: null,
+  });
+  await firstSelection;
+
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [first.id],
+  );
+  await assert.rejects(
+    fixture.controller.delete(first.id),
+    /cannot be deleted until its activation settles/,
+  );
+
+  fixture.client.activations[1]!.resolve({
+    status: "failed",
+    installation: null,
+    failure: {
+      kind: "InvalidPacket",
+      message: "Invalid packet.",
+    },
+  });
+  await secondSelection;
+
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  await fixture.controller.delete(first.id);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+});
+
 test("failed activation preserves the incumbent definition", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({

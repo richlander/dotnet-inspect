@@ -22,6 +22,7 @@ interface RetainedWorkspaceActivationState {
   readonly definitions: readonly RetainedWorkspaceDefinition[];
   readonly activeDefinitionId: string | null;
   readonly pendingDefinitionId: string | null;
+  readonly unsettledDefinitionIds: readonly string[];
   readonly lastFailure: string | null;
 }
 
@@ -67,12 +68,17 @@ export function createRetainedWorkspaceActivationController(
   let nextIdentity = 0;
   let selectionGeneration = 0;
   let installedPublicationOrdinal = 0;
+  const observedSettlementIds = new Set<string>();
+  const unsettledActivationCounts = new Map<string, number>();
 
   function snapshot(): RetainedWorkspaceActivationState {
     return {
       definitions: [...definitions],
       activeDefinitionId,
       pendingDefinitionId,
+      unsettledDefinitionIds: definitions
+        .filter(definition => hasUnsettledActivation(definition.id))
+        .map(definition => definition.id),
       lastFailure,
     };
   }
@@ -87,6 +93,48 @@ export function createRetainedWorkspaceActivationController(
       );
     }
     return definition;
+  }
+
+  function beginActivation(retainedDefinitionId: string): void {
+    unsettledActivationCounts.set(
+      retainedDefinitionId,
+      (unsettledActivationCounts.get(retainedDefinitionId) ?? 0) + 1,
+    );
+  }
+
+  function endActivation(retainedDefinitionId: string): void {
+    const count = unsettledActivationCounts.get(retainedDefinitionId);
+    if (count === undefined) {
+      throw new Error(
+        `Retained Workspace activation '${retainedDefinitionId}' settled without admission.`,
+      );
+    }
+    if (count === 1) {
+      unsettledActivationCounts.delete(retainedDefinitionId);
+      return;
+    }
+    unsettledActivationCounts.set(retainedDefinitionId, count - 1);
+  }
+
+  function hasUnsettledActivation(retainedDefinitionId: string): boolean {
+    return (unsettledActivationCounts.get(retainedDefinitionId) ?? 0) > 0;
+  }
+
+  function observePredecessorOnce(
+    installation: BrowserRetainedWorkspaceInstallation,
+  ): void {
+    const predecessor = installation.predecessor;
+    if (predecessor === null
+      || observedSettlementIds.has(predecessor.settlementId)) {
+      return;
+    }
+    observedSettlementIds.add(predecessor.settlementId);
+    void client.observeRetainedWorkspaceSettlement(
+      predecessor.settlementId,
+    ).then(
+      value => hooks.predecessorSettled(value),
+      (error: unknown) => hooks.predecessorObservationFailed(error),
+    );
   }
 
   function retain(
@@ -124,69 +172,69 @@ export function createRetainedWorkspaceActivationController(
     const generation = ++selectionGeneration;
     pendingDefinitionId = retainedDefinitionId;
     lastFailure = null;
+    beginActivation(definition.id);
 
-    let result: BrowserRetainedWorkspaceActivationResult;
     try {
-      result = await client.activateRetainedWorkspaceDefinition(
-        definition.id,
-        definition.label,
-        definition.canonicalLocation,
-        definition.canonicalPacket,
-      );
-    } catch (error) {
-      if (generation === selectionGeneration) {
-        pendingDefinitionId = null;
-        lastFailure = error instanceof Error
-          ? error.message
-          : "Retained Workspace activation failed.";
-      }
-      throw error;
-    }
-
-    switch (result.status) {
-      case "activated":
-      case "noEffect": {
-        const installation = result.installation;
-        if (installation === null) {
-          throw new Error(
-            `Retained Workspace ${result.status} omitted installation evidence.`,
-          );
+      let result: BrowserRetainedWorkspaceActivationResult;
+      try {
+        result = await client.activateRetainedWorkspaceDefinition(
+          definition.id,
+          definition.label,
+          definition.canonicalLocation,
+          definition.canonicalPacket,
+        );
+      } catch (error) {
+        if (generation === selectionGeneration) {
+          pendingDefinitionId = null;
+          lastFailure = error instanceof Error
+            ? error.message
+            : "Retained Workspace activation failed.";
         }
-        if (installation.publicationOrdinal > installedPublicationOrdinal) {
-          installedPublicationOrdinal = installation.publicationOrdinal;
-          activeDefinitionId = installation.retainedDefinitionId;
-          hooks.install(installation);
-          if (installation.predecessor !== null) {
-            void client.observeRetainedWorkspaceSettlement(
-              installation.predecessor.settlementId,
-            ).then(
-              value => hooks.predecessorSettled(value),
-              (error: unknown) =>
-                hooks.predecessorObservationFailed(error),
+        throw error;
+      }
+
+      switch (result.status) {
+        case "activated":
+        case "noEffect": {
+          const installation = result.installation;
+          if (installation === null) {
+            throw new Error(
+              `Retained Workspace ${result.status} omitted installation evidence.`,
             );
           }
+          observePredecessorOnce(installation);
+          if (installation.publicationOrdinal > installedPublicationOrdinal) {
+            installedPublicationOrdinal = installation.publicationOrdinal;
+            activeDefinitionId = installation.retainedDefinitionId;
+            hooks.install(installation);
+          }
+          if (generation === selectionGeneration) {
+            pendingDefinitionId = null;
+          }
+          return result;
         }
-        if (generation === selectionGeneration) {
-          pendingDefinitionId = null;
-        }
-        return result;
+        case "failed":
+          if (generation === selectionGeneration
+            || result.failure?.kind === "CleanupFailed") {
+            lastFailure = result.failure?.message
+              ?? "Retained Workspace activation failed.";
+          }
+          if (generation === selectionGeneration) {
+            pendingDefinitionId = null;
+          }
+          return result;
+        case "superseded":
+          if (generation === selectionGeneration) {
+            pendingDefinitionId = null;
+          }
+          return result;
+        default:
+          throw new Error(
+            `Unknown retained Workspace activation status '${result.status}'.`,
+          );
       }
-      case "failed":
-        if (generation === selectionGeneration) {
-          pendingDefinitionId = null;
-          lastFailure = result.failure?.message
-            ?? "Retained Workspace activation failed.";
-        }
-        return result;
-      case "superseded":
-        if (generation === selectionGeneration) {
-          pendingDefinitionId = null;
-        }
-        return result;
-      default:
-        throw new Error(
-          `Unknown retained Workspace activation status '${result.status}'.`,
-        );
+    } finally {
+      endActivation(definition.id);
     }
   }
 
@@ -201,9 +249,9 @@ export function createRetainedWorkspaceActivationController(
         `Unknown retained Workspace definition '${retainedDefinitionId}'.`,
       );
     }
-    if (pendingDefinitionId === retainedDefinitionId) {
+    if (hasUnsettledActivation(retainedDefinitionId)) {
       throw new Error(
-        "The pending retained Workspace definition cannot be deleted.",
+        "The retained Workspace definition cannot be deleted until its activation settles.",
       );
     }
     if (activeDefinitionId !== retainedDefinitionId) {

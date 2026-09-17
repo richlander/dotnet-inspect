@@ -696,10 +696,13 @@ The second-slice Release gates add
 `BrowserRetainedWorkspaceActivationTests` and
 `retained-workspace-activation.test.ts`. They demonstrate A/B/A fresh
 realization identity, active-selection no-effect, latest-intent supersession,
-incumbent preservation, strict format-1 rejection before candidate charge,
-predecessor drainage and detached settlement, a sole-active deletion barrier
-that prevents replacement admission before successful drainage, deterministic
-active deletion, and bounded resource-free retained definitions.
+incumbent preservation, lower-ordinal response settlement observation,
+strict format-1 rejection before candidate charge, predecessor drainage and
+detached exactly-once settlement observation, a per-definition deletion
+barrier that survives displacement and overlapping activation, visible
+displaced cleanup failure, a sole-active deletion barrier that prevents
+replacement admission before successful drainage, deterministic active
+deletion, and bounded resource-free retained definitions.
 Generated-facade and ordinary Worker inventory gates keep the transaction
 callable through the production Browser/Wasm boundary.
 
