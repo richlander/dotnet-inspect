@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -12,6 +13,19 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class AssemblyPairCallUseQueryTests
 {
+    static readonly AssemblyPairClusterRootPathLimits
+        FullClusterRootPathLimits =
+            new(
+                new(
+                    MaximumTypeDefinitions: 1_000,
+                    MaximumMethodDefinitions: 10_000,
+                    MaximumRoots: 10_000),
+                new(
+                    MaximumDepth: 20,
+                    MaximumNodes: 10_000,
+                    MaximumEdges: 100_000,
+                    MaximumPaths: 10_000));
+
     [Fact]
     public async Task ExecuteReturnsExactCallsAcrossBothPairDirections()
     {
@@ -302,6 +316,298 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Equal(
             projection.Clusters.Select(ClusterFingerprint),
             incomplete.Clusters.Select(ClusterFingerprint));
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_ComposePublicRootsAndPrivateUseSites()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "RootPathUse");
+
+        AssemblyPairClusterRootPathResult result =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsComplete);
+        Assert.NotNull(result.PublicRoots);
+        Analysis.LibraryBodyRootPathResult paths =
+            Assert.IsType<Analysis.LibraryBodyRootPathResult>(
+                result.Paths);
+        Assert.Equal(
+            ["Create", "CreateAlternative", "CreateOuter"],
+            paths.Witnesses
+                .Select(witness => witness.Root.Name)
+                .ToArray());
+        Assert.Equal(
+            [2, 2, 3],
+            paths.Witnesses
+                .Select(witness => witness.Depth)
+                .ToArray());
+        Assert.All(
+            paths.Witnesses,
+            witness =>
+            {
+                Assert.Equal(
+                    "AddChange",
+                    witness.Destination.Name);
+                Assert.All(
+                    witness.Steps,
+                    step => Assert.NotEmpty(step.CallSites));
+            });
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_UseExactPublicAccessorRoots()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "AccessorPathUse");
+
+        AssemblyPairClusterRootPathResult result =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken);
+
+        Analysis.LibraryBodyRootPathResult paths =
+            Assert.IsType<Analysis.LibraryBodyRootPathResult>(
+                result.Paths);
+        Assert.Contains(
+            paths.Witnesses,
+            witness =>
+                witness.Root.Name == "get_Value"
+                && witness.Depth == 1);
+        Assert.Contains(
+            paths.Witnesses,
+            witness =>
+                witness.Root.Name == "AssignValue"
+                && witness.Depth == 2);
+        Assert.DoesNotContain(
+            paths.Witnesses,
+            witness => witness.Root.Name == "set_Value");
+        Assert.Contains(
+            paths.Witnesses
+                .Single(witness =>
+                    witness.Root.Name == "AssignValue")
+                .Steps,
+            step => step.Callee.Name == "set_Value");
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_PublicDirectUseHasZeroDepth()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "PublicPathUse");
+
+        AssemblyPairClusterRootPathResult result =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken);
+
+        Analysis.LibraryBodyRootPathWitness witness =
+            Assert.Single(result.Paths!.Witnesses);
+        Assert.Equal("Use", witness.Root.Name);
+        Assert.Equal(witness.Root, witness.Destination);
+        Assert.Equal(0, witness.Depth);
+        Assert.Empty(witness.Steps);
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_CompleteEmptyAbsenceIsDistinctFromBounds()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "UnreachablePathUse");
+
+        AssemblyPairClusterRootPathResult complete =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(complete.IsComplete);
+        Assert.Empty(complete.Paths!.Witnesses);
+
+        AssemblyPairClusterRootPathResult depthBounded =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                SelectCluster(
+                    context,
+                    targetMethod: "RootPathUse"),
+                FullClusterRootPathLimits with
+                {
+                    Paths =
+                        FullClusterRootPathLimits.Paths with
+                        {
+                            MaximumDepth = 2,
+                        },
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.False(depthBounded.IsComplete);
+        Assert.NotEmpty(depthBounded.Paths!.Witnesses);
+        Assert.Contains(
+            depthBounded.Paths.Boundaries,
+            boundary =>
+                boundary
+                    is Analysis.LibraryBodyRootPathBoundary
+                        .DepthLimit);
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_RetainPositiveEvidenceAcrossOwners()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "RootPathUse");
+        AssemblyPairClusterRootPathResult full =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken);
+        int createRootIndex =
+            full.PublicRoots!.Roots.IndexOf(
+                full.PublicRoots.Roots.Single(root =>
+                    root.Token
+                    == full.Paths!.Witnesses
+                        .Single(witness =>
+                            witness.Root.Name == "Create")
+                        .Root.MetadataToken));
+
+        AssemblyPairClusterRootPathResult bounded =
+            AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection with
+                {
+                    Pair = selection.Pair with
+                    {
+                        Diagnostics =
+                            new AssemblyPairCallUseDiagnostics(1),
+                    },
+                },
+                FullClusterRootPathLimits with
+                {
+                    PublicRoots =
+                        FullClusterRootPathLimits.PublicRoots with
+                        {
+                            MaximumRoots = createRootIndex + 1,
+                        },
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.False(bounded.IsComplete);
+        Assert.NotNull(bounded.PublicRoots!.Boundary);
+        Assert.NotEmpty(bounded.Paths!.Witnesses);
+        Assert.False(bounded.Selection.IsComplete);
+    }
+
+    [Fact]
+    public async Task ClusterRootPaths_RejectStaleOrForeignSelection()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "RootPathUse");
+        AssemblyPairDirectUseCluster cluster =
+            Assert.Single(selection.Clusters);
+
+        Assert.Throws<AssemblyPairClusterRootPathRequestException>(
+            () => AssemblyPairClusterRootPathQuery.Execute(
+                context.Group,
+                selection with
+                {
+                    Clusters =
+                    [
+                        cluster with
+                        {
+                            Identity = cluster.Identity with
+                            {
+                                SourceModuleVersionId =
+                                    Guid.NewGuid(),
+                            },
+                        },
+                    ],
+                },
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken));
+
+        await using PairContext other = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        Assert.Throws<AssemblyPairClusterRootPathRequestException>(
+            () => AssemblyPairClusterRootPathQuery.Execute(
+                other.Group,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ClusterRootPathInspection_ProjectsOwnerDiagnostics()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "RootPathUse");
+
+        InspectionEnvelope<AssemblyPairClusterRootPathResult> inspection =
+            AssemblyPairClusterRootPathInspection.Execute(
+                context.Group,
+                selection,
+                FullClusterRootPathLimits with
+                {
+                    Paths =
+                        FullClusterRootPathLimits.Paths with
+                        {
+                            MaximumDepth = 2,
+                        },
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.False(inspection.Content.IsComplete);
+        Assert.Contains(
+            inspection.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                == "cluster-root-paths.analysis-boundary");
+        Assert.IsType<InspectionShare.NonProjectable>(
+            inspection.Share);
     }
 
     [Fact(Timeout = 10_000)]
@@ -975,6 +1281,26 @@ public sealed class AssemblyPairCallUseQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static AssemblyPairDirectUseClusterProjection SelectCluster(
+        PairContext context,
+        string targetMethod)
+    {
+        AssemblyPairCallUseResult pair =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        AssemblyPairDirectUseClusterProjection all =
+            AssemblyPairDirectUseClusterProjection.Create(pair);
+        AssemblyPairDirectUseCluster cluster =
+            Assert.Single(
+                all.Clusters,
+                candidate =>
+                    candidate.TargetMethods.Any(
+                        method => method.Name == targetMethod));
+        return all.ScopeToObservedCluster(cluster.Ordinal)!;
     }
 
     sealed class PairContext : IAsyncDisposable

@@ -7,6 +7,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -24,6 +25,8 @@ public static class LibraryCallUseCommand
         LibraryCallUseViewSections.DirectUseClusters;
     internal const string CallSitesSection =
         LibraryCallUseViewSections.CallSites;
+    internal const string PublicRootPathsSection =
+        LibraryCallUseViewSections.PublicRootPaths;
 
     static readonly string[] SectionOrder =
     [
@@ -31,7 +34,20 @@ public static class LibraryCallUseCommand
         ProviderApiTypesSection,
         DirectUseClustersSection,
         CallSitesSection,
+        PublicRootPathsSection,
     ];
+
+    static readonly AssemblyPairClusterRootPathLimits RootPathLimits =
+        new(
+            new PublicMethodRootInventoryLimits(
+                MaximumTypeDefinitions: 100_000,
+                MaximumMethodDefinitions: 1_000_000,
+                MaximumRoots: 1_000_000),
+            new LibraryBodyRootPathLimits(
+                MaximumDepth: 64,
+                MaximumNodes: 1_000_000,
+                MaximumEdges: 10_000_000,
+                MaximumPaths: 100_000));
 
     static readonly IReadOnlyDictionary<string, string[]> NoCategories =
         new Dictionary<string, string[]>(
@@ -44,6 +60,13 @@ public static class LibraryCallUseCommand
         "Call",
         "Evidence Method",
         "IL Offset",
+        "Public Root",
+        "Public Root Token",
+        "Direct Use Destination",
+        "Destination Token",
+        "Depth",
+        "Method Path",
+        "Physical Receipts",
     ];
 
     static readonly string[] DefaultClusterCallSiteColumns =
@@ -126,6 +149,17 @@ public static class LibraryCallUseCommand
         }
         var selectedNameSet = selectedNames.ToHashSet(
             StringComparer.OrdinalIgnoreCase);
+        bool requiresPublicRootPaths =
+            selectedNameSet.Contains(PublicRootPathsSection);
+        if (requiresPublicRootPaths
+            && options.Cluster is null)
+        {
+            CommandError.Write(
+                "'Public Root Paths' requires exactly one "
+                    + "--where \"Cluster=<positive ordinal>\" predicate.");
+            return 1;
+        }
+
         if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
                 selectedNameSet,
@@ -184,6 +218,12 @@ public static class LibraryCallUseCommand
         }
 
         AssemblyPairCallUseResult? result = null;
+        AssemblyPairCallUseResult? selectedResult = null;
+        AssemblyPairDirectUseClusterProjection? allClusters = null;
+        AssemblyPairDirectUseClusterProjection? selectedClusters = null;
+        InspectionEnvelope<AssemblyPairClusterRootPathResult>?
+            rootPathInspection = null;
+        int? unavailableCluster = null;
         var unavailable = new List<string>();
         await using var workspace = new AssemblySetInspectionWorkspace();
         workspace.RunGroup(
@@ -203,8 +243,54 @@ public static class LibraryCallUseCommand
                         group,
                         group.Participants[0].Assembly,
                         group.Participants[1].Assembly);
+                    bool requiresClusters =
+                        options.Cluster is not null
+                        || selectedNameSet.Contains(
+                            DirectUseClustersSection);
+                    allClusters = requiresClusters
+                        ? AssemblyPairDirectUseClusterProjection
+                            .Create(result)
+                        : new(result, []);
+                    selectedResult = result;
+                    selectedClusters = allClusters;
+                    if (options.Cluster is int clusterOrdinal)
+                    {
+                        AssemblyPairDirectUseClusterProjection? selected =
+                            allClusters.ScopeToObservedCluster(
+                                clusterOrdinal);
+                        if (selected is null)
+                        {
+                            unavailableCluster = clusterOrdinal;
+                            return;
+                        }
+
+                        selectedResult = selected.Pair;
+                        selectedClusters =
+                            selectedNameSet.Contains(
+                                DirectUseClustersSection)
+                                ? selected
+                                : new(selected.Pair, []);
+                        if (requiresPublicRootPaths)
+                        {
+                            rootPathInspection =
+                                AssemblyPairClusterRootPathInspection
+                                    .Execute(
+                                        group,
+                                        selected,
+                                        RootPathLimits,
+                                        cancellationToken);
+                        }
+                    }
+                    else if (!selectedNameSet.Contains(
+                            DirectUseClustersSection))
+                    {
+                        selectedClusters = new(result, []);
+                    }
                 }
-                catch (AssemblyPairCallUseRequestException exception)
+                catch (ArgumentException exception)
+                    when (exception
+                        is AssemblyPairCallUseRequestException
+                            or AssemblyPairClusterRootPathRequestException)
                 {
                     unavailable.Add(exception.Message);
                 }
@@ -220,49 +306,38 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
-        bool requiresClusters =
-            options.Cluster is not null
-            || selectedNameSet.Contains(DirectUseClustersSection);
-        AssemblyPairDirectUseClusterProjection allClusters =
-            requiresClusters
-                ? AssemblyPairDirectUseClusterProjection.Create(result)
-                : new(result, []);
-        AssemblyPairCallUseResult selectedResult = result;
-        AssemblyPairDirectUseClusterProjection clusters = allClusters;
-        if (options.Cluster is int clusterOrdinal)
+        if (unavailableCluster is int clusterOrdinal)
         {
-            AssemblyPairDirectUseClusterProjection? selected =
-                allClusters.ScopeToObservedCluster(clusterOrdinal);
-            if (selected is null)
-            {
-                WriteClusterNotFound(
-                    result,
-                    allClusters,
-                    clusterOrdinal);
-                return 1;
-            }
-
-            selectedResult = selected.Pair;
-            clusters =
-                selectedNameSet.Contains(DirectUseClustersSection)
-                    ? selected
-                    : new(selectedResult, []);
-        }
-        else if (!selectedNameSet.Contains(DirectUseClustersSection))
-        {
-            clusters = new(result, []);
+            WriteClusterNotFound(
+                result,
+                allClusters!,
+                clusterOrdinal);
+            return 1;
         }
 
         AssemblyPairCallUseProjection projection =
-            AssemblyPairCallUseProjection.Create(selectedResult);
+            AssemblyPairCallUseProjection.Create(selectedResult!);
         Write(
-            selectedResult,
+            selectedResult!,
             projection,
-            clusters,
+            selectedClusters!,
+            rootPathInspection,
             options,
             selectedNames,
             defaultCallSiteView);
-        if (!selectedResult.IsComplete)
+        if (rootPathInspection is { Content.IsComplete: false })
+        {
+            CommandError.Write(
+                "Public root-path evidence is incomplete.",
+                [
+                    .. rootPathInspection.Diagnostics.Select(
+                        diagnostic =>
+                            diagnostic.Summary.ToString()),
+                ]);
+            return 1;
+        }
+
+        if (!selectedResult!.IsComplete)
         {
             CommandError.Write(
                 "Pairwise call-use evidence is incomplete.",
@@ -324,7 +399,15 @@ public static class LibraryCallUseCommand
         selectedNames =
         [
             .. SectionOrder.Where(
-                name => selection.Sections!.Contains(name)),
+                name => selection.Sections!.Contains(name)
+                    && (name != PublicRootPathsSection
+                        || options.Select!.Any(
+                            selected =>
+                                string.Equals(
+                                    selected,
+                                    PublicRootPathsSection,
+                                    StringComparison
+                                        .OrdinalIgnoreCase)))),
         ];
         return true;
     }
@@ -364,6 +447,8 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         AssemblyPairCallUseProjection projection,
         AssemblyPairDirectUseClusterProjection clusters,
+        InspectionEnvelope<AssemblyPairClusterRootPathResult>?
+            rootPathInspection,
         LibraryCallUseOptions options,
         string[] selectedNames,
         bool defaultCallSiteView)
@@ -378,6 +463,7 @@ public static class LibraryCallUseCommand
             result,
             projection,
             clusters,
+            rootPathInspection,
             options,
             selectedNames);
     }
@@ -477,6 +563,8 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         AssemblyPairCallUseProjection projection,
         AssemblyPairDirectUseClusterProjection clusters,
+        InspectionEnvelope<AssemblyPairClusterRootPathResult>?
+            rootPathInspection,
         LibraryCallUseOptions options,
         IReadOnlyCollection<string> selectedNames)
     {
@@ -495,7 +583,10 @@ public static class LibraryCallUseCommand
                 : selectedNames.ToHashSet(
                     StringComparer.OrdinalIgnoreCase);
         LibraryCallUseSelectedView view =
-            CreateSelectedView(projection, clusters);
+            CreateSelectedView(
+                projection,
+                clusters,
+                rootPathInspection?.Content);
         var writerOptions =
             OutputFormatter.CreateProjectedWriterOptions(
                 projectedColumns,
@@ -586,6 +677,7 @@ public static class LibraryCallUseCommand
             result,
             projection,
             clusters,
+            rootPathInspection?.Content,
             options,
             renderedNames,
             humanColumns,
@@ -596,6 +688,7 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         AssemblyPairCallUseProjection projection,
         AssemblyPairDirectUseClusterProjection clusters,
+        AssemblyPairClusterRootPathResult? rootPaths,
         LibraryCallUseOptions options,
         IReadOnlySet<string> renderedNames,
         string[]? columns,
@@ -681,6 +774,16 @@ public static class LibraryCallUseCommand
                         LibraryCallUseViewContext.Default,
                         writerOptions);
                     break;
+                case PublicRootPathsSection:
+                    MarkoutSerializer.Serialize(
+                        CreatePublicRootPathsView(
+                            rootPaths!,
+                            options.Rows),
+                        Console.Out,
+                        formatter,
+                        LibraryCallUseViewContext.Default,
+                        writerOptions);
+                    break;
             }
             wroteDocument = true;
         }
@@ -688,7 +791,8 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseSelectedView CreateSelectedView(
         AssemblyPairCallUseProjection projection,
-        AssemblyPairDirectUseClusterProjection clusters) =>
+        AssemblyPairDirectUseClusterProjection clusters,
+        AssemblyPairClusterRootPathResult? rootPaths) =>
         new()
         {
             ConsumerUseSites =
@@ -699,6 +803,9 @@ public static class LibraryCallUseCommand
                 [.. clusters.Clusters.Select(
                     CreateDirectUseClusterRow)],
             CallSites = CreateCallSiteRows(projection.Pair.Occurrences),
+            PublicRootPaths = rootPaths is null
+                ? []
+                : CreatePublicRootPathRows(rootPaths),
         };
 
     static LibraryCallUseConsumerUseSitesView CreateConsumerUseSitesView(
@@ -790,6 +897,29 @@ public static class LibraryCallUseCommand
                 projection.IsComplete
                     ? "No direct-use clusters were observed."
                     : "No exact direct-use clusters were observed; the evidence is incomplete.",
+                values,
+                rows),
+            Rows = HasSelectedRows(values, rows) ? values : null,
+        };
+    }
+
+    static LibraryCallUsePublicRootPathsView CreatePublicRootPathsView(
+        AssemblyPairClusterRootPathResult result,
+        RowWindow? rows)
+    {
+        List<LibraryCallUsePublicRootPathRow> values =
+            CreatePublicRootPathRows(result);
+        return new()
+        {
+            Description = CreateSectionDescription(
+                "Shortest local static MethodDef paths from exact public "
+                    + $"roots to the consumer use sites in Direct Use "
+                    + $"Cluster {result.Cluster.Ordinal}.",
+                result.IsComplete
+                    ? "No selected public root has a local static path "
+                        + "to this cluster's consumer use sites."
+                    : "No retained public-root path was observed; the "
+                        + "evidence is incomplete.",
                 values,
                 rows),
             Rows = HasSelectedRows(values, rows) ? values : null,
@@ -926,6 +1056,61 @@ public static class LibraryCallUseCommand
             ExactTarget = occurrence.Call.ExactTarget ? "yes" : "no",
         }),
     ];
+
+    static List<LibraryCallUsePublicRootPathRow>
+        CreatePublicRootPathRows(
+            AssemblyPairClusterRootPathResult result) =>
+        result.Paths is null
+            ? []
+            :
+            [
+                .. result.Paths.Witnesses.Select(
+                    witness =>
+                        new LibraryCallUsePublicRootPathRow
+                        {
+                            SourceLibrary =
+                                AssemblyIdentityFormatter.Format(
+                                    result.Cluster.Identity.Source
+                                        .Identity),
+                            Cluster = result.Cluster.Ordinal,
+                            PublicRoot =
+                                LibraryMetadataService.FormatMethod(
+                                    witness.Root),
+                            PublicRootToken =
+                                $"0x{witness.Root.MetadataToken:X8}",
+                            DirectUseDestination =
+                                LibraryMetadataService.FormatMethod(
+                                    witness.Destination),
+                            DestinationToken =
+                                $"0x{witness.Destination.MetadataToken:X8}",
+                            Depth = witness.Depth,
+                            MethodPath = string.Join(
+                                " -> ",
+                                witness.Steps.IsEmpty
+                                    ? [LibraryMetadataService.FormatMethod(
+                                        witness.Root)]
+                                    :
+                                    [
+                                        LibraryMetadataService.FormatMethod(
+                                            witness.Root),
+                                        .. witness.Steps.Select(
+                                            step =>
+                                                LibraryMetadataService
+                                                    .FormatMethod(
+                                                        step.Callee)),
+                                    ]),
+                            PhysicalReceipts = string.Join(
+                                "; ",
+                                witness.Steps.SelectMany(
+                                    (step, stepIndex) =>
+                                        step.CallSites.Select(
+                                            call =>
+                                                $"{stepIndex + 1}:"
+                                                + $"0x{call.EvidenceMethod.MetadataToken:X8}"
+                                                + $"+0x{call.ILOffset:X4}"
+                                                + $"->0x{call.OperandToken:X8}"))),
+                        }),
+            ];
 
     static string FormatOccurrenceRows(
         IEnumerable<int> indexes) =>

@@ -174,6 +174,159 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains("Provider API Types", captured.Output);
         Assert.Contains("Direct Use Clusters", captured.Output);
         Assert.Contains("Call Sites", captured.Output);
+        Assert.Contains("Public Root Paths", captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RequiresClusterForPublicRootPathsBeforeAcquisition()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        "missing-consumer.dll",
+                        "--library",
+                        "missing-provider.dll",
+                        "-S",
+                        "Public Root Paths",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "'Public Root Paths' requires exactly one "
+                + "--where \"Cluster=<positive ordinal>\" predicate.",
+            captured.Error);
+        Assert.DoesNotContain("Library not found", captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ProjectsPublicRootPaths()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=14",
+                        "-S",
+                        "Public Root Paths",
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document =
+            JsonDocument.Parse(captured.Output);
+        JsonElement paths =
+            document.RootElement.GetProperty(
+                "public_root_paths");
+        Assert.Equal(3, paths.GetArrayLength());
+        Assert.Equal(
+            ["Create", "CreateAlternative", "CreateOuter"],
+            paths.EnumerateArray()
+                .Select(path =>
+                    path.GetProperty("public_root")
+                        .GetString()!
+                        .Split('(')[0]
+                        .Split('.')[^1]));
+        Assert.Equal(
+            ["2", "2", "3"],
+            paths.EnumerateArray()
+                .Select(path =>
+                    path.GetProperty("depth").GetString()));
+        Assert.All(
+            paths.EnumerateArray(),
+            path =>
+            {
+                Assert.Contains(
+                    "AddChange",
+                    path.GetProperty("direct_use_destination")
+                        .GetString());
+                Assert.Contains(
+                    " -> ",
+                    path.GetProperty("method_path").GetString());
+                Assert.Contains(
+                    "+0x",
+                    path.GetProperty("physical_receipts")
+                        .GetString());
+            });
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_PublicRootPathsRespectAccessorVisibility()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=15",
+                        "-S",
+                        "Public Root Paths",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains("get_Value", captured.Output);
+        Assert.Contains("AssignValue", captured.Output);
+        Assert.Contains("set_Value", captured.Output);
+        Assert.DoesNotContain(
+            "\"public_root\":\"Shared.RootPathEntry.set_Value",
+            captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_PublicRootPathsReportCompleteEmptyResult()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=16",
+                        "-S",
+                        "Public Root Paths",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains(
+            "No selected public root has a local static path "
+                + "to this cluster's consumer use sites.",
+            captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -190,6 +343,7 @@ public sealed class InspectionGraphCommandTests
                 LibraryCallUseCommand.ProviderApiTypesSection,
                 LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
+                LibraryCallUseCommand.PublicRootPathsSection,
             ],
             schema.SectionNames);
         Assert.Equal(
@@ -236,6 +390,22 @@ public sealed class InspectionGraphCommandTests
                 .Items
                 .Single(item => item.Key == "il_offset")
                 .Name);
+        Assert.Equal(
+            [
+                "source_library",
+                "cluster",
+                "public_root",
+                "public_root_token",
+                "direct_use_destination",
+                "destination_token",
+                "depth",
+                "method_path",
+                "physical_receipts",
+            ],
+            schema.GetSection(
+                    LibraryCallUseCommand.PublicRootPathsSection)!
+                .Items
+                .Select(item => item.Key));
     }
 
     [Fact]
@@ -269,8 +439,12 @@ public sealed class InspectionGraphCommandTests
             document.RootElement.TryGetProperty(
                 "direct_use_clusters",
                 out _));
-        Assert.Equal(15, consumerUseSites.GetArrayLength());
-        Assert.Equal(9, providerApiTypes.GetArrayLength());
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "public_root_paths",
+                out _));
+        Assert.Equal(19, consumerUseSites.GetArrayLength());
+        Assert.Equal(10, providerApiTypes.GetArrayLength());
         Assert.Equal(
             "Shared.Entry.Run()",
             consumerUseSites[0]
@@ -481,6 +655,54 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task LibrariesCommand_PublicRootPathsRetainPositiveIncompleteEvidence()
+    {
+        string consumer =
+            FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        string provider = Path.Combine(
+            Path.GetDirectoryName(consumer)!,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll");
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        consumer,
+                        "--library",
+                        provider,
+                        "--where",
+                        "Cluster=1",
+                        "-S",
+                        "Public Root Paths",
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        using JsonDocument document =
+            JsonDocument.Parse(captured.Output);
+        JsonElement path = Assert.Single(
+            document.RootElement
+                .GetProperty("public_root_paths")
+                .EnumerateArray());
+        Assert.Equal("0", path.GetProperty("depth").GetString());
+        Assert.Contains(
+            "AnalyzeAsync",
+            path.GetProperty("public_root").GetString());
+        Assert.Contains(
+            "Public root-path evidence is incomplete.",
+            captured.Error);
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete",
+            captured.Error);
+        Assert.Contains(
+            "Analysis reported 1 body diagnostics",
+            captured.Error);
+    }
+
+    [Fact]
     public async Task LibrariesCommand_ClusterScopesEverySelectedSection()
     {
         var captured = await ConsoleCapture.RunAsync(
@@ -559,7 +781,7 @@ public sealed class InspectionGraphCommandTests
             "Direct Use Cluster 99 does not exist.",
             captured.Error);
         Assert.Contains(
-            "Observed pair-wide cluster ordinals: 1..13.",
+            "Observed pair-wide cluster ordinals: 1..17.",
             captured.Error);
     }
 
@@ -853,12 +1075,12 @@ public sealed class InspectionGraphCommandTests
         using JsonDocument counts =
             JsonDocument.Parse(multiple.Output);
         Assert.Equal(
-            15,
+            19,
             counts.RootElement[0]
                 .GetProperty("count")
                 .GetInt32());
         Assert.Equal(
-            9,
+            10,
             counts.RootElement[1]
                 .GetProperty("count")
                 .GetInt32());
