@@ -740,6 +740,36 @@ Each unwrapped library retains:
 - correspondence to any paired compile/implementation asset; and
 - the content lease required to keep bytes readable.
 
+The compile-handoff adopter is implemented in the separately compiled
+`DotnetInspector.PackageHouse.Execution` project. It accepts one exact
+`PackageHouseSettlement.Acquired` and one compile handoff issued by that
+settlement. Reference identity binds the handoff to the settlement, and the
+Package Source-issued content generation binds both to the live payload. A
+handoff from another acquired settlement remains invalid even when both
+payloads contain byte-identical assemblies.
+
+The adopter materializes only:
+
+- the selector-issued API assembly;
+- its selector-corresponded implementation assembly, when distinct; and
+- the exact API-side `.xml` entry with the same directory and base name, when
+  present.
+
+It publishes those contents into one bounded Artifact generation, consumes
+Metadata-issued assembly projections, constructs the package source coordinate
+and Library correspondence, and transfers one Artifact content child per
+distinct Library content record into `LibraryContentOwner`. One exact `lib/`
+asset serving both assembly roles transfers one child with both roles. A
+missing compiled-XML entry is valid absence; a present over-budget entry is a
+typed terminal result.
+
+Completion transfers `LibraryContentOwner` and `ArtifactSetSession` as
+separate caller-owned authorities. The Library owner must retire before the
+Artifact session. Terminal receipts and per-content provenance retain no
+payload, owner, lease, stream, opener, or callback. PackageHouse continues to
+issue the resource-free handoff; the separately compiled adopter owns Artifact,
+Metadata, and Library composition.
+
 The House does not choose one assembly because its file name resembles the
 package ID unless the asset-selection owner explicitly defines that role.
 Shared Library inspection begins only after this handoff.
@@ -761,10 +791,13 @@ For package realization, Workspace orchestration:
 6. reports or preserves every non-success without reconstructing a neighboring
    package result.
 
-PackageHouse does not mutate Workspace. It returns an immutable realization
-with the retained lifetime needed for a Workspace transaction to admit it.
-Rejected admission disposes House-owned resources under the artifact owner
-contract; an existing Workspace remains unchanged.
+PackageHouse does not mutate Workspace. It returns an immutable result and
+resource-free Library handoff while its acquired settlement retains the
+separately caller-owned package payload. The PackageHouse execution adopter
+can turn one exact compile handoff into separately transferred Library and
+Artifact authorities for a later Workspace transaction. Rejected admission
+disposes adopter-created resources under the Artifact owner contract; an
+existing Workspace remains unchanged.
 
 `DotnetInspector.PackageQueries` owns the narrow House-to-Root adapter.
 `PackageHouseRootContributionAdapter` accepts the complete closed House
@@ -1040,6 +1073,12 @@ Each step after this design is separately reviewed and leaves a usable
 product. A direct path is retired only after its House replacement is live in
 every supported host that uses it.
 
+The compile-handoff Library materializer tracked by
+[#7324](https://github.com/richlander/dotnet-inspect/issues/7324) implements the
+PackageHouse adopter required by Library-ownership slice 4 and supplies the
+live-Library prerequisite for step 8. Workspace and host adoption remain
+separate work.
+
 ## Required gates
 
 | Claim | Required Release evidence |
@@ -1063,6 +1102,7 @@ every supported host that uses it.
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |
 | Package shape | Zero, one, and many selected library outcomes preserve package-shaped inspection and typed asset status. |
+| Library materialization | `CompileHandoffMaterializesOwnedLibraryWithImplementationAndDocumentation` uses real `System.Text.Json` API, implementation, and compiled-XML package entries to produce one three-content Library backed by one Artifact generation. Focused neighboring gates bind the exact handoff and payload generation, reject byte-identical cross-settlement handoffs, transfer one content child for a `lib/` asset serving both assembly roles, preserve missing XML as valid absence, and keep missing assemblies, content and aggregate byte limits, malformed managed metadata, identity mismatch, cancellation, and retirement ordering visible. `MaterializationEvidenceContractsAreResourceFree` gates the detached evidence closure. |
 | Workspace handoff | Admission consumes one immutable House realization; rejection leaves the prior Workspace unchanged and disposes rejected resources correctly. |
 | Platform delegation | Package and platform receipts remain separately typed and associated by orchestration without a House-to-House call. |
 | Host equivalence | CLI and Browser/Wasm canaries over equivalent owner-issued inputs observe the same House settlement semantics. |
