@@ -2583,9 +2583,9 @@ must preserve the same typed outcomes and fresh destination content.
 | Exact non-success while its subject disappears without correspondence | Result retains the exact request evidence; installed snapshot uses the fallback subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
 | Multi-library package | Package-scoped `All libraries` subject containing every admitted Library in the selected compile projection |
-| Libraries with no Types | Library with References; Type is validly unavailable |
+| Libraries with no Types | Package-scoped `All libraries` with its aggregate-capable References lens; Type is validly unavailable |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
-| Primary Library has no default-accessibility Type | Library remains the recommendation |
+| Primary Library has no default-accessibility Type | Package-scoped `All libraries` remains the recommendation; Type accessibility does not narrow the initial subject |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained and other Types available | Defining Library, never another Type; missing lower context is truncated and its diagnostic retained |
