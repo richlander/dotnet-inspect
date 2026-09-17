@@ -188,14 +188,24 @@ because the source results already own detached immutable bytes. Completion
 transfers every Library owner beside the separate Artifact session; terminal
 and cancellation paths transfer neither authority.
 
+Package-backed reference-only complete-population materialization is implemented
+under issue #7395. It consumes one authoritative adapter-issued package
+reference population, preserves source order, and invokes the source-neutral
+reference-population Artifact and ownership kernel. Every Library retains its
+exact package candidate, authority, producer, content generation, origin,
+coordinate, identity, and source generation. Package Source settlement remains
+independent because the source result already owns detached immutable bytes.
+Completion transfers every reference-only Library owner beside the separate
+Artifact session; terminal and cancellation paths transfer neither authority.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
 are implemented, including installed and package-backed Artifact publication
 and retirement stages. Internal Library operation leases, cleanup-failure
-production by non-owning operations, package-backed single-view population
-realization, and product adoption remain unverified.
+production by non-owning operations, package-backed implementation-only
+population realization, and product adoption remain unverified.
 Further PlatformHouse adoption continues under #7177 and #6621 slice 5; the
 source materialization slices are tracked by #7269, #7304, #7322, #7339, and
-issues #7354 and #7383.
+issues #7354, #7383, and #7395.
 
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
@@ -1507,7 +1517,10 @@ reference and implementation populations by exact managed assembly identity
 and transfers their lossless union as one all-or-nothing population. Step 6c.4,
 implemented under #7383, adapts authoritative package-backed paired populations
 through the same kernel while retaining exact per-member package provenance and
-detached Package Source lifetime. Package-backed single-view population
+detached Package Source lifetime. Step 6c.5, implemented under #7395, adapts
+one authoritative package-backed reference population through the reference
+kernel while preserving source order, exact per-member package provenance, and
+detached Package Source lifetime. Package-backed implementation-only population
 materialization and internal Metadata operations remain later step-6 slices.
 
 The step-6 ownership correction was designed under
@@ -1711,6 +1724,7 @@ The implementation and adoption slices own these Release gates:
 | Installed paired population ownership | Independently authoritative installed reference and implementation populations publish into one bounded Artifact generation and settle once each. Exact managed identities pair; same-name non-equivalent identities and unmatched members remain distinct in a reference-first lossless union. Completion transfers every Library owner beside one Artifact session; terminal and cancellation paths transfer neither authority. |
 | Separate package authorities | Package-backed one-Library completion returns the Library owner and adjacent Artifact session separately after Package Source operations settle; Artifact retirement waits while the Library retains content and completes after Library retirement. Terminal execution and cancellation return neither authority. |
 | Package-backed paired population ownership | Independently authoritative package-backed reference and implementation populations publish into one bounded Artifact generation and settle once each after Package Source operations detach. Exact managed identities form the same reference-first lossless union while every content item retains source-issued package provenance. Completion transfers every Library owner beside one Artifact session; terminal and cancellation paths transfer neither authority. |
+| Package-backed reference population ownership | One authoritative package-backed reference population produces one source-ordered reference-only Library owner per distinct managed identity and one source settlement after Package Source detaches. Every content item retains source-issued package provenance. Completion transfers every Library owner beside one Artifact session; terminal, cancellation, duplicate identity, foreign contribution, and incomplete work transfer neither authority. |
 | Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
 | Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
@@ -1867,6 +1881,28 @@ ownership:
 - `PackagePairedPopulation_IncompleteWorkTransfersNoAuthority` and
   `PackagePairedPopulation_CancellationTransfersNoAuthority` cover finite
   aggregate work and cancellation before package population Artifact
+  acceptance.
+
+The implemented step-6c.5 gates add package-backed reference-only
+complete-population ownership:
+
+- `GalleryReferencePopulationMaterializesAuthorities` covers the pinned
+  nuget.org .NET 11 reference pack, source order, reference-only role closure,
+  package provenance, source settlement before returned-authority retirement,
+  borrowing, atomic owner transfer, and Artifact retirement after every Library
+  retires;
+- `PackageReferencePopulation_TransfersOrderedLibraryAuthorities` covers
+  deterministic source order, exact per-member package provenance, one source
+  settlement, owner/value index correspondence, borrowing, and final Artifact
+  retirement;
+- `PackageReferencePopulation_RejectsForeignContribution` proves that foreign
+  owner evidence cannot enter Artifact publication, while the existing
+  `MalformedNetmoduleWinMdAndDuplicateIdentityRejectAtomically` source gate
+  proves duplicate exact identities cannot enter an authoritative package
+  population; and
+- `PackageReferencePopulation_IncompleteWorkTransfersNoAuthority` and
+  `PackageReferencePopulation_CancellationTransfersNoAuthority` cover finite
+  aggregate work and cancellation before package reference-population Artifact
   acceptance.
 
 Each later implementation slice adds the smallest gate covering its adopted

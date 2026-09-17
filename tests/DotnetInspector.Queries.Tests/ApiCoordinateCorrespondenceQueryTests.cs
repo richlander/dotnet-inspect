@@ -329,7 +329,7 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
                 scope.FindPackageOccurrence(binding)!,
                 Cancellation)).Observation;
 
-    static PackageRootBinding Binding(
+    internal static PackageRootBinding Binding(
         string version,
         params (string Entry, string Image)[] assets)
     {

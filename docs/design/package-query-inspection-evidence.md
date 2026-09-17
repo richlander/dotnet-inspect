@@ -29,12 +29,18 @@ preview is display text, never a package coordinate or archive-entry handle.
 
 | Facet | Counted item | Preview |
 | --- | --- | --- |
-| Has dependencies / no dependencies | Distinct declared dependency IDs across manifest groups, using ordinal case-insensitive identity | Up to three IDs, ordered ordinal case-insensitively, preserving the first declared spelling of each ID |
+| Has dependencies / no dependencies | Distinct declared dependency IDs in the selected dependency scope, using ordinal case-insensitive identity | Up to three IDs, ordered ordinal case-insensitively, preserving the first declared spelling of each ID |
+| Depends on package | Distinct selected declaration tuples of manifest group, declared package ID, and version range | Up to three `group: ID range` values, ordered ordinally |
 | Embedded SKILL.md | Distinct matching archive-entry paths, using ordinal path identity and the existing case-insensitive skill-document predicate | Up to three actual paths, ordered ordinally |
 
-Dependency summaries describe declarations, not a resolved dependency closure
-or an applicable framework selection. Repeated declarations for different
-target frameworks count once. Zero dependencies is a known empty item set.
+Dependency summaries describe declarations, not a resolved dependency closure.
+Package Query uses all manifest groups by default. An explicit
+`dependency-target=<tfm>` uses the dependency-group owner's compatible
+selection and retains requested-target and selected-group evidence separately.
+`dependency-target=all` is query scope, not the manifest group named `any`.
+Zero dependencies is a known empty item set only for all groups, one selected
+empty group, or a manifest with no dependency groups; no matching requested
+target is not empty evidence.
 
 A root `skills/SKILL.md` preview remains that path. The inventory does not
 establish a skill's declared name, valid frontmatter, or valid document body.
@@ -72,11 +78,13 @@ construction applies the existing `InertString` field contract. Browser HTML
 encoding remains the final sink boundary. Typed item counts are calculated
 before preview encoding or shortening.
 
-`PackageQueryTests` is the Release outcome gate for distinct IDs, multiple
-frameworks, root and nested skill paths, preview bounds, text containment,
-unchanged acquisition counts, and visible unavailable content. Browser engine
-tests gate the typed projection; frontend source and view tests gate transport,
-package-specific cards, and once-per-result-set context.
+`PackageQueryTests` is the Release outcome gate for distinct IDs, all-group and
+selected-group dependency scope, compatible selection, selected-empty,
+no-groups and no-match distinctions, multiple frameworks, root and nested
+skill paths, preview bounds, text containment, unchanged acquisition counts,
+and visible unavailable content. Browser engine tests gate the typed
+projection; frontend source and view tests gate transport, package-specific
+cards, and once-per-result-set context.
 
 The design follows ordinary count-plus-preview disclosure: NuGet manifest
 dependency groups supply the existing structured facts, while the current

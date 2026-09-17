@@ -274,7 +274,7 @@ public partial class CommandExecutionTests
         MetadataValue.HeapReference value =
             Assert.IsType<MetadataValue.HeapReference>(entry.Value);
 
-        var (exit, output, error) = await RunAppAsync(
+        var legacy = await RunAppAsync(
             "library",
             path,
             "--metadata-root",
@@ -283,12 +283,23 @@ public partial class CommandExecutionTests
             $"#Strings:{entry.Offset}",
             "--tips",
             "q");
+        var child = await RunAppAsync(
+            "library",
+            "--metadata-root",
+            "r2r-manifest",
+            "coordinate",
+            $"#Strings:{entry.Offset}",
+            "--library",
+            path,
+            "--tips",
+            "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Equal(legacy, child);
+        Assert.Equal(0, child.Exit);
+        Assert.Empty(child.Error);
         Assert.Contains(
             value.Text!.Value.ToString(),
-            output,
+            child.Output,
             StringComparison.Ordinal);
     }
 
@@ -1288,18 +1299,59 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task MetadataLens_HeapCoordinate_RendersTheValueAtThatAddress()
     {
-        var (exit, output, _) = await RunAppAsync(
+        var legacy = await RunAppAsync(
             "library", TestAssemblyPath, "--heap", "#Strings:1", "--tips", "q");
+        var child = await RunAppAsync(
+            "library", "coordinate", "#Strings:1",
+            "--library", TestAssemblyPath, "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
-        Assert.Contains("| #Strings | 1 |", output, StringComparison.Ordinal);
+        Assert.Equal(legacy, child);
+        Assert.Equal(0, child.Exit);
+        Assert.Contains(
+            "## " + MetadataSectionNames.Heap,
+            child.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| #Strings | 1 |",
+            child.Output,
+            StringComparison.Ordinal);
 
-        var (countExit, countOutput, countError) = await RunAppAsync(
+        var legacyCount = await RunAppAsync(
             "library", TestAssemblyPath, "--heap", "#Strings:1", "--count", "--tips", "q");
-        Assert.Equal(0, countExit);
-        Assert.Equal("1", countOutput.Trim());
-        Assert.Empty(countError);
+        var childCount = await RunAppAsync(
+            "library", "coordinate", "#Strings:1",
+            "--library", TestAssemblyPath, "--count", "--tips", "q");
+        Assert.Equal(legacyCount, childCount);
+        Assert.Equal(0, childCount.Exit);
+        Assert.Equal("1", childCount.Output.Trim());
+        Assert.Empty(childCount.Error);
+    }
+
+    [Fact]
+    public async Task MetadataLens_HeapCoordinate_TreeDiscoveryMatchesLegacy()
+    {
+        var legacy = await RunAppAsync(
+            "library",
+            "--heap",
+            "#Strings:1",
+            "-D",
+            "--schema",
+            "--tree",
+            "--tips",
+            "q");
+        var child = await RunAppAsync(
+            "library",
+            "coordinate",
+            "#Strings:1",
+            "-D",
+            "--schema",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(legacy, child);
+        Assert.Equal(0, child.Exit);
+        Assert.Empty(child.Error);
     }
 
     /// <summary>
@@ -1315,11 +1367,18 @@ public partial class CommandExecutionTests
     [InlineData("#Strings:0x01")]
     public async Task MetadataLens_HeapCoordinate_AcceptsEverySpelling(string coordinate)
     {
-        var (exit, output, _) = await RunAppAsync(
+        var legacy = await RunAppAsync(
             "library", TestAssemblyPath, "--heap", coordinate, "--tsv", "--tips", "q");
+        var child = await RunAppAsync(
+            "library", "coordinate", coordinate,
+            "--library", TestAssemblyPath, "--tsv", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("#Strings\t1\t", output, StringComparison.Ordinal);
+        Assert.Equal(legacy, child);
+        Assert.Equal(0, child.Exit);
+        Assert.Contains(
+            "#Strings\t1\t",
+            child.Output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1400,11 +1459,18 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_MalformedHeapCoordinate_NamesTheHalfThatIsWrong(
         string coordinate, string expected)
     {
-        var (exit, _, error) = await RunAppAsync(
+        var (legacyExit, _, legacyError) = await RunAppAsync(
             "library", TestAssemblyPath, "--heap", coordinate, "--tips", "q");
+        var (childExit, childOutput, childError) = await RunAppAsync(
+            "library", "coordinate", coordinate,
+            "--library", TestAssemblyPath, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Contains(expected, error, StringComparison.Ordinal);
+        Assert.Equal(1, legacyExit);
+        Assert.Contains(expected, legacyError, StringComparison.Ordinal);
+        Assert.Equal(1, childExit);
+        Assert.Empty(childOutput);
+        Assert.Contains(expected, childError, StringComparison.Ordinal);
+        Assert.DoesNotContain("--heap", childError, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1501,19 +1567,38 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "--heap", "#Strings:999999999", "--tips", "q");
+        var child = await RunAppAsync(
+            "library", "coordinate", "#Strings:999999999",
+            "--library", TestAssemblyPath, "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Contains("#Strings", error, StringComparison.Ordinal);
         Assert.Contains("999999999", error, StringComparison.Ordinal);
         Assert.DoesNotContain("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
+        Assert.Equal(1, child.Exit);
+        Assert.Empty(child.Output);
+        Assert.Contains("#Strings", child.Error, StringComparison.Ordinal);
+        Assert.Contains("999999999", child.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("--heap", child.Error, StringComparison.Ordinal);
 
         // Discovery must not advertise a section the coordinate cannot produce.
-        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+        var legacyDiscovery = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
             "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+        var childDiscovery = await RunAppAsync(
+            "library", "coordinate", "#Strings:999999999",
+            "--library", TestAssemblyPath,
+            "-D", SectionCategoryNames.Metadata,
+            "--tsv", "--tips", "q");
 
-        Assert.Equal(1, discoverExit);
-        Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(discoverOutput));
+        Assert.Equal(1, legacyDiscovery.Exit);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Heap,
+            DiscoveryNames(legacyDiscovery.Output));
+        Assert.Equal(1, childDiscovery.Exit);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Heap,
+            DiscoveryNames(childDiscovery.Output));
     }
 
     /// <summary>
@@ -1533,11 +1618,17 @@ public partial class CommandExecutionTests
             Assert.Equal(0, primeExit);
         }
 
-        var (exit, _, error) = await RunAppAsync(
+        var legacy = await RunAppAsync(
             "library", TestAssemblyPath, "-D", "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+        var child = await RunAppAsync(
+            "library", "coordinate", "#Strings:999999999",
+            "--library", TestAssemblyPath,
+            "-D", "--tsv", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Contains("999999999", error, StringComparison.Ordinal);
+        Assert.Equal(1, legacy.Exit);
+        Assert.Contains("999999999", legacy.Error, StringComparison.Ordinal);
+        Assert.Equal(1, child.Exit);
+        Assert.Contains("999999999", child.Error, StringComparison.Ordinal);
     }
 
     /// <summary>

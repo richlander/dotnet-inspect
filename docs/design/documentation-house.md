@@ -27,8 +27,12 @@ bound the non-interruptible scan itself. Its current `XmlException` contract
 maps malformed and parser-limit-exhausted input to a visible **Failed**
 compiled attempt, while House contribution, byte, and deadline exhaustion
 remain typed **Incomplete** evidence.
-Source-specific adapters, Queries and host adoption, the authored channel,
-field settlement, and legacy retirement remain staged.
+The PackageHouse and direct-Library adapters plus the shared Queries
+compiled-documentation result are implemented. Queries preserves the exact
+detached House outcome for in-process composition and publishes a separately
+owned portable snapshot as the source-generated JSON contract. Platform and
+source adapters, host adoption, the authored channel, field settlement, and
+legacy retirement remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -699,6 +703,12 @@ DotnetInspector.DocumentationHouse.Source
 
 DotnetInspector.DocumentationHouse.Direct
   -> direct Library composition + DocumentationHouse contracts
+
+DotnetInspector.Queries
+  -> DocumentationHouse
+  - executes an already-authorized source-neutral request
+  - retains the exact detached outcome for in-process composition
+  - publishes a copied portable snapshot as the sole JSON contract
 ```
 
 PackageHouse, PlatformHouse, SourceHouse, direct-Library composition, and
@@ -710,7 +720,28 @@ assembly; it invokes only the source-neutral deferred-provider contract and
 passes the Library lease to it solely by consuming invocation. Queries and
 hosts compose the applicable adapter above both owners, capture explicit
 authorization, obtain one exact Library operation lease, and transfer it before
-the House operation starts.
+the House operation starts. `CompiledDocumentationQuery` owns no source adapter
+selection or acquisition. It invokes the House with that prepared request and
+transferred lease, then copies the settled result into
+`CompiledDocumentationQuerySnapshot` before returning.
+
+The exact `DocumentationHouseOutcome` remains available on the in-process
+Queries result and is excluded from JSON. It retains reference-scoped Library,
+content, subject, and receipt correspondence that must not be mistaken for a
+portable interchange identity. The JSON context registers only the
+Queries-owned snapshot: copied subject identity, owner-issued classifications,
+source provenance, documentation fields, work evidence, and final lease
+consumer. It contains no Library or Artifact reference, lease, reader, stream,
+callback, or reopening capability. This is the producer-owned snapshot
+boundary required by
+[host-observable content kinds](host-observable-content-kinds.md#serialization-ready-schema);
+serialization does not walk a lower-owner correspondence graph after the
+operation or Library lifetime ends.
+
+This L1 operation returns the bare Queries result. A completed L2 or host
+handoff wraps the portable snapshot in `InspectionEnvelope<TContent>`; it does
+not envelope the lower House outcome or nest envelopes around House and Query
+stages.
 
 The product implementation belongs in a host-neutral `DotnetInspector`
 boundary above Metadata, CSharpText, and `DotnetInspector.Libraries`. It remains
@@ -828,7 +859,7 @@ assembly and XML companion in the .NET 11 reference pack.
    CSharpText;
 4. **Completed.** Add the PackageHouse adapter;
 5. **Completed.** Add the direct-library adapter;
-6. add the shared Queries compiled-documentation result;
+6. **Completed.** Add the shared Queries compiled-documentation result;
 7. adopt package compiled documentation in Inspect Web;
 8. adopt package and direct-library compiled documentation in the CLI;
 9. add the PlatformHouse adapter;
@@ -910,6 +941,20 @@ exact candidate settlement, unavailable evidence when no XML companion was
 admitted, preservation of multiple companions without invented precedence,
 rejection of source-coordinated Libraries, and rejection when byte-identical
 content from another direct Library is offered for the selected subject.
+
+`CompiledDocumentationQueryTests` gates the shared Queries result over the same
+real `System.Text.Json` 10.0.0 assembly and documentation. It demonstrates that
+the exact House outcome remains available in process, the transferred operation
+is settled, the Library owner can retire before serialization, and the
+source-generated JSON contract round trips the separately copied portable
+snapshot. Neighboring unavailable, contribution-rejected, and top-level
+lease-rejected results remain visible rather than becoming empty documentation.
+A top-level deadline reached after contribution observation retains
+value-deduplicated source, kind, and precedence provenance without presenting
+the unfinished channel as a completed attempt.
+`SnapshotContract_ContainsOnlyPortableValues` provides full public-type-closure
+coverage for the claim that this snapshot contains only primitive, string,
+enum, nullable, immutable-array, and Queries-owned snapshot values.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

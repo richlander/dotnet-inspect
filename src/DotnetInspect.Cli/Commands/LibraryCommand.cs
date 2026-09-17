@@ -527,7 +527,10 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
-            CommandError.Write($"--heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            string requestName = options.IsCoordinateCommand
+                ? "library coordinate"
+                : "--heap";
+            CommandError.Write($"{requestName} requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
@@ -2100,7 +2103,14 @@ public class LibraryCommand
             return (options, null);
 
         if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
-            return (options, $"invalid --heap value '{options.HeapParameter}': {error}");
+        {
+            string requestName = options.IsCoordinateCommand
+                ? "coordinate"
+                : "--heap value";
+            return (
+                options,
+                $"invalid {requestName} '{options.HeapParameter}': {error}");
+        }
 
         if (options.Discover != null || options.Select is { Length: > 0 })
             return (options, null);

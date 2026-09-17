@@ -38,13 +38,26 @@ public static class MethodLeverageRanking
         int count,
         Func<MethodIdentity, bool>? scope = null,
         int maxDepth = 64)
+        => Top(
+            directCalls,
+            methods,
+            count,
+            scope,
+            maxDepth,
+            MethodDefinitionMap.Create(methods));
+
+    internal static ImmutableArray<MethodLeverage> Top(
+        ImmutableArray<DirectCall> directCalls,
+        ImmutableArray<MethodIdentity> methods,
+        int count,
+        Func<MethodIdentity, bool>? scope,
+        int maxDepth,
+        MethodDefinitionMap methodMap)
     {
         if (count <= 0)
             return [];
 
         var methodTokens = methods.Select(method => method.MetadataToken).ToHashSet();
-        var methodMap = MethodDefinitionMap.Create(methods);
-
         // Distinct direct callers per callee token (fanin).
         var directCallers = new Dictionary<int, HashSet<int>>();
         // Outbound call sites, loop-region call sites, and intra-assembly callee
@@ -57,6 +70,8 @@ public static class MethodLeverageRanking
         {
             int caller = call.Caller.MetadataToken;
             int callee = methodMap.Resolve(call);
+            if (!methodTokens.Contains(callee))
+                callee = 0;
 
             fanout[caller] = fanout.GetValueOrDefault(caller) + 1;
             if (call.InLoop)
