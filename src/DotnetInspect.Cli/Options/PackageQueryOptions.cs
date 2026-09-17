@@ -16,7 +16,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public required PackageQueryPlan Plan { get; init; }
     internal PackageAssemblySemanticQueryCliPlan? LibraryLiteralPlan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
-    public RowSelectionIntent<string>? RowSelection { get; init; }
+    public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
     public bool EnvelopeOutput { get; init; }
@@ -33,51 +33,39 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
     internal bool IsContentJson =>
         JsonOutput
-        && (RowSelection is null || RowSelection.Operations.Count == 0)
+        && RowSelection.Operations.Count == 0
         && !Count
         && Columns is null
         && Fields is null
         && !Tree
         && !SelectExplicitlySet;
 
-    private static ImmutableArray<PackageQueryFacetDescriptor> CliFacets { get; } =
+    private static ImmutableArray<PackageQueryTermDescriptor> CliTerms { get; } =
     [
-        .. PackageQuery.Facets.Where(facet => facet.Id is
-            PackageQuery.ToolFacetId
-            or PackageQuery.ToolV1FacetId
-            or PackageQuery.ToolV2FacetId),
+        .. PackageQuery.Terms.Where(term =>
+            term.Role == PackageQueryTermRole.Inspection),
     ];
 
-    public static SectionQueryKey QueryKey { get; } = new(
-        "facet",
-        ["--where"],
-        ["="],
-        "product-issued Package Query facet ID",
-        [.. CliFacets.Select(facet => facet.Id)],
-        "--where \"facet=package.query.dotnet-tool\"");
-
-    public static SectionQueryKey DependsTerm { get; } = new(
-        PackageQuery.DependsTermKey,
-        ["--where"],
-        ["="],
-        "NuGet package ID",
-        [],
-        "--where \"depends=Microsoft.Extensions.DependencyInjection\"");
-
     public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
-        [DependsTerm, QueryKey];
+    [
+        .. CliTerms.Select(term => new SectionQueryKey(
+            term.Key,
+            ["--where"],
+            ["="],
+            term.ValueKind,
+            [.. term.Options.Select(option => option.Value)],
+            $"--where \"{term.Key}={term.ExampleValue}\"")),
+    ];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
-        + "depends=<package ID> matches a direct declared dependency; repeated "
-        + "depends terms are ANDed. Existing facet=<product facet ID> selections "
-        + "remain available while the Browser adopts the shared term vocabulary. "
-        + "Independent facet selections are ANDed; compatible tool-format alternatives are ORed. "
+        + "Terms are ANDed; repeated tool-format values are ORed. "
+        + "depends=<package ID> matches a direct declared dependency. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
-        + "Selecting an initial CLI facet authorizes package content and at most "
+        + "Selecting a package-content term authorizes at most "
         + PackageQuery.MaximumPackageContentCandidates
-        + " candidates; --nuspec-only rejects those facets. "
+        + " candidates; --nuspec-only rejects those terms. "
         + "Ordering and --top are not supported.";
 
     public static bool TryCreate(
@@ -155,9 +143,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
                         : 1;
                 PackageQueryPlanResult packagePlan = PackageQuery.PlanInput(
                     input,
+                    terms: null,
                     maximumCandidates: semanticMaximumCandidates,
                     maximumMatches: null,
-                    includePrerelease: includePrerelease);
+                    includePrerelease: includePrerelease,
+                    rowSelection: rowSelection);
                 if (packagePlan
                     is PackageQueryPlanResult.Rejected semanticRejected)
                 {
@@ -180,7 +170,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
             }
         }
 
-        var ids = ImmutableArray.CreateBuilder<string>();
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
         {
@@ -200,47 +189,33 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            if (syntax.Field.Equals("facet", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!CliFacets.Any(facet =>
-                        facet.Id.Equals(syntax.Value, StringComparison.Ordinal)))
-                {
-                    error =
-                        $"Package Query facet '{syntax.Value}' is not available in the CLI; "
-                        + "run 'package query -Q Packages' for values.";
-                    return false;
-                }
-
-                ids.Add(syntax.Value);
-                continue;
-            }
-
-            if (syntax.Field.Equals(
-                    PackageQuery.DependsTermKey,
-                    StringComparison.OrdinalIgnoreCase))
+            PackageQueryTermDescriptor? descriptor = CliTerms.FirstOrDefault(
+                term => term.Key.Equals(
+                    syntax.Field,
+                    StringComparison.OrdinalIgnoreCase));
+            if (descriptor is not null)
             {
                 terms.Add(new PortableQueryTerm(
-                    PackageQuery.DependsTermKey,
+                    descriptor.Key,
                     PortableQueryOperator.Equal,
                     syntax.Value));
                 continue;
             }
 
             error =
-                "Package Query supports --where \"depends=<package ID>\" "
-                + "and the staged \"facet=<product facet ID>\" form; run "
+                $"Package Query does not define term '{syntax.Field}'; run "
                 + "'package query -Q Packages' for the current vocabulary.";
             return false;
         }
 
-        bool requiresPackageContent = ids.Any(id =>
-            CliFacets.Any(facet =>
-                facet.Id.Equals(id, StringComparison.Ordinal)
-                && facet.Tier == PackageQueryFacetTier.PackageContent));
+        bool requiresPackageContent = terms.Any(term =>
+            CliTerms.Any(descriptor =>
+                descriptor.Key == term.Key
+                && descriptor.Tier == PackageQueryAcquisitionTier.PackageContent));
         if (nuspecOnly && requiresPackageContent)
         {
             error =
-                "The selected Package Query facets require package archive content "
+                "The selected Package Query terms require package archive content "
                 + "and cannot be combined with --nuspec-only.";
             return false;
         }
@@ -254,10 +229,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int maximumCandidates = take ?? (requiresPackageContent
             ? PackageQuery.MaximumPackageContentCandidates
             : requestedHead is int head
-                && input.Trim().EndsWith('*')
-                && ids.Count == 0
-                && terms.Count == 0
-                ? Math.Min(head, MaximumCandidates)
+            && input.Trim().EndsWith('*')
+            && terms.Count == 0
+            ? Math.Min(head, MaximumCandidates)
                     : PackageQuery.DefaultMaximumCandidates);
         if (maximumCandidates is <= 0 or > MaximumCandidates)
         {
@@ -268,11 +242,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
         PackageQueryPlanResult result = PackageQuery.PlanInput(
             input,
-            ids.ToImmutable(),
             terms.ToImmutable(),
             maximumCandidates,
             maximumMatches: semanticHead,
-            includePrerelease);
+            includePrerelease,
+            rowSelection);
         if (result is PackageQueryPlanResult.Rejected rejected)
         {
             error = rejected.Failure.Message;

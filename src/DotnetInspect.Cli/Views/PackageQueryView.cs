@@ -37,7 +37,7 @@ public sealed class PackageQueryRow
     [MarkoutIgnore] public InertString PackageText { get; }
     [MarkoutIgnore] public InertString VersionText { get; }
     [MarkoutIgnore] public InertString SourceText { get; }
-    [MarkoutIgnore] public PackageQueryFacetTier EvaluationTier { get; }
+    [MarkoutIgnore] public PackageQueryAcquisitionTier EvaluationTier { get; }
     [MarkoutIgnore] public ImmutableArray<PackageQueryEvidence> EvidenceItems { get; }
     public string Package => PackageText.ToString();
     public string Version => VersionText.ToString();

@@ -125,6 +125,11 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
+            processed,
+            rootCommand,
+            "library",
+            "coordinate");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -153,6 +158,69 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
+        string[] args,
+        RootCommand rootCommand,
+        string parentName,
+        string childName)
+    {
+        if (args.FirstOrDefault() != parentName
+            || !args.TakeWhile(static token => token != "--").Contains(childName))
+            return args;
+
+        Command? parent = rootCommand.Subcommands.FirstOrDefault(
+            command => command.Name == parentName);
+        if (parent is null)
+            return args;
+
+        List<string>? result = null;
+        for (int i = 1; i < args.Length; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+            {
+                result?.AddRange(args[i..]);
+                break;
+            }
+
+            int separator = token.Length - 1;
+            if (separator <= 0
+                || token[separator] is not ('=' or ':'))
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            string alias = token[..separator];
+            Option? option = parent.Options.FirstOrDefault(
+                candidate =>
+                    candidate.Arity.MaximumNumberOfValues > 0
+                    && (candidate.Name == alias
+                        || candidate.Aliases.Contains(alias)));
+            if (option is null)
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            result ??= [.. args[..i]];
+            result.Add(alias);
+            result.Add("");
+        }
+
+        if (result is null)
+            return args;
+
+        string[] expanded = [.. result];
+        // Let the parser establish which literal `coordinate` token is the child.
+        CommandResult selected = rootCommand.Parse(expanded).CommandResult;
+        return selected.Command.Name == childName
+            && selected.Parent is CommandResult selectedParent
+            && selectedParent.Command.Name == parentName
+                ? expanded
+                : args;
     }
 
     private static bool UsesImplicitVersionDirectionPresence(
