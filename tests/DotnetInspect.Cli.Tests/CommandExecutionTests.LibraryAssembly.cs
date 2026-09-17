@@ -1800,6 +1800,74 @@ public partial class CommandExecutionTests
         Assert.Equal(legacy.Error, child.Error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCoordinateCommand_BareCountRequiresItemUnit(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ?
+                [
+                    "library", "-n", "1", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "--tips", "q",
+                ]
+                :
+                [
+                    "library", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "-n", "1",
+                    "--tips", "q",
+                ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "add --lines to select rendered lines",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCoordinateCommand_ExplicitLinesAcceptsCountPlacement(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ?
+                [
+                    "library", "-n", "1", "--lines", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "--tips", "q",
+                ]
+                :
+                [
+                    "library", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "-n", "1", "--lines",
+                    "--tips", "q",
+                ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
     [Fact]
     public async Task LibraryCoordinateCommand_UsesPackageRelativeLibrary()
     {
