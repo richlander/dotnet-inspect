@@ -143,6 +143,9 @@ public static class PackageOptionsParser
         bool showPluralVersions =
             showVersionsWithFeed
             || showVersionList;
+        bool selectsVersionPopulation =
+            showPluralVersions
+            || countRange;
         if ((showVersionList && showVersionsWithFeed)
             || (showPluralVersions
                 && (hasExplicitVersionSelector
@@ -159,7 +162,7 @@ public static class PackageOptionsParser
             || showPluralVersions
             || countRange;
         RowSelectionIntent<string>? versionRowSelection = null;
-        if (showPluralVersions
+        if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 "Package version",
@@ -266,7 +269,7 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-            Rows = showPluralVersions
+            Rows = selectsVersionPopulation
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

@@ -941,6 +941,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     $"{packageName}@1.0.0..2.0.0",
                     "--count",
+                    "-n",
+                    "2",
                     .. format,
                     "--source",
                     SecondSource,
@@ -957,14 +959,14 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 content.GetProperty("document")
                     .GetProperty("versions").GetArrayLength());
             Assert.Equal(
-                3,
+                2,
                 content.GetProperty("count")
                     .GetProperty("result")
                     .GetProperty("value").GetInt32());
         }
         else
         {
-            Assert.Equal("3", output.Trim());
+            Assert.Equal("2", output.Trim());
         }
 
         string versionIndex =

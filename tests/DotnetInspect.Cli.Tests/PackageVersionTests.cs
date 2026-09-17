@@ -709,6 +709,19 @@ public class PackageVersionTests
             "System.Text.Json@8.0.0..8.0.5",
             "--count",
             "--envelope");
+        var selectedScalar = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "-n",
+            "1");
+        var selectedEnvelope = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "-n",
+            "1",
+            "--envelope");
 
         Assert.Equal((0, "6", ""), (
             scalar.Exit,
@@ -732,6 +745,25 @@ public class PackageVersionTests
         Assert.Equal(
             6,
             count.GetProperty("result").GetProperty("value").GetInt32());
+        Assert.Equal((0, "1", ""), (
+            selectedScalar.Exit,
+            selectedScalar.Output.Trim(),
+            selectedScalar.Error));
+        Assert.Equal(0, selectedEnvelope.Exit);
+        Assert.Empty(selectedEnvelope.Error);
+        using JsonDocument selectedJson =
+            JsonDocument.Parse(selectedEnvelope.Output);
+        JsonElement selectedContent =
+            selectedJson.RootElement.GetProperty("content");
+        Assert.Equal(
+            6,
+            selectedContent.GetProperty("document")
+                .GetProperty("versions").GetArrayLength());
+        Assert.Equal(
+            1,
+            selectedContent.GetProperty("count")
+                .GetProperty("result")
+                .GetProperty("value").GetInt32());
     }
 
     [Theory]
