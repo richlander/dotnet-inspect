@@ -491,6 +491,7 @@ public static class PackageCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 IncludeSections = includeSections,
+                SelectDefault = opts.ParseSelectDefault(parseResult),
             };
             if (options.LibraryLiteralPlan is not null
                 && includeSections?.Contains(

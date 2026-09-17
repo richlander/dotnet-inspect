@@ -948,6 +948,28 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task BareSelectDefault_PreservesEmptyPackageShape()
+    {
+        using var source = Source(out _);
+        var options = OptionsForInput(
+            "Contoso.First*",
+            ["depends=Dependency.One"]) with
+        {
+            JsonOutput = true,
+            Tabular = false,
+            SelectDefault = true,
+        };
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(options, source, null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Empty(json.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.False(json.RootElement.TryGetProperty("query_summary", out _));
+    }
+
+    [Fact]
     public async Task ExplicitQuerySummary_RemainsSummaryWhenPackagesMatch()
     {
         using var source = Source(out _);

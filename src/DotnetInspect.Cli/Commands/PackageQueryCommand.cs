@@ -286,11 +286,13 @@ internal static class PackageQueryCommand
             displayResults,
             summary);
         HashSet<string> includeSections = options.IncludeSections
-            ?? [
-                document.HasPackages
-                    ? PackageProfileSections.Packages
-                    : PackageQuerySections.QuerySummaryName,
-            ];
+            ?? (options.SelectDefault
+                ? [PackageProfileSections.Packages]
+                : [
+                    document.HasPackages
+                        ? PackageProfileSections.Packages
+                        : PackageQuerySections.QuerySummaryName,
+                ]);
         WriteOutput(view, options, includeSections);
         WriteDiagnostics(
             document.Failures,
