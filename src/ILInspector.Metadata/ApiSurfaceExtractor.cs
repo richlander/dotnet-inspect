@@ -1175,6 +1175,14 @@ public static partial class ApiSurfaceExtractor
                     methodHandle,
                     method,
                     typeNullableContext,
+                    apiType.DefinitionName,
+                    apiType.TypeParameters.Count,
+                    apiType.Kind switch
+                    {
+                        "class" => true,
+                        "struct" => false,
+                        _ => null,
+                    },
                     isExtensionMethod,
                     observeText,
                     observeDecodeWork,

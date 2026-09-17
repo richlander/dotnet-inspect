@@ -38,6 +38,9 @@ public static partial class ApiSurfaceExtractor
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
+        MetadataTypeDefinitionName? declaringType = null,
+        int declaringTypeParameterCount = -1,
+        bool? declaringTypeIsReferenceType = null,
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -195,6 +198,12 @@ public static partial class ApiSurfaceExtractor
                     CustomModifiersAreRepresentable(
                         paramTypes[i],
                         allowReadOnlyByRef: modifier == "in"),
+                MatchesDeclaringType =
+                    DeclaringTypeMatches(
+                        paramTypes[i],
+                        declaringType,
+                        declaringTypeParameterCount,
+                        declaringTypeIsReferenceType),
                 TypeReferences =
                     [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -277,6 +286,12 @@ public static partial class ApiSurfaceExtractor
                         StringComparison.Ordinal)),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeMatchesDeclaringType =
+                DeclaringTypeMatches(
+                    treeSignature.ReturnType,
+                    declaringType,
+                    declaringTypeParameterCount,
+                    declaringTypeIsReferenceType),
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
             ReturnTypeShape =
@@ -289,6 +304,64 @@ public static partial class ApiSurfaceExtractor
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
+
+    static bool? DeclaringTypeMatches(
+        TypeNode type,
+        MetadataTypeDefinitionName? declaringType,
+        int declaringTypeParameterCount,
+        bool? declaringTypeIsReferenceType)
+    {
+        if (declaringType is null
+            || declaringTypeParameterCount < 0
+            || declaringTypeIsReferenceType is null)
+        {
+            return null;
+        }
+
+        if (declaringTypeParameterCount == 0)
+        {
+            return type is NamedTypeNode named
+                && named.IsReferenceType
+                    == declaringTypeIsReferenceType
+                && DefinitionMatches(
+                    named.MetadataName,
+                    declaringType);
+        }
+
+        if (type is not GenericTypeNode generic
+            || generic.IsReferenceType
+                != declaringTypeIsReferenceType
+            || !DefinitionMatches(
+                generic.MetadataName,
+                declaringType)
+            || generic.Arguments.Length
+                != declaringTypeParameterCount)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < generic.Arguments.Length; index++)
+        {
+            if (generic.Arguments[index] is not GenericParameterNode
+                {
+                    IsMethodParameter: false,
+                    Index: var parameterIndex,
+                }
+                || parameterIndex != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool DefinitionMatches(
+        MetadataTypeNameParts? actual,
+        MetadataTypeDefinitionName expected) =>
+        actual is not null
+            && actual.Namespace == expected.Namespace
+            && actual.Segments.SequenceEqual(expected.Segments);
 
     static IReadOnlyList<string>? TryGetXmlDocumentationNames(
         ImmutableArray<TypeNode> types,
