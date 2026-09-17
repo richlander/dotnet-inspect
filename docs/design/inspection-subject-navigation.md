@@ -167,19 +167,22 @@ Browser adoption in #5511 retires these host-local preference mechanisms in
 favor of product-issued Navigation results.
 
 The ancestor Type fallback and coordinate inspector-request retention specified
-below are **target-only and unverified**, the focused policy step of
-[#7061](https://github.com/richlander/dotnet-inspect/issues/7061). Current
-ordinary `NavigationWorkspaceSnapshotEvaluation.Refresh` can still choose a
-sibling Type and does not implement occurrence-replacement correspondence.
-The new policy's Release gates below have not landed. This design step changes
-neither that implementation nor the shipped Browser preferences above.
+below are implemented for protected Package-coordinate replacement by
+`NavigationScopeOperations` under
+[#7061](https://github.com/richlander/dotnet-inspect/issues/7061), with the
+implemented cases identified in the focused protected-consumer design.
+Ordinary `NavigationWorkspaceSnapshotEvaluation.Refresh` can still choose a
+sibling Type; its ancestor-fallback adoption remains **unverified**. Browser
+adoption remains separate and the shipped Browser preferences above are
+unchanged.
 
 The [forwarded ancestry policy](#forwarded-api-ancestry) settles
 [#7169](https://github.com/richlander/dotnet-inspect/issues/7169) within that
 same adoption path. The shared correspondence producer and completed matching
-envelope landed in #7188/#7189; they do not implement Navigation replacement.
-Adoption of their actual defining-Library result, active-ancestor preservation,
-and forwarded fallback remains **target-only and unverified** under #5584.
+envelope landed in #7188/#7189. Protected Navigation now consumes their actual
+defining-Library result, preserves active ancestors, and applies forwarded
+fallback under #5584. CLI and Browser/Wasm adoption remain separately
+unverified.
 
 ## Consumer and complexity record
 
@@ -246,8 +249,8 @@ scope-operation results are owned by
 protected Navigation consumption is implemented by the shared producer in
 [Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
 under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
-Source-retiring correspondence orchestration and CLI/Browser adoption remain
-unverified follow-on slices.
+Source-retiring correspondence orchestration is implemented there; CLI and
+Browser adoption remain unverified follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -1795,7 +1798,9 @@ host operation authority against the then-current product state.
 
 This boundary consumes admission, execution, and authority from their existing
 owners; a ticket is correlation data, not permission to acquire or inspect.
-It neither introduces a new architecture owner nor implements #5584.
+`NavigationScopeOperations` composes that ticket with the existing scoped Root,
+Scope, correspondence, and restoration producers for #5584 without introducing
+a new architecture owner.
 
 The bounded ordering model is
 [`NavigationSession.tla`](models/inspection-subject-navigation/NavigationSession.tla).
@@ -2119,10 +2124,10 @@ opaque values there. The pure recommendation, mapping, identity-binding, and
 Workspace-containment rules above are enforced by the implementation gates
 below rather than claimed as model-checked behavior. Ancestor fallback and
 coordinate inspector-request retention are likewise pure policy over those
-values, not changes to the modeled ordering protocol; their new gates remain
-unverified. Forwarded ancestry is another pure structural policy, not a new
-concurrency transition; the models do not establish its ancestry or
-correspondence properties.
+values, not changes to the modeled ordering protocol; their protected
+replacement gates are implemented. Forwarded ancestry is another pure
+structural policy, not a new concurrency transition; its Release gates, not the
+models, establish the implemented ancestry and correspondence properties.
 
 The Workspace-rooted graph adds no second intent, publication, or
 acknowledgement protocol. Subject plus route remains one immutable semantic
@@ -2378,42 +2383,39 @@ These gates also use a throwing correspondence sentinel when that seam becomes
 injectable; until then, the direct evaluation path and exact outcome assertions
 gate the no-correspondence claim.
 
-The five ancestor-fallback and coordinate-inspector gates added for #7061 are
-also **unverified**. The missing-Type gate supplies another trustworthy Type
-in the same Library and requires Library fallback, for both ordinary refresh
-and replacement; active Package/Workspace cases retain that active ancestor
-while truncating the missing lower context. The rebind gate independently
-retains source and destination subject identities and the requested facet,
-then requires the destination-bound exact basis and fresh Registry result for
-Package, Library, Type, and Member. It includes a missing lower Member beneath
-a still-resolved active Package or Type, so lower-path loss cannot discard the
-active ancestor's request.
+The implemented protected ancestor-fallback and coordinate-inspector cases for
+issue #7061 are mapped to `NavigationCoordinateReplacementTests` in
+[the protected-consumer design](navigation-scope-operation-consumption.md#production-implementation-gates).
+They independently
+retain source and destination subject identities and the requested facet, then
+require the destination-bound exact basis and fresh Registry result for
+Workspace, Package, Library, Type, and Member. Member loss beneath an exact Type
+falls back to that Type without discarding an active ancestor's request.
 
-The non-success gate covers every non-available Registry arm, including
-retirement, and requires the resolved subject, complete request evidence, and
-absence of an effective fallback lens. The fallback gate covers missing and
-ambiguous correspondence and requires a recommendation bound to the fallback
-subject, not the old request. The recommendation-basis neighbor makes a formerly
-unavailable preferred facet available and requires ordinary recommendation to
-recover it rather than pinning the previous recommended fallback. Both the
-stateless CLI producer and retained Browser producer consume these same policy
-outcomes; their host adoption gates must also preserve fresh content and the
-existing Package/Library experience.
+The remaining planned #7061 gates above are **unverified** where they go beyond
+that mapped coverage: ordinary-refresh ancestor fallback, every non-available
+Registry arm (including retirement), ambiguous correspondence, and recovery of a
+formerly unavailable recommended facet. The implemented replacement Registry
+cases cover unavailable and failed exact requests, not those additional arms.
+CLI and Browser adoption must preserve the same policy outcomes, fresh content,
+and existing Package/Library experience.
 
-The four forwarded-ancestry gates are **unverified** until Navigation adoption
-lands. Reuse the pinned Avalonia pair and product correspondence producer, not
-hand-authored successful correspondence, for the exact Type/constructor and
-non-matching Member cases. Independently retain source and destination
-identities and assert the complete ancestry, active subject, Type-inventory
-context, inspector basis, and associated route/result evidence.
+The forwarded-ancestry gates use the pinned Avalonia pair and product
+correspondence producer, not hand-authored successful correspondence, for the
+exact Type/constructor and non-matching Member cases. They independently retain
+source and destination identities and assert the complete ancestry, active
+subject, Type-inventory context, inspector basis, and associated route/result
+evidence.
 
 The active-ancestor gate covers Workspace and Package retaining B'.T', and
 active A retaining A' while discarding that same exact lower match with a
 containment explanation. The Member non-success gate requires an independently
-exact Type result before falling back to B'.T'. The Type non-success gate
-covers a resolved route without strict Type correspondence and unresolved
-forwarding, unavailable destination evaluation despite an exact match, and an
-unrelated same-named Type that must not be substituted.
+exact Type result before falling back to B'.T'. The small strict-correspondence gate also covers a resolved Type whose generic
+constraints changed, with another available Type in its paired Library: it
+falls back to that Library, not a sibling Type, and does not retain a Member.
+The remaining Type non-success gates for unavailable destination evaluation
+despite an exact match and an unrelated same-named Type remain **unverified**
+unless mapped to an implemented Release gate.
 Use proportional producer-backed boundary fixtures where the real pair does
 not supply a case. Existing exact-inspector gates cover Registry non-success;
 the #5584 correlation and supersession gates cover replacement installation,
