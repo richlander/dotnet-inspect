@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 
 using DotnetInspector.Packages;
@@ -77,7 +76,7 @@ public static class PackageVersionCellMetadataInspector
             cancellationToken.ThrowIfCancellationRequested();
             return new PackageVersionCellMetadataInspectionOutcome
                 .NoContribution(
-                    Evidence(
+                    PackageVersionCellExecutionEvidence.Create(
                         request.HouseExecution,
                         noContribution.Result,
                         contribution: null),
@@ -87,8 +86,8 @@ public static class PackageVersionCellMetadataInspector
         PackageHouseRootContribution contribution =
             ((PackageHouseRootContributionOutcome.Contributed)adaptation)
                 .Contribution;
-        PackageVersionCellMetadataInspectionEvidence evidence =
-            Evidence(
+        PackageVersionCellExecutionEvidence evidence =
+            PackageVersionCellExecutionEvidence.Create(
                 request.HouseExecution,
                 contribution.Result,
                 contribution);
@@ -115,7 +114,7 @@ public static class PackageVersionCellMetadataInspector
             {
                 var current =
                     (WorkspaceScopeReadResult.Available)read;
-                PackageVersionCellMetadataInspectionLimits limits =
+                PackageVersionCellWorkspaceLimits limits =
                     request.Limits;
                 var realizationOptions =
                     new PackageAssemblyContextRealizationOptions
@@ -180,14 +179,14 @@ public static class PackageVersionCellMetadataInspector
             }
         }
 
-        var cleanup = new PackageVersionCellMetadataCleanupEvidence(
-            DescribeClose(
+        PackageVersionCellWorkspaceCleanupEvidence cleanup =
+            PackageVersionCellWorkspaceCleanup.Describe(
                 closeReport,
                 scopeCommitted,
-                closeFaulted));
+                closeFaulted);
         if (primary is not null)
         {
-            PackageVersionCellMetadataInspectionExceptionEvidence.Attach(
+            PackageVersionCellWorkspaceExceptionEvidence.Attach(
                 primary.SourceException,
                 cleanup);
             primary.Throw();
@@ -199,7 +198,7 @@ public static class PackageVersionCellMetadataInspector
         }
         catch (OperationCanceledException cancelled)
         {
-            PackageVersionCellMetadataInspectionExceptionEvidence.Attach(
+            PackageVersionCellWorkspaceExceptionEvidence.Attach(
                 cancelled,
                 cleanup);
             throw;
@@ -215,7 +214,7 @@ public static class PackageVersionCellMetadataInspector
 
     internal static PackageVersionCellMetadataInspectionOutcome Complete(
         PackageVersionCellMetadataInspectionOutcome outcome,
-        PackageVersionCellMetadataCleanupEvidence cleanup)
+        PackageVersionCellWorkspaceCleanupEvidence cleanup)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(cleanup);
@@ -243,7 +242,7 @@ public static class PackageVersionCellMetadataInspector
             InspectionWorkspace workspace,
             WorkspaceScopeOperationResult.Committed committed,
             PackageRootBinding binding,
-            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellExecutionEvidence evidence,
             PackageVersionCellApiInspectionRequest? apiInspection,
             CancellationToken cancellationToken)
     {
@@ -314,7 +313,7 @@ public static class PackageVersionCellMetadataInspector
 
     static PackageVersionCellMetadataInspectionOutcome AdmissionFailure(
         PackageVersionCellMetadataInspectionRequest request,
-        PackageVersionCellMetadataInspectionEvidence evidence,
+        PackageVersionCellExecutionEvidence evidence,
         WorkspaceScopeOperationResult admission,
         CancellationToken cancellationToken) =>
         admission switch
@@ -357,7 +356,7 @@ public static class PackageVersionCellMetadataInspector
 
     static PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure
         WorkspaceFailure(
-            PackageVersionCellMetadataInspectionEvidence evidence,
+            PackageVersionCellExecutionEvidence evidence,
             PackageVersionCellMetadataWorkspaceStage stage,
             ArtifactRootFailure failure) =>
         new(
@@ -366,73 +365,4 @@ public static class PackageVersionCellMetadataInspector
                 stage,
                 failure));
 
-    static PackageVersionCellMetadataInspectionEvidence Evidence(
-        PackageHouseVersionPopulationCellExecution execution,
-        PackageHouseResult result,
-        PackageHouseRootContribution? contribution) =>
-        new(
-            execution,
-            result,
-            contribution?.Realization
-                ?? result.Evidence.Realization
-                    as PackageHouseRealizationReceipt.Compile,
-            contribution?.Binding.Coordinate);
-
-    internal static ImmutableArray<
-        PackageVersionCellMetadataCleanupFailure> DescribeClose(
-            InspectionWorkspaceCloseReport? report,
-            bool scopeCommitted,
-            bool closeFaulted)
-    {
-        var failures = ImmutableArray.CreateBuilder<
-            PackageVersionCellMetadataCleanupFailure>();
-        if (report is not null)
-        {
-            if (!scopeCommitted && !report.Groups.IsEmpty)
-            {
-                Add(
-                    PackageVersionCellMetadataCleanupStage
-                        .CloseReportContract,
-                    report.Groups.Length);
-            }
-            else if (scopeCommitted)
-            {
-                Add(
-                    PackageVersionCellMetadataCleanupStage
-                        .CloseReportContract,
-                    report.Groups.Count(group =>
-                        group is not
-                            InspectionWorkspaceDirectGroupCloseResult));
-                Add(
-                    PackageVersionCellMetadataCleanupStage.GroupRelease,
-                    report.Groups
-                        .OfType<
-                            InspectionWorkspaceDirectGroupCloseResult>()
-                        .Count(group => !group.Succeeded));
-            }
-            Add(
-                PackageVersionCellMetadataCleanupStage.ArtifactRelease,
-                report.ArtifactSessionCleanupFailures.Length);
-        }
-        if (closeFaulted)
-        {
-            Add(
-                PackageVersionCellMetadataCleanupStage.CloseOrchestration,
-                1);
-        }
-        return failures.ToImmutable();
-
-        void Add(
-            PackageVersionCellMetadataCleanupStage stage,
-            int count)
-        {
-            if (count > 0)
-            {
-                failures.Add(
-                    new PackageVersionCellMetadataCleanupFailure(
-                        stage,
-                        count));
-            }
-        }
-    }
 }

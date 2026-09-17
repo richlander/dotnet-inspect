@@ -138,6 +138,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    canonicalizeWorkspaceSharePacket: () =>
+      unexpected("canonicalizeWorkspaceSharePacket"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -228,6 +230,36 @@ function fixture(overrides: FacadeOverrides = {}) {
     workers,
   };
 }
+
+test("format 3 packet remains opaque across Browser Worker transport", async () => {
+  const packet =
+    "eyJmIjozLCJ0IjpbXSwiZyI6W10sInIiOltbInAiLCJNaWNyb3NvZnQuRXh0ZW5zaW9ucy4iXV0sImEiOm51bGwsIngiOm51bGwsInYiOlt7InQiOm51bGwsInUiOnsiayI6IndvcmtzcGFjZSJ9fV19";
+  let received = "";
+  const state = fixture({
+    catalog: {
+      canonicalizeWorkspaceSharePacket(encoded) {
+        received = encoded;
+        return {
+          succeeded: true,
+          packet: encoded,
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const result =
+    state.client.catalog.canonicalizeWorkspaceSharePacket(packet);
+  await state.environment.flushAsync();
+
+  assert.equal(received, packet);
+  assert.deepEqual(await result, {
+    succeeded: true,
+    packet,
+    failure: null,
+  });
+  state.host.dispose();
+});
 
 test("ordinary transport preserves sync, async DTO, void, null, and arguments", async () => {
   const searchResult = [{
@@ -888,6 +920,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "canonicalizeWorkspaceSharePacket",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "resolveHomeDemo",
@@ -906,7 +939,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 55);
 
   const state = fixture();
   const groups = [

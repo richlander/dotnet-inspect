@@ -568,6 +568,15 @@ public sealed class PortableQueryResolutionGateTests
             ])).Failure;
         Assert.Equal(PortableQueryFailureReason.TermsIncompatible, both.Reason);
 
+        TestPlan duplicate = Resolve(
+            collapsing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.DependenciesKey, "none"),
+                Term(TestVocabulary.DependenciesKey, "none"),
+            ])).Plan;
+        Assert.Single(duplicate.Resolved.Terms);
+
         // A collapsed duplicate still bound, so its family membership stands.
         // The alias sorts before the family key, so it binds first and the
         // family member is the term whose predicate collapses. The

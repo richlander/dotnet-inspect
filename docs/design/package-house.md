@@ -293,13 +293,15 @@ later become exact candidate-bound demands.
 
 - one canonical `PackageVersionRange`;
 - one `Settle`-profile `PackageHouseOperation`;
-- the explicit prerelease-inclusion policy; and
+- the explicit prerelease- and unlisted-inclusion policies; and
 - an optional opaque caller association.
 
 PackageHouse consumes one request-deadline-matched
 `PackageSourceOperationLease`, obtains the current source authorization for the
 range package ID, and requests one
-`CompleteVersionEnumeration` from Package Source. Settlement acquires no
+`CompleteVersionEnumeration` from Package Source. The request may select its
+unlisted-inclusive form when a consumer must retain unlisted range endpoints
+or rows. Settlement acquires no
 package manifest, payload, store, composition, library, or Workspace
 participant.
 
@@ -360,12 +362,19 @@ candidate-bound cell execution. Neither the result nor a cell retains the
 composition, lease, operation context, or an execution callback. Browser/Wasm
 adoption uses the same host-neutral contract in a later slice.
 
-This slice does not migrate current API-range or top-level `timeline`
-consumers, remove a command, add History coordination, or inspect
-process-global offline state. Offline range discovery and extraction remain on
-their documented legacy path until a host explicitly adopts an offline
-capability. The target production consumer is subject-owned Diff History and
-metadata-only package version Count under
+The original #7115 slice did not migrate current API-range or top-level
+`timeline` consumers. [#7410](https://github.com/richlander/dotnet-inspect/issues/7410)
+later adopts only online `package Package@A..B --versions` listing as a direct
+population consumer. That command retains its existing CLI-owned rendering and
+maps the closed House terminal family to visible command failure; it does not
+select or execute population cells.
+
+This adoption does not remove a command, add History coordination, migrate
+range-address payload acquisition, or inspect process-global offline state.
+Offline range discovery and extraction remain on their documented legacy path
+until a host explicitly adopts an offline capability. The broader target
+production consumer remains subject-owned Diff History and metadata-only
+package version Count under
 [Diff History inspection](diff-history.md), not continued standalone
 `timeline` behavior.
 

@@ -362,7 +362,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (result.kind === "package-query") {
       const suffix = result.prefix
         ? `Start with “${escapeHtml(result.prefix)}”`
-        : "Choose a package ID prefix and nuspec facets";
+        : "Choose a package ID prefix and inspection facts";
       return `<button ${base} data-sl-package-query="1">
         <span class="kind-icon sl-command">⌕</span>
         <span class="spotlight-item-name">Package query</span>

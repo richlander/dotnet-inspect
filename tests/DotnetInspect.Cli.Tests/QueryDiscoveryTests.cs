@@ -322,7 +322,7 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableFacets()
+    public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableTerms()
     {
         var result = await Run(
             "package",
@@ -331,7 +331,6 @@ public class QueryDiscoveryTests
             "Packages",
             "--json");
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("package.query.", result.Output);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
             "package query",
@@ -342,35 +341,28 @@ public class QueryDiscoveryTests
                 .GetProperty("facets").EnumerateArray(),
         ];
         Assert.Equal(
-            [
-                PackageQuery.DependsTermKey,
-                PackageQuery.LicenseTermKey,
-                "facet",
-            ],
+            PackageQueryOptions.QueryKeys.Select(key => key.Name),
             facets.Select(facet => facet.GetProperty("name").GetString()));
-        JsonElement facet = facets[2];
-        Assert.Equal(PackageQueryOptions.QueryKey.Values,
-            facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
+        JsonElement toolFormat = facets.Single(facet =>
+            facet.GetProperty("name").GetString()
+                == PackageQuery.ToolFormatTermKey);
+        Assert.Equal(
+            ["v1", "v2"],
+            toolFormat.GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
         Assert.Equal(
             "NuGet package ID",
-            facets[0].GetProperty("value_kind").GetString());
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.DependsTermKey)
+                .GetProperty("value_kind").GetString());
         Assert.Equal(
-            "nuspec license expression, file, or URL",
-            facets[1].GetProperty("value_kind").GetString());
-        string summary = json.RootElement.GetProperty("sections")[0]
-            .GetProperty("summary").GetString()!;
-        Assert.Contains(
-            "package.query.has-license and license=<value> remain valid with --nuspec-only.",
-            summary,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Selecting a package-content facet authorizes package content",
-            summary,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Selecting an initial CLI facet authorizes package content",
-            summary,
-            StringComparison.Ordinal);
+            ["any", "MIT", "OSMF"],
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.LicenseTermKey)
+                .GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
     }
 
     [Fact]

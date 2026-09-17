@@ -84,6 +84,35 @@ public abstract record CompleteRestorationResolvedState
                         nameof(ActiveStateIndex));
     }
 
+    public sealed record Version3(
+        CommittedScenarioDefinitionSet Definitions,
+        ImmutableArray<CompleteRestorationResolvedViewState> States,
+        int? ActiveStateIndex)
+        : CompleteRestorationResolvedState
+    {
+        public CommittedScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+
+        public ImmutableArray<CompleteRestorationResolvedViewState> States
+        {
+            get;
+        } = !States.IsDefault
+            && States.All(static state => state is not null)
+                ? States
+                : throw new ArgumentException(
+                    "Resolved states must be an initialized immutable array.",
+                    nameof(States));
+
+        public int? ActiveStateIndex { get; } =
+            (ActiveStateIndex is null && States.IsEmpty)
+                || (ActiveStateIndex is >= 0
+                    && ActiveStateIndex < States.Length)
+                    ? ActiveStateIndex
+                    : throw new ArgumentOutOfRangeException(
+                        nameof(ActiveStateIndex));
+    }
+
 }
 
 public sealed record CompleteRestorationResolvedViewState
@@ -154,10 +183,18 @@ public static class CompleteRestorationProjections
                 new CompleteRestorationProjection.Projectable(packet.Encoded));
         }
 
-        var resolved =
-            (CompleteRestorationResolvedState.Version2)request.Snapshot.Resolved;
+        CommittedScenarioDefinitionSet definitions =
+            request.Snapshot.Resolved switch
+            {
+                CompleteRestorationResolvedState.Version2 version2 =>
+                    version2.Definitions,
+                CompleteRestorationResolvedState.Version3 version3 =>
+                    version3.Definitions,
+                _ => throw new InvalidOperationException(
+                    "Unknown complete restoration resolved state."),
+            };
         WorkspaceSharePacketProjectionResult projection =
-            WorkspaceSharePacketTransposer.ToPacket(resolved.Definitions);
+            WorkspaceSharePacketTransposer.ToPacket(definitions);
         if (projection.Succeeded)
         {
             return new CompleteRestorationProjectionResult.Projected(
@@ -865,12 +902,23 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationExecutionOptions options,
         CancellationToken cancellationToken)
     {
-        var version2 = (CompleteRestorationRecipe.Version2)plan.Recipe;
+        (CommittedScenarioDefinitionSet definitions, int schemaVersion) =
+            plan.Recipe switch
+            {
+                CompleteRestorationRecipe.Version2 version2 =>
+                    (version2.Definitions,
+                        InspectionDefinitionSchema.Version2),
+                CompleteRestorationRecipe.Version3 version3 =>
+                    (version3.Definitions,
+                        InspectionDefinitionSchema.Version3),
+                _ => throw new InvalidOperationException(
+                    "Unknown complete restoration recipe."),
+            };
         var facts =
             ImmutableArray.CreateBuilder<
                 CommittedPackageStateResolutionFacts>();
         foreach (NavigationTabDefinition tab
-            in version2.Definitions.Navigation?.Tabs ?? [])
+            in definitions.Navigation?.Tabs ?? [])
         {
             if (tab.Coordinate
                 is not DefinitionMemberCoordinate.PackageCoordinate)
@@ -902,7 +950,7 @@ public static class CompleteRestorationCoordinator
 
         CommittedScenarioSelectorResolutionResult selector =
             CommittedScenarioSelectorResolver.Resolve(
-                version2.Definitions,
+                definitions,
                 workspace.Identity,
                 scope,
                 facts.ToImmutable());
@@ -920,8 +968,8 @@ public static class CompleteRestorationCoordinator
         CommittedScenarioSelectorResolution resolution =
             ((CommittedScenarioSelectorResolutionResult.Resolved)selector)
                 .Resolution;
-        DetachedVersion2Result detached =
-            DetachVersion2(resolution, options);
+        DetachedCommittedResult detached =
+            DetachCommitted(resolution, schemaVersion, options);
         if (detached.Failure is not null)
             return new(null, null, null, detached.Failure);
         NavigationInitialization initialization =
@@ -946,8 +994,9 @@ public static class CompleteRestorationCoordinator
             null);
     }
 
-    private static DetachedVersion2Result DetachVersion2(
+    private static DetachedCommittedResult DetachCommitted(
         CommittedScenarioSelectorResolution resolution,
+        int schemaVersion,
         CompleteRestorationExecutionOptions options)
     {
         var states =
@@ -1013,12 +1062,26 @@ public static class CompleteRestorationCoordinator
                 activeStateIndex = index;
         }
 
-        return new(
-            new CompleteRestorationResolvedState.Version2(
-                resolution.Definitions,
-                states.MoveToImmutable(),
-                activeStateIndex < 0 ? null : activeStateIndex),
-            null);
+        ImmutableArray<CompleteRestorationResolvedViewState> detachedStates =
+            states.MoveToImmutable();
+        int? detachedActiveStateIndex =
+            activeStateIndex < 0 ? null : activeStateIndex;
+        CompleteRestorationResolvedState resolvedState = schemaVersion switch
+        {
+            InspectionDefinitionSchema.Version2 =>
+                new CompleteRestorationResolvedState.Version2(
+                    resolution.Definitions,
+                    detachedStates,
+                    detachedActiveStateIndex),
+            InspectionDefinitionSchema.Version3 =>
+                new CompleteRestorationResolvedState.Version3(
+                    resolution.Definitions,
+                    detachedStates,
+                    detachedActiveStateIndex),
+            _ => throw new InvalidOperationException(
+                "Unknown committed definition schema version."),
+        };
+        return new(resolvedState, null);
     }
 
     private static NavigationInitialization PreparePackageInitialization(
@@ -1196,7 +1259,7 @@ public static class CompleteRestorationCoordinator
         IReadOnlyDictionary<string, PackageArtifactRootRequest>? Requests,
         CompleteRestorationFailure? Failure);
 
-    private sealed record DetachedVersion2Result(
-        CompleteRestorationResolvedState.Version2? State,
+    private sealed record DetachedCommittedResult(
+        CompleteRestorationResolvedState? State,
         CompleteRestorationFailure? Failure);
 }

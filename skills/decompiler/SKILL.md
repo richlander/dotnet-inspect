@@ -167,12 +167,14 @@ dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Fideli
 ## Locate code by IL offset
 
 ```bash
-dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
+dnx dotnet-inspect -y -- library coordinate 0x06000001+0x5 --library Foo.dll
 ```
 
-Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
-compose its default source-location, member, instruction, exception, callsite,
-and return-address sections. Allocation, safety, and cost are opt-in; request
-them with `-S "Context: Allocation,Context: Safety,Context: Cost"`. Use
-`--il-offsets coordinates.txt` for a sparse batch. For call edges (what a method
-calls, who calls it), see the `relationships` skill.
+Use `library coordinate 0x06000001+0x5 --library Foo.dll` (MethodDef token plus
+IL offset) to compose its default source-location, member, instruction,
+exception, callsite, and return-address sections. Allocation, safety, and cost
+are opt-in; request them with `-S
+"Context: Allocation,Context: Safety,Context: Cost"`. Sparse batches continue
+to use `library Foo.dll --il-offsets coordinates.txt` until coordinate-file
+mode is available. For call edges (what a method calls, who calls it), see the
+`relationships` skill.

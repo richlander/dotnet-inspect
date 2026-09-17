@@ -282,7 +282,10 @@ the owner's executable plan or one structured failure.
   Within one element the checks run existence, then admissibility, then binding,
   then collision — and within collision, vocabulary compatibility and family
   exclusivity before duplication, because a contradiction is never collapsible
-  while a duplicate may be. Compatibility is checked against every earlier
+  while a duplicate may be. When duplicate collapse is enabled, an equivalent
+  normalized binding already present in the same exclusive family is the
+  duplicate case rather than a second family member; distinct bindings in that
+  family remain incompatible. Compatibility is checked against every earlier
   bound term occurrence, including one whose predicate later collapsed
   idempotently inside its composition context. A term with both an inadmissible
   operator and a value its binder would reject therefore reports the operator,
@@ -473,7 +476,7 @@ successor slice.
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; an exact duplicate never reaches resolution, because membership is set-valued. |
 | `StagesCannotFailResolutionExceptByAdmission` | A structurally valid stage reaches resolution and is refused only when the vocabulary does not declare its kind; admission is per kind, so a vocabulary admitting head, tail, and window but not top refuses exactly the top; structural violations are refused at construction or decode and never reach resolution. |
 | `RankingStagesResolveOrFail` | A top stage resolves its ranking when reached in stage sequence — the bound operation, else the declared default, else ranking missing at the stage with no offender — so with two top stages the earlier stage's missing ranking is reported before the later stage's unknown reference; a sequence-purpose named order in a ranking role fails as order not a ranking. |
-| `ExclusiveFamilyMembersAreRefused` | Two bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order, distinct from duplicate-after-binding, which requires the binder to map two terms to one predicate; where one later term is both, exclusivity is reported. |
+| `ExclusiveFamilyMembersAreRefused` | Two distinct bound terms the vocabulary declares mutually exclusive fail as terms incompatible at the later term in semantic order. When duplicate collapse is enabled, equivalent normalized bindings already present in the same exclusive family collapse; distinct family members remain incompatible, including after a collapsed occurrence. |
 | `BoundTermCompatibilityIsVocabularyOwned` | A vocabulary may refuse an owner-defined incompatible pair at the later term in semantic order without changing how accepted terms compose: Package Query's two specific tool formats remain one valid combining-family OR-union, while its broad tool fact beside either format fails as terms incompatible. Every previously bound occurrence participates even when duplicate collapse omits its predicate from the executable plan. |
 | `BoundRangeSeesResolvedTerms` | A dimension whose admissible range depends on bound terms — Package Query's candidate cap with a package-content term — is checked with the terms resolved, at the bound, before any acquisition. |
 | `RequiredQueryPartsFailVisibly` | A vocabulary-required term family or execution-bound dimension that is absent fails after present elements in that part validate, before later parts, plan creation, or acquisition; multiple missing requirements use scalar identity order, and no default silently changes replay. |

@@ -1,10 +1,129 @@
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompleteRestorationPreparationTests
 {
+    [Fact]
+    public void Version3Definition_PreparesRegistrationOnlyWorkspacePlan()
+    {
+        InspectionDefinitionRegistry registry = Version3Registry();
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationRecipe.Version3>(
+            ready.Plan.Recipe);
+        Assert.Empty(ready.Plan.WorkspacePlan.Contexts);
+        Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            Assert.Single(ready.Plan.WorkspacePlan.Registrations));
+    }
+
+    [Fact]
+    public void Version3Packet_PreparesRegistrationOnlyWorkspacePlan()
+    {
+        const string json =
+            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                WorkspaceSharePacketCodec.Encode(packet),
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationRecipe.Version3>(
+            ready.Plan.Recipe);
+        Assert.Empty(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Single(ready.Plan.WorkspacePlan.Registrations);
+    }
+
+    [Fact]
+    public void ContextBearingVersion3WithEmptyNavigation_IsRejectedBeforeConstruction()
+    {
+        string[] records =
+        [
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "workspace",
+              "id": "workspace",
+              "contexts": [
+                {
+                  "name": "context",
+                  "members": [
+                    {
+                      "kind": "package",
+                      "id": "System.Text.Json",
+                      "version": "10.0.0"
+                    }
+                  ]
+                }
+              ],
+              "registrations": []
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "navigation",
+              "id": "navigation",
+              "tabs": [],
+              "focus": null
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "view",
+              "id": "view",
+              "states": [
+                {
+                  "navigation": null,
+                  "subject": {
+                    "kind": "workspace"
+                  }
+                }
+              ]
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "scenario",
+              "id": "scenario",
+              "workspace": "workspace",
+              "context": "context",
+              "view": "view",
+              "navigation": "navigation"
+            }
+            """,
+        ];
+        var registry = new InspectionDefinitionRegistry();
+        foreach (string record in records)
+            registry.Add(InspectionDefinitionJson.Parse(record));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        var invalid =
+            Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+                failed.Failure);
+        Assert.Contains(
+            "requires at least one tab",
+            invalid.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Version2Definition_PreparesExactWorkspacePlanBeforeConstruction()
     {
@@ -335,6 +454,42 @@ public sealed class CompleteRestorationPreparationTests
             "scenario",
             workspace: "workspace",
             context: "context",
+            view: "view",
+            navigation: "navigation"));
+        return registry;
+    }
+
+    private static InspectionDefinitionRegistry Version3Registry()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            "workspace",
+            [],
+            registrations:
+            [
+                new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration(
+                        "Microsoft.Extensions.")),
+            ]));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version3,
+            "navigation",
+            [],
+            focus: null));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version3,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version3,
+            "scenario",
+            workspace: "workspace",
+            context: null,
             view: "view",
             navigation: "navigation"));
         return registry;

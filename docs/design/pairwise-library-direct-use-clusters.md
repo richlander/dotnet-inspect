@@ -37,8 +37,8 @@ The complete production path has four steps:
    projection, and adopts it in the CLI through typed Markout views.
 2. Browser/Wasm consumes the same projection after its two-library selection
    surface exists; it does not reimplement clustering in TypeScript.
-3. Analysis path evidence from #6601 may be composed above these clusters
-   without changing their identity or assignment.
+3. Issue #7390 composes Metadata roots and Analysis path evidence from #6601
+   above these clusters without changing their identity or assignment.
 4. #6313 may add separately proven semantic capability identity and package or
    ecosystem aggregation without relabeling direct-use clusters as features.
 

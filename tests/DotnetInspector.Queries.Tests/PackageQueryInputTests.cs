@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using NuGetFetch;
 
@@ -56,12 +57,16 @@ public sealed class PackageQueryInputTests
     public void ExactContentInputUsesOneCandidateWithoutWeakeningFacetValidation()
     {
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
-            "Newtonsoft.Json", [PackageQuery.EmbeddedSkillFacetId]));
+            "Newtonsoft.Json", [Term(PackageQuery.SkillTermKey, "true")]));
         Assert.Equal(1, plan.MaximumCandidates);
         Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
-            "Newtonsoft.*", [PackageQuery.EmbeddedSkillFacetId]));
+            "Newtonsoft.*", [Term(PackageQuery.SkillTermKey, "true")]));
         Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
-            "Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId, PackageQuery.NoDependenciesFacetId]));
+            "Newtonsoft.Json",
+            [
+                Term(PackageQuery.ToolTermKey, "true"),
+                Term(PackageQuery.ToolFormatTermKey, "v1"),
+            ]));
     }
 
     [Theory]
@@ -85,7 +90,7 @@ public sealed class PackageQueryInputTests
         Assert.Null(match.Package.Manifest);
         Assert.Null(match.Package.TotalDownloads);
         Assert.Null(match.Package.Verified);
-        Assert.Equal(PackageQueryFacetTier.SearchMetadata, match.Tier);
+        Assert.Equal(PackageQueryAcquisitionTier.SearchMetadata, match.Tier);
         Assert.Equal(PackageQuery.ExactPackageEvidenceId, Assert.Single(match.Evidence).Id);
         Assert.Equal(PackageQueryEvidenceScope.Query, Assert.Single(match.Evidence).Scope);
         Assert.Equal(PackageQueryCompletionKind.ExactPackageComplete, Summary(events).Completion);
@@ -95,6 +100,57 @@ public sealed class PackageQueryInputTests
         Assert.All(handler.Requests, uri => Assert.EndsWith("/newtonsoft.json/index.json", uri.AbsolutePath));
         Assert.Contains("flatcontainer", handler.Requests[0].AbsolutePath);
         Assert.Contains("registration", handler.Requests[1].AbsolutePath);
+    }
+
+    [Fact]
+    public async Task ExactDownloadTermUsesSearchMetadataWithoutManifest()
+    {
+        using var handler = new InputHandler { TotalDownloads = 1_000_000 };
+        using var source = Source(handler);
+        var events = await PackageQuery.ExecuteToArrayAsync(
+            source,
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DownloadsTermKey, "1m")])),
+            TestContext.Current.CancellationToken);
+
+        PackageQueryMatch match = Assert.Single(
+            events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal(1_000_000, match.Package.TotalDownloads);
+        Assert.Null(match.Package.Manifest);
+        Assert.Equal(PackageQueryAcquisitionTier.SearchMetadata, match.Tier);
+        Assert.Contains(
+            match.Evidence,
+            evidence => evidence.Term?.Key == PackageQuery.DownloadsTermKey);
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Contains(handler.Requests, uri => uri.AbsolutePath.Contains(
+            "query", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(".nuspec", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExactDownloadTermReportsMissingSearchMetadata()
+    {
+        using var handler = new InputHandler
+        {
+            SearchIds = ["Newtonsoft.Json.Related"],
+            TotalDownloads = 1_000_000,
+        };
+        using var source = Source(handler);
+        var events = await PackageQuery.ExecuteToArrayAsync(
+            source,
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DownloadsTermKey, "1m")])),
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQueryFailure failure = Assert.Single(
+            events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(PackageQueryFailureKind.Search, failure.Kind);
+        Assert.Equal(PackageQueryCompletionKind.Failed, Summary(events).Completion);
     }
 
     [Theory]
@@ -151,11 +207,13 @@ public sealed class PackageQueryInputTests
         using var source = Source(handler);
         var events = await PackageQuery.ExecuteToArrayAsync(
             source,
-            Accepted(PackageQuery.PlanInput("Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId])),
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DependsTermKey, "Example.Dependency")])),
             TestContext.Current.CancellationToken);
         PackageQueryMatch match = Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         Assert.NotNull(match.Package.Manifest);
-        Assert.Equal(PackageQueryFacetTier.Nuspec, match.Tier);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, match.Tier);
         Assert.Equal("Fixture package.", match.Package.Description);
         Assert.Equal("/v3-flatcontainer/newtonsoft.json/1.0.0/newtonsoft.json.nuspec",
             handler.Requests[^1].AbsolutePath);
@@ -177,7 +235,7 @@ public sealed class PackageQueryInputTests
         Assert.All(matches, match =>
         {
             Assert.Null(match.Value.Package.Manifest);
-            Assert.Equal(PackageQueryFacetTier.SearchMetadata, match.Value.Tier);
+            Assert.Equal(PackageQueryAcquisitionTier.SearchMetadata, match.Value.Tier);
         });
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, uri => Assert.Contains("query", uri.AbsolutePath));
@@ -266,7 +324,9 @@ public sealed class PackageQueryInputTests
         using var source = Source(handler);
         await using var events = PackageQuery.ExecuteAsync(
             source,
-            Accepted(PackageQuery.PlanInput("Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId])),
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DependsTermKey, "Example.Dependency")])),
             TestContext.Current.CancellationToken)
             .GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
@@ -283,6 +343,9 @@ public sealed class PackageQueryInputTests
 
     static PackageQueryPlan Accepted(PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Accepted>(result).Plan;
+
+    static PortableQueryTerm Term(string key, string value) =>
+        new(key, PortableQueryOperator.Equal, value);
 
     static PackageQuerySummary Summary(IEnumerable<PackageQueryEvent> events) =>
         Assert.Single(events.OfType<PackageQueryEvent.Completed>()).Value;
@@ -301,6 +364,7 @@ public sealed class PackageQueryInputTests
             [new("1.0.0", true), new("2.0.0", false), new("3.0.0-preview.1", true)];
         public string[] SearchIds { get; init; } = ["Newtonsoft.Json", "NewtonsoftOther"];
         public int TotalHits { get; init; } = 2;
+        public long TotalDownloads { get; init; } = 100;
         public bool FailLaterSearchPages { get; init; }
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -366,7 +430,7 @@ public sealed class PackageQueryInputTests
                         version = "1.0.0",
                         description = "Search fixture.",
                         owners = new[] { "Fixture" },
-                        totalDownloads = 100,
+                        totalDownloads = TotalDownloads,
                         verified = true,
                     }),
                 }));

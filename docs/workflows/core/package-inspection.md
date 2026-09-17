@@ -234,7 +234,9 @@ Query answers the former from manifest data without opening the nupkg:
 
 ```bash
 dotnet-inspect package query wix \
-  --where "facet=package.query.has-license" --nuspec-only
+  --where "license=any" --nuspec-only
+dotnet-inspect package query wix \
+  --where "license=OSMF" --nuspec-only
 dotnet-inspect package query Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
 ```
@@ -254,7 +256,10 @@ matching also recognizes extensionless, text, and Markdown license documents
 named with `LICENSE`, `LICENCE`, `EULA`, `COPYING`, `COPYRIGHT`, or
 `UNLICENSE`, plus text documents beneath `license` or `licenses` directories.
 Files such as `License.dll` and `driving-license.png` are excluded. Notices are
-not license files.
+not license files. Package Query identifies licenses solely from nuspec
+metadata: `any` matches any declaration, `MIT` matches the exact SPDX
+expression, and `OSMF` matches a declared `OSMFEULA.*` basename. It never reads
+license-document content to make that decision.
 
 ### 6c. Resolve package skill paths
 

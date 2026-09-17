@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Services;
@@ -34,6 +35,24 @@ public enum PackageDependencyResolutionState
     Resolved,
     Unavailable,
 }
+
+/// <summary>The expected reason a dependency could not be resolved further.</summary>
+public enum DependencyResolutionDiagnosticKind
+{
+    InvalidVersionRange,
+    ManifestUnavailable,
+}
+
+/// <summary>One package-attributed partial-resolution diagnostic.</summary>
+public sealed record DependencyResolutionDiagnostic(
+    PackageDependencyIdentity Target,
+    PackageDependencyResolutionState Resolution,
+    DependencyResolutionDiagnosticKind Kind);
+
+/// <summary>A partial or complete dependency result and all expected diagnostics.</summary>
+public sealed record DependencyResolutionResult<T>(
+    T Value,
+    ImmutableArray<DependencyResolutionDiagnostic> Diagnostics);
 
 /// <summary>
 /// One normalized package dependency relationship. The declaration constraint

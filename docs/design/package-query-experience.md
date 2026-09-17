@@ -10,14 +10,14 @@ product-owned package-query contract introduced by
 [progressive-disclosure.md](progressive-disclosure.md) (explicit, capability-
 gated expensive work), and follows the terminology and honesty rules in
 [untrusted-data-threat-model.md](untrusted-data-threat-model.md). The CLI
-counterpart — where the facet engine and its layering actually live — is
-[package-query-cli.md](package-query-cli.md); this document's facets are the
-browser front end for that one product surface.
+counterpart — where the term engine and its layering actually live — is
+[package-query-cli.md](package-query-cli.md); this document's controls project
+that one product vocabulary.
 [#5816](https://github.com/richlander/dotnet-inspect/issues/5816) tracks the
 end-to-end latency and Browser-pressure work.
 
 **What is enforced.** The production integration supplies the `/query` page,
-exact package and terminal-star prefix input, product-issued inspection facets,
+exact package and terminal-star prefix input, product-issued inspection terms,
 streaming Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
 and bounded completion states, and typed Workspace handoff. The controller,
@@ -55,7 +55,7 @@ the view opens, so the natural shape is a graph you walk.
 The package query experience has no fixed object. The object *is* the query:
 a scope (a prefix, a curated set, a feed) plus a predicate (TFM shape,
 dependency shape, download volume) evaluated over a bounded candidate set
-of packages. The natural shape is a **funnel**: cast wide, narrow with facets,
+of packages. The natural shape is a **funnel**: cast wide, narrow with terms,
 and hand off the packages that survive to the existing single-package
 workbench rather than re-implementing package inspection inside the funnel.
 
@@ -79,28 +79,30 @@ QueryResultRow     — one package's metadata/manifest/content projection + whic
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
 never a success-shaped empty result) rather than inventing a new error
-convention. The runtime `QueryRequest` retains editor text, prerelease intent,
-selected opaque inspection facets, and independent candidate and match limits.
+convention. The runtime `QueryRequest` retains editor text, prerelease intent, selected
+inspection-term triples, and independent candidate and match limits.
 **Run query** interprets an exact package ID or one terminal-star literal prefix
 through the shared
 [Package Query input selection](package-query-input-selection.md) contract.
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
-Facet descriptors come from `PackageQuery.Facets`; the browser does not own an
-independent predicate table. It preserves the product-issued ID, label,
-summary, weight, tier, optional compatibility-selection group, and optional
-display group. A descriptor also states whether it can form an OR-union with
-other combining members of its selection group.
+The Browser catalog projects `PackageQuery.Terms`; it does not own an
+independent predicate table. Closed options become preset controls carrying the
+explicit product-issued `(key, operator, value)` triple plus label, summary,
+weight, tier, optional resolver selection group, optional preset replacement
+group, and optional display group. Free-input descriptors carry the same key,
+operator, value-kind, and example metadata.
 
-### Initial active term delivery
+### Active term delivery
 
-The Browser catalog also projects `PackageQuery.Terms`; it does not define a
-TypeScript term table. Each descriptor preserves the product-issued key, label,
-summary, weight, tier, admitted Portable Query operator identities, value kind,
-and example. The initial catalog contains the nuspec-tier `depends` and
-`license` terms defined by
-[Package Query parameterized term binding](package-query-cli.md#parameterized-term-binding).
+The Browser and CLI share the first production vocabulary:
+`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
+`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
+`skill=true`.
+The shared planner also authors exactly one structural `package` or `prefix`
+term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
+the Browser's Head stage into one complete Portable Query Intent.
 
 The rail renders applied operand-bearing terms in an **Active terms** zone
 above an **Available terms** palette. The active zone is absent when no term is
@@ -113,26 +115,33 @@ switches; they remain separate from executable request terms until Apply.
 Cancel discards a draft, Remove discards the corresponding active editor with
 its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID
-validation, duplicate-after-binding rejection, bounds, and failures; a planning
-rejection is a visible expected query failure and performs no acquisition.
+validation, duplicate collapse, compatibility, bounds, and failures; a planning
+rejection is a visible expected query failure and performs no acquisition. The
+shared planner admits at most 22 authored inspection terms before duplicate
+collapse, reserving the two required structural slots in the canonical
+24-term Portable Query payload; Browser transport limits remain outer wire
+shape rather than a parallel product policy.
 
 Applied terms are individually editable and removable. Apply or remove
-preserves package input, prerelease selection, and selected facets, and starts
-a replacement query when the package input is runnable. Repeated terms remain separate active rows and AND through the product planner.
-`depends` binds one direct package ID. `license` binds the case-insensitive
-nuspec declaration value—an SPDX expression, package-relative file, or legacy
-URL—and never inspects archive contents. The Browser does not pre-collapse
-exact or case-variant duplicates, reinterpret the operand, or infer a term from
-evidence text. Product-issued term attribution remains structured across the
-Browser engine boundary.
+preserves package input, prerelease selection, and selected terms, and starts
+a replacement query when the package input is runnable. Repeated
+`depends` terms remain separate active rows and AND through the product planner.
+`license` is a closed choice. `any` matches a nuspec declaration, `MIT`
+matches the exact SPDX expression, and `OSMF` matches the declared
+`OSMFEULA.*` basename. The Browser does not inspect license content or define
+these mappings in TypeScript.
+The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
+the operand, or infer a term from evidence text. Product-issued term
+attribution remains structured across the Browser engine boundary.
 
-This delivery keeps request state in memory only. Portable intent resolution,
-payload encoding, `/query` URL persistence, Workspace packet attachment,
-and parameterless-facet retirement remain later owner slices: #6971 and #6972.
+This delivery keeps request state in memory only. `/query` URL persistence and
+Workspace packet attachment remain later owner slices. Portable intent
+resolution and payload encoding are active; the former separate opaque-facet
+request channel is retired.
 
 Rows carry the highest evidence tier used by the request: `search-metadata`
 for basic discovery, `nuspec` for explicit manifest evaluation, or
-`package-content` when a selected facet opens the
+`package-content` when a selected term opens the
 package archive. Package-content requests are accepted only with at most 20
 candidates. The Browser supplies that capability through its existing
 admitted package store and shared operation deadline; acquisition or
@@ -140,8 +149,8 @@ evaluation failures remain visible per-package failures. Each evidence entry
 retains its product-issued package-or-query scope and optional count-plus-preview
 summary from [Package Query inspection evidence](package-query-inspection-evidence.md).
 
-Assembly-pattern requests are a separate request mode, not another package
-facet tier. The host discovers descriptors from the assembly-pattern registry
+Assembly-pattern requests are a separate request mode, not another Package
+Query term tier. The host discovers descriptors from the assembly-pattern registry
 and submits one opaque pattern ID, the literal operand unchanged, up to five
 explicit exact `ID@VERSION` coordinates, and a target framework.
 The first host delivery does not expose RID selection: Browser Workspace
@@ -151,8 +160,8 @@ The framework follows the existing selector's exact-group semantics: a package
 without that framework group is `NotApplicable`, not a semantic non-match.
 The first pattern evaluates only the selector-issued primary
 implementation assembly for each coordinate. Package editor text, prerelease
-selection, and facets do not compose into that request; applying a package-mode
-editor, option, or facet change clears assembly mode.
+selection, and terms do not compose into that request; applying a package-mode
+editor, option, or term change clears assembly mode.
 
 The generated package facade exposes pattern discovery, assembly-query
 execution, and exact result opening. `BrowserPackageAssemblyQueryTests` covers
@@ -180,11 +189,10 @@ and
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Package ID or prefix [ Microsoft.Extensions.* ] [Run query]                   │
 ├───────────────┬────────────────────────────────────────────────────────────--┤
-│ Facets         │  Microsoft.Extensions.Hosting           nuspec              │
-│                │    Verified source · Has dependencies                       │
-│ Verified source│    1,234,567 downloads · nuget.org                           │
+│ Search options │  Microsoft.Extensions.Hosting           nuspec              │
+│                │    Depends on DependencyInjection                            │
+│ Inspection facts│   1,234,567 downloads · nuget.org                           │
 │ [.NET Tool|v1|v2]                           [ Open in workspace ]              │
-│ Has dependencies                                                             │
 │ No dependencies│  … 99 more (bounded: first 100 matches)                     │
 │ Has license    │                                                             │
 │ 1M+ downloads  │                                                             │
@@ -196,31 +204,30 @@ and
 - **Query bar**: exact package ID or one terminal-star literal prefix plus
   **Run query** and, while streaming, Cancel. Blank text stays idle. Open-text
   discovery remains in Spotlight rather than becoming a second query mode.
-- **Package options**: prerelease selection applies to exact-ID and prefix
+- **Search options**: prerelease selection applies to exact-ID and prefix
   acquisition. The Browser surface exposes no Gallery package-type or
   source-order controls.
-- **Inspection facet rail**: derived from `PackageQuery.Facets`, not from a browser-owned
-  vocabulary or open grammar. Selecting a facet restarts source work; it never
-  client-side-filters stale rows. Product-issued selection groups make
-  mutually exclusive facets, such as has-dependencies and no-dependencies,
-  replace one another. Product-issued display groups render `.NET Tool`, `v1`,
-  and `v2` as one segmented control while retaining three independently
-  focusable buttons and opaque facet IDs. `.NET Tool` prefilters tools from
-  manifest evidence, opens each admitted package, and reports CLI v1, CLI v2,
-  or explicitly unrecognized settings from `DotnetToolSettings.xml`; it
-  replaces selected version segments. `v1` and `v2` filter to their recognized
-  settings versions; either replaces `.NET Tool`, while both version segments
-  may remain selected and form an OR-union. Every tool segment is bounded
-  package-content work, and a matching row's product evidence identifies the
-  observed format.
-  `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
-  `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
-  that content facets may download up to 20 candidate archives.
-- **Active terms and palette**: derived from `PackageQuery.Terms`. Available
-  descriptors add an operand editor; applied terms remain visible above the
-  palette with Apply and Remove actions. An empty draft performs no work.
-  Applying or removing a term reruns the current nonblank package input through
-  the product planner rather than filtering retained rows.
+- **Inspection facts**: closed term options are projected as presets, not as a
+  Browser-owned vocabulary or open grammar. Selecting a preset restarts source
+  work; it never client-side-filters stale rows. Product-issued selection
+  groups define same-family replacement or combination; replacement groups
+  remove incompatible presets across families. The `.NET Tool`, `v1`, and `v2`
+  controls share one display group while retaining independently focusable
+  buttons and explicit term triples. `tool=true` uses only manifest package-type
+  evidence. `tool-format=v1` and `tool-format=v2` inspect
+  `DotnetToolSettings.xml`; selecting both forms an OR-union, while either is
+  incompatible with broad `tool=true`. Their product-issued replacement group
+  makes the broad and specific presets replace one another without making
+  display grouping define compatibility. `skill=true` matches package entries
+  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
+  persistently discloses that package-content terms may download up to 20
+  candidate archives.
+- **Active terms and palette**: free-input descriptors such as `depends` add
+  an operand editor; applied terms remain visible with Apply and Remove
+  actions. An empty draft performs no work. Applying or removing any preset or
+  free term reruns the current nonblank package input through the product
+  planner rather than filtering retained rows. The Browser merges both kinds
+  into one term array before crossing the Worker and managed boundaries.
 - **Assembly patterns**: a collapsed rail section rendered only when the
   engine returns at least one pattern descriptor. It opens for the active
   assembly request and exposes the registered pattern selector, one exact
@@ -264,20 +271,20 @@ and
 
 | State | Trigger | UI |
 |---|---|---|
-| Composing | Query surface opened or package editor left blank | Package input, prerelease, and inspection facets stay visible; selected facets remain configured without source acquisition, and the result pane explains exact-ID and literal-prefix input |
-| Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; the first 20 matches fill the initial Browser window and near-end scroll pressure requests 10 more at a time; running count and cancel affordance remain visible; facets stay interactive and re-scope the live stream |
+| Composing | Query surface opened or package editor left blank | Package input, prerelease, presets, and active terms stay visible without source acquisition, and the result pane explains exact-ID and literal-prefix input |
+| Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; the first 20 matches fill the initial Browser window and near-end scroll pressure requests 10 more at a time; running count and cancel affordance remain visible; terms stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a persistent banner names the failed producer or package, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | The local match limit or a prefix source/page/client bound is reached | State the observed bound and match limit when reached. An empty or short bounded response is never presented as population exhaustion; item failures remain visible. |
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
-| Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting a broader facet, not a bare blank pane |
+| Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting broader terms, not a bare blank pane |
 | Exact complete | Exact package selection finishes, including no eligible version | Preserve exact-selection identity through completion; a zero-row result states that no fallback search was used |
 | Assembly assessment | One explicit coordinate semantically does not match or cannot supply the selected implementation assembly | Render `No match` and `Not applicable` separately from failures and match rows. State the selected-assembly scope; neither outcome is a package-wide absence claim. |
 | Empty assembly match set | Explicit candidate evaluation completes without a match row | Retain all assessments and failures, repeat the exact finite completion scope, and do not suggest unrelated package discovery. |
 
-Changing the editor text, changing prerelease selection, toggling a facet,
+Changing the editor text, changing prerelease selection, toggling a preset,
 cancelling, leaving the route, or starting another run aborts or supersedes
-the active source operation. Option and facet changes preserve package/prefix
+the active source operation. Option and term changes preserve package/prefix
 input; blank package configuration starts no source work. Rows already received
 remain visible after explicit cancellation, while events from an older
 generation cannot enter a replacement outcome.
@@ -320,7 +327,7 @@ each pending batch in producer order, coalescing consecutive matches into one
 controller page outside the managed callback stack. Browser publication is
 then limited to one animation-frame patch of the dynamic query regions.
 Because all Package Query work is bounded, the callback queue is structurally
-capped at `2 * candidateLimit + 2` events without content facets and
+capped at `2 * candidateLimit + 2` events without package-content terms and
 `3 * candidateLimit + 3` events with them.
 Assembly mode is separately capped at five explicit candidates and at most
 `2 * explicitCandidateCount + 1` nonterminal callback events: one initial
@@ -383,7 +390,7 @@ authority path rather than copy the Package Query generation guard.
 
 The first production route stores no query request or outcome in the URL.
 Directly loading or refreshing `/query` starts with empty search text and no
-selected facets. Browser Back and Forward retain in-memory query state for the
+selected terms. Browser Back and Forward retain in-memory query state for the
 session; the request and outcome remain absent from URL and history metadata. A
 future sharing design may define a product-issued query record, but it must not
 encode a resolved `QueryOutcome`: nuget.org moves, so a shared request must be
@@ -400,7 +407,7 @@ over the *same* `QueryOutcome`, not a different query. Adopt that shape:
 ┌ query bar ──────────────────────────────────────────────────────────────┐
 │ ⌕ [ package-prefix: Microsoft. ]  [ tfm: out-of-support only ]  ▶ 1,204 │
 ├───────────────┬───────────────────────────────────────────┬────────────┤
-│ Facets         │  [ Rows ] [ Bar ] [ Pie ]                 │  1,204     │
+│ Terms          │  [ Rows ] [ Bar ] [ Pie ]                 │  1,204     │
 │                │  ┌───────────────────────────────────┐    │  matched   │
 │  …             │  │  ▇▇▇▇▇▇▇▇▇▇▇▇  net45         612   │    │            │
 │                │  │  ▇▇▇▇▇▇▇  net461            340   │    │  bounded:  │
@@ -412,10 +419,10 @@ over the *same* `QueryOutcome`, not a different query. Adopt that shape:
 - **Row/Bar/Pie is a view toggle over the live `QueryOutcome`, not a separate
   request.** A chart never has data the row list doesn't also have; there is
   no "run for chart" and "run for rows."
-- **The axis is a facet-shaped grouping, not free-form.** v1 ships exactly the
-  groupings the facet vocabulary already exposes (matched TFM, dependency
-  count, package type, download bucket) — this keeps the "facets map 1:1 to
-  named profiles" non-goal intact instead of growing an aggregation language.
+- **The axis is a term-shaped grouping, not free-form.** v1 ships exactly the
+  groupings the product vocabulary already exposes (matched TFM, dependency
+  count, package type, download bucket) instead of growing an aggregation
+  language.
 - **Two chart kinds only, chosen for the shape of these queries specifically**:
   a **bar chart** for a categorical breakdown (TFM, dependency shape,
   integration kind) and a **pie chart** for a two-to-few-way split (in-support
@@ -426,9 +433,9 @@ over the *same* `QueryOutcome`, not a different query. Adopt that shape:
 - **Streaming charts update incrementally**, the same as the row list: each
   page's rows fold into the running group counts rather than the chart waiting
   for `bounded`/`exhausted` completion.
-- **A chart segment is clickable** and acts as an ad hoc facet — clicking the
-  `net45` bar is equivalent to toggling a facet chip for it, staying
-  consistent with "every facet change is a new, honestly-counted request."
+- **A chart segment is clickable** and acts as an ad hoc term — clicking the
+  `net45` bar is equivalent to toggling a term control, staying consistent
+  with "every term change is a new, honestly-counted request."
 - **Bounded/exhaustive honesty extends to the chart.** A bar chart over a
   `bounded` outcome gets the same footer label a row list gets; a chart must
   not visually imply a total the completion state does not back.
@@ -457,14 +464,12 @@ different in kind, so they are saved as two separate artifacts rather than one
   readable field names and explicitly not a query language ("portable
   type/member shapes are the selector vocabulary, not the container"). A
   saved query here is that same `kind: "query"` record —
-  `{ kind: "query", schemaVersion, id, scope, facets: FacetRef[],
-  requestedLimit }` — not a locally-invented `queryPreset` shape; the payload
-  fields (`scope`, `facets`, `requestedLimit`) are this feature's contribution
-  as the query-plan owner, layered on the record/reference slots
-  `workspace-definitions.md` pins. Each `FacetRef` is a reference into the
-  fixed, named facet vocabulary (see [v1 non-goals](#v1-non-goals)), never
-  free text. This record is small and content-only; the URL carries a terse
-  projection of it rather than the record verbatim (see
+  `{ kind: "query", schemaVersion, id, intent }` — not a locally-invented
+  `queryPreset` shape. `intent` uses the product's Portable Query encoding,
+  including structural terms, inspection terms, bounds, and stages, layered on
+  the record/reference slots `workspace-definitions.md` pins. This record is
+  small and content-only; the URL carries a terse projection of it rather than
+  the record verbatim (see
   [Sharing](#sharing-and-url-shape)), and local storage keeps the full record
   — the same content, two destinations, one canonical shape.
 - **The outcome cache — local only, keyed by the preset's signature.** Rows,
@@ -482,7 +487,7 @@ preset never needs to "contain" its own history.
 
 - **A monotonically-extended request replays from the cached prefix.** If a
   local cache entry exists for a preset that is a strict prefix of a new one
-  — same scope and facets, larger `requestedLimit`, same relevance ordering —
+  — same terms and stages, larger candidate bound, same relevance ordering —
   the source resumes streaming from where that cached prefix left off instead
   of restarting at row 1. The UI reflects this plainly: opening "first 1,000"
   after a cached "first 500" shows the prior 500 rows instantly, then streams
@@ -527,11 +532,11 @@ preset never needs to "contain" its own history.
 ## v1 non-goals
 
 - No free-text predicate DSL. Browser and `package query` consume the same
-  product-issued facet descriptors and semantics, while each host deliberately
-  chooses which descriptors to admit.
-- No client-side re-filtering of a fetched result set — every facet change is
+  product-issued term descriptors and semantics, while each host deliberately
+  chooses how to present them.
+- No client-side re-filtering of a fetched result set — every term change is
   a new request, keeping displayed counts honest.
-- No unbounded archive evaluation. Package-content facets are an explicit
+- No unbounded archive evaluation. Package-content terms are an explicit
   gesture and are product-gated to 20 candidates.
 - No Gallery-discovered, prefix-scanned, package-wide, all-assembly, arbitrary
   metadata/IL, regex, or byte-pattern evaluation. The first assembly pattern
@@ -550,11 +555,11 @@ and browser-history and focus-return outcomes are proved by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
 
 1. Load `/query` directly and on refresh and confirm that the route starts
-   without a persisted request, selected facets, or inferred package
+   without a persisted request, selected terms, or inferred package
    coordinate.
-2. With blank package input, toggle two product-issued facets and confirm the
+2. With blank package input, toggle two product-issued presets and confirm the
    configuration stays idle without engine acquisition. Run an exact ID or
-   terminal-star prefix and confirm later facet changes preserve package mode,
+   terminal-star prefix and confirm later term changes preserve package mode,
    cancel the prior request, and suppress its late rows and failures.
 3. Confirm that query-scoped selection context renders once above the result
    list, package-scoped dependency and skill counts/previews remain on their
@@ -578,10 +583,11 @@ and browser-history and focus-return outcomes are proved by
 8. Run a sparse or zero-match query and confirm source, manifest, and
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
-9. Select `.NET Tool`, `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
-   to 20 candidates, archive acquisition uses the Browser package store and
+9. Confirm `tool=true` remains nuspec-only. Select `tool-format=v1`,
+   `tool-format=v2`, or `skill=true`; confirm the request bound drops to 20
+   candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
-   final package-content facet and confirm the default returns to 200.
+   final package-content term and confirm the default returns to 200.
 10. Confirm `/query` has no Gallery search/browse action, package-type control,
     or source-order control. Confirm blank **Run query** starts no source work
     and Spotlight remains the open-text package discovery path.
@@ -589,8 +595,8 @@ and browser-history and focus-return outcomes are proved by
    descriptors. With the first descriptor present, run one to five exact
    `ID@VERSION` packages using the unchanged literal operand, `net10.0`
    default TFM. Confirm RID controls are absent. Confirm package editor text,
-   prerelease selection, and facets are absent from the engine assembly request
-   and that no assembly/IL promoted facet, selection checkbox, `Deepen`
+   prerelease selection, and package terms are absent from the engine assembly
+   request and that no assembly/IL promoted term, selection checkbox, `Deepen`
    control, regex, or byte-pattern capability is rendered.
 12. Confirm that a query publishes no more than 20 matches before Browser
    pressure, near-end pressure grants 10 more without repeated over-granting,
@@ -616,12 +622,13 @@ and browser-history and focus-return outcomes are proved by
 
 1. **#4551** (nuspec-only package prefix profiles) supplied bounded source and
    manifest evidence.
-2. **#5020** supplied the product-owned facet catalog, planning, rows,
-   evidence, failures, cancellation, and completion.
+2. **#5020** supplied the original product-owned predicate catalog, planning,
+   rows, evidence, failures, cancellation, and completion.
 3. **Inspect Web integration** supplies the `/query` route, query bar, Browser
-   event adapter, product-issued facet rail, and typed Workspace handoff.
+   event adapter, product-issued inspection controls, and typed Workspace
+   handoff.
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
-   facet, and the segmented .NET tool format control.
+   predicate, and the segmented .NET tool format control.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
    replenishment, and frame-batched query-region rendering through #5832. Its
    Browser-owned DOM follow-up retains the complete outcome in state while
@@ -650,9 +657,13 @@ and browser-history and focus-return outcomes are proved by
    tracked by #6071, transports typed package/query scope and count-plus-preview
    summaries to the website. Query context renders once per result set while
    package inspection evidence remains on its owning card.
-10. **#7335** adds the nuspec-tier has-license facet and `license=<value>`
-    term. Both consume typed manifest declarations and perform no package
-    archive acquisition.
+10. **#6972** replaces the opaque predicate channel with one parameterized
+   vocabulary and one Portable Query Intent path shared by CLI and Browser.
+   Browser presets and free editors both cross the Worker boundary as explicit
+   term triples.
+11. **#7335** adds the closed nuspec-tier `license` term. `any` tests
+    declaration presence; named values such as `MIT` and `OSMF` resolve only
+    from nuspec metadata and perform no package archive acquisition.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.
