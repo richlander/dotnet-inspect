@@ -7,29 +7,21 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
-    /// Settles one typed version selection through PackageHouse without
-    /// acquiring package content.
+    /// Supplies a settlement House using this composition's registered source clients.
     /// </summary>
-    public async Task<PackageHouseResult> SettleVersionAsync(
-        PackageVersionSelectionRequest selection,
+    public PackageHouse CreateSettlementHouse(
+        string packageId,
         NuGetSourceOptions? sourceOptions = null,
-        Action<string>? log = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        PackageHouseRequest request = CreateHouseRequest(
-            new PackageHouseDemand.Selecting(selection),
-            PackageHouseOperationProfile.Settle);
-        PackageHouseSettlement settlement = await ExecuteHouseAsync(
-            request,
-            selection.PackageId,
-            sourceOptions,
-            payloadAcquisition: null,
-            cancellationToken,
-            requiredProducerKey: null,
-            log).ConfigureAwait(false);
-        return settlement.Result;
-    }
+        Action<string>? log = null) =>
+        new(
+            new SinglePackageAuthorization(
+                packageId, AuthorizeSourcesFor(packageId, sourceOptions)),
+            log: log);
+
+    /// <summary>Issues the source-owned operation consumed by a shared inspection.</summary>
+    public PackageSourceOperationLease IssueSettlementOperation(
+        CancellationToken cancellationToken = default) =>
+        IssueHouseOperation(cancellationToken);
 
     /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition
