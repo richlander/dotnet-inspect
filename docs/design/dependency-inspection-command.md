@@ -744,6 +744,9 @@ baseline consumer to understand `TEvidence`.
 
 ### Concrete evidence value
 
+The typed evidence Document and root-occurrence currency are implemented.
+Capture, complete serialization, and host adoption remain proposed.
+
 The dependency service issues one named settled Document:
 
 ```text

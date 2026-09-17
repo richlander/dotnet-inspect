@@ -431,7 +431,44 @@ public static class ApiCommandDefinitions
                 case MemberOptionsParser.Discovery d:
                     var memberSchemaMap = ApiCommand.GetTypeDocumentSchema(new MemberOptions());
                     var memberFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
-                    var memberPipeline = ApiMemberSectionPipelines.Create(new MemberOptions());
+                    var memberPipelines = new[]
+                    {
+                        ApiMemberSectionDescriptors.CreatePipeline(),
+                        ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+                        ApiMemberDetailSectionDescriptors.CreatePipeline(),
+                    };
+                    var memberCategories =
+                        new Dictionary<string, string[]>(
+                            StringComparer.OrdinalIgnoreCase);
+                    foreach (var memberPipeline in memberPipelines)
+                    {
+                        foreach (var (category, sections) in
+                                 ApiMemberSectionPipelines.GetCategoryMap(
+                                     memberPipeline))
+                        {
+                            memberCategories[category] =
+                                memberCategories.TryGetValue(
+                                    category,
+                                    out string[]? existing)
+                                    ? [.. existing
+                                        .Concat(sections)
+                                        .Distinct(
+                                            StringComparer.OrdinalIgnoreCase)]
+                                    : sections;
+                        }
+                    }
+                    HashSet<string> memberBaseSections =
+                        memberPipelines
+                            .SelectMany(
+                                pipeline => pipeline.BaseSectionNames)
+                            .ToHashSet(
+                                StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> memberCatalogHiddenSections =
+                        memberSchemaMap.SectionNames
+                            .Where(section =>
+                                !memberBaseSections.Contains(section))
+                            .ToHashSet(
+                                StringComparer.OrdinalIgnoreCase);
                     return DiscoverOutput.Execute(
                         d.Discover,
                         memberSchemaMap,
@@ -443,7 +480,16 @@ public static class ApiCommandDefinitions
                             (int)opts.ParseVerbosity(parseResult),
                             ProjectionAudit.Requested(parseResult, opts)),
                         sectionCategories:
-                            ApiMemberSectionPipelines.GetCategoryMap(memberPipeline));
+                            memberCategories,
+                        catalogHiddenSections:
+                            memberCatalogHiddenSections,
+                        listedCategoryDoors:
+                            memberCategories.Keys.ToHashSet(
+                                StringComparer.OrdinalIgnoreCase),
+                        exactOnlySections:
+                            ApiMemberSectionPipelines
+                                .GetExactOnlySections(
+                                    overloadInventory: false));
 
                 case MemberOptionsParser.ShowHelp:
                     CommandError.Write("Type name or source required.");

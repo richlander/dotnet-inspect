@@ -115,14 +115,18 @@ evidence unless a category is named.
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
 | `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 | `type` listing | `@Surface` | none |
+| `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
 Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
 curated nuspec, README, and skill-file sections. The `type` listing's
 `@Surface` category groups `API Info`, public type-kind and type-forwarder
-inventories, and `Inspection Failures`. Other commands expose categories such
-as member `@Source`; `Switches` is a section. There are no user-facing
+inventories, and `Inspection Failures`. Member `@Member` follows the resolved
+view: member-kind summaries for a type, the matching overload inventory for a
+member name, or signature and local implementation evidence for one selected
+overload. Use its domain doors for audit, call, decompiler, performance, source,
+or SourceLink evidence. `Switches` is a section. There are no user-facing
 `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category

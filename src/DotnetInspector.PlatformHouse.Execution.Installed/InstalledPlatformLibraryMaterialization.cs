@@ -89,7 +89,7 @@ public abstract class InstalledPlatformLibraryMaterializationResult
 }
 
 /// <summary>
-/// Result of materializing one authoritative installed reference population.
+/// Result of materializing one authoritative installed single-view population.
 /// </summary>
 public abstract class InstalledPlatformPopulationMaterializationResult
 {
@@ -230,21 +230,39 @@ public static class InstalledPlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return outcome switch
-        {
-            PlatformPopulationArtifactMaterializationOutcome.Completed
-                completed =>
-                new InstalledPlatformPopulationMaterializationResult
-                    .Completed(
-                        completed.Population,
-                        completed.Artifacts),
-            PlatformPopulationArtifactMaterializationOutcome.Terminal
-                terminal =>
-                new InstalledPlatformPopulationMaterializationResult
-                    .Terminal(terminal.TerminalRealization),
-            _ => throw new InvalidOperationException(
-                "Unknown Platform population Artifact materialization outcome."),
-        };
+        return ToInstalledPopulationResult(outcome);
+    }
+
+    /// <summary>
+    /// Materializes one authoritative installed implementation population.
+    /// </summary>
+    public static async ValueTask<
+        InstalledPlatformPopulationMaterializationResult>
+        MaterializeImplementationPopulationAsync(
+            PlatformHouseRequest request,
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool prepared = TryPrepareImplementationPopulation(
+            request,
+            implementation,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeImplementationsAsync(
+                    request,
+                    prepared ? items : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToInstalledPopulationResult(outcome);
     }
 
     static async ValueTask<InstalledPlatformLibraryMaterializationResult>
@@ -463,6 +481,84 @@ public static class InstalledPlatformLibraryMaterializer
         items = prepared;
         return true;
     }
+
+    static bool TryPrepareImplementationPopulation(
+        PlatformHouseRequest request,
+        InstalledPlatformHouseResult<
+            InstalledImplementationRealization>.Succeeded implementation,
+        out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
+    {
+        items = [];
+        if (request.Target is not PlatformTargetDemand.Exact exact
+            || request.Operation is not PlatformHouseOperation.Realize
+            {
+                View: PlatformViewDemand.Implementation,
+                Population:
+                    PlatformPopulationDemand.CompletePopulation,
+            }
+            || !ValidContribution(
+                request,
+                exact.Target,
+                implementation.Contribution,
+                PlatformSourceFacet.Implementation,
+                implementation.Value.Generation.Name)
+            || !ImplementationTargetMatches(
+                implementation.Value,
+                exact.Target)
+            || implementation.Value.Libraries.Count == 0)
+        {
+            return false;
+        }
+
+        var identities = new HashSet<AssemblyReferenceIdentity>(
+            AssemblyReferenceIdentity.EquivalentComparer);
+        var prepared =
+            new List<PlatformLibraryArtifactMaterializationItem>(
+                implementation.Value.Libraries.Count);
+        foreach (InstalledImplementationLibrary library
+            in implementation.Value.Libraries)
+        {
+            if (!identities.Add(library.Identity))
+                return false;
+            prepared.Add(
+                new PlatformLibraryArtifactMaterializationItem(
+                    (PlatformSourceContribution.Realization)
+                        implementation.Contribution,
+                    new InstalledImplementationArtifactProvenance(
+                        implementation.Value.Generation,
+                        implementation.Value.Coordinate,
+                        library.FrameworkName,
+                        library.FrameworkVersion,
+                        library.ManifestCoordinate,
+                        library.Identity,
+                        library.ContentDigest),
+                    library.Identity,
+                    library.ContentLength,
+                    _ => library.OpenRead()));
+        }
+
+        items = prepared;
+        return true;
+    }
+
+    static InstalledPlatformPopulationMaterializationResult
+        ToInstalledPopulationResult(
+            PlatformPopulationArtifactMaterializationOutcome outcome) =>
+        outcome switch
+        {
+            PlatformPopulationArtifactMaterializationOutcome.Completed
+                completed =>
+                new InstalledPlatformPopulationMaterializationResult
+                    .Completed(
+                        completed.Population,
+                        completed.Artifacts),
+            PlatformPopulationArtifactMaterializationOutcome.Terminal
+                terminal =>
+                new InstalledPlatformPopulationMaterializationResult
+                    .Terminal(terminal.TerminalRealization),
+            _ => throw new InvalidOperationException(
+                "Unknown Platform population Artifact materialization outcome."),
+        };
 
     static bool ValidContribution(
         PlatformHouseRequest request,

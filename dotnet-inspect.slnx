@@ -128,6 +128,7 @@
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
