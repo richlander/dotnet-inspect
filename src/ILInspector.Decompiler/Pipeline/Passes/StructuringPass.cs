@@ -1219,15 +1219,21 @@ public sealed class StructuringPass : IIrPass
                         i = target;
                         break;
                     }
-                    // Both arms leave this protected region. A bare fallthrough
-                    // arm can disappear; a prefixed arm becomes the else branch.
                     if (falseStart + 1 == target
-                        && IsRegionExitTerminator(ctx, falseStart)
-                        && (IsBareRegionExitBlock(ctx, falseStart)
-                            || (!RegionExternallyEntered(ctx, falseStart, target)
-                                && Validate(ctx, falseStart, target, joinIndex, breakTarget, continueTarget, regionExitBreakTarget)))
-                        && Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                        && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!IsBareRegionExitBlock(ctx, falseStart))
+                        {
+                            if (!CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop))
+                            {
+                                ctx.Recorder?.Record("prefixed-region-exit-ownership-unproven");
+                                return false;
+                            }
+                            if (!Validate(ctx, falseStart, target, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                                return false;
+                        }
+                        if (!Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                            return false;
                         i = stop;
                         break;
                     }
@@ -2077,6 +2083,11 @@ public sealed class StructuringPass : IIrPass
     static bool IsBareRegionExitBlock(Ctx ctx, int blockIndex)
         => IsRegionExitTerminator(ctx, blockIndex)
             && ctx.Blocks[blockIndex].Children.Count == 1;
+
+    static bool CanDissolvePrefixedRegionExit(Ctx ctx, int falseStart, int target, int stop) =>
+        stop == ctx.Blocks.Count
+        && target < stop
+        && !RegionExternallyEntered(ctx, falseStart, target);
 
     static bool RegionExitBlockPredecessorsAreConsumed(
         Ctx ctx,
@@ -2948,6 +2959,11 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (falseStart + 1 == target && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!IsBareRegionExitBlock(ctx, falseStart)
+                            && !CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop))
+                        {
+                            throw new InvalidOperationException("Validated prefixed region-exit ownership was not buildable.");
+                        }
                         var takenArm = BuildRegion(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
                         Block? fallthroughArm = IsBareRegionExitBlock(ctx, falseStart)
                             ? null

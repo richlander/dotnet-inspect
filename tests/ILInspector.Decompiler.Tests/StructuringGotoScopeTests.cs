@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -413,6 +414,52 @@ public class StructuringGotoScopeTests
         Assert.Contains("V_2 = default;", output);
     }
 
+    [Fact]
+    public void PrefixedRegionExitWithExternalEntry_StaysFlatAndCompiles()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(CfgSampleClass.PrefixedRegionExitWithExternalEntry));
+        var tryBody = Assert.Single(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody)).TryBody;
+        var externallyEnteredBlock = Assert.Single(
+            tryBody.Blocks,
+            block => block.Children.Count > 1
+                && block.Children[^1] is Leave);
+        Assert.Contains(
+            tryBody.Descendants.OfType<Leave>(),
+            leave => leave.TargetOffset == externallyEnteredBlock.StartOffset
+                && !ReferenceEquals(leave.Parent, externallyEnteredBlock));
+
+        string output = PrintFixture(
+            nameof(CfgSampleClass.PrefixedRegionExitWithExternalEntry));
+
+        Assert.Contains("goto", output);
+        AssertCompiles(output);
+    }
+
+    [Fact]
+    public void PrefixedRegionExitBeforeSibling_StaysFlatAndPreservesOutcome()
+    {
+        var before = ImportFixtureBeforeStructuring(
+            nameof(CfgSampleClass.PrefixedRegionExitBeforeSibling));
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        string output = PrintFixture(
+            nameof(CfgSampleClass.PrefixedRegionExitBeforeSibling));
+        var reconstructed = Compile(output);
+
+        Assert.Contains("goto", output);
+        foreach (int input in (int[])[0, 1, 2])
+        {
+            Assert.Equal(
+                CfgSampleClass.PrefixedRegionExitBeforeSibling(input),
+                reconstructed(input));
+        }
+    }
+
     [Theory]
     [InlineData(0x0077, 0x0062, false)]
     [InlineData(0x005E, 0x0062, false)]
@@ -609,9 +656,48 @@ public class StructuringGotoScopeTests
         return false;
     }
 
+    static IrFunction ImportFixtureBeforeStructuring(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+        function.CheckInvariant();
+        return function;
+    }
+
+    static string PrintFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        return CSharpPrinter.Print(function).Output ?? "";
+    }
+
     static void AssertCompiles(string body)
+        => Compile(body);
+
+    static Func<int, int> Compile(string body)
     {
         string source = $$"""
+            static class CfgSampleClass
+            {
+                public static int LastValue;
+            }
+
             static class Synthetic
             {
                 static int M(int a)
@@ -623,12 +709,12 @@ public class StructuringGotoScopeTests
         var tree = CSharpSyntaxTree.ParseText(
             source,
             new CSharpParseOptions(LanguageVersion.Preview));
-        var errors = CSharpCompilation.Create(
+        var compilation = CSharpCompilation.Create(
                 "region-exit-gate",
                 [tree],
                 RoslynTestReferences.TrustedPlatform,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
-            .GetDiagnostics()
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var errors = compilation.GetDiagnostics()
             .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
             .ToArray();
@@ -639,6 +725,18 @@ public class StructuringGotoScopeTests
                 + string.Join("\n  ", errors)
                 + "\n--- body ---\n"
                 + body);
+
+        using var assemblyStream = new MemoryStream();
+        var emit = compilation.Emit(assemblyStream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                "\n",
+                emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)));
+        var method = Assembly.Load(assemblyStream.ToArray())
+            .GetType("Synthetic")!
+            .GetMethod("M", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return value => (int)method.Invoke(null, [value])!;
     }
 
     [Fact]
