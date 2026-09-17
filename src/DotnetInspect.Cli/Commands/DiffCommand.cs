@@ -73,7 +73,8 @@ public class DiffCommand
             sectionCatalog.SelectableSectionNames,
             sectionCatalog.InfoSectionNames,
             sectionCatalog.SelectionCategoryMap,
-            selectDefault: options.SelectDefault);
+            selectDefault: options.SelectDefault,
+            exactOnlySections: DiffSections.ExactOnlySections);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
         if (selectResult.Sections != null)
@@ -111,7 +112,8 @@ public class DiffCommand
                 sectionCategories: pipeline.GetCategoryMap(),
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                exactOnlySections: DiffSections.ExactOnlySections);
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(

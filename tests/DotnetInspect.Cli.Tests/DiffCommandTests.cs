@@ -2472,7 +2472,7 @@ public class DiffCommandTests
             DiffCommand.ExecuteAsync(new DiffOptions
             {
                 LibraryVersionRange = $"{v1}..{v2}",
-                Select = [SectionCategoryNames.Diff],
+                Select = [SectionCategoryNames.Diff, "*Transitions"],
                 JsonOutput = true,
                 TypeFilter = ["DiffSample"],
                 ChangedOnly = true

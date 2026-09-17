@@ -1568,6 +1568,22 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData()]
+    [InlineData("--schema")]
+    public async Task Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions(
+        params string[] schema)
+    {
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "diff", "-D", "*Transitions", .. schema, "--table", "--tips", "q",
+        ]);
+
+        Assert.NotEqual(0, exit);
+        Assert.DoesNotContain("Transition", output, StringComparison.Ordinal);
+        Assert.Contains("Section '*Transitions' not found", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("@All")]
     [InlineData("@Default")]
     [InlineData("@Hidden")]

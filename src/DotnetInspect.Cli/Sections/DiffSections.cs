@@ -55,6 +55,11 @@ public sealed record DiffSectionCatalog(
 
 public static class DiffSections
 {
+    public static IReadOnlySet<string> ExactOnlySections { get; } =
+        new HashSet<string>(
+            [FindingTransitions.Name],
+            StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The reusable fixed-domain catalog for Diff queries.</summary>
     public static InspectionQueryCatalog<DiffQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();

@@ -76,6 +76,9 @@ public partial class SectionPipelineTests
             DiffSections.FindingTransitions.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(
+            [DiffSections.FindingTransitions.Name],
+            DiffSections.ExactOnlySections);
     }
 
     [Fact]
