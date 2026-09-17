@@ -27,7 +27,15 @@ public static class CSharpMemberArtifactEligibility
             || !IsFinalizerDeclarationRepresentable(member, signature)
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
-            || !MethodCustomModifiersAreRepresentable(member, signature)
+            || !IsPropertyDeclarationRepresentable(member, signature)
+            || !AreAccessorDeclarationsRepresentable(member, signature)
+            || signature.ReturnTypeCustomModifiersAreRepresentable != true
+            || signature.Parameters.Any(
+                parameter =>
+                    parameter.CustomModifiersAreRepresentable != true)
+            || signature.Accessors.Any(
+                accessor =>
+                    accessor.CustomModifiersAreRepresentable != true)
             || signature.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || signature.Parameters.Any(parameter => !IsIdentifier(parameter.Name))
             || !ConstraintsAreRepresentable(type.TypeParameters)
@@ -41,8 +49,22 @@ public static class CSharpMemberArtifactEligibility
             return false;
         }
 
-        return new CSharpTypePrinter().Print(
-            new CSharpTypePrintRequest(type, members: [member]))
+        CSharpTypePrintRequest request =
+            IsExplicitInterfaceEvent(member, signature)
+                ? new CSharpTypePrintRequest(
+                    type,
+                    members: [member],
+                    memberPolicyOverrides:
+                    [
+                        new(
+                            member,
+                            CSharpBodyPolicy.Stub,
+                            new CSharpEventBody(
+                                CSharpAccessorBody.Throw,
+                                CSharpAccessorBody.Throw)),
+                    ])
+                : new CSharpTypePrintRequest(type, members: [member]);
+        return new CSharpTypePrinter().Print(request)
             is CSharpTypePrintOutcome.Printed;
     }
 
@@ -73,6 +95,18 @@ public static class CSharpMemberArtifactEligibility
                 && IsQualifiedName(name[..memberSeparator])
                 && (name[(memberSeparator + 1)..] == "this[]"
                     || IsIdentifier(name[(memberSeparator + 1)..]));
+        }
+
+        if (member.Kind is "property" or "event"
+            && member.SignatureModel?.Accessors is { Count: > 0 } accessors
+            && accessors.All(
+                accessor =>
+                    accessor.IsExplicitInterfaceImplementation == true))
+        {
+            int memberSeparator = name.LastIndexOf('.');
+            return memberSeparator > 0
+                && IsQualifiedName(name[..memberSeparator])
+                && IsIdentifier(name[(memberSeparator + 1)..]);
         }
 
         return IsIdentifier(name);
@@ -134,18 +168,48 @@ public static class CSharpMemberArtifactEligibility
         !IsMethodLike(member)
         || member.AccessibilityIsRepresentable == true;
 
+    static bool IsPropertyDeclarationRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+    {
+        if (member.Kind != "property")
+            return true;
+
+        if (signature.ReturnTypeShape is null
+            || IsVoid(signature.ReturnTypeShape))
+        {
+            return false;
+        }
+
+        return signature.IsIndexerDeclaration switch
+        {
+            true =>
+                signature.MemberName == "this[]"
+                && signature.Parameters.Count > 0
+                && signature.Parameters.All(
+                    parameter => parameter.Modifier is not
+                        ("ref" or "out" or "in")),
+            false =>
+                signature.MemberName != "this[]"
+                && signature.Parameters.Count == 0,
+            null => false,
+        };
+    }
+
+    static bool IsExplicitInterfaceEvent(
+        ApiMember member,
+        ApiSignature signature)
+        => member.Kind == "event"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && signature.Accessors is { Count: > 0 }
+            && signature.Accessors.All(
+                accessor =>
+                    accessor.Kind is "add" or "remove"
+                    && accessor.IsExplicitInterfaceImplementation == true);
+
     static bool IsMethodSemanticsRepresentable(ApiMember member) =>
         !IsMethodLike(member)
         || member.MethodSemantics == ApiMethodSemanticsKind.None;
-
-    static bool MethodCustomModifiersAreRepresentable(
-        ApiMember member,
-        ApiSignature signature)
-        => !IsMethodLike(member)
-            || signature.ReturnTypeCustomModifiersAreRepresentable == true
-                && signature.Parameters.All(
-                    parameter =>
-                        parameter.CustomModifiersAreRepresentable == true);
 
     static bool IsMethodLike(ApiMember member) =>
         member.Kind is
@@ -155,6 +219,21 @@ public static class CSharpMemberArtifactEligibility
                 or "operator"
                 or "finalizer"
                 or "explicit-interface-implementation";
+
+    static bool AreAccessorDeclarationsRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+        => member.Kind is not ("property" or "event")
+            || signature.Accessors.Count > 0
+                && signature.Accessors.All(
+                    accessor =>
+                        accessor.AccessibilityIsRepresentable == true
+                        && accessor.DeclarationModifiersMatchProperty == true
+                        && accessor.DeclarationModifiersAreRepresentable == true
+                        && accessor.CustomModifiersAreRepresentable == true
+                        && accessor.MethodDeclarationHeaderIsRepresentable == true
+                        && accessor.NameMatchesDeclaration == true
+                        && accessor.SignatureMatchesDeclaration == true);
 
     static bool IsOperatorDeclarationRepresentable(
         ApiType type,

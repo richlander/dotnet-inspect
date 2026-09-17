@@ -1028,10 +1028,19 @@ public sealed class CSharpTypePrinter
     {
         var attributes = member.Attributes;
         var signatureModel = member.SignatureModel;
+        bool isExplicitInterfaceAccessorDeclaration =
+            member.Kind is "property" or "event"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && signatureModel?.Accessors is { Count: > 0 } accessors
+            && accessors.All(
+                accessor =>
+                    accessor.IsExplicitInterfaceImplementation == true);
         return new ApiMember
         {
             Name = member.Name,
-            Kind = member.Kind,
+            Kind = isExplicitInterfaceAccessorDeclaration
+                ? "explicit-interface-implementation"
+                : member.Kind,
             MethodSemantics = member.MethodSemantics,
             MetadataToken = member.MetadataToken,
             DeclarationMetadataToken = member.DeclarationMetadataToken,
@@ -1057,7 +1066,9 @@ public sealed class CSharpTypePrinter
             AccessorImplementations = member.AccessorImplementations,
             HasMethodBody = member.HasMethodBody,
             IsAsync = member.IsAsync,
-            Accessibility = member.Accessibility,
+            Accessibility = isExplicitInterfaceAccessorDeclaration
+                ? null
+                : member.Accessibility,
             IsExtension = member.IsExtension,
             IsObsolete = member.IsObsolete,
             ObsoleteMessage = member.ObsoleteMessage
@@ -1075,6 +1086,7 @@ public sealed class CSharpTypePrinter
             ReturnType = signature.ReturnType,
             ReturnAttributes = returnAttributes?.ToList()!,
             MemberName = signature.MemberName,
+            IsIndexerDeclaration = signature.IsIndexerDeclaration,
             IsRequired = signature.IsRequired,
             TypeParameters = typeParameters?.Select(SnapshotTypeParameter).ToList()!,
             Parameters = parameters?.Select(SnapshotParameter).ToList()!,
@@ -1131,6 +1143,13 @@ public sealed class CSharpTypePrinter
                 accessor.IsExplicitInterfaceImplementation,
             Name = accessor.Name,
             StructuralReturnType = accessor.StructuralReturnType,
+            CustomModifiersAreRepresentable =
+                accessor.CustomModifiersAreRepresentable,
+            MethodDeclarationHeaderIsRepresentable =
+                accessor.MethodDeclarationHeaderIsRepresentable,
+            NameMatchesDeclaration = accessor.NameMatchesDeclaration,
+            SignatureMatchesDeclaration =
+                accessor.SignatureMatchesDeclaration,
             SignatureMatchesProperty = accessor.SignatureMatchesProperty,
         };
     }

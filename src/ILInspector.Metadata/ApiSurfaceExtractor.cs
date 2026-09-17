@@ -1379,6 +1379,11 @@ public static partial class ApiSurfaceExtractor
                 reader, typeDef, typeContext, moduleVersionId,
                 autoPropertyBackingFields, fieldLikeEventBackingFieldNames,
                 observeText, observeDecodeWork);
+            string? defaultMemberName =
+                AttributeReader.ReadDefaultMemberName(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeAttributeMaterialize);
 
             // Properties
             foreach (var propHandle in typeDef.GetProperties())
@@ -1444,6 +1449,7 @@ public static partial class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
+                    defaultMemberName,
                     explicitImplementationBodies,
                     includeAll,
                     observeText,
@@ -1906,9 +1912,14 @@ public static partial class ApiSurfaceExtractor
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
                     : new TypeNodeProvider(observeText, observeDecodeWork);
+                string eventName = DecodeString(
+                    reader,
+                    evt.Name,
+                    observeDecodeWork);
                 ApplyAccessorStructuralReturns(
                     accessorModels,
                     reader,
+                    eventName,
                     kind => kind switch
                     {
                         "add" => accessors.Adder,
@@ -1919,12 +1930,9 @@ public static partial class ApiSurfaceExtractor
                     typeContext,
                     explicitImplementationBodies,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    eventType: structuralEventNode);
 
-                string eventName = DecodeString(
-                    reader,
-                    evt.Name,
-                    observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = eventName,
@@ -1952,6 +1960,11 @@ public static partial class ApiSurfaceExtractor
                                 }
                                 ? structuralEventNode.StructuralIdentity()
                                 : null,
+                        ReturnTypeCustomModifiersAreRepresentable =
+                            structuralEventNode is { IsDegraded: false }
+                                && CustomModifiersAreRepresentable(
+                                    structuralEventNode,
+                                    requireReadOnlyByRefModifier: false),
                         MemberName = eventName,
                         Accessors = accessorModels
                     },

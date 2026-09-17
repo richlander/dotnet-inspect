@@ -509,6 +509,72 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
+    public void SemanticEquality_DetectsStandaloneArtifactAdmissionFacts()
+    {
+        ApiMember first = NavigationSnapshotTestData.Member("Run");
+        ApiMember second = NavigationSnapshotTestData.Member("Run");
+        first.AccessibilityIsRepresentable = true;
+        second.AccessibilityIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.AccessibilityIsRepresentable = true;
+        second.AccessibilityIsRepresentable = true;
+        first.SignatureModel = new ApiSignature
+        {
+            IsIndexerDeclaration = true,
+        };
+        second.SignatureModel = new ApiSignature
+        {
+            IsIndexerDeclaration = false,
+        };
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.IsIndexerDeclaration = true;
+        second.SignatureModel.IsIndexerDeclaration = true;
+        first.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        second.SignatureModel.MethodDeclarationHeaderIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        second.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        first.SignatureModel.Accessors =
+        [
+            new ApiAccessor
+            {
+                MethodDeclarationHeaderIsRepresentable = true,
+                SignatureMatchesDeclaration = true,
+            },
+        ];
+        second.SignatureModel.Accessors =
+        [
+            new ApiAccessor
+            {
+                MethodDeclarationHeaderIsRepresentable = true,
+                SignatureMatchesDeclaration = false,
+            },
+        ];
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.Accessors[0].SignatureMatchesDeclaration = true;
+        second.SignatureModel.Accessors[0].SignatureMatchesDeclaration = true;
+        first.SignatureModel.Accessors[0].CustomModifiersAreRepresentable = true;
+        second.SignatureModel.Accessors[0].CustomModifiersAreRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.Accessors[0].CustomModifiersAreRepresentable = true;
+        second.SignatureModel.Accessors[0].CustomModifiersAreRepresentable = true;
+        first.SignatureModel.Accessors[0].NameMatchesDeclaration = true;
+        second.SignatureModel.Accessors[0].NameMatchesDeclaration = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+    }
+
+    [Fact]
     public async Task FilteredJsonPropertyNames_EquivalentPopulatedFactsDoNotAdvanceRevision()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
