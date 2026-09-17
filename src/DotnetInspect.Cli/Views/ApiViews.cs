@@ -1328,6 +1328,10 @@ public class MemberCodeView
     [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
     public List<FactRow>? FactRows { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal MemberFactsDocument? FactsDocument { get; set; }
+
     [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found in this method body.")]
     [MarkoutIgnoreColumnWhen(nameof(AllocationFactMemberIsEmpty), nameof(AllocationFactRow.Member))]
     public List<AllocationFactRow>? AllocationFactRows { get; set; }
@@ -1600,6 +1604,12 @@ public record FactRow(
     string Category,
     string Id,
     [property: MarkoutSkipNull] string? Detail,
+    [property: MarkoutPropertyName("Evidence Subject"), MarkoutSkipNull]
+    string? EvidenceSubject,
+    [property: MarkoutPropertyName("Evidence State"), MarkoutSkipNull]
+    string? EvidenceState,
+    [property: MarkoutPropertyName("Evidence Locations"), MarkoutSkipNull]
+    string? EvidenceLocations,
     string Conditionality,
     [property: MarkoutPropertyName("Census Receipt"), MarkoutSkipNull]
     string? CensusReceipt,

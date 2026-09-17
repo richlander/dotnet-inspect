@@ -2237,12 +2237,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Facts", output);
         Assert.Contains(
-            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality | Census Receipt | Instance Key |",
+            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Evidence Subject | Evidence State | Evidence Locations | Conditionality | Census Receipt | Instance Key |",
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
@@ -2258,16 +2258,19 @@ public partial class CommandExecutionTests
         string row = Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
         string[] columns = row.Split('\t');
-        Assert.Equal(10, columns.Length);
+        Assert.Equal(13, columns.Length);
         Assert.EndsWith("FactsTableFixture::BoxInt", columns[0]);
         Assert.StartsWith("IL_", columns[1]);
         Assert.Equal("offset", columns[3]);
         Assert.Equal("Allocation", columns[4]);
         Assert.Equal("alloc.box", columns[5]);
-        Assert.Equal("Always", columns[7]);
-        Assert.True(Guid.TryParse(columns[8], out Guid receipt));
+        Assert.Equal("", columns[7]);
+        Assert.Equal("", columns[8]);
+        Assert.Equal("", columns[9]);
+        Assert.Equal("Always", columns[10]);
+        Assert.True(Guid.TryParse(columns[11], out Guid receipt));
         Assert.NotEqual(Guid.Empty, receipt);
-        Assert.Equal("1", columns[9]);
+        Assert.Equal("1", columns[12]);
     }
 
     [Fact]
@@ -2834,6 +2837,220 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("semantics.callee", output);
         Assert.Contains("may-throw FormatException", output);
+    }
+
+    [Fact]
+    public async Task Member_FactsTable_DistinguishesCallerFromCalleeEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--table",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Evidence Subject", output);
+        Assert.Contains("Evidence State", output);
+        Assert.Contains("Evidence Locations", output);
+        Assert.Contains(nameof(CostOverlayFixture.CallsStackalloc), output);
+        Assert.Contains(nameof(CostOverlayFixture.Stackalloc), output);
+        Assert.Contains("instruction", output);
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_RetainsInstructionEvidenceIdentity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        Assert.False(fact.TryGetProperty("remote_evidence", out _));
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal(
+            nameof(CostOverlayFixture.Stackalloc),
+            evidence.GetProperty("subject").GetProperty("name").GetString());
+        Assert.Equal(
+            "instruction",
+            evidence.GetProperty("state").GetString());
+        JsonElement location = Assert.Single(
+            evidence.GetProperty("locations").EnumerateArray());
+        Assert.Equal(
+            nameof(CostOverlayFixture.Stackalloc),
+            location.GetProperty("method").GetProperty("name").GetString());
+        Assert.NotEqual(
+            Guid.Empty,
+            location.GetProperty("method")
+                .GetProperty("module_version_id")
+                .GetGuid());
+        Assert.True(
+            location.GetProperty("method")
+                .GetProperty("metadata_token")
+                .GetInt32() > 0);
+        Assert.True(location.GetProperty("il_offset").GetInt32() >= 0);
+        Assert.True(fact.GetProperty("il_offset").GetInt32() >= 0);
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_RetainsMethodOnlyEvidenceWithoutOffset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "cost.callee");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal("method", evidence.GetProperty("state").GetString());
+        JsonElement location = Assert.Single(
+            evidence.GetProperty("locations").EnumerateArray());
+        Assert.False(location.TryGetProperty("il_offset", out _));
+        Assert.Equal(
+            nameof(CostOverlayFixture.HotCallee),
+            location.GetProperty("method").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_ShowsUnavailableInstructionEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsPointerDeref),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal(
+            "instruction-unavailable",
+            evidence.GetProperty("state").GetString());
+        Assert.Equal(
+            nameof(CostOverlayFixture.PointerDeref),
+            evidence.GetProperty("subject").GetProperty("name").GetString());
+        Assert.Empty(evidence.GetProperty("locations").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("--columns")]
+    [InlineData("--fields")]
+    public async Task Member_FactsProjectedJson_UsesLoweredEvidenceRows(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            projection, "Id,Evidence Subject,Evidence State",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        Assert.Equal(
+            "DotnetInspect.Cli.Tests.CostOverlayFixture.Stackalloc(int)",
+            row.GetProperty("evidence_subject").GetString());
+        Assert.Equal(
+            "instruction",
+            row.GetProperty("evidence_state").GetString());
+        if (projection == "--columns")
+            Assert.Equal(3, row.EnumerateObject().Count());
+    }
+
+    [Theory]
+    [InlineData("--head", true)]
+    [InlineData("--tail", false)]
+    public async Task Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization(
+        string direction,
+        bool selectsFirst)
+    {
+        string[] common =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--tips", "q",
+        ];
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(common);
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync([.. common, "-n", "1", direction]);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        using JsonDocument allDocument =
+            JsonDocument.Parse(allOutput);
+        string[] allIds = allDocument.RootElement
+            .GetProperty("facts")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("id").GetString()!)
+            .ToArray();
+        Assert.True(allIds.Length > 1);
+
+        Assert.Equal(0, windowExit);
+        Assert.Empty(windowError);
+        using JsonDocument windowDocument =
+            JsonDocument.Parse(windowOutput);
+        JsonElement selected = Assert.Single(
+            windowDocument.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+        Assert.Equal(
+            selectsFirst ? allIds[0] : allIds[^1],
+            selected.GetProperty("id").GetString());
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task Member_FactsJson_RejectsDirectionOnlyWindow(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            direction, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("complete typed document", error);
     }
 
     [Fact]
