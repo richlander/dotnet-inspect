@@ -153,7 +153,7 @@ public class DependencyResolutionServiceTests
             new() { Id = parentId, Version = "1.0.0" }
         };
 
-        List<DependencyNode> result =
+        DependencyResolutionResult<List<DependencyNode>> resolution =
             await DependencyResolutionService.ResolveDependencyTreeAsync(
                 client,
                 dependencies,
@@ -162,6 +162,8 @@ public class DependencyResolutionServiceTests
                 log: null,
                 sourceOptions: new NuGetSourceOptions { Sources = [index] });
 
+        Assert.Empty(resolution.Diagnostics);
+        List<DependencyNode> result = resolution.Value;
         DependencyNode parent = Assert.Single(result);
         Assert.Equal(parentId, parent.PackageId);
         Assert.Equal(childId, Assert.Single(parent.Children).PackageId);
@@ -185,7 +187,7 @@ public class DependencyResolutionServiceTests
         };
         using var client = new HttpClient(new UnexpectedRequestHandler());
 
-        PackageDependencyGraph graph =
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
                 root,
@@ -198,6 +200,8 @@ public class DependencyResolutionServiceTests
                 },
                 log: null);
 
+        Assert.Empty(resolution.Diagnostics);
+        PackageDependencyGraph graph = resolution.Value;
         PackageDependencyRelationship relationship =
             Assert.Single(graph.Relationships);
         Assert.Equal(root, relationship.Source);
@@ -216,7 +220,7 @@ public class DependencyResolutionServiceTests
         var root = new PackageDependencyIdentity("Root.Package", "1.0");
         using var client = new HttpClient(new UnexpectedRequestHandler());
 
-        PackageDependencyGraph graph =
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
                 root,
@@ -230,6 +234,8 @@ public class DependencyResolutionServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 log: null);
 
+        Assert.Empty(resolution.Diagnostics);
+        PackageDependencyGraph graph = resolution.Value;
         PackageDependencyGraphNode node =
             Assert.Single(graph.Nodes);
         PackageDependencyRelationship cycle =
@@ -265,7 +271,7 @@ public class DependencyResolutionServiceTests
             new() { Id = rightId, Version = "1.0.0" },
         };
 
-        PackageDependencyGraph graph =
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
                 new PackageDependencyIdentity("Root.Package", "1.0.0"),
@@ -276,6 +282,8 @@ public class DependencyResolutionServiceTests
                 log: null,
                 new NuGetSourceOptions { Sources = [index] });
 
+        Assert.Empty(resolution.Diagnostics);
+        PackageDependencyGraph graph = resolution.Value;
         Assert.Equal(5, graph.Relationships.Count);
         Assert.Equal(
             2,
@@ -319,7 +327,7 @@ public class DependencyResolutionServiceTests
                 firstLeafId,
                 secondLeafId));
 
-        PackageDependencyGraph graph =
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
                 new PackageDependencyIdentity(
@@ -344,6 +352,8 @@ public class DependencyResolutionServiceTests
                 log: null,
                 new NuGetSourceOptions { Sources = [index] });
 
+        Assert.Empty(resolution.Diagnostics);
+        PackageDependencyGraph graph = resolution.Value;
         Assert.Contains(
             graph.Relationships,
             relationship =>
@@ -371,7 +381,7 @@ public class DependencyResolutionServiceTests
         using var client = new HttpClient(
             new MissingNuspecHandler(index));
 
-        PackageDependencyGraph graph =
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
             await DependencyResolutionService.ResolveDependencyGraphAsync(
                 client,
                 new PackageDependencyIdentity("Root.Package", "1.0.0"),
@@ -386,9 +396,70 @@ public class DependencyResolutionServiceTests
                 log: null,
                 new NuGetSourceOptions { Sources = [index] });
 
+        PackageDependencyGraph graph = resolution.Value;
         Assert.Equal(
             PackageDependencyResolutionState.Unavailable,
             Assert.Single(graph.Relationships).Resolution);
+        DependencyResolutionDiagnostic diagnostic =
+            Assert.Single(resolution.Diagnostics);
+        Assert.Equal(
+            new PackageDependencyIdentity(packageId, "1.0.0"),
+            diagnostic.Target);
+        Assert.Equal(
+            PackageDependencyResolutionState.Unavailable,
+            diagnostic.Resolution);
+        Assert.Equal(
+            DependencyResolutionDiagnosticKind.ManifestUnavailable,
+            diagnostic.Kind);
+    }
+
+    [Fact]
+    public async Task ResolveDependencyGraph_AggregatesExpectedFailuresInTraversalOrder()
+    {
+        PersistentCache.Initialize("dotnet-inspect-test");
+        string suffix = Guid.NewGuid().ToString("N");
+        string first = $"A.Missing.{suffix}";
+        string second = $"B.Missing.{suffix}";
+        string index = $"https://private.example/{suffix}/v3/index.json";
+        using var client = new HttpClient(new MissingNuspecHandler(index));
+
+        DependencyResolutionResult<PackageDependencyGraph> resolution =
+            await DependencyResolutionService.ResolveDependencyGraphAsync(
+                client,
+                new PackageDependencyIdentity("Root.Package", "1.0.0"),
+                rootAuthor: null,
+                [
+                    new PackageDependency { Id = second, Version = "1.0.0" },
+                    new PackageDependency { Id = first, Version = "invalid" },
+                ],
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null,
+                new NuGetSourceOptions { Sources = [index] });
+
+        Assert.Equal(2, resolution.Value.Relationships.Count);
+        Assert.Collection(
+            resolution.Diagnostics,
+            diagnostic =>
+            {
+                Assert.Equal(first, diagnostic.Target.PackageId);
+                Assert.Equal(
+                    DependencyResolutionDiagnosticKind.InvalidVersionRange,
+                    diagnostic.Kind);
+                Assert.Equal(
+                    PackageDependencyResolutionState.Declared,
+                    diagnostic.Resolution);
+            },
+            diagnostic =>
+            {
+                Assert.Equal(second, diagnostic.Target.PackageId);
+                Assert.Equal(
+                    DependencyResolutionDiagnosticKind.ManifestUnavailable,
+                    diagnostic.Kind);
+                Assert.Equal(
+                    PackageDependencyResolutionState.Unavailable,
+                    diagnostic.Resolution);
+            });
     }
 
     [Fact]

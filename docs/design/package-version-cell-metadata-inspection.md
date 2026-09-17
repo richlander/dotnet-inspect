@@ -240,7 +240,8 @@ This operation is step 2 of the eight-step temporal ownership path:
 4. Diff History baseline-required receipt and direct source-to-checkpoint
    policy — owned by [Diff History inspection](diff-history.md).
 5. Queries-owned detached coordinate-correspondence evidence — #7337.
-6. Bounded PackageHouse baseline/checkpoint Analysis — #7248.
+6. [Bounded PackageHouse baseline/checkpoint Analysis](package-version-cell-pair-analysis.md)
+   — #7248.
 7. Shared Diff History and metadata-only version-count terminals, followed by
    subject CLI cutover with top-level `timeline` removal.
 8. Browser Compare and version-count adoption.

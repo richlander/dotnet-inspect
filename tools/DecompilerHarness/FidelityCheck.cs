@@ -5245,7 +5245,14 @@ static class FidelityCheck
             CorpusAssemblyPaths = corpusAssemblies,
             ExcludeTargetAssembly = true,
         });
-        foreach (var dependency in resolver.ResolveAll())
+        AssemblyResolutionResult resolution = resolver.ResolveAll();
+        if (!resolution.Diagnostics.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                "Compiler reference discovery failed in "
+                + $"{resolution.Diagnostics.Length} enabled tier(s).");
+        }
+        foreach (var dependency in resolution.Items)
             Add(dependency.Path, dependency.Provenance);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
