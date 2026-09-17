@@ -408,9 +408,6 @@ public partial class CommandExecutionTests
     [InlineData("--count")]
     [InlineData("--rows", "5")]
     [InlineData("-n", "1")]
-    [InlineData("--head")]
-    [InlineData("--tail")]
-    [InlineData("--tail", "-n", "0")]
     [InlineData("--depth", "1")]
     [InlineData("--preview")]
     [InlineData("--max-packages", "1")]
@@ -436,6 +433,33 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("--share", result.Error);
+    }
+
+    [Theory]
+    [InlineData("--head", "--head requires -n")]
+    [InlineData("--tail", "--tail requires -n")]
+    [InlineData("--tail -n 0", "-n requires a positive whole number")]
+    public async Task DependsShare_InvalidRowSelectionReportsRowDiagnostic(
+        string arguments,
+        string expected)
+    {
+        var result = await RunAppAsync(
+            [
+                "depends",
+                "--package",
+                "Example.Package@1.0.0",
+                "--tfm",
+                "net8.0",
+                "--share",
+                "packet",
+                "--tips",
+                "q",
+                .. arguments.Split(' '),
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(expected, result.Error);
     }
 
     private sealed class ShareVersionHandler(

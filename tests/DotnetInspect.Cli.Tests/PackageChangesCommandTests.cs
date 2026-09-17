@@ -54,7 +54,7 @@ public sealed class PackageChangesCommandTests
     }
 
     [Fact]
-    public void ParserAcceptsEnvelopeAndRejectsCompetingOutput()
+    public void ParserAcceptsEnvelopeWithCompactOutput()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         var accepted = root.Parse(
@@ -67,21 +67,69 @@ public sealed class PackageChangesCommandTests
             "--compact",
         ]);
         Assert.Empty(accepted.Errors);
+    }
 
-        var rejected = root.Parse(
+    [Theory]
+    [InlineData("--json", "--json")]
+    [InlineData("-n 1 --head", "--head")]
+    [InlineData("-n 1 --lines", "--lines")]
+    [InlineData("-n 1 --tail-lines", "--tail-lines")]
+    public void ParserRejectsEnvelopePresentationOptions(
+        string arguments,
+        string incompatibleOption)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
         [
             "package",
             "activity",
             "--ecosystem",
             "aspire",
             "--envelope",
-            "--json",
+            .. arguments.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries),
         ]);
         Assert.Contains(
-            rejected.Errors,
+            result.Errors,
             error => error.Message.Contains(
-                "--envelope cannot be combined with --json",
+                $"--envelope cannot be combined with {incompatibleOption}",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParserDoesNotApplySemanticMaximumToRenderedLineCount()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "-n",
+            int.MaxValue.ToString(CultureInfo.InvariantCulture),
+            "--lines",
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--lines --tail")]
+    public void ParserAcceptsDeclaredDirectionGrammar(string direction)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "-n",
+            "1",
+            .. direction.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+        ]);
+        Assert.Empty(result.Errors);
+        Assert.Empty(result.Errors);
     }
 
     [Theory]
@@ -528,6 +576,28 @@ public sealed class PackageChangesCommandTests
                 });
             CoreHttpClientFactory.ResetSharedForTesting();
         }
+    }
+
+    [Fact]
+    public async Task InvocationRejectsRenderedLineSelectionForJsonBeforeAcquisition()
+    {
+        var result = await InvokeAsync(
+            [
+                "package",
+                "activity",
+                "--ecosystem",
+                "aspire",
+                "--json",
+                "-n",
+                "1",
+                "--lines",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
     }
 
     [Fact]
