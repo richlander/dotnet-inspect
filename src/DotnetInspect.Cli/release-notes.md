@@ -3,11 +3,19 @@
 ## Unreleased
 
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
-  heap inspection with named `--library`, `--package`, and `--platform` source
-  context. Heap coordinates remain bound to the selected `--metadata-root`. The
-  command reuses the existing coordinate sections, projections, discovery,
-  acquisition, and typed failures; legacy exact options remain available until
-  file mode and retirement slices complete the command transition (#7307).
+  heap inspection and `library coordinate --file <path>` for sparse IL
+  coordinate populations, with named `--library`, `--package`, and `--platform`
+  source context. File mode admits at most 1,024 significant records before
+  Library acquisition; blank and comment lines do not count, while malformed
+  records remain visible. Heap coordinates remain bound to the selected
+  `--metadata-root`. The command reuses the existing coordinate sections,
+  projections, discovery, acquisition, and typed failures; legacy coordinate
+  options remain available until the retirement slice completes the command
+  transition (#7307).
+- **Breaking:** `library coordinate --file` emits valid and malformed records
+  together in source-file order, and applies row windows after that ordering.
+  Legacy `library --il-offsets` continues to group malformed records first
+  during the transition (#7307).
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
   discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
   member discovery remains case-insensitive and one-to-many across overloads,

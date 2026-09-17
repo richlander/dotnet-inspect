@@ -310,7 +310,13 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
+dotnet-inspect library coordinate --file coordinates.txt \
+  --library ./MyLibrary.dll
 ```
+
+Coordinate files accept up to 1,024 significant records. Blank and comment
+lines are ignored; valid and malformed records remain interleaved in source-file
+order so row windows select the same records the producer supplied.
 
 ### ReadyToRun and raw metadata
 

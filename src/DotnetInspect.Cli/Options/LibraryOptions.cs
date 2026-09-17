@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -111,6 +112,11 @@ public record LibraryOptions : IProjectionOptions
     /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
     /// </summary>
     public string? ILOffsetsPath { get; init; }
+
+    /// <summary>
+    /// Pre-admitted coordinate population for the focus-first file mode.
+    /// </summary>
+    internal ILCoordinatePopulation? ILCoordinatePopulation { get; init; }
 
     /// <summary>
     /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.

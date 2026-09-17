@@ -548,17 +548,24 @@ public class LibraryCommand
         if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
             && !string.IsNullOrWhiteSpace(options.ILOffsetsPath))
         {
-            CommandError.Write("--il-offset cannot be combined with --il-offsets.");
+            CommandError.Write(
+                options.IsCoordinateCommand
+                    ? "library coordinate accepts either one exact coordinate "
+                        + "or --file, not both."
+                    : "--il-offset cannot be combined with --il-offsets.");
             return 1;
         }
 
-        // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
-        // section filter to make --count meaningful.
+        // Coordinate file mode counts resolved coordinate rows, not section rows, so it does not
+        // need a section filter to make --count meaningful.
         var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
         if (ilOffsetsBatchMode && options.SelectExplicitlySet)
         {
+            string requestName = options.IsCoordinateCommand
+                ? "library coordinate --file"
+                : "--il-offsets";
             CommandError.Write(
-                "-S/--select is not available with --il-offsets, which renders "
+                $"-S/--select is not available with {requestName}, which renders "
                 + "its own payload rather than sections.");
             return 1;
         }
@@ -1531,15 +1538,16 @@ public class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (!File.Exists(options.ILOffsetsPath))
+        ILCoordinatePopulationOutcome populationOutcome =
+            options.ILCoordinatePopulation is { } admittedPopulation
+                ? ILCoordinatePopulationOutcome.Success(admittedPopulation)
+                : ILOffsetQuery.ReadPopulation(options.ILOffsetsPath!);
+        if (!populationOutcome.Succeeded)
         {
-            CommandError.Write($"IL offsets file not found: {options.ILOffsetsPath}");
-            return 1;
-        }
-
-        if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var readErrors, out var error))
-        {
-            CommandError.Write(error!);
+            CommandError.Write(
+                ILOffsetQuery.PopulationFailureMessage(
+                    populationOutcome.Failure!,
+                    options.IsCoordinateCommand));
             return 1;
         }
 
@@ -1547,15 +1555,43 @@ public class LibraryCommand
             ? [.. options.IncludeSections]
             : [.. BatchCoordinateSections];
 
-        var rows = readErrors
-            .Select(errorRow => new ILCoordinateBatchRow(null, errorRow.Label, null, null, "error", errorRow.Error))
-            .ToList();
-        using var service = subject.OpenSourceLink(logger.Log);
-        foreach (var coordinate in coordinates)
+        IEnumerable<ILCoordinatePopulationRecord> records =
+            populationOutcome.Population!.Records;
+        if (!options.IsCoordinateCommand)
         {
+            records =
+                records
+                    .OrderBy(
+                        record =>
+                            record
+                                is ILCoordinatePopulationRecord.Malformed
+                                    ? 0
+                                    : 1)
+                    .ThenBy(record => record.LineNumber);
+        }
+
+        var rows = new List<ILCoordinateBatchRow>();
+        using var service = subject.OpenSourceLink(logger.Log);
+        foreach (ILCoordinatePopulationRecord record in records)
+        {
+            if (record is ILCoordinatePopulationRecord.Malformed malformed)
+            {
+                rows.Add(
+                    new ILCoordinateBatchRow(
+                        null,
+                        malformed.Label,
+                        null,
+                        null,
+                        "error",
+                        malformed.Error));
+                continue;
+            }
+
+            var coordinate =
+                (ILCoordinatePopulationRecord.Coordinate)record;
             var queryOptions = options with
             {
-                ILOffsetParameter = coordinate.Coordinate,
+                ILOffsetParameter = coordinate.Value,
                 IncludeSections = sections,
                 Select = [.. sections],
                 Discover = null,
@@ -1575,7 +1611,7 @@ public class LibraryCommand
                 logger);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
-                : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
+                : new ILCoordinateBatchRow(coordinate.Value, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
@@ -1585,7 +1621,9 @@ public class LibraryCommand
         // non-zero exit remains the signal that some coordinate did not resolve.
         if (LensProjection.TryProject(
                 options,
-                "--il-offsets",
+                options.IsCoordinateCommand
+                    ? "library coordinate --file"
+                    : "--il-offsets",
                 visibleRows.Count,
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
@@ -1597,7 +1635,8 @@ public class LibraryCommand
         WriteILCoordinateBatchRows(
             [.. visibleRows],
             options with { Rows = null });
-        return batchExitCode;    }
+        return batchExitCode;
+    }
 
     private static readonly string[] BatchCoordinateSections =
     [
@@ -1611,48 +1650,13 @@ public class LibraryCommand
         SectionNames.CostContext
     ];
 
-    private static bool TryReadILCoordinates(string path, out List<ILCoordinateInput> coordinates, out List<ILCoordinateReadError> readErrors, out string? error)
-    {
-        coordinates = [];
-        readErrors = [];
-        error = null;
-        var lineNumber = 0;
-        foreach (var rawLine in File.ReadLines(path))
-        {
-            lineNumber++;
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#'))
-                continue;
-            var tokens = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            var coordinateIndex = Array.FindIndex(tokens, token => ILOffsetQuery.TryParse(token, out _, out _));
-            if (coordinateIndex < 0)
-            {
-                readErrors.Add(new ILCoordinateReadError($"{path}:{lineNumber}", "expected a MethodDef token + IL offset coordinate"));
-                continue;
-            }
-
-            var labelTokens = tokens
-                .Where((_, index) => index != coordinateIndex)
-                .ToArray();
-            coordinates.Add(new ILCoordinateInput(
-                tokens[coordinateIndex],
-                labelTokens.Length == 0 ? null : string.Join(' ', labelTokens)));
-        }
-
-        if (coordinates.Count == 0 && readErrors.Count == 0)
-        {
-            error = $"{path} did not contain any IL coordinates.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static ILCoordinateBatchRow BuildILCoordinateBatchRow(ILCoordinateInput input, ILOffsetProjection result)
+    private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
+        ILCoordinatePopulationRecord.Coordinate input,
+        ILOffsetProjection result)
     {
         var (meaning, evidence) = ExplainILCoordinate(result);
         return new ILCoordinateBatchRow(
-            input.Coordinate,
+            input.Value,
             input.Label,
             result.Method,
             FormatBatchOffset(result),
@@ -3769,10 +3773,6 @@ internal abstract record LibraryInspectionSubjectSelection
     internal sealed record Rejected(CandidateOpenFailure Failure)
         : LibraryInspectionSubjectSelection;
 }
-
-internal sealed record ILCoordinateInput(string Coordinate, string? Label);
-
-internal sealed record ILCoordinateReadError(string Label, string Error);
 
 internal sealed record ILCoordinateBatchResult(List<ILCoordinateBatchRow> Rows);
 
