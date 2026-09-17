@@ -23,6 +23,10 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import type {
+  BrowserPackageLoadResult,
+  BrowserPackageSurface,
+} from "../src/facades/inspect-web-package.d.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -389,6 +393,130 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "superseded",
   ]);
   assert.equal(cleared, 1);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("ordinary package transport preserves settled and NotSettled baselines", async () => {
+  const surface = {
+    package: "System.Text.Json",
+    version: "8.0.5",
+    frameworks: [],
+    activeFramework: "",
+    icon: null,
+    defaultAssemblyId: null,
+    compileLibrary: {
+      status: "NoCompileAssets",
+      targetFramework: null,
+      message: null,
+    },
+    assemblies: [],
+    types: [],
+    accessibility: [],
+    totalMembers: 0,
+    documents: [],
+    inspectionErrors: [],
+    inspectionError: null,
+  } satisfies BrowserPackageSurface;
+  const settled = {
+    versionSettlement: {
+      content: {
+        kind: "Settled",
+        result: {
+          request: {
+            packageId: "system.text.json",
+            version: null,
+          },
+          coordinate: {
+            packageId: "system.text.json",
+            version: "8.0.5",
+          },
+          includePrerelease: false,
+          freshness: "RefreshedForRequest",
+          listings: [{ version: "8.0.5", listed: true }],
+          sourceListings: [{
+            version: "8.0.5",
+            feed: "nuget.org",
+            listed: true,
+          }],
+        },
+        failure: null,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [{
+        code: "package-version-settlement.source-failure",
+        severity: "Warning",
+        summary: "A neighboring source was unavailable.",
+        correspondence: null,
+      }],
+    },
+    surface,
+  } satisfies BrowserPackageLoadResult;
+  const notSettled = {
+    versionSettlement: {
+      content: {
+        kind: "NotSettled",
+        result: null,
+        failure: {
+          request: {
+            packageId: "missing.package",
+            version: null,
+          },
+          kind: "NotFound",
+          reason: "No configured source contains the package.",
+          operationTimedOut: false,
+          authorityFailures: [{
+            authority: "nuget.org",
+            kind: "NotFound",
+            message: "The package was not found.",
+            timeoutKind: null,
+          }],
+        },
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    surface: null,
+  } satisfies BrowserPackageLoadResult;
+  const state = fixture({
+    package: {
+      queryPackage: async packageId =>
+        packageId === "Missing.Package"
+          ? notSettled
+          : settled,
+    },
+  });
+
+  const settledResult = state.client.package.queryPackage(
+    "System.Text.Json",
+    "latest",
+    "net10.0",
+  );
+  const notSettledResult = state.client.package.queryPackage(
+    "Missing.Package",
+    "latest",
+    "net10.0",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await settledResult, settled);
+  assert.deepEqual(
+    (await settledResult).versionSettlement,
+    settled.versionSettlement);
+  assert.deepEqual(await notSettledResult, notSettled);
+  assert.equal((await notSettledResult).surface, null);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });

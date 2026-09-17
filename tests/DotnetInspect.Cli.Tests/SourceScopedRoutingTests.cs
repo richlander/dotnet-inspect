@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using NuGetFetch.Plugins;
@@ -658,35 +659,32 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task LatestVersionSettlement_PreservesHouseReceiptAfterCompositionCloses()
+    public async Task LatestVersionSettlement_PreservesEnvelopeAfterCompositionCloses()
     {
         const string PackageName = "System.Text.Json";
         string local = Path.Combine(_testRoot, "latest-house");
         WriteLocalPackage(local, PackageName, "8.0.5");
         WriteLocalPackage(local, PackageName, "9.0.0-preview.7.24405.7");
-        PackageHouseResult result;
-        var selection = new PackageVersionSelectionRequest.AlwaysLatest(
-            PackageName, includePrerelease: false);
+        InspectionEnvelope<PackageVersionSettlementOutcome> envelope;
         await using (var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5)))
         {
-            result = await composition.SettleVersionAsync(
-                selection,
-                new NuGetSourceOptions { Sources = [local] },
-                cancellationToken: TestContext.Current.CancellationToken);
+            using var operation = composition.IssueSettlementOperation(
+                TestContext.Current.CancellationToken);
+            envelope = await PackageVersionSettlementInspection.ExecuteAsync(
+                new PackageCoordinate(PackageName),
+                composition.CreateSettlementHouse(
+                    PackageName, new NuGetSourceOptions { Sources = [local] }),
+                operation);
         }
 
-        var settled = Assert.IsType<PackageHouseResult.Settled>(result);
-        var demand = Assert.IsType<PackageHouseDemand.Selecting>(settled.Request.Demand);
-        Assert.Same(selection, demand.Request);
-        Assert.Equal(PackageHouseOperationProfile.Settle, settled.Request.Operation.Profile);
-        var receipt = Assert.IsType<PackageVersionResolutionReceipt.Resolved>(
-            settled.Decision!.VersionResolution);
-        Assert.Equal("8.0.5", receipt.Coordinate.Version);
-        Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, receipt.Freshness);
-        Assert.Single(receipt.Candidate.Authorities);
-        Assert.Null(settled.Evidence.Acquisition);
-        Assert.Null(settled.Evidence.Realization);
+        var settled = Assert.IsType<PackageVersionSettlementOutcome.Settled>(envelope.Content);
+        Assert.Equal("8.0.5", settled.Result.Coordinate.Version);
+        Assert.Equal("system.text.json", settled.Result.Request.PackageId);
+        Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, settled.Result.Freshness);
+        Assert.Single(settled.Result.SourceListings);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
     }
 
     [Theory]
