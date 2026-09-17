@@ -39,7 +39,10 @@ The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
 dormant non-Package inventory while leaving query-bearing packets visibly
-unsupported until #6971. Issue
+unsupported until #6971. Schema-version-3 registration records, packet format
+3, registration-only complete restoration, and the shared managed Browser
+boundary are implemented under
+[#7385](https://github.com/richlander/dotnet-inspect/issues/7385). Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 host-neutral complete-restoration coordinator that consumes #7047's typed
 schema-version dispatch and validation boundary, rejects earlier versions
@@ -625,8 +628,10 @@ Implementation proceeds in focused slices:
    3 for Package membership and every portable registration arm, with canonical
    managed-codec round trips, Browser JS-export/TypeScript transport
    conformance, registration-only restoration, and visible unsupported-version
-   behavior. A scanner-bearing Ecosystem requires the separately owned portable
-   scanner contract before it becomes projectable.
+   behavior. Implemented under
+   [#7385](https://github.com/richlander/dotnet-inspect/issues/7385). A
+   scanner-bearing Ecosystem requires the separately owned portable scanner
+   contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
    realization when no transformation needs it.
@@ -2285,13 +2290,10 @@ codec implementations.
 
 #### Version admission
 
-The current implementation accepts only schema version 2 and canonical packet
-format 2. Until the format-3 adoption slice lands, schema-version-3 definition
-compositions and format-3 packets return `UnsupportedVersion`. The target
-restoration dispatcher accepts exact version-2/format-2 and
-version-3/format-3 pairs through separate typed branches. It never combines a
-version-2 record with a version-3 peer or accepts a packet/record version
-mismatch.
+The current implementation accepts exact schema-version-2/packet-format-2 and
+schema-version-3/packet-format-3 pairs through separate typed restoration
+branches. It never combines a version-2 record with a version-3 peer or accepts
+a packet/record version mismatch.
 
 A schema-version-1 definition composition or canonical format-1 packet returns
 `UnsupportedVersion` before any Workspace, Root, Scope, reader, session, lease,
@@ -2315,11 +2317,11 @@ same peer shapes at version 3 plus the Workspace registration vector.
 ### Complete restoration
 
 Complete restoration first classifies one workspace-backed definition or
-packet. The current implementation continues only schema version 2 and
-canonical packet format 2. The target version dispatcher also continues exact
-schema-version-3/packet-format-3 input through its separate branch. Each such
-Workspace is constructed solely from its own definition; no other Workspace or
-Workspace definition participates. Unsupported versions return
+packet. The current implementation continues exact
+schema-version-2/packet-format-2 and schema-version-3/packet-format-3 input
+through separate branches. Each such Workspace is constructed solely from its
+own definition; no other Workspace or Workspace definition participates.
+Unsupported versions return
 `UnsupportedVersion` before construction. Workspace-free scenarios remain
 outside this operation and execute through their source or query owner.
 

@@ -90,15 +90,17 @@ public sealed class InspectionDefinitionRegistry
         if (scenario.SchemaVersion != InspectionDefinitionSchema.Version1)
         {
             throw new InspectionDefinitionException(
-                $"Scenario '{scenarioId}' uses schema version 2 and requires portable selector resolution.");
+                $"Scenario '{scenarioId}' uses schema version "
+                    + $"{scenario.SchemaVersion} and requires portable selector resolution.");
         }
 
         return ResolveVersion1Scenario(scenario);
     }
 
     /// <summary>
-    /// Performs strict schema dispatch and resource-free composition. Version 2
-    /// remains unresolved until the portable selector-resolution participant.
+    /// Performs strict schema dispatch and resource-free composition. Versions
+    /// 2 and 3 remain unresolved until the portable selector-resolution
+    /// participant.
     /// </summary>
     public InspectionDefinitionScenarioPreparationResult PrepareScenario(
         string scenarioId) =>
@@ -129,7 +131,8 @@ public sealed class InspectionDefinitionRegistry
             scenario,
             records.Workspace as WorkspaceDefinition);
         ValidateNavigationIds(records.Navigation);
-        if (scenario.SchemaVersion == InspectionDefinitionSchema.Version2)
+        if (scenario.SchemaVersion is InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3)
         {
             CommittedScenarioDefinitionSet committed =
                 CreateCommittedScenario(records, targetMatchMode);
@@ -137,8 +140,11 @@ public sealed class InspectionDefinitionRegistry
                 records.Workspace as WorkspaceDefinition,
                 records.Navigation,
                 targetMatchMode);
-            return new InspectionDefinitionScenarioPreparationResult.Version2(
-                committed);
+            return scenario.SchemaVersion == InspectionDefinitionSchema.Version2
+                ? new InspectionDefinitionScenarioPreparationResult.Version2(
+                    committed)
+                : new InspectionDefinitionScenarioPreparationResult.Version3(
+                    committed);
         }
 
         return new InspectionDefinitionScenarioPreparationResult.Version1(
@@ -323,6 +329,11 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown context "
                         + $"'{scenario.Context}' in workspace '{workspace.Id}'.");
             }
+        }
+        else if (workspace.Contexts.Count == 0
+            && workspace.SchemaVersion == InspectionDefinitionSchema.Version3)
+        {
+            return;
         }
         else if (workspace.Contexts.Count != 1)
         {
@@ -858,7 +869,7 @@ public sealed class InspectionDefinitionRegistry
         if (records.Navigation is not null && navigation is null)
         {
             throw new InspectionDefinitionException(
-                $"Scenario '{scenario.Id}' requires a schema-version-2 navigation record.");
+                $"Scenario '{scenario.Id}' requires a committed navigation record.");
         }
 
         CommittedViewDefinition? view =
@@ -866,13 +877,13 @@ public sealed class InspectionDefinitionRegistry
         if (records.View is not null && view is null)
         {
             throw new InspectionDefinitionException(
-                $"Scenario '{scenario.Id}' requires a schema-version-2 committed view record.");
+                $"Scenario '{scenario.Id}' requires a committed view record.");
         }
 
         if (records.Query is not null)
         {
             throw new InspectionDefinitionException(
-                $"Scenario '{scenario.Id}' cannot reference a schema-version-2 query in the query-free record slice.");
+                $"Scenario '{scenario.Id}' cannot reference a committed query in the query-free record slice.");
         }
 
         if (workspace is not null && (navigation is null || view is null))
@@ -1040,7 +1051,7 @@ public sealed class InspectionDefinitionRegistry
     internal static WorkspacePlan CreateWorkspacePlan(
         WorkspaceDefinition workspace) =>
         new(
-            [],
+            [.. workspace.Registrations],
             workspace.Contexts
                 .Select(context => ResolveContextInput(workspace, context))
                 .ToArray());
@@ -1171,6 +1182,10 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     public sealed record Version2(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record Version3(
+        CommittedScenarioDefinitionSet Definitions)
+        : InspectionDefinitionScenarioPreparationResult;
 }
 
 /// <summary>
@@ -1224,7 +1239,7 @@ public sealed class Version1ScenarioDefinitionSet
 }
 
 /// <summary>
-/// Strictly composed schema-version-2 records before runtime selector
+/// Strictly composed schema-version-2-or-3 records before runtime selector
 /// resolution.
 /// </summary>
 public sealed class CommittedScenarioDefinitionSet
