@@ -14,9 +14,12 @@ boundary of issue
 
 The executable model is under
 [`models/navigation-scope-operation-consumption/`](models/navigation-scope-operation-consumption/).
-It is bounded design evidence, not C# implementation conformance. The
-Navigation API, producer integration, CLI adoption, and Browser/Wasm adoption
-described below remain **unverified** until their named Release gates land.
+It is bounded design evidence, not C# implementation conformance. The shared
+Navigation producer boundary is implemented by
+`NavigationTransitions.AcceptScopeOperation`, `EvaluateScopeOperation`, and
+`CompleteScopeOperation`. CLI adoption, Browser/Wasm adoption, and the real
+source-retiring Type/Member correspondence orchestration described below remain
+**unverified** until their named Release gates land.
 
 The adjacent
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md)
@@ -28,8 +31,7 @@ publication policy.
 
 ## Demo
 
-The intended shared C# composition is shown below. Every `NavigationTransitions`
-member marked `SKETCH` is unimplemented:
+The shared C# composition is:
 
 ```csharp
 WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
@@ -38,29 +40,38 @@ WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
     deadline,
     workspace.CreateScopePackageTarget(destinationBinding));
 
-// SKETCH: compute and commit against the exact host-current NavigationState.
 NavigationTransition accepted = NavigationTransitions.AcceptScopeOperation(
     currentNavigation,
-    request.Association,
-    requestedNavigationIntent);
+    request.Association);
+if (accepted.AdmissionRefusal is { } refusal)
+    return refusal;
 if (!NavigationTransitions.CanCommit(currentNavigation, accepted))
     return StaleAcceptance;
 currentNavigation = accepted.State;
 
-// SKETCH: a second command returns Refused before submission or new intent.
-NavigationAdmission later = NavigationTransitions.TryBegin(
-    currentNavigation, anotherSubject);
+// A second command returns a typed refusal before new intent or work.
+NavigationTransition later = NavigationTransitions.Begin(
+    currentNavigation,
+    anotherAction);
+if (later.AdmissionRefusal is not null)
+    ReportRefusal(later.AdmissionRefusal); // Does not abandon the accepted operation.
 
 WorkspaceScopeOperationResult scopeResult =
     await workspace.SubmitScopeRequestAsync(request, cancellationToken);
 
-// SKETCH: invocation-local preparation consumes the complete Scope result.
-NavigationScopePreparation prepared = await PrepareNavigationAsync(scopeResult);
+// Acquisition and matching remain invocation-local.
+NavigationScopePreparation prepared =
+    await PrepareNavigationAsync(scopeResult);
+NavigationScopeEvaluationResult evaluated =
+    NavigationTransitions.EvaluateScopeOperation(
+        accepted.ScopeWork!,
+        scopeResult,
+        prepared,
+        registry);
 NavigationTransition completed = NavigationTransitions.CompleteScopeOperation(
     currentNavigation,
-    request.Association,
-    scopeResult,
-    prepared);
+    accepted.ScopeWork!,
+    evaluated);
 if (NavigationTransitions.CanCommit(currentNavigation, completed))
     currentNavigation = completed.State;
 ```
@@ -251,27 +262,37 @@ defining-Library context are finite owner-supplied values. Bounded TLC success
 establishes properties of this specification, not unbounded proof or
 implementation conformance.
 
-## Planned implementation gates
+## Production implementation gates
 
-The following Release gate families are necessary and remain **unverified**:
+The PR-fast Release gates are in `NavigationScopeOperationTests`.
+Each method name below is prefixed with `ProtectedScope_`:
 
-- `ProtectedScope_AcceptanceCommitsExactCurrentSlotBeforeSubmission`
-- `ProtectedScope_LaterCommandsRefuseWithoutIntentActionOrEffectChange`
-- `ProtectedScope_AcceptanceInvalidatesStaleWorkAndEffectAuthority`
-- `ProtectedScope_OnlyOriginalAssociationCanSettleAndRelease`
-- `ProtectedScope_ConsumesEveryCompleteCurrentSettlementSnapshot`
-- `ProtectedScope_UnavailableRetainsHistoricalEvidenceWithoutCurrentAuthority`
-- `ProtectedScope_CancellationControlCannotManufactureSettlement`
-- `ProtectedScope_ExplicitDuplicateUsesExactRequestedOccurrence`
-- `ProtectedScope_MembershipPreparationFailurePublishesCurrentFailure`
-- `ProtectedScope_ForwardedTypePublishesPreparedDefiningLibraryContext`
-- `ProtectedScope_UsesExistingRevisionGenerationAuthorityAndReceipt`
-- `ProtectedScope_RetainedStateAndResultsDoNotRetainInvocationAuthority`
+| Owned claim | Test method |
+| --- | --- |
+| Acceptance before effects; exact current-slot commit; later-command refusal; stale work/authority invalidation; queue identity retention | `AcceptanceCommitsExactCurrentSlotBeforeSubmission` |
+| Original association and exact attempt govern settlement/release | `OnlyOriginalAssociationCanSettleAndRelease` |
+| Every complete current settlement arm is consumed | `ConsumesEveryCompleteCurrentSettlementSnapshot` |
+| Per-request `NoEffect` does not authorize retaining old inventory | `NoEffectConsumesNewerInventoryThanNavigation` |
+| Historical unavailability persists through later admission and maintenance | `UnavailableRetainsHistoricalEvidenceWithoutCurrentAuthority` |
+| Cancellation control cannot settle mutation; control failures remain visible | `CancellationControlCannotManufactureSettlement` |
+| Explicit duplicate activation uses the exact requested occurrence; no-intent duplicates preserve Workspace selection | `ExplicitDuplicateUsesExactRequestedOccurrence`, `DuplicateHonorsActivationWithRetainedWorkspaceContext` |
+| The retained request, not its effective fallback or availability, preserves inspector intent | `RetainsUnavailableExactInspectorRequest` |
+| Membership-preparation failure publishes current membership and typed failure | `MembershipPreparationFailurePublishesCurrentFailure` |
+| Semantic revision, generation, effect authority, installation, and composite acknowledgement remain distinct | `ConsumesEveryCompleteCurrentSettlementSnapshot`, `MembershipPreparationFailurePublishesCurrentFailure` |
+| Retained state/results erase invocation resources | `RetainedStateAndResultsDoNotRetainInvocationAuthority` |
 
-Producer adoption must exercise product-issued Scope results rather than
-constructing successful result arms in a test harness. The real gates use
-`System.Text.Json@10.0.0` for duplicate Add and the pinned Avalonia pair for
-forwarded Type and defining-Library retention.
+These gates exercise product-issued Scope results rather than constructing
+successful result arms in a test harness. The explicit duplicate gate uses the
+pinned `System.Text.Json@10.0.0` archive. The producer retains only the exact
+Scope association, detached Navigation basis, and resource-free outcome.
+
+`ProtectedScope_ForwardedTypePublishesPreparedDefiningLibraryContext` remains
+**unverified**. The producer accepts exact destination
+`NavigationInitialization` and prepared Package facts, but the real
+`Avalonia@11.3.14 -> 12.1.2/net8.0` source-retiring observation and lifetime
+strategy must be supplied by the separate correspondence orchestration slice.
+That work must not retain the source Package as an extra user-visible
+participant.
 
 The correspondence query currently accesses both exact observed Roots in one
 Workspace. Producer integration must establish the observation and lifetime
@@ -285,8 +306,9 @@ The approved #7061 path under #5512 remains six capability steps:
 
 1. Navigation retention policy.
 2. Shared correspondence producers.
-3. Protected Navigation adoption: this checked contract/model, then producer
-   integration and exact API-retention wiring.
+3. Protected Navigation adoption: this checked contract/model and shared
+   producer boundary are implemented; source-retiring correspondence
+   orchestration and exact retained API integration remain.
 4. CLI retained-result adoption in #5513.
 5. Browser descriptors and coordinate controls in #5510.
 6. Browser complete-result installation in #5511.
@@ -310,8 +332,7 @@ This contract does not define or implement:
 - Scope request construction, validation, admission, mutation, cancellation,
   successor selection, or Artifact publication;
 - Type, Member, forwarding, correspondence, Registry, or lens algorithms;
-- C# or TypeScript APIs, serialization of runtime identities, or retained
-  services;
+- TypeScript APIs, serialization of runtime identities, or retained services;
 - Browser focus, history, accessibility, rendering, or operation control;
 - CLI command behavior or output;
 - complete Workspace restoration or realization cutover; or

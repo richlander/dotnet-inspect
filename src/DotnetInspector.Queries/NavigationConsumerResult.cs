@@ -6,6 +6,7 @@ namespace DotnetInspector.Queries;
 public enum NavigationOperationKind
 {
     Initialize,
+    Scope,
     Subject,
     Package,
     RetainedType,
@@ -46,6 +47,7 @@ public enum NavigationRejectionKind
     ForeignLibrary,
     NonDescendant,
     Registry,
+    ScopeOperation,
 }
 
 public enum NavigationFailureSource
@@ -87,6 +89,38 @@ public enum NavigationRealizationKind
     Pending,
     Failed,
 }
+
+public enum NavigationScopeSnapshotKind
+{
+    Current,
+    Historical,
+}
+
+public enum NavigationScopeSettlementKind
+{
+    Committed,
+    NoEffect,
+    Rejected,
+    Failed,
+    Cancelled,
+    Superseded,
+    Unavailable,
+}
+
+/// <summary>
+/// Whether the projected membership is current or retained only as historical
+/// evidence after Scope runtime unavailability.
+/// </summary>
+public sealed record NavigationConsumerScopeStatus(
+    NavigationScopeSnapshotKind Kind,
+    ArtifactRootFailure? RuntimeFailure = null);
+
+/// <summary>Typed Scope settlement details retained by a Navigation result.</summary>
+public sealed record NavigationConsumerScopeOutcome(
+    NavigationScopeSettlementKind Kind,
+    WorkspaceScopeOperationKind Operation,
+    WorkspaceScopeRejection? Rejection = null,
+    ArtifactRootFailure? Failure = null);
 
 /// <summary>Transport currency only. None of these strings is a portable subject identity.</summary>
 public sealed record NavigationAction(
@@ -211,6 +245,7 @@ public sealed record NavigationConsumerDiagnostic(
 /// </summary>
 public sealed record NavigationConsumerSnapshot(
     string Generation,
+    NavigationConsumerScopeStatus Scope,
     NavigationConsumerSubject Workspace,
     string? ActivePackage,
     NavigationConsumerSubject ActiveSubject,
@@ -235,14 +270,17 @@ public sealed record NavigationConsumerOutcome(
     NavigationFailureSource? FailureSource = null,
     string? Message = null,
     NavigationConsumerRequest? Request = null,
-    NavigationConsumerResolution? Resolution = null)
+    NavigationConsumerResolution? Resolution = null,
+    NavigationConsumerScopeOutcome? Scope = null)
 {
     public ImmutableArray<NavigationConsumerDiagnostic> Diagnostics { get; init; } = [];
 }
 
 /// <summary>
 /// Every current result carries fresh authority and the complete installed projection.
-/// Superseded completions have no authority and authorize no consumer effect.
+/// Stale ordinary Navigation completions have no authority. A correlated Scope
+/// Superseded settlement is current membership evidence and carries authority
+/// for that complete projection.
 /// </summary>
 public sealed record NavigationConsumerResult(
     NavigationOperationKind Operation,
