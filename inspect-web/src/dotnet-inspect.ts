@@ -482,7 +482,7 @@ import {
   createQueryRequest,
   initialQueryState,
   shouldExecuteQuery,
-  toggleFacet,
+  togglePreset,
   replaceTerm,
   withTerm,
   withoutTerm,
@@ -490,7 +490,7 @@ import {
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
-  type QueryFacetTerm,
+  type QueryPreset,
   type QueryRequest,
   type QuerySourceSelection,
   type QueryTermDescriptor,
@@ -966,7 +966,7 @@ const initialState = {
   packageActivityReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryInspection: null,
-  packageQueryFacets: [],
+  packageQueryPresets: [],
   packageQueryTerms: [],
   packageChangesPackageSets: [],
   packageChangesState: initialPackageChangesState(),
@@ -1202,7 +1202,7 @@ interface StateOverrides {
   packageChangesPackageSets: BrowserPackageChangesPackageSetDescriptor[];
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
-  packageQueryFacets: QueryFacetTerm[];
+  packageQueryPresets: QueryPreset[];
   packageQueryTerms: QueryTermDescriptor[];
   packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: PackageQueryReturnFocus | null;
@@ -1543,7 +1543,7 @@ function captureRetainedHostState() {
       state.packageActivityReturnFocusPending,
     packageQueryState: state.packageQueryState,
     packageQueryInspection: state.packageQueryInspection,
-    packageQueryFacets: state.packageQueryFacets,
+    packageQueryPresets: state.packageQueryPresets,
     packageQueryTerms: state.packageQueryTerms,
     packageChangesPackageSets: state.packageChangesPackageSets,
     packageChangesState: state.packageChangesState,
@@ -1983,7 +1983,6 @@ const packageQueryController = createPackageQueryController(
     run: (
       operationId,
       prefix,
-      facetIdsJson,
       termsJson,
       maximumCandidates,
       maximumMatches,
@@ -1993,7 +1992,6 @@ const packageQueryController = createPackageQueryController(
     ) => inspectRunPackageQuery(
       operationId,
       prefix,
-      facetIdsJson,
       termsJson,
       maximumCandidates,
       maximumMatches,
@@ -12378,19 +12376,19 @@ function changePackageQuerySource(
   submitPackageQueryRequest(withSourceSelection(request, selection));
 }
 
-function togglePackageQueryFacet(facetKey: string, text: string) {
-  const facet = state.packageQueryFacets.find(
-    candidate => candidate.key === facetKey);
-  if (!facet) {
+function togglePackageQueryPreset(presetId: string, text: string) {
+  const preset = state.packageQueryPresets.find(
+    candidate => candidate.id === presetId);
+  if (!preset) {
     state.packageQueryNavigationError =
-      "The selected package-query facet is unavailable.";
+      "The selected package-query fact is unavailable.";
     render();
     focusPackageQueryInput();
     return;
   }
 
   const current = preparePackageQueryControlRequest(text);
-  submitPackageQueryRequest(toggleFacet(current, facet));
+  submitPackageQueryRequest(togglePreset(current, preset));
 }
 
 function addPackageQueryTerm(termKey: string) {
@@ -12587,7 +12585,7 @@ async function openPackageQueryRow(
 const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
-  onFacetToggle: togglePackageQueryFacet,
+  onPresetToggle: togglePackageQueryPreset,
   onTermAdd: addPackageQueryTerm,
   onTermApply: applyPackageQueryTerm,
   onTermEdit: editPackageQueryTerm,
@@ -12704,7 +12702,7 @@ function renderPackageQueryPage() {
   app.innerHTML = renderPackageQueryView({
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
-    availableFacets: state.packageQueryFacets,
+    availablePresets: state.packageQueryPresets,
     availableTerms: state.packageQueryTerms,
     navigationError: [
       state.packageQueryCatalogError,
@@ -16557,10 +16555,10 @@ async function bootstrap() {
     try {
       const catalog =
         packageQueryCatalog(await engineClient.package.listPackageQueryCatalog());
-      state.packageQueryFacets = catalog.facets;
+      state.packageQueryPresets = catalog.presets;
       state.packageQueryTerms = catalog.terms;
     } catch (error) {
-      state.packageQueryFacets = [];
+      state.packageQueryPresets = [];
       state.packageQueryTerms = [];
       state.packageQueryCatalogError =
         `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
