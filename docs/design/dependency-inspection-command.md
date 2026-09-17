@@ -1259,22 +1259,40 @@ this wrapper:
 
 ```text
 TypeDependencyGraphContent
-  Graph: InspectionGraphDocument
+  Outcome: Available | NotFound | Ambiguous | Unavailable
+  Graph: InspectionGraphDocument? // Available only
   Participants: ordered TypeDependencyGraphParticipantOutcome[]
-  RowSelection: TypeDependencyGraphRowSelection
+  RowSelection: NotApplicable | Selected | Failed
 ```
 
-`Graph` is the complete unwindowed topology. Each participant outcome preserves
-the owner-issued subject identity and provenance plus completed or rejected
-status and any typed failure. `RowSelection` preserves the requested selection
-order as stable Graph edge identities or one typed semantic-selection failure;
-it does not replace or truncate `Graph`.
+`Available` requires one resolved owner-issued Type seed and a non-null complete
+unwindowed `Graph`. `NotFound`, `Ambiguous`, and `Unavailable` require
+`Graph = null`; they retain their typed outcome instead of fabricating a seed
+from user text. `Unavailable` includes the all-participants-rejected case.
+
+Each participant outcome preserves the owner-issued subject identity and
+provenance plus completed or rejected status and any typed failure.
+`RowSelection.Selected` preserves the requested selection order as stable Graph
+edge identities; `Failed` preserves the typed semantic-selection failure; and
+`NotApplicable` is used when no available Graph exists. Selection never
+replaces or truncates `Graph`.
 
 Human graph, table, and row projections consume `RowSelection` against
 `Graph`. Unprojected JSON and envelope Content serialize the complete wrapper,
 so both expose identical topology, participant, provenance, and selection
 semantics. The wrapper is Dependency-owned; this migration does not add
 participant or selection fields to shared `InspectionGraphDocument`.
+
+The replacement envelope registers:
+
+```text
+result_kind: "type-graph"
+schema_version: 1
+content: TypeDependencyGraphContent
+```
+
+It does not reuse `type-dependencies` version 1. Plain `--json` serializes the
+same `TypeDependencyGraphContent` without envelope framing.
 
 Structural discovery uses the Graph section and field schemas rather than the
 Dependency section catalog.
@@ -1292,7 +1310,8 @@ relationship set into `Graph`, ordered participant outcomes into
 `Participants`, and selected relationship ordinals into stable Graph edge
 identities in `RowSelection`. A selection failure produces no selected edge
 identities and retains its typed stage, required position, available count, and
-row-set identity.
+row-set identity. Missing, ambiguous, and unavailable requests retain their
+typed `Outcome`, participant evidence, nonzero exit status, and null Graph.
 
 Separate before/after machine-contract fixtures prove that the old
 `TypeDependencySectionResult` schema and structural discovery remain stable
@@ -1300,10 +1319,13 @@ until retirement and that the replacement emits the versioned
 `TypeDependencyGraphContent` schema with equivalent complete topology,
 participant/provenance, and row-selection outcomes. A fixture with two
 relationships and `--rows 2..2` proves that `Graph` retains both edges while
-`RowSelection` names exactly the second. A separate target-only gate proves
-bounded effective discovery. Byte-for-byte rendering, old section names, old
-row fields, and the old JSON or envelope content type are intentionally not
-parity requirements.
+`RowSelection` names exactly the second. Missing-Type, ambiguous-Type, and
+all-participants-rejected fixtures prove null Graph, typed Outcome, preserved
+participants, and nonzero status without constructing a seed. Envelope
+fixtures assert `result_kind: "type-graph"` and `schema_version: 1`. A separate
+target-only gate proves bounded effective discovery. Byte-for-byte rendering,
+old section names, old row fields, and the old JSON or envelope content type
+are intentionally not parity requirements.
 
 `graph dependencies` adopts the complete asset dependency mode. It does not
 construct a Workspace, consume a Workspace packet, or convert the Dependency
@@ -1432,7 +1454,7 @@ targeted Debug-build probe.
 | Claim | Gate |
 | --- | --- |
 | `type graph` source options remain search scopes; bare `--platform` selects all Platform frameworks; valued `--platform <library>` selects one Platform library; TFM-only input refines the implicit Platform default without suppressing it; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; bare `--platform`; valued `--platform System.Private.CoreLib`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; `--tfm net10.0` with no explicit source; explicit source plus `--tfm`; and rejected cross-route gestures. |
-| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, participant completion/rejection and provenance, row-selection outcomes, typed failures, exit status, and output-format classes while intentionally replacing the `TypeDependencySectionResult` JSON/envelope with `TypeDependencyGraphContent` and Dependency structural discovery with Graph discovery. | Fixed-fixture before/after Release contracts for text, Markdown, table, JSON, envelope, and structural discovery; machine fixtures assert complete `Graph`, ordered `Participants`, and `RowSelection`, including two relationships with only the second selected and typed strict-window failure; obsolete selected-Type section and field names reject with discovery guidance. |
+| Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, participant completion/rejection and provenance, row-selection outcomes, typed failures, exit status, and output-format classes while intentionally replacing the `TypeDependencySectionResult` JSON/envelope with `TypeDependencyGraphContent` and Dependency structural discovery with Graph discovery. | Fixed-fixture before/after Release contracts for text, Markdown, table, JSON, envelope, and structural discovery; machine fixtures assert complete `Graph`, ordered `Participants`, and `RowSelection`, including two relationships with only the second selected and typed strict-window failure; missing, ambiguous, and unavailable cases assert typed Outcome with null Graph and preserved participants; envelope fixtures assert result kind `type-graph` schema version 1; obsolete selected-Type section and field names reject with discovery guidance. |
 | Type Graph effective discovery is a new bounded capability rather than a claimed old/new migration surface. | Target-only Release gate for effective Graph discovery plus a current-command guard proving selected-Type `depends -D --effective` remains rejected until retirement. |
 | One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
