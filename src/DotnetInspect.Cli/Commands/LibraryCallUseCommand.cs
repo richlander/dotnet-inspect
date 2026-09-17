@@ -60,13 +60,6 @@ public static class LibraryCallUseCommand
         "Call",
         "Evidence Method",
         "IL Offset",
-        "Public Root",
-        "Public Root Token",
-        "Direct Use Destination",
-        "Destination Token",
-        "Depth",
-        "Method Path",
-        "Physical Receipts",
     ];
 
     static readonly string[] DefaultClusterCallSiteColumns =
@@ -97,6 +90,13 @@ public static class LibraryCallUseCommand
         "Call",
         "Evidence Method",
         "IL Offset",
+        "Public Root",
+        "Public Root Token",
+        "Direct Use Destination",
+        "Destination Token",
+        "Depth",
+        "Method Path",
+        "Physical Receipts",
     ];
 
     public static async Task<int> ExecuteAsync(

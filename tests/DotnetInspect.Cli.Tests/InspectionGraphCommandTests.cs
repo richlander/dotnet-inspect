@@ -268,6 +268,49 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task LibrariesCommand_PublicRootPathsDefaultOutputShowsPathEvidence()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "--where",
+                        "Cluster=14",
+                        "-S",
+                        "Public Root Paths",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains(
+            "| Source Library | Cluster | Public Root | Public Root Token "
+                + "| Direct Use Destination | Destination Token | Depth "
+                + "| Method Path | Physical Receipts |",
+            captured.Output);
+        Assert.Contains(
+            "Shared.RootPathEntry.Create()",
+            captured.Output);
+        Assert.Contains(
+            "Shared.RootPathEntry.AddChange()",
+            captured.Output);
+        Assert.Contains(
+            "Shared.RootPathEntry.CreateMappedTextDiff()",
+            captured.Output);
+        Assert.Contains(
+            "1:0x06000011+0x0000-&gt;0x06000014",
+            captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
     public async Task LibrariesCommand_PublicRootPathsRespectAccessorVisibility()
     {
         var captured = await ConsoleCapture.RunAsync(
