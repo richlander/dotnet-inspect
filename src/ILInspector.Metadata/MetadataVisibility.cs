@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -19,12 +20,35 @@ internal static class MetadataVisibility
 
             TypeDefinition definition =
                 reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic)
-                return false;
+            TypeDefinitionHandle declaringType =
+                definition.GetDeclaringType();
+            switch (definition.Attributes
+                & TypeAttributes.VisibilityMask)
+            {
+                case TypeAttributes.Public:
+                    if (!declaringType.IsNil)
+                    {
+                        throw new BadImageFormatException(
+                            "A top-level public type has a declaring "
+                                + "type.");
+                    }
 
-            handle = definition.GetDeclaringType();
+                    return true;
+                case TypeAttributes.NestedPublic:
+                    if (declaringType.IsNil)
+                    {
+                        throw new BadImageFormatException(
+                            "A nested public type has no declaring "
+                                + "type.");
+                    }
+
+                    handle = declaringType;
+                    break;
+                default:
+                    return false;
+            }
         }
 
-        return true;
+        return false;
     }
 }

@@ -16,6 +16,11 @@ The result is detached from the reader and retains the module MVID, exact
 `MetadataMethodAddress` roots in MethodDef-token order, bounded-work counts,
 and any limit that stopped the inventory.
 
+The operation first classifies TypeDefs in TypeDef-token order. Only after that
+phase completes does it visit MethodDefs in MethodDef-token order. This phase
+boundary lets valid uncompressed metadata use a reordered `MethodPtr` table
+without changing root order or bounded prefixes.
+
 This is declaration membership, not an API presentation surface. It does not
 apply name, attribute, compiler-generated, `EditorBrowsable`, body-presence,
 feature, package, or host filtering.
@@ -81,28 +86,32 @@ needed for membership.
 The caller supplies independent positive limits for:
 
 - visited TypeDefs;
-- visited MethodDefs on externally visible TypeDefs; and
+- visited MethodDefs; and
 - retained roots.
 
 One visited TypeDef is charged before its visibility is evaluated. One visited
-MethodDef is charged before its access is evaluated. One root is retained only
-after both visibility conditions succeed.
+MethodDef is charged before its declaring type and access are evaluated. One
+root is retained only after both visibility conditions succeed. A TypeDef
+boundary ends the first phase before any MethodDef root is observed.
 
 Exactly filling a limit is complete. A typed boundary appears only when the
 operation observes one additional type, method, or root. The operation stops
 at the first boundary and retains every exact positive root already observed.
 Its receipt reports visited types, visited methods, and retained roots.
 
-Malformed metadata remains a visible metadata-read failure; a limit is never
-used as a success-shaped substitute for invalid input. Windows Metadata remains
-unsupported under the repository-wide admission contract.
+Malformed visibility or ownership rows encountered by the bounded scan remain
+visible metadata-read failures; a limit is never used as a success-shaped
+substitute for an observed invalid row. Windows Metadata remains unsupported
+under the repository-wide admission contract.
 
 The Release gates are:
 
 - `Read_ReturnsEveryExactPublicMethodDef`;
 - `Read_RequiresPublicDeclaringTypeChain`;
 - `Read_DoesNotApplyPresentationFilters`; and
-- `Read_ReportsIndependentExactCapacityBounds`.
+- `Read_ReportsIndependentExactCapacityBounds`;
+- `Read_ReorderedMethodPtrPreservesMethodDefTokenOrder`; and
+- `Read_OrphanedNestedPublicTypeFailsVisibly`.
 
 ## Consumer handoff
 

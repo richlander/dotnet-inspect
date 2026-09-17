@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.MetadataPrimitives;
 
@@ -73,6 +74,11 @@ public static class PublicMethodRootInventoryReader
             ImmutableArray.CreateBuilder<MetadataMethodAddress>();
         int visitedTypes = 0;
         int visitedMethods = 0;
+        int typeCapacity = Math.Min(
+            reader.TypeDefinitions.Count,
+            limits.MaximumTypeDefinitions);
+        var externallyVisibleTypes =
+            new bool[typeCapacity + 1];
 
         foreach (TypeDefinitionHandle typeHandle
             in reader.TypeDefinitions)
@@ -85,49 +91,64 @@ public static class PublicMethodRootInventoryReader
             }
 
             visitedTypes++;
-            if (!MetadataVisibility.IsExternallyVisible(
-                    reader,
-                    typeHandle))
+            externallyVisibleTypes[
+                MetadataTokens.GetRowNumber(typeHandle)] =
+                    MetadataVisibility.IsExternallyVisible(
+                        reader,
+                        typeHandle);
+        }
+
+        int methodDefinitionCount =
+            reader.GetTableRowCount(TableIndex.MethodDef);
+        for (int methodRow = 1;
+            methodRow <= methodDefinitionCount;
+            methodRow++)
+        {
+            MethodDefinitionHandle methodHandle =
+                MetadataTokens.MethodDefinitionHandle(methodRow);
+            if (visitedMethods
+                == limits.MaximumMethodDefinitions)
+            {
+                return Result(
+                    PublicMethodRootInventoryLimit
+                        .MethodDefinitions,
+                    limits.MaximumMethodDefinitions);
+            }
+
+            visitedMethods++;
+            MethodDefinition method =
+                reader.GetMethodDefinition(methodHandle);
+            TypeDefinitionHandle declaringType =
+                method.GetDeclaringType();
+            int declaringTypeRow =
+                MetadataTokens.GetRowNumber(declaringType);
+            if (declaringType.IsNil
+                || declaringTypeRow
+                    >= externallyVisibleTypes.Length)
+            {
+                throw new BadImageFormatException(
+                    "A MethodDef has no valid declaring TypeDef.");
+            }
+
+            if (!externallyVisibleTypes[declaringTypeRow]
+                || (method.Attributes
+                        & MethodAttributes.MemberAccessMask)
+                    != MethodAttributes.Public)
             {
                 continue;
             }
 
-            TypeDefinition type =
-                reader.GetTypeDefinition(typeHandle);
-            foreach (MethodDefinitionHandle methodHandle
-                in type.GetMethods())
+            if (roots.Count == limits.MaximumRoots)
             {
-                if (visitedMethods
-                    == limits.MaximumMethodDefinitions)
-                {
-                    return Result(
-                        PublicMethodRootInventoryLimit
-                            .MethodDefinitions,
-                        limits.MaximumMethodDefinitions);
-                }
-
-                visitedMethods++;
-                MethodDefinition method =
-                    reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes
-                        & MethodAttributes.MemberAccessMask)
-                    != MethodAttributes.Public)
-                {
-                    continue;
-                }
-
-                if (roots.Count == limits.MaximumRoots)
-                {
-                    return Result(
-                        PublicMethodRootInventoryLimit.Roots,
-                        limits.MaximumRoots);
-                }
-
-                roots.Add(
-                    new MetadataMethodAddress(
-                        moduleVersionId,
-                        methodHandle));
+                return Result(
+                    PublicMethodRootInventoryLimit.Roots,
+                    limits.MaximumRoots);
             }
+
+            roots.Add(
+                new MetadataMethodAddress(
+                    moduleVersionId,
+                    methodHandle));
         }
 
         return new PublicMethodRootInventory(

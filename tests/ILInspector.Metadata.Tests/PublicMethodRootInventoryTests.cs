@@ -1,5 +1,8 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
@@ -168,6 +171,55 @@ public sealed class PublicMethodRootInventoryTests
             PublicMethodRootInventoryLimit.Roots);
     }
 
+    [Fact]
+    public void Read_ReorderedMethodPtrPreservesMethodDefTokenOrder()
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                MetadataMethodPtrFixture.Build(2, 1)));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+        var limits =
+            new PublicMethodRootInventoryLimits(10, 10, 10);
+
+        PublicMethodRootInventory inventory =
+            PublicMethodRootInventoryReader.Read(
+                reader,
+                limits);
+
+        Assert.True(inventory.IsComplete);
+        Assert.Equal(
+            [0x06000001, 0x06000002],
+            inventory.Roots.Select(static root => root.Token));
+
+        PublicMethodRootInventory bounded =
+            PublicMethodRootInventoryReader.Read(
+                reader,
+                limits with { MaximumRoots = 1 });
+        Assert.False(bounded.IsComplete);
+        Assert.Equal(
+            PublicMethodRootInventoryLimit.Roots,
+            bounded.Boundary?.Limit);
+        Assert.Equal(
+            [0x06000001],
+            bounded.Roots.Select(static root => root.Token));
+    }
+
+    [Fact]
+    public void Read_OrphanedNestedPublicTypeFailsVisibly()
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildOrphanedNestedPublicImage()));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits));
+    }
+
     static void AssertBound(
         MetadataReader reader,
         PublicMethodRootInventory full,
@@ -230,6 +282,67 @@ public sealed class PublicMethodRootInventoryTests
         new(
             FixtureCatalog.MetadataPublicMethodRoots
                 .AssemblyPath());
+
+    static byte[] BuildOrphanedNestedPublicImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("OrphanedNested.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("AA250EA5-2BB9-4FD4-AD84-85737B9557AA")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("OrphanedNested"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Root"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Orphan"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     sealed class FixtureImage : IDisposable
     {
