@@ -924,12 +924,12 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
-    const toolFacet = page.locator(
-      '[data-query-facet="package.query.dotnet-tool"]',
+    const toolFormatPreset = page.locator(
+      '[data-query-preset="tool-format:eq:v2"]',
     );
-    await toolFacet.click();
-    await expect(toolFacet).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(".query-facet-disclosure").nth(1))
+    await toolFormatPreset.click();
+    await expect(toolFormatPreset).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".query-preset-disclosure").nth(1))
       .toContainText("Candidate bound K: 20");
 
     await input.fill("Azure.*");
