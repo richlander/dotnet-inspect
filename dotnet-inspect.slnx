@@ -133,6 +133,7 @@
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
+    <Project Path="src/DotnetInspector.PackageHouse.Execution/DotnetInspector.PackageHouse.Execution.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />

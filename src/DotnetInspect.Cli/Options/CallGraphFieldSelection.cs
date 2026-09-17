@@ -80,6 +80,9 @@ internal static class CallGraphFieldSelection
         return resolved;
     }
 
+    internal static IReadOnlyList<string> NamesFor(CallGraphField field) =>
+        Definitions.Single(definition => definition.Field == field).Names;
+
     static Definition Define(
         CallGraphField field,
         params string[] names) =>

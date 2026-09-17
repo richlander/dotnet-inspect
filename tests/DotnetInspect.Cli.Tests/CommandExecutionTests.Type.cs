@@ -1011,6 +1011,87 @@ public partial class CommandExecutionTests
         Assert.Contains("| Type Parameters | T |", output);
     }
 
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_TypeInfoSection_NonTabularValidEmptyFieldReportsNoData(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.TypeInfo,
+            "--fields",
+            "Type Parameters",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output.Trim());
+        Assert.Contains(
+            "Note: 1 field has no data: Type Parameters",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_FieldReplayDoesNotCreditProjectedAwayFieldTable(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info,Methods",
+            "--fields",
+            "Interfaces",
+            "--columns",
+            "Signature",
+            "--rows",
+            "1",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("Type Info", output);
+        Assert.Contains(
+            "Note: 1 field has no data: Interfaces",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_NonTabularUnknownFieldWithoutSectionFails(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
+    }
+
     /// <summary>
     /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
     /// depend on which type is being viewed. It used to render the Info set - the per-kind member
@@ -1788,16 +1869,27 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "-S", "@Surface", "--columns", "Value" }, "| Value |")]
     // A document-level field, which survives whichever section is selected.
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
+    // A flattened table retains the selected section's identity even when its view heading is
+    // the generic table title.
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--tsv", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
     public async Task Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate(string[] args, string expected)
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
 
         Assert.Equal(0, exit);
         Assert.Contains(expected, output, StringComparison.Ordinal);
+        if (!args.Contains("NoSuchField", StringComparer.Ordinal))
+        {
+            Assert.DoesNotContain(
+                "has no data",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -2120,11 +2212,11 @@ public partial class CommandExecutionTests
     [InlineData("--columns")]
     public async Task Type_Listing_ApiInfo_ReportsUnmatchedProjectionsLikeTheRestOfTheView(string flag)
     {
-        // The first version of the fact-table routing wrote straight to the console and returned,
-        // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
-        // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
-        // fix, reintroduced one layer down, and no assertion about correct projections could see
-        // it. The bar is parity with the per-kind sections beside it.
+        // The first version of the fact-table routing wrote straight to the console and returned
+        // without projection diagnostics, so `--fields Value` produced NO output and exit 0.
+        // That is the same success-shaped-wrong-answer failure the routing exists to fix,
+        // reintroduced one layer down, and no assertion about correct projections could see it.
+        // The bar is parity with the per-kind sections beside it.
         //
         // Parity is asserted as the INVARIANT rather than as equal exit codes, because the two
         // sections legitimately differ in outcome: an unmatched --fields empties the `API Info`
