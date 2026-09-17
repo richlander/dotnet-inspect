@@ -6,7 +6,7 @@ namespace DotnetInspector.QueriesConsumer;
 
 public sealed record WorkspaceRegistrationObservation(
     WorkspaceRegistrationRevision Revision,
-    WorkspaceRootTargetFramework RootTargetFramework,
+    WorkspaceTargetFrameworkPolicy TargetFrameworkPolicy,
     ImmutableArray<ExactLibrarySourceCoordinate> ExactLibraries,
     ImmutableArray<PackagePrefixDeclaration> PackagePrefixes,
     ImmutableArray<WorkspaceEcosystemRegistrationDeclaration> Ecosystems,
@@ -24,10 +24,10 @@ public static class WorkspaceRegistrationConsumer
         new(registrations, contexts);
 
     public static WorkspacePlan CreatePlan(
-        WorkspaceRootTargetFramework rootTargetFramework,
+        WorkspaceTargetFrameworkPolicy targetFrameworkPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts) =>
-        new(rootTargetFramework, registrations, contexts);
+        new(targetFrameworkPolicy, registrations, contexts);
 
     public static InspectionWorkspace Create(WorkspacePlan plan) => new(plan);
 
@@ -62,7 +62,7 @@ public static class WorkspaceRegistrationConsumer
         }
         return new(
             available.Revision,
-            available.Revision.Plan.RootTargetFramework,
+            available.Revision.Plan.TargetFrameworkPolicy,
             libraries.ToImmutable(),
             prefixes.ToImmutable(),
             ecosystems.ToImmutable(),

@@ -15,16 +15,19 @@ public sealed class WorkspacePlanTests
     {
         WorkspacePlan plan = new();
         Assert.Same(
-            WorkspaceRootTargetFramework.Default,
-            plan.RootTargetFramework);
+            WorkspaceTargetFrameworkPolicy.ProductDefault,
+            plan.TargetFrameworkPolicy);
         Assert.Equal(
             "net11.0",
-            plan.RootTargetFramework.TargetFramework);
+            plan.TargetFrameworkPolicy.DefaultFramework);
+        Assert.Equal(
+            WorkspaceTargetFrameworkPolicySource.ProductDefault,
+            plan.TargetFrameworkPolicy.Source);
         Assert.Empty(plan.Registrations);
         Assert.Empty(plan.Contexts);
         Assert.Same(
-            WorkspaceRootTargetFramework.Default,
-            WorkspacePlan.Empty.RootTargetFramework);
+            WorkspaceTargetFrameworkPolicy.ProductDefault,
+            WorkspacePlan.Empty.TargetFrameworkPolicy);
         Assert.Empty(WorkspacePlan.Empty.Registrations);
         Assert.Empty(WorkspacePlan.Empty.Contexts);
         await using InspectionWorkspace first = WorkspaceRegistrationConsumer.Create(plan);
@@ -37,35 +40,38 @@ public sealed class WorkspacePlanTests
         Assert.Same(plan, firstRevision.Plan);
         Assert.Same(plan, secondRevision.Plan);
         Assert.Same(
-            plan.RootTargetFramework,
-            firstObservation.RootTargetFramework);
+            plan.TargetFrameworkPolicy,
+            firstObservation.TargetFrameworkPolicy);
         Assert.Equal(plan.Contexts, firstObservation.Contexts);
         Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
         Assert.NotSame(firstRevision.Identity, secondRevision.Identity);
     }
 
     [Fact]
-    public async Task ExplicitRootTargetIsCanonicalReusableConstructionIntent()
+    public async Task ExplicitTargetPolicyIsCanonicalReusableConstructionIntent()
     {
-        var rootTarget = new WorkspaceRootTargetFramework("NET10.0");
-        WorkspacePlan emptyPlan = new(rootTarget);
+        var policy = new WorkspaceTargetFrameworkPolicy("NET10.0");
+        WorkspacePlan emptyPlan = new(policy);
         WorkspacePlan plan =
             WorkspaceRegistrationConsumer.CreatePlan(
-                rootTarget,
+                policy,
                 [],
                 RealContexts());
 
-        Assert.Equal("net10.0", rootTarget.TargetFramework);
-        Assert.Equal("net10.0", rootTarget.ToString());
-        Assert.Same(rootTarget, emptyPlan.RootTargetFramework);
-        Assert.Same(rootTarget, plan.RootTargetFramework);
+        Assert.Equal("net10.0", policy.DefaultFramework);
+        Assert.Equal(
+            WorkspaceTargetFrameworkPolicySource.Configured,
+            policy.Source);
+        Assert.Equal("net10.0", policy.ToString());
+        Assert.Same(policy, emptyPlan.TargetFrameworkPolicy);
+        Assert.Same(policy, plan.TargetFrameworkPolicy);
 
         await using InspectionWorkspace first =
             WorkspaceRegistrationConsumer.Create(plan);
         await using InspectionWorkspace second =
             WorkspaceRegistrationConsumer.Create(plan);
-        Assert.Same(rootTarget, Current(first).Plan.RootTargetFramework);
-        Assert.Same(rootTarget, Current(second).Plan.RootTargetFramework);
+        Assert.Same(policy, Current(first).Plan.TargetFrameworkPolicy);
+        Assert.Same(policy, Current(second).Plan.TargetFrameworkPolicy);
     }
 
     [Fact]
@@ -249,7 +255,11 @@ public sealed class WorkspacePlanTests
                 [],
                 []));
         Assert.Throws<ArgumentException>(
-            () => new WorkspaceRootTargetFramework("not a framework"));
+            () => new WorkspaceTargetFrameworkPolicy("not a framework"));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceTargetFrameworkPolicy(" net10.0"));
+        Assert.Throws<ArgumentNullException>(
+            () => new WorkspaceTargetFrameworkPolicy(null!));
         Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.CreatePlan([], null!));
         Assert.Throws<ArgumentException>(
@@ -281,8 +291,8 @@ public sealed class WorkspacePlanTests
         Assert.Equal([replacement], changed.Revision.Plan.Registrations);
         Assert.Equal(2, changed.Revision.Plan.Contexts.Length);
         Assert.Same(
-            plan.RootTargetFramework,
-            changed.Revision.Plan.RootTargetFramework);
+            plan.TargetFrameworkPolicy,
+            changed.Revision.Plan.TargetFrameworkPolicy);
         Assert.Same(plan.Contexts[0], changed.Revision.Plan.Contexts[0]);
         Assert.Same(plan.Contexts[1], changed.Revision.Plan.Contexts[1]);
         Assert.Equal([original], plan.Registrations);

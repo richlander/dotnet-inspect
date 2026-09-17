@@ -8,7 +8,7 @@ public sealed class WorkspacePlan
 {
     public WorkspacePlan()
         : this(
-            WorkspaceRootTargetFramework.Default,
+            WorkspaceTargetFrameworkPolicy.ProductDefault,
             [],
             Array.Empty<WorkspaceContextInput>())
     {
@@ -16,26 +16,26 @@ public sealed class WorkspacePlan
 
     public WorkspacePlan(ImmutableArray<WorkspaceRegistration> registrations)
         : this(
-            WorkspaceRootTargetFramework.Default,
+            WorkspaceTargetFrameworkPolicy.ProductDefault,
             registrations,
             Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(
-        WorkspaceRootTargetFramework rootTargetFramework)
+        WorkspaceTargetFrameworkPolicy targetFrameworkPolicy)
         : this(
-            rootTargetFramework,
+            targetFrameworkPolicy,
             [],
             Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(
-        WorkspaceRootTargetFramework rootTargetFramework,
+        WorkspaceTargetFrameworkPolicy targetFrameworkPolicy,
         ImmutableArray<WorkspaceRegistration> registrations)
         : this(
-            rootTargetFramework,
+            targetFrameworkPolicy,
             registrations,
             Array.Empty<WorkspaceContextInput>())
     {
@@ -45,32 +45,32 @@ public sealed class WorkspacePlan
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts)
         : this(
-            WorkspaceRootTargetFramework.Default,
+            WorkspaceTargetFrameworkPolicy.ProductDefault,
             registrations,
             contexts)
     {
     }
 
     public WorkspacePlan(
-        WorkspaceRootTargetFramework rootTargetFramework,
+        WorkspaceTargetFrameworkPolicy targetFrameworkPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts)
     {
-        ArgumentNullException.ThrowIfNull(rootTargetFramework);
+        ArgumentNullException.ThrowIfNull(targetFrameworkPolicy);
         if (ValidateRegistrations(registrations) is { } invalid)
             throw new ArgumentException(
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
         ArgumentNullException.ThrowIfNull(contexts);
 
-        RootTargetFramework = rootTargetFramework;
+        TargetFrameworkPolicy = targetFrameworkPolicy;
         Registrations = registrations;
         Contexts = SnapshotContexts(contexts);
     }
 
     public static WorkspacePlan Empty { get; } = new();
 
-    public WorkspaceRootTargetFramework RootTargetFramework { get; }
+    public WorkspaceTargetFrameworkPolicy TargetFrameworkPolicy { get; }
 
     public ImmutableArray<WorkspaceRegistration> Registrations { get; }
 
@@ -84,7 +84,7 @@ public sealed class WorkspacePlan
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
         return new WorkspacePlan(
-            RootTargetFramework,
+            TargetFrameworkPolicy,
             registrations,
             Contexts);
     }
@@ -116,11 +116,11 @@ public sealed class WorkspacePlan
     }
 
     WorkspacePlan(
-        WorkspaceRootTargetFramework rootTargetFramework,
+        WorkspaceTargetFrameworkPolicy targetFrameworkPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
         ImmutableArray<WorkspaceContextInput> contexts)
     {
-        RootTargetFramework = rootTargetFramework;
+        TargetFrameworkPolicy = targetFrameworkPolicy;
         Registrations = registrations;
         Contexts = contexts;
     }
