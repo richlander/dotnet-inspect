@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 using Markout;
 
@@ -149,7 +150,7 @@ public sealed class DependsAssetView
 
     [MarkoutSection(Name = DependsAssetSections.RestoredPackages)]
     public List<DependsRestoredPackageView>? RestoredPackages
-        { get; init; }
+    { get; init; }
 }
 
 [MarkoutSerializable]
@@ -178,7 +179,7 @@ public sealed class DependsAssetTableView
 
     [MarkoutSection(Name = DependsAssetSections.RestoredPackages)]
     public List<DependsRestoredPackageView>? RestoredPackages
-        { get; init; }
+    { get; init; }
 }
 
 [MarkoutSerializable]
@@ -230,31 +231,31 @@ public sealed class DependsRootView
             DeclarationCompletionText = DependencyEvidenceViewText.Field(
                 row.DeclarationCompletion.ToString()),
             Groups =
-                row.DeclarationState == DependsEvidenceAvailability.NotRequested
+                row.DeclarationState == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.DeclarationGroupCount,
             DeclarationCount =
-                row.DeclarationState == DependsEvidenceAvailability.NotRequested
+                row.DeclarationState == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.DeclarationCount,
             SelectionText = DependencyEvidenceViewText.Field(
                 row.Selection.ToString()),
             SelectedGroup =
-                row.Selection != DependsSelectionStatus.NotRequested
+                row.Selection != DependencyInspectionSelectionStatus.NotRequested
                 && row.SelectedGroupIndex is { } group
                 ? group + 1
                 : null,
             SelectedSourceOccurrenceText =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : FormatSelectedSourceOccurrence(
                         row.SelectedSourceOccurrence),
             RequestedFrameworkText =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : row.RequestedFramework,
             SelectedFrameworkText =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : row.SelectedFramework,
             RestoredRelationshipText = DependencyEvidenceViewText.Field(
@@ -263,11 +264,11 @@ public sealed class DependsRootView
                 DependencyEvidenceViewText.Field(
                     row.RestoredRelationshipCompletion.ToString()),
             RestoredPackages = row.RestoredRelationshipState
-                == DependsEvidenceAvailability.NotRequested
+                == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.RestoredPackageCount,
             RestoredEdges = row.RestoredRelationshipState
-                == DependsEvidenceAvailability.NotRequested
+                == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.RestoredEdgeCount,
             TargetFrameworkText =
@@ -527,7 +528,7 @@ public sealed class DependsGraphEdgeView
 public sealed class DependsDependencyView
 {
     internal static DependsDependencyView From(
-        DependsDependencyRow row) =>
+        DependencyInspectionDependency row) =>
         new()
         {
             RootText = row.Declaration.RootDisplay,
@@ -590,7 +591,7 @@ public sealed class DependsDependencyView
 public sealed class DependsPruningView
 {
     internal static DependsPruningView From(
-        DependsPruningRow row) =>
+        DependencyInspectionPruning row) =>
         new()
         {
             Root = row.RootOccurrence,
@@ -813,14 +814,14 @@ public sealed class DependsRestoredPackageView
 public sealed class DependsFailureView
 {
     internal static DependsFailureView From(
-        DependsFailureRow row) =>
+        DependencyInspectionFailure row) =>
         row switch
         {
-            DependsFailureRow.Evidence evidence => FromEvidence(
+            DependencyInspectionFailure.Evidence evidence => FromEvidence(
                 evidence.Value),
-            DependsFailureRow.Traversal traversal => FromTraversal(
+            DependencyInspectionFailure.Traversal traversal => FromTraversal(
                 traversal.Value),
-            DependsFailureRow.Pruning pruning => FromPruning(
+            DependencyInspectionFailure.Pruning pruning => FromPruning(
                 pruning.Value),
             _ => throw new InvalidOperationException(
                 "Unknown depends failure row."),
@@ -845,7 +846,7 @@ public sealed class DependsFailureView
         };
 
     private static DependsFailureView FromTraversal(
-        DependsTraversalFailureRow row) =>
+        DependencyInspectionTraversalFailure row) =>
         new()
         {
             Phase = DependencyEvidenceFailurePhase.Traversal.ToString(),
@@ -869,7 +870,7 @@ public sealed class DependsFailureView
         };
 
     private static string DescribeTraversalFailure(
-        DependsTraversalFailureRow row) =>
+        DependencyInspectionTraversalFailure row) =>
         row.CandidateOutcome switch
         {
             PackageDependencyTraversalCandidateResult.Failed =>
@@ -881,20 +882,20 @@ public sealed class DependsFailureView
             _ when row.ManifestFailure is not null =>
                 "A transitive package manifest could not be acquired or projected.",
             _ when row.RestoredFailure
-                is DependsRestoredTraversalFailure.Outcome
-                {
-                    Value:
+                is DependencyInspectionRestoredTraversalFailure.Outcome
+            {
+                Value:
                         RestoredProjectDependencyTraversalFailure.Document
                             document,
-                } => document.Failure.Message,
+            } => document.Failure.Message,
             _ when row.RestoredFailure
-                is DependsRestoredTraversalFailure.Outcome
-                {
-                    Value:
+                is DependencyInspectionRestoredTraversalFailure.Outcome
+            {
+                Value:
                         RestoredProjectDependencyTraversalFailure.Graph graph,
-                } => graph.Failure.Message,
+            } => graph.Failure.Message,
             _ when row.RestoredFailure
-                is DependsRestoredTraversalFailure.Graph graph =>
+                is DependencyInspectionRestoredTraversalFailure.Graph graph =>
                     graph.Value.Message,
             _ when row.AssemblyBindingFailure is not null =>
                 "No assembly binding candidate matched the requested identity.",
@@ -902,13 +903,13 @@ public sealed class DependsFailureView
         };
 
     private static DependsFailureView FromPruning(
-        DependsPruningFailure failure) =>
+        DependencyInspectionPruningFailure failure) =>
         failure switch
         {
-            DependsPruningFailure.Inventory inventory => new()
+            DependencyInspectionPruningFailure.Inventory inventory => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
-                Reason = nameof(DependsPruningFailure.Inventory),
+                Reason = nameof(DependencyInspectionPruningFailure.Inventory),
                 Source = inventory.PlatformFamily,
                 SubjectText = DependencyEvidenceViewText.Field(
                     inventory.TargetFramework),
@@ -922,10 +923,10 @@ public sealed class DependsFailureView
                     inventory.AffectedRootOccurrences),
                 Occurrences = inventory.AffectedDeclarations,
             },
-            DependsPruningFailure.Prerequisite prerequisite => new()
+            DependencyInspectionPruningFailure.Prerequisite prerequisite => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
-                Reason = nameof(DependsPruningFailure.Prerequisite),
+                Reason = nameof(DependencyInspectionPruningFailure.Prerequisite),
                 Source = prerequisite.DeclarationState.ToString(),
                 SubjectText = prerequisite.RootDisplay,
                 Group = null,
@@ -937,7 +938,7 @@ public sealed class DependsFailureView
                     System.Globalization.CultureInfo.InvariantCulture),
                 Occurrences = 1,
             },
-            DependsPruningFailure.Candidate candidate => new()
+            DependencyInspectionPruningFailure.Candidate candidate => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
                 Reason = candidate.Outcome switch

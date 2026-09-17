@@ -554,15 +554,13 @@ section selection and row shaping
 Markdown / tree / Mermaid / table / TSV / JSONL / JSON / count
 ```
 
-The current implementation constructs this document as a CLI composition
-result. Envelope adoption first extracts its semantic selected-plan value as
-owner-issued `DependencyInspectionContent`; this is a prerequisite slice under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), not a new
-dependency-semantics model. The value carries references to or copies of
-owner-issued identities and evidence. It may add
-dependency-inspection occurrence identities, graph endpoint indices, and
-stable semantic ordering. CLI section membership, row windows, display
-ordering, and rendering remain host projections over that value.
+The implementation now retains its semantic selected-plan value as
+owner-issued `DependencyInspectionContent` while the existing CLI projection
+continues to own section membership, graph rows, row windows, display
+ordering, and rendering. This extraction is not a new dependency-semantics
+model. The Content value carries references to or copies of owner-issued
+identities and evidence plus dependency-inspection occurrence identities,
+graph endpoint indices, and stable semantic ordering.
 
 This selected-plan document is baseline Content for envelope adoption.
 Root-set and requested-phase completion, graph meaning, normalized
@@ -744,8 +742,9 @@ baseline consumer to understand `TEvidence`.
 
 ### Concrete evidence value
 
-The typed evidence Document and root-occurrence currency are implemented.
-Capture, complete serialization, and host adoption remain proposed.
+The typed Content, evidence Document, root-occurrence currency, and
+same-execution association are implemented. The complete evidence capture
+request, generated serialization, and host adoption remain proposed.
 
 The dependency service issues one named settled Document:
 
