@@ -154,7 +154,8 @@ an independently open new-term draft remains separate. Clearing the literal
 restores ordinary Package Query defaults.
 The disclosure remains open while either editor retains focus, so clearing the
 operand or editing the framework cannot redirect an in-progress edit into the
-package selector.
+package selector. Intermediate input-method composition stays in the live
+editor; the Browser publishes the committed literal after composition ends.
 
 The framework follows the existing selector's exact-group semantics: a package
 without that framework group is `NotApplicable`, not a semantic non-match. The

@@ -1552,6 +1552,42 @@ test("bindPackageQueryView forwards library-literal and target-framework edits",
   ]);
 });
 
+test("bindPackageQueryView defers library-literal updates during composition", () => {
+  const root = new FakeRoot();
+  const literal = new FakeElement({
+    queryLibraryLiteralValue: JSON.stringify(""),
+  }, "package-query-library-literal");
+  const targetFramework =
+    new FakeElement({}, "package-query-library-tfm");
+  targetFramework.value = "net10.0";
+  root.add("#package-query-library-literal", literal);
+  root.add("#package-query-library-tfm", targetFramework);
+  const calls: string[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onLibraryLiteralInput: (...args) => calls.push(args),
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+  });
+
+  literal.value = "n";
+  literal.dispatch("input", fakeDom.event({ isComposing: true }));
+  literal.value = "に";
+  literal.dispatch("input", fakeDom.event({ isComposing: true }));
+  assert.deepEqual(calls, []);
+
+  literal.value = "日本";
+  literal.dispatch("input", fakeDom.event({ isComposing: false }));
+  assert.deepEqual(calls, [["日本", "net10.0"]]);
+});
+
 test("bindPackageQueryView applies exact term values and keeps empty drafts idle", () => {
   const root = new FakeRoot();
   const prefix = new FakeElement({}, "package-query-prefix");

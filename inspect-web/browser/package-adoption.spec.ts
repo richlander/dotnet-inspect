@@ -809,6 +809,33 @@ test.describe("Package Query website over real Wasm", () => {
     });
     await page.keyboard.type("head");
     await expect(literal).toHaveValue("headtail");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.value = "n";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "n",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.value = "に";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "に",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.value = "日本";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "日本",
+        inputType: "insertText",
+        isComposing: false,
+      }));
+    });
+    await expect(literal).toHaveValue("日本");
     await literal.fill("abcdef");
     await literal.evaluate(element => {
       if (!(element instanceof HTMLTextAreaElement)) {

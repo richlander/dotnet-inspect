@@ -426,7 +426,10 @@ export function bindPackageQueryView(
   const updateLibraryLiteral = () => actions.onLibraryLiteralInput(
     decodeLibraryLiteralEditorValue(literal?.value ?? ""),
     targetFramework?.value ?? "");
-  literal?.addEventListener("input", updateLibraryLiteral);
+  literal?.addEventListener("input", event => {
+    if ("isComposing" in event && event.isComposing) return;
+    updateLibraryLiteral();
+  });
   targetFramework?.addEventListener("input", updateLibraryLiteral);
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
