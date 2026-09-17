@@ -576,6 +576,39 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
+    public async Task ClusterRootPaths_RejectForeignTargetWithSharedSource()
+    {
+        string sourcePath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        await using PairContext context = PairContext.Create(
+            sourcePath,
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairDirectUseClusterProjection selection =
+            SelectCluster(
+                context,
+                targetMethod: "RootPathUse");
+        ResolvedAssemblyReference foreignTarget =
+            ResolvedAssemblyReference.CreateFromPath(
+                FixtureCatalog.AnalysisCallerGraphTargetV2
+                    .AssemblyPath(),
+                AssemblyResolutionProvenance.Local(
+                    "cluster root-path foreign target test"));
+        AssemblyContextGroup foreignGroup =
+            context.Workspace.CreateAssemblyContextGroup(
+                PairContext.Participants(
+                    context.First,
+                    foreignTarget,
+                    sourcePath));
+
+        Assert.Throws<AssemblyPairClusterRootPathRequestException>(
+            () => AssemblyPairClusterRootPathQuery.Execute(
+                foreignGroup,
+                selection,
+                FullClusterRootPathLimits,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ClusterRootPathInspection_ProjectsOwnerDiagnostics()
     {
         await using PairContext context = PairContext.Create(
@@ -1344,6 +1377,21 @@ public sealed class AssemblyPairCallUseQueryTests
             ResolvedAssemblyReference second,
             string resolutionPath)
         {
+            var workspace = new InspectionWorkspace();
+            AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup(
+                    Participants(
+                        first,
+                        second,
+                        resolutionPath));
+            return new(workspace, group, first, second);
+        }
+
+        internal static AssemblyContextParticipant[] Participants(
+            ResolvedAssemblyReference first,
+            ResolvedAssemblyReference second,
+            string resolutionPath)
+        {
             var policy =
                 new SourceRelativeAssemblyGroupBindingPolicy(
                 new[]
@@ -1369,15 +1417,11 @@ public sealed class AssemblyPairCallUseQueryTests
                                         true,
                                 })),
                 });
-            var workspace = new InspectionWorkspace();
-            AssemblyContextGroup group =
-                workspace.CreateAssemblyContextGroup(
-                    new[]
-                    {
-                        new AssemblyContextParticipant(first, policy),
-                        new AssemblyContextParticipant(second, policy),
-                    });
-            return new(workspace, group, first, second);
+            return
+            [
+                new AssemblyContextParticipant(first, policy),
+                new AssemblyContextParticipant(second, policy),
+            ];
         }
 
         public ValueTask DisposeAsync() => Workspace.DisposeAsync();

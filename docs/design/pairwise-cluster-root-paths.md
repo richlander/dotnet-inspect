@@ -54,10 +54,10 @@ cluster. The projection retains the exact pair occurrences and one
 
 The composition does not accept a cluster ordinal as identity. An ordinal is a
 document-local selection convenience used by hosts to obtain the scoped
-projection. The composition validates that the selected source registration is
-a participant in the supplied group and that the live immutable snapshot has
-the selected source MVID. A stale or foreign selection is rejected before
-Metadata or Analysis results are produced.
+projection. The composition validates that both selected pair registrations
+are participants in the supplied group and that the live immutable source
+snapshot has the selected source MVID. A stale or foreign selection is
+rejected before Metadata or Analysis results are produced.
 
 The caller supplies:
 
@@ -172,8 +172,8 @@ Release gates cover:
 5. Metadata limits retaining positive roots while making absence incomplete;
 6. Analysis depth, work, path, and generated-body boundaries retaining
    positive witnesses;
-7. stale registration and mismatched MVID selections failing before execution;
-   and
+7. stale registration, a shared-source selection with a foreign target, and
+   mismatched MVID selections failing before execution; and
 8. the CLI requiring `Cluster=N`, preserving the existing default drill-down,
    and rendering exact path and receipt coordinates.
 

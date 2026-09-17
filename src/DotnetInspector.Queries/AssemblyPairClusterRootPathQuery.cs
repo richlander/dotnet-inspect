@@ -90,7 +90,7 @@ public static class AssemblyPairClusterRootPathQuery
         AssemblyPairDirectUseCluster cluster =
             RequireScopedCluster(selection);
         AssemblyContextParticipant participant =
-            RequireSourceParticipant(group, cluster);
+            RequirePairParticipants(group, cluster);
         AssemblyContextSubject source =
             new(participant.Assembly);
 
@@ -305,17 +305,32 @@ public static class AssemblyPairClusterRootPathQuery
                 derived.OccurrenceIndexes);
     }
 
-    static AssemblyContextParticipant RequireSourceParticipant(
+    static AssemblyContextParticipant RequirePairParticipants(
         AssemblyContextGroup group,
-        AssemblyPairDirectUseCluster cluster) =>
-        group.Participants.SingleOrDefault(
-            participant => ReferenceEquals(
-                participant.Assembly.Registration,
-                cluster.Identity.Source.Registration))
-        ?? throw new AssemblyPairClusterRootPathRequestException(
-            "The selected cluster source does not belong to the "
-                + "supplied assembly group.",
-            nameof(cluster));
+        AssemblyPairDirectUseCluster cluster)
+    {
+        AssemblyContextParticipant source =
+            group.Participants.SingleOrDefault(
+                participant => ReferenceEquals(
+                    participant.Assembly.Registration,
+                    cluster.Identity.Source.Registration))
+            ?? throw new AssemblyPairClusterRootPathRequestException(
+                "The selected cluster source does not belong to the "
+                    + "supplied assembly group.",
+                nameof(cluster));
+        if (!group.Participants.Any(
+                participant => ReferenceEquals(
+                    participant.Assembly.Registration,
+                    cluster.Identity.Target.Registration)))
+        {
+            throw new AssemblyPairClusterRootPathRequestException(
+                "The selected cluster target does not belong to the "
+                    + "supplied assembly group.",
+                nameof(cluster));
+        }
+
+        return source;
+    }
 
     static AssemblyPairClusterRootPathResult Unavailable(
         AssemblyPairDirectUseClusterProjection selection,
