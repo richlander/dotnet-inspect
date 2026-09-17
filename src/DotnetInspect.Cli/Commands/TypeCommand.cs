@@ -26,6 +26,20 @@ namespace DotnetInspect.Cli.Commands;
 public static class TypeCommand
 {
     public const string Name = "type";
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactTypeInspectionResult> ExactTypeJsonContract =
+            new(
+                "exact-type",
+                1,
+                ExactTypeInspectionJsonContext.Default
+                    .ExactTypeInspectionResult);
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactLibraryApiInspectionResult> ExactLibraryApiJsonContract =
+            new(
+                "exact-library-api",
+                1,
+                ExactLibraryApiInspectionJsonContext.Default
+                    .ExactLibraryApiInspectionResult);
 
     public static Task<int> ExecuteAsync(TypeOptions options)
         => ExecuteAsync(
@@ -187,6 +201,15 @@ public static class TypeCommand
                     exactLibraryRequest,
                     exactTypeCapabilities)
                 .ConfigureAwait(false);
+        }
+
+        if (options.EnvelopeOutput)
+        {
+            CommandError.Write(
+                "--envelope on type requires an exact package version, one "
+                + "target framework, and either one exact Type or one exact "
+                + "Library.");
+            return 1;
         }
 
         bool ownsSource = resolvedSource is null;
@@ -690,7 +713,7 @@ public static class TypeCommand
             || options.EffectiveDiscovery
             || options.Verbosity is not (
                 Verbosity.Quiet or Verbosity.Minimal)
-            || !options.IsDefaultInvocation
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
@@ -758,7 +781,7 @@ public static class TypeCommand
                 || new TypeGestureIntent(options.TypeFilter)
                     .SelectsListingCatalog(options.TypeName))
             || options.EffectiveDiscovery
-            || !options.IsDefaultInvocation
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
@@ -840,6 +863,27 @@ public static class TypeCommand
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
         ExactLibraryApiInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
+                CommandError.WriteNote(diagnostic.Summary.ToString());
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactLibraryApiJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            if (result.Outcome
+                    is not ExactLibraryApiInspectionOutcome.Available
+                || execution.Surface is null)
+            {
+                CommandError.Write(
+                    result.Failures.FirstOrDefault()?.Detail
+                    ?? "Could not extract API from library.");
+                return 1;
+            }
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (result.Outcome
                 is not ExactLibraryApiInspectionOutcome.Available
             || execution.Surface is null)
@@ -934,6 +978,23 @@ public static class TypeCommand
         }
 
         ExactTypeInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactTypeJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            if (!result.IsAvailable)
+            {
+                WriteExactTypeNonSuccess(envelope);
+                return 1;
+            }
+
+            WriteExactTypeDiagnostics(envelope.Diagnostics);
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (!result.IsAvailable)
         {
             WriteExactTypeNonSuccess(envelope);
@@ -1094,6 +1155,10 @@ public static class TypeCommand
                 $"Could not inspect Type '{result.RequestedType}'.");
         }
     }
+
+    static bool IsCompleteInspectionOutput(TypeOptions options) =>
+        options.IsDefaultInvocation
+        || options.JsonOutput && !options.ShapeExplicitlySet;
 
     static void WriteExactTypeDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)

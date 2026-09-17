@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -91,7 +92,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                     IncludeSections = ["Summary"],
                 },
                 out _));
-        Assert.False(
+        Assert.True(
             TypeCommand.TryCreateSharedExactTypeRequest(
                 options with
                 {
@@ -110,6 +111,62 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.DoesNotContain(
             typeof(ExactTypeInspectionRequest).GetProperties(),
             property => property.Name == "IncludeAll");
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesUnprojectedJson()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            TipLevel = TipLevel.Quiet,
+            CompactJson = true,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        var json = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                baseline with
+                {
+                    JsonOutput = true,
+                    Format = OutputFormat.Json,
+                    FormatExplicitlySet = true,
+                    FormatFlagExplicitlySet = true,
+                },
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(baseline),
+                capabilities));
+        var envelope = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                baseline with { EnvelopeOutput = true },
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(baseline),
+                capabilities));
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal("exact-type", root.GetProperty("result_kind").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                root.GetProperty("content")));
+        Assert.Equal(
+            "available",
+            root.GetProperty("share").GetProperty("kind").GetString());
     }
 
     [Fact]

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Adds complete service `--envelope` output to `package activity`, ordinary
+  `package query`, `package query --library-literal`, and eligible exact
+  package-backed `type` gestures selecting one Type or Library. The new schema
+  version `1` result kinds are `ecosystem-change-report`, `package-query`,
+  `package-assembly-semantic-query`, `exact-type`, and `exact-library-api`.
+  Semantic request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
+- **Breaking:** Unprojected `package query --json` now emits the complete
+  `PackageQueryDocument`; `package query --library-literal --json` emits
+  `PackageAssemblySemanticQueryDocument`; and eligible exact package-backed
+  Type and Library `type --json` gestures emit `ExactTypeInspectionResult` and
+  `ExactLibraryApiInspectionResult`. Each is byte-shape-compatible with its
+  corresponding `--envelope.content` serializer rather than the former
+  Markout-projected or compatibility presentation JSON (#7126).
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
   discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
   member discovery remains case-insensitive and one-to-many across overloads,

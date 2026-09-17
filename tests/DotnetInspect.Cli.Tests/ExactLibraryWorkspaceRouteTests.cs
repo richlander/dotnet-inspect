@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -96,7 +97,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     TypeName = typeof(ApiType).FullName,
                 },
                 out _));
-        Assert.False(
+        Assert.True(
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
@@ -112,6 +113,64 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     ShowDocs = true,
                 },
                 out _));
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesUnprojectedJson()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            TipLevel = TipLevel.Quiet,
+            CompactJson = true,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        var json = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                baseline with
+                {
+                    JsonOutput = true,
+                    Format = OutputFormat.Json,
+                    FormatExplicitlySet = true,
+                    FormatFlagExplicitlySet = true,
+                },
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(baseline),
+                capabilities));
+        var envelope = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                baseline with { EnvelopeOutput = true },
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(baseline),
+                capabilities));
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal(
+            "exact-library-api",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                root.GetProperty("content")));
+        Assert.Equal(
+            "available",
+            root.GetProperty("share").GetProperty("kind").GetString());
     }
 
     [Fact]

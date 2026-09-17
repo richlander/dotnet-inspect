@@ -94,12 +94,30 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
-        typeCommand.Options.Add(opts.Envelope);
+        opts.AddEnvelopeOptionTo(
+            typeCommand,
+            opts.Discover,
+            opts.Select,
+            opts.Verbosity,
+            opts.Limit,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Count);
         typeCommand.Options.Add(opts.Bare);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
+        typeCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption) is { Implicit: false }
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError("--compact requires --json or --envelope.");
+            }
+        });
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
@@ -109,13 +127,6 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
-                && !parseResult.GetValue(matchOption))
-            {
-                CommandError.Write("--envelope on type requires --match.");
-                return 1;
-            }
-
             if (parseResult.GetValue(matchOption))
             {
                 return ApiCoordinateMatchOptionsParser.ParseType(

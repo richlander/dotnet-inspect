@@ -335,11 +335,13 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>` and ordinary single-Library API `diff` additionally
-support the presence-only `--envelope` service-output selector. It implies
+The following complete service routes support the presence-only `--envelope`
+selector: positional `depends <type>`, ordinary single-Library API `diff`,
+`package activity`, both ordinary and `--library-literal` Package Query, and
+exact package-backed `type` gestures selecting one Type or Library. It implies
 JSON; unprojected `--json` emits the same Content without the service frame.
-Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
-have not adopted this transport.
+Asset-mode `depends`, other Diff and Type modes, Discover, Count, projected
+output, and internal sub-operations have not adopted this transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -496,6 +498,14 @@ and method-token/IL-offset previews are evidence on that package Result.
 `-n` and `--rows` select package rows, while `--take` bounds package candidates.
 Candidate failures remain visible and prevent an unqualified Count. Candidate
 packages are disposable: they are never added to the package cache.
+
+For both ordinary Package Query and `--library-literal`, unprojected `--json`
+emits the complete owner-issued Content. `--envelope` emits that same Content
+with Share and diagnostics, using result kind `package-query` or
+`package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
+`--tfm`, and `--library-literal` remain admitted; row selection, Count,
+projection, discovery, section selection, and competing formats are rejected.
+Typed incomplete or failed Content is still emitted before a nonzero exit.
 
 Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:

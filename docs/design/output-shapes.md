@@ -59,8 +59,11 @@ not a new rung in this ladder or an already available output option.
 
 ### Implementation status
 
-Baseline transport is adopted by positional `depends <type>` and ordinary
-Library API Diff with exactly one Library per endpoint.
+Baseline transport is adopted by positional `depends <type>`, ordinary
+Library API Diff with exactly one Library per endpoint, Package Activity,
+ordinary Package Query, Package Query assembly-semantic evaluation, exact
+package-backed Type inspection, and exact package-backed Library API
+inspection.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -99,14 +102,33 @@ JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
+Package Activity registers `ecosystem-change-report`. Ordinary Package Query
+registers `package-query`, while `--library-literal` registers
+`package-assembly-semantic-query`. Exact package-backed Type and Library API
+inspection register `exact-type` and `exact-library-api`. All use schema
+version `1`; unprojected `--json` and `--envelope.content` share the same
+owner-issued Content serializer. Query-planning inputs remain service inputs,
+while row selection, projection, section selection, Count, discovery, and
+competing output formats remain presentation operations and are rejected with
+`--envelope`.
+
+Package Activity and both Package Query contracts preserve typed incomplete or
+failed Documents before returning a nonzero exit. Exact Type and Library API
+adoption is limited to one pinned package version, one non-`all` TFM, and one
+exact Type or Library on the existing shared operation routes. Richer sections,
+filters, alternate sources, and presentation shaping retain their compatibility
+routes and do not expose an envelope.
+
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
-unadopted. Library API Diff's complete Browser baseline transport is governed
+unadopted. Internal pruning, source-pairing, and integration sub-operation
+envelopes are not command transport: they are components of larger command
+results rather than owner-issued aggregates for the complete logical
+operation. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
-[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
-owns command cutover. These two concrete Content registrations complete the
-baseline transport rollout in #6719, not those separate adoption efforts.
+[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) owns this
+command cutover.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -287,18 +309,27 @@ specific to its result kind; an unrelated result kind need not advance.
 This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
 
-The registered adopter identity is `type-dependencies` for
-`TypeDependencySectionResult`. The second adopted identity is
-`library-api-diff` for `LibraryApiDiffOutcome`. An Outcome's Available,
-Rejected, or other case does not change `result_kind`; its own discriminator
-remains inside `content`. Another operation with a different content contract,
-such as Discover or semantic Count, needs its own registration. Neither the
-command token nor the generic CLR name is a wire discriminator.
-Asset-mode dependency inspection reserves the distinct identity
-`asset-dependencies` at schema version `1` for
-`DependencyInspectionContent`; its enriched form binds
+The registered adopter identities are:
+
+| `result_kind` | Content contract |
+| --- | --- |
+| `type-dependencies` | `TypeDependencySectionResult` |
+| `library-api-diff` | `LibraryApiDiffOutcome` |
+| `asset-dependencies` | `DependencyInspectionContent` |
+| `ecosystem-change-report` | `EcosystemChangeReportDocument` |
+| `package-query` | `PackageQueryDocument` |
+| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
+| `exact-type` | `ExactTypeInspectionResult` |
+| `exact-library-api` | `ExactLibraryApiInspectionResult` |
+
+The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
 [adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
+An Outcome's Available, Rejected, or other case does not change
+`result_kind`; its own discriminator remains inside `content`. Another
+operation with a different content contract, such as Discover or semantic
+Count, needs its own registration. Neither the command token nor the generic
+CLR name is a wire discriminator.
 
 Envelope and diagnostic member names use lower snake case. Share keeps its
 owner-issued `kind` discriminator and values, including `available` and

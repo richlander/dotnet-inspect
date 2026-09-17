@@ -309,6 +309,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public bool EnvelopeOutput { get; init; }
     public string? TypeFilter { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
@@ -323,7 +324,15 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput =>
+        EnvelopeOutput
+        || Bare
+        || JsonOutput
+        || Tabular
+        || Jsonl
+        || NoHeader
+        || ShapeOutput
+        || Count;
 }
 
 /// <summary>

@@ -45,7 +45,7 @@ public static class PackageChangesCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Output minified JSON (use with --json)",
+            Description = "Output minified JSON (use with --json or --envelope)",
         };
 
         command.Options.Add(ecosystemOption);
@@ -75,6 +75,16 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(opts.Tips);
         command.Options.Add(opts.Info);
         command.Options.Add(opts.Verbosity);
+        opts.AddEnvelopeOptionTo(
+            command,
+            opts.Discover,
+            opts.Select,
+            opts.Schema,
+            opts.Count,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Verbosity);
 
         command.Validators.Add(result =>
         {
@@ -128,10 +138,11 @@ public static class PackageChangesCommandDefinitions
                     + "for package activity.");
             }
             if (IsExplicit(result, compactOption)
-                && !result.GetValue(opts.Json))
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires package activity --json.");
+                    "--compact requires package activity --json or --envelope.");
             }
 
             foreach (Option option in new Option[]
@@ -212,6 +223,7 @@ public static class PackageChangesCommandDefinitions
                     parseResult.GetValue(opts.Limit)
                     ?? EcosystemChangeReportRequest.DefaultMaximumRows,
                 Format = opts.ResolveFormat(parseResult),
+                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
             };

@@ -19,6 +19,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public RowSelectionIntent<string>? RowSelection { get; init; }
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
+    public bool EnvelopeOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Tabular { get; init; }
     public bool Tsv { get; init; }
@@ -28,6 +29,13 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
+
+    internal bool IsContentJson =>
+        JsonOutput
+        && RowSelection is null
+        && !Count
+        && Columns is null
+        && Fields is null;
 
     private static ImmutableArray<PackageQueryFacetDescriptor> CliFacets { get; } =
     [

@@ -306,7 +306,7 @@ public static class PackageCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Minified JSON (use with --json)"
+            Description = "Minified JSON (use with --json or --envelope)"
         };
         var linesOption = new Option<bool>("--lines");
         var tailLinesOption = new Option<bool>("--tail-lines");
@@ -333,6 +333,26 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.Select);
         queryCommand.Options.Add(opts.Tree);
         opts.AddNuGetOptionsTo(queryCommand);
+        opts.AddEnvelopeOptionTo(
+            queryCommand,
+            opts.Limit,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Count,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Select);
+        queryCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption) is { Implicit: false }
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires package query --json or --envelope.");
+            }
+        });
 
         queryCommand.SetAction(async (parseResult, ct) =>
         {
@@ -503,6 +523,7 @@ public static class PackageCommandDefinitions
                 RowSelection = rowSelection,
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = format == OutputFormat.Json,
+                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                 CompactJson = parseResult.GetValue(compactOption),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),

@@ -317,6 +317,7 @@ public static class TypeOptionsParser
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),

@@ -137,6 +137,40 @@ public class PackageQueryCliTests
         Assert.Empty(root.Parse(processed).Errors);
     }
 
+    [Fact]
+    public void EnvelopeAdmissionRejectsPostServiceShaping()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] accepted =
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    "package",
+                    "query",
+                    "Contoso.*",
+                    "--envelope",
+                    "--compact",
+                ],
+                root);
+        Assert.Empty(root.Parse(accepted).Errors);
+
+        string[] rejected =
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    "package",
+                    "query",
+                    "Contoso.*",
+                    "--envelope",
+                    "-n",
+                    "1",
+                ],
+                root);
+        Assert.Contains(
+            root.Parse(rejected).Errors,
+            error => error.Message.Contains(
+                "--envelope cannot be combined with -n",
+                StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("Contoso.*", null, 5)]
     [InlineData("Contoso.*", 3, 3)]
@@ -723,6 +757,77 @@ public class PackageQueryCliTests
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
         Assert.Equal(2, result.Output.TrimEnd().Split('\n').Length);
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesUnprojectedJson()
+    {
+        using var source = Source(out _);
+        PackageQueryOptions baseline =
+            Options(PackageQuery.HasDependenciesFacetId) with
+            {
+                Tabular = false,
+                Tsv = false,
+                JsonOutput = true,
+                CompactJson = true,
+            };
+        var json = await ConsoleCapture.RunAsync(
+            () => PackageQueryCommand.ExecuteAsync(
+                baseline,
+                source,
+                null));
+        var envelope = await ConsoleCapture.RunAsync(
+            () => PackageQueryCommand.ExecuteAsync(
+                baseline with
+                {
+                    JsonOutput = false,
+                    EnvelopeOutput = true,
+                },
+                source,
+                null));
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal("package-query", root.GetProperty("result_kind").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                root.GetProperty("content")));
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task EnvelopeRetainsFailedPackageQueryContent()
+    {
+        using var source = Source(out var fixture);
+        fixture.SearchFails = true;
+        PackageQueryOptions options =
+            Options(PackageQuery.VerifiedFacetId) with
+            {
+                Tabular = false,
+                Tsv = false,
+                EnvelopeOutput = true,
+            };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageQueryCommand.ExecuteAsync(options, source, null));
+
+        Assert.Equal(1, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement content = document.RootElement.GetProperty("content");
+        Assert.Equal(
+            (int)PackageQueryCompletionKind.Failed,
+            content.GetProperty("summary")
+                .GetProperty("completion")
+                .GetInt32());
+        Assert.Single(content.GetProperty("failures").EnumerateArray());
+        Assert.Contains("Package Query completion", result.Error);
     }
 
     [Fact]
