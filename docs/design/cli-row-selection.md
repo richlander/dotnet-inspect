@@ -8,11 +8,11 @@ Focused L3 design proposal for
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
 boundary for semantic row selection and rendered-line selection. Every output
-command that exposes `-n` now requires an explicit unit: an adopted semantic
-row set, or `--lines`/`--tail-lines` for rendered output. Commands without a
-semantic-row adoption reject bare `-n` instead of silently interpreting it as
-a line count. Legacy `--rows` contracts remain command-owned until their
-semantic adoption.
+command that exposes `-n` declares its item unit: an adopted semantic row set,
+or rendered lines when the command's only item domain is text lines. Other
+commands without semantic-row adoption reject bare `-n` and require
+`--lines`/`--tail-lines` for rendered output. Legacy `--rows` contracts remain
+command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
@@ -20,7 +20,10 @@ catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 have semantic `-n` adoption. Their supported Window and direction capabilities
 remain command-specific. These adopters also accept explicit rendered-line
 selection where their output format permits it. Unselected modes of a
-partially adopted command use the line-only fallback.
+partially adopted command use the line-only fallback. `skill` and its focused
+skill-document subcommands declare rendered text lines as their only item
+domain, so bare `-n` selects lines there; `--lines` remains accepted as explicit
+redundancy. `skill list` retains its separate structured skill-row surface.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -201,11 +204,13 @@ first-versus-last direction:
 - [`tail -n N`](https://www.gnu.org/software/coreutils/manual/html_node/tail-invocation.html)
   keeps the last *N* lines.
 
-`dotnet-inspect` deliberately changes the default unit from rendered lines to
-the active command's declared semantic rows. Rendering is not the semantic
-source of truth, and commands already return useful items such as packages,
-types, dependencies, and graph edges. Explicit `--lines` retains the Unix text
-operation when presentation lines are the intended unit.
+`dotnet-inspect` binds the default unit to the active command's declared items.
+Rendering is not normally the semantic source of truth, because commands
+return useful items such as packages, types, dependencies, and graph edges.
+When a command only prints a text document, rendered lines are its item domain;
+`skill` and its focused document subcommands therefore infer line selection.
+Explicit `--lines` retains the Unix text operation on all other line-capable
+surfaces.
 
 Kusto's
 [`top N by Expression`](https://learn.microsoft.com/en-us/kusto/query/top-operator)
@@ -396,8 +401,9 @@ require platform or package resolution.
 Before an implicit router performs observable resolution, it uses a pure
 route-independent envelope over candidate command declarations:
 
-- `-n N` has the same default meaning for every adopting command: select the
-  first *N* declared semantic items; rendered lines require explicit `--lines`;
+- `-n N` selects the first *N* items declared by each adopting command;
+  rendered lines require explicit `--lines` unless every candidate declares
+  lines as its only item domain;
 - the required-value arity union protects a following negative token whenever
   any candidate route must consume it as that option's value;
 - an invocation with no row-selection request follows ordinary routing;
@@ -528,12 +534,13 @@ failure and hide that failure.
 
 ## Command-by-command adoption
 
-Semantic adoption is explicit on the active leaf command or on an explicit
+Item adoption is explicit on the active leaf command or on an explicit
 zero-arity lens selector whose row set is determined at L3. A command or lens
 does not gain a semantic row set because it happens to use a shared option
 object, renders a table, or shares an execution helper with an adopted surface.
 Unselected modes of a partially adopted command use the shared line-only
-fallback.
+fallback. A document command may instead declare rendered lines as its default
+item unit when lines are its only selectable item domain.
 
 One adoption PR defines:
 
@@ -545,11 +552,12 @@ One adoption PR defines:
 - the same selected logical rows across every supported format; and
 - outcome-level gates for the command's pathological and neighboring cases.
 
-A command without a semantic-row declaration rejects `-n` alone. It may use
-`-n N --lines` or `-n N --tail-lines` for the host-owned rendered-line
-operation. A semantic adopter also uses those explicit line modifiers to
-switch units; `-n` alone never silently changes from semantic rows to rendered
-lines.
+A command without a semantic-row or line-item declaration rejects `-n` alone.
+It may use `-n N --lines` or `-n N --tail-lines` for the host-owned
+rendered-line operation. A semantic adopter also uses those explicit line
+modifiers to switch units. A declared line-item command lowers bare `-n`
+directly to rendered-line intent; this is command-owned inference, not a
+rendering-dependent fallback.
 
 One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
@@ -746,6 +754,7 @@ The broad explicit-line rollout is enforced by:
 | Gate | Property |
 | --- | --- |
 | `CacheCommandTests` | A command without semantic rows rejects `-n` alone, accepts `--lines` and `--tail-lines`, and rejects explicit or environment-selected JSON before command work. |
+| `SkillCommandTests` | `skill` and focused skill-document commands infer rendered lines for bare `-n`, preserve explicit `--lines`, apply `--tail` to lines, and retain fixed Markdown output independent of the environment-selected format. |
 | `ImplementsCommandTests` and `ExtensionsCommandTests` | Existing semantic Head/Tail and Window selection remains intact, explicit line clipping is available, and numeric `-t` reports `-n` as the row-count replacement. |
 | `PackageChangesCommandTests` | Package activity retains semantic `-n`, does not reuse that count when line selection is explicit, and rejects JSON line clipping before acquisition. |
 | `CliRowSelectionRouterIntegrationTests` | Uniformly unsupported commandless `-n` reports that semantic rows are unavailable and points to explicit `--lines` without entering target acquisition. |

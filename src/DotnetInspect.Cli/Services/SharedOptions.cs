@@ -321,23 +321,28 @@ public class SharedOptions
 
     public void AddLineSelectionOptionsTo(
         Command command,
-        Func<ParseResult, OutputFormat>? resolveOutputFormat = null)
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
+        Option<int?>? limit = null,
+        bool inferLines = false)
     {
-        command.Options.Add(Limit);
+        limit ??= Limit;
+        command.Options.Add(limit);
         command.Options.Add(Head);
         command.Options.Add(Tail);
         command.Options.Add(Lines);
         command.Options.Add(TailLines);
         RegisterLineSelectionFallback(
             command,
-            Limit,
-            resolveOutputFormat);
+            limit,
+            resolveOutputFormat,
+            inferLines);
     }
 
     public void RegisterLineSelectionFallback(
         Command command,
         Option? limit = null,
-        Func<ParseResult, OutputFormat>? resolveOutputFormat = null)
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
+        bool inferLines = false)
     {
         limit ??= Limit;
         resolveOutputFormat ??= result => ResolveFormat(result);
@@ -368,7 +373,11 @@ public class SharedOptions
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     IsJsonDocumentOutput(result, resolveOutputFormat),
-                    lowering));
+                    lowering),
+            defaultUnit:
+                inferLines
+                    ? CliRowSelectionDefaultUnit.RenderedLines
+                    : CliRowSelectionDefaultUnit.SemanticRows);
     }
 
     /// <summary>

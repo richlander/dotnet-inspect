@@ -21,12 +21,14 @@ internal sealed class CliRowSelectionCommandAdoption
         CliRowSelectionCapabilities capabilities,
         Func<ParseResult, bool> isActive,
         Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering,
+        CliRowSelectionDefaultUnit defaultUnit,
         CliRowSelectionCommandAdoption? fallback)
     {
         Bindings = bindings;
         Capabilities = capabilities;
         IsActive = isActive;
         ValidateLowering = validateLowering;
+        DefaultUnit = defaultUnit;
         Fallback = fallback;
     }
 
@@ -37,6 +39,8 @@ internal sealed class CliRowSelectionCommandAdoption
     public Func<ParseResult, bool> IsActive { get; }
 
     public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
+
+    public CliRowSelectionDefaultUnit DefaultUnit { get; }
 
     public CliRowSelectionCommandAdoption? Fallback { get; }
 }
@@ -123,7 +127,9 @@ internal static class CliRowSelectionCommandRegistry
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
         Func<ParseResult, bool> isActive,
-        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null)
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(bindings);
@@ -139,6 +145,7 @@ internal static class CliRowSelectionCommandRegistry
                 capabilities,
                 isActive,
                 validateLowering,
+                defaultUnit,
                 fallback));
     }
 
@@ -210,7 +217,8 @@ internal static class CliRowSelectionCommandRegistry
                 rootCommand,
                 effectiveArguments,
                 adoption!.Bindings,
-                adoption.Capabilities);
+                adoption.Capabilities,
+                adoption.DefaultUnit);
 
         if (!adoption.IsActive(result.ParseResult))
         {

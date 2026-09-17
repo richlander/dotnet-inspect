@@ -161,9 +161,16 @@ public static class UtilityCommandDefinitions
     public static Command CreateSkillCommand(SharedOptions opts)
     {
         var skillCommand = new Command("skill", "Show skill definition (router to focused skills)");
+        var skillLineLimit = new Option<int?>("-n")
+        {
+            Description =
+                "Select rendered skill-document lines; pair with --tail to take from the end",
+        };
         opts.AddLineSelectionOptionsTo(
             skillCommand,
-            static _ => OutputFormat.Markdown);
+            static _ => OutputFormat.Markdown,
+            skillLineLimit,
+            inferLines: true);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
 
         // Subcommand: list (supports the standard output formats)
@@ -186,7 +193,9 @@ public static class UtilityCommandDefinitions
             var focusedCommand = new Command(name, skill.Description);
             opts.AddLineSelectionOptionsTo(
                 focusedCommand,
-                static _ => OutputFormat.Markdown);
+                static _ => OutputFormat.Markdown,
+                skillLineLimit,
+                inferLines: true);
             focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
             skillCommand.Subcommands.Add(focusedCommand);
         }
