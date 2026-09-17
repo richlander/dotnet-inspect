@@ -436,11 +436,18 @@ async function measurePackage(page: Page): Promise<{
     const benchmark = bridge;
     async function measure(): Promise<PackageMeasurement> {
       const started = performance.now();
-      const surface = await benchmark.package.queryPackage(
+      const loadResult = await benchmark.package.queryPackage(
         coordinate.packageId,
         coordinate.version,
         coordinate.targetFramework,
       );
+      const surface = loadResult.surface;
+      if (surface === null) {
+        throw new Error(
+          loadResult.versionSettlement.content.failure?.reason
+            ?? "Package version settlement did not produce a surface.",
+        );
+      }
       if (surface.inspectionError) {
         throw new Error(`Package inspection failed: ${surface.inspectionError}`);
       }
@@ -532,11 +539,18 @@ async function measureMemberThroughput(
       throw new Error("The production Worker benchmark bridge is unavailable.");
     }
     const benchmark = bridge;
-    const surface = await benchmark.package.queryPackage(
+    const loadResult = await benchmark.package.queryPackage(
       input.coordinate.packageId,
       input.coordinate.version,
       input.coordinate.targetFramework,
     );
+    const surface = loadResult.surface;
+    if (surface === null) {
+      throw new Error(
+        loadResult.versionSettlement.content.failure?.reason
+          ?? "Package version settlement did not produce a surface.",
+      );
+    }
     const candidates = surface.types.flatMap(type =>
       type.api.flatMap(member => {
         const body = member.bodySelectors[0];
@@ -639,11 +653,18 @@ async function measureMethodComparison(
       throw new Error("The production Worker benchmark bridge is unavailable.");
     }
     const benchmark = bridge;
-    const surface = await benchmark.package.queryPackage(
+    const loadResult = await benchmark.package.queryPackage(
       coordinate.packageId,
       coordinate.version,
       coordinate.targetFramework,
     );
+    const surface = loadResult.surface;
+    if (surface === null) {
+      throw new Error(
+        loadResult.versionSettlement.content.failure?.reason
+          ?? "Package version settlement did not produce a surface.",
+      );
+    }
     const type = surface.types.find(
       candidate => candidate.definitionId === coordinate.comparisonType,
     );
