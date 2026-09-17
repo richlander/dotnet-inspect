@@ -18,7 +18,10 @@ Adjacent owners retain their authority:
 
 - [Artifact acquisition and Workspaces](artifact-acquisition-and-workspaces.md)
   owns `PackageRootBinding`, its exact physical content generation, compile and
-  implementation selection, and resource-free reacquisition request.
+  implementation selection, compatible target-selection authorization and
+  outcome, and resource-free reacquisition request. [#7230](https://github.com/richlander/dotnet-inspect/issues/7230)
+  stages retention of authorization independently from whether compatible
+  fallback selected the implementation.
 - `PackageDependencyGroupsQuery` owns bounded manifest access and
   target-framework dependency-group selection.
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
@@ -68,8 +71,9 @@ RealizedPackageDependencySubject
 The exact binding supplies all construction authority:
 
 - `RootRequest` retains the producer-pinned coordinate, compile target,
-  implementation-selection target, runtime identifier, and whether compatible
-  implementation selection governed the Root.
+  implementation-selection target, runtime identifier, compatible
+  target-selection authorization, and whether compatible implementation
+  selection governed the Root.
 - `ContentGeneration` identifies the exact retained payload generation.
 - `Selection` identifies the exact compile-asset selection over that
   generation.
@@ -90,13 +94,20 @@ DependencyGroupRequest.Target =
   RootRequest.CompileTargetFramework
 
 DependencyGroupRequest.AllowCompatibleFallback =
-  RootRequest.UsesCompatibleImplementationSelection
+  RootRequest.AllowsCompatibleTargetSelection
 ```
 
 A framework-neutral Root therefore uses the dependency-group owner's existing
-no-request behavior. An exact Root asks the group owner the exact question. A
-Root formed by compatible implementation selection asks the group owner its
-compatible question against the original compile target.
+no-request behavior. An exact-only Root asks the group owner the exact
+question. A Root whose caller authorized compatible target selection asks the
+group owner its compatible question against the original compile target,
+whether compile-asset selection used an exact asset or compatible fallback.
+
+`RootRequest.UsesCompatibleImplementationSelection` remains observed Root
+selection evidence. It does not express caller authorization and does not
+control dependency-group fallback. #7230 must issue and preserve
+`AllowsCompatibleTargetSelection` through acquisition and reacquisition before
+this query can implement the mapping.
 
 The compile-asset and dependency-group owners may select different nearest
 frameworks because a package may expose different asset and declaration-group
@@ -165,9 +176,11 @@ acquisition client, callback, or reopening authority.
 
 The detached result remains valid historical evidence after the binding or
 Workspace closes. It cannot reopen content or establish correspondence to a
-later generation. Reacquiring `RootRequest` produces a new binding,
-`ContentGeneration`, and `Selection`; the query must run again to issue a new
-context.
+later observation. Reacquiring `RootRequest` produces a new binding,
+`Selection`, and context. `ContentGeneration` remains equal when the
+acquisition owner proves reuse of the same retained immutable snapshot and
+changes when replacement content is acquired. Either path requires the query
+to run again; generation equality alone does not transfer the old context.
 
 Encoding `RootRequest` for another host does not serialize the process-local
 association. The destination host reacquires the Root and independently
@@ -196,6 +209,12 @@ For a Polly.Core Root realized compatibly from compile target `net11.0`, the
 same query instead applies compatible dependency-group selection against
 `net11.0`; its empty `net8.0` group remains a valid selected-empty outcome.
 These are distinct contexts even though the package coordinate is equal.
+
+A neighboring package may have an exact compile asset for the requested target
+but only a compatible dependency group. Compatible authorization must survive
+that exact asset selection so the group owner can select the valid compatible
+declarations. Whether asset fallback happened cannot substitute for the
+authorization.
 
 Observed with production `dotnet-inspect` 0.25.0:
 
@@ -231,12 +250,12 @@ silently move to another package occurrence.
 | Property | Release gate |
 | --- | --- |
 | Construction projects dependency evidence from the binding's exact retained content and accepts no independently produced evidence root. | Query construction tests with two equal coordinates backed by distinct content generations. |
-| Group selection receives the Root request's compile target and compatible-selection mode; selected asset and group frameworks may differ without losing either outcome. | Selector-spy table covering framework-neutral, exact, compatible, no-match, and differing-nearest-framework cases. |
+| Group selection receives the Root request's compile target and compatible-selection authorization, independently from whether asset fallback was used; selected asset and group frameworks may differ without losing either outcome. | Selector-spy table covering framework-neutral, exact-only, exact asset with compatible-only group, compatible asset fallback, no-match, and differing-nearest-framework cases. |
 | Polly.Core `netstandard2.0` retains its four declarations and direct assembly references; compatible `net11.0` realization retains the selected empty `net8.0` group as a separate context. | Pinned `Polly.Core@8.8.0` integration test plus equivalent deterministic fixtures. |
 | Selected empty, no dependency groups, no matching framework, no manifest, and dependency-group failure remain distinct result arms. | Closed result-algebra table tests. |
 | Equal coordinates under different content generations or selection identities cannot exchange contexts. | Same-coordinate cross-generation and independently repeated selection tests. |
 | The detached result's public shape contains the Root request, exact opaque identities, and dependency evidence needed by consumers. | Public consumer construction/observation test plus post-Workspace-close evidence test. |
-| Reacquisition issues a new context and does not transfer the old process-local association. | Reacquisition test across independent Workspaces and content generations. |
+| Reacquisition issues a new binding, selection, and context without transferring the old association; same-snapshot cache reuse may preserve generation identity, while replacement content changes it. | Same-generation cache-hit and replacement-generation reacquisition tests across independent Workspaces. |
 | Traversal preserves the complete context for shared nodes, revisits, cycles, selected-empty sources, and source failure. | Focused Package Traversal adoption gates. |
 
 The design is specification-only. Every property is unverified until its named
@@ -244,15 +263,18 @@ Release gate lands.
 
 ## Production adoption
 
-Issue #7401 is the end-to-end tracker. There are four capability steps:
+Issue #7401 is the end-to-end tracker. There are five capability steps:
 
-1. Implement the host-neutral context query and its result algebra in
+1. Have Artifact Acquisition preserve compatible target-selection
+   authorization independently from observed compatible implementation
+   fallback under #7230.
+2. Implement the host-neutral context query and its result algebra in
    `DotnetInspector.Queries`.
-2. Have package realization issue the context while it holds the exact
+3. Have package realization issue the context while it holds the exact
    `PackageRootBinding`; do not add a second manifest acquisition path.
-3. Have Package Dependency Traversal consume the context for realized source
+4. Have Package Dependency Traversal consume the context for realized source
    expansion and combine its declarations with #6424 destination realization.
-4. Retain the shared result through CLI and Browser/Wasm call-graph
+5. Retain the shared result through CLI and Browser/Wasm call-graph
    experiences, using existing Markout and structured-output boundaries.
 
 The shared query is not complete product behavior until both production hosts
@@ -262,6 +284,8 @@ follow-up effort; this document does not redefine their internals.
 ## Non-goals
 
 - Selecting package compile or implementation assets.
+- Defining Artifact Acquisition's representation of compatible-selection
+  authorization or outcome.
 - Selecting dependency groups or changing NuGet compatibility.
 - Choosing a Workspace default or destination target.
 - Merging declarations from several dependency groups.
