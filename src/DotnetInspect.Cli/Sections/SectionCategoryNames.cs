@@ -25,6 +25,12 @@ public static class SectionCategoryNames
     public const string Member = "@Member";
 
     /// <summary>
+    /// Composable API, analysis, and implementation comparison evidence.
+    /// This is the diff command's base category.
+    /// </summary>
+    public const string Diff = "@Diff";
+
+    /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
     /// member scope. Members that are also ordinary command evidence remain cross-listed in their
     /// base category.

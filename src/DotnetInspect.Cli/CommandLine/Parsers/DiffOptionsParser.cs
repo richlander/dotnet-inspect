@@ -147,6 +147,7 @@ public static class DiffOptionsParser
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),
+            Schema = opts.ParseSchema(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),
