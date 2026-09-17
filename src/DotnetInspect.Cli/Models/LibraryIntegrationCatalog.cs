@@ -19,11 +19,6 @@ internal sealed record LibraryIntegrationDescriptor(
 
     public string Name => Concept.DisplayLabel;
 
-    // User-facing section name/selector for this integration (e.g. "Integration: AI").
-    // Distinct from Name, which stays the unprefixed integration identity used for
-    // signal matching and finding payloads.
-    public string SectionName => IntegrationSectionNames.Prefix + Name;
-
     public bool CanRender(LibraryInspection inspection)
     {
         if (!inspection.IntegrationQuery.Matches(Concept))
@@ -77,6 +72,17 @@ internal sealed record LibraryIntegrationDescriptor(
     {
         var apiCount = signals.Count(signal => signal.Shape == IntegrationSignalShape.Api);
         return apiCount > 0 && !IncludeTypesWhenApisPresent ? apiCount : signals.Count;
+    }
+
+    public IEnumerable<(string Kind, string Name, string Shape)> RenderedSignals(
+        IReadOnlyCollection<(string Kind, string Name, string Shape)> signals)
+    {
+        bool hasApis = signals.Any(
+            signal => signal.Shape == IntegrationSignalShape.Api);
+        return hasApis && !IncludeTypesWhenApisPresent
+            ? signals.Where(
+                signal => signal.Shape == IntegrationSignalShape.Api)
+            : signals;
     }
 }
 
@@ -167,8 +173,6 @@ internal static class LibraryIntegrationCatalog
 
     public static readonly LibraryIntegrationDescriptor[] All =
         [.. IntegrationConceptCatalog.Concepts.Select(DescriptorFor)];
-
-    public static string[] CategorySections => [.. All.Select(descriptor => descriptor.SectionName)];
 
     public static bool CanRenderAny(LibraryInspection inspection)
         => All.Any(descriptor => descriptor.CanRender(inspection));
