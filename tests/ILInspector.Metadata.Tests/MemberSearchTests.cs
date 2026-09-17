@@ -7,7 +7,7 @@ namespace ILInspector.Metadata.Tests
         private static string SelfAssembly => typeof(MemberSearchProbeAlphaFixture).Assembly.Location;
 
         [Fact]
-        public void SearchAssembly_exact_name_finds_member_with_declaring_type_and_kind()
+        public void SearchAssembly_direct_name_finds_member_with_declaring_type_and_kind()
         {
             var results = MemberSearch.SearchAssembly(SelfAssembly, ["MemberSearchProbeAlpha"]);
 
@@ -20,7 +20,7 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
-        public void SearchAssembly_is_case_insensitive_for_exact_names()
+        public void SearchAssembly_is_case_insensitive_for_direct_names()
         {
             var results = MemberSearch.SearchAssembly(SelfAssembly, ["membersearchprobealpha"]);
 
@@ -54,6 +54,20 @@ namespace ILInspector.Metadata.Tests
         {
             var results = MemberSearch.SearchAssembly(SelfAssembly, ["NoSuchMemberXyzzy1234"]);
             Assert.Empty(results);
+        }
+
+        [Fact]
+        public void SearchAssembly_direct_indexer_alias_matches_metadata_name()
+        {
+            var results = MemberSearch.SearchAssembly(SelfAssembly, ["this[]"]);
+
+            MemberSearchResult result = Assert.Single(
+                results,
+                candidate => candidate.DeclaringType
+                    == typeof(MemberSearchProbeIndexerAlias).FullName);
+            Assert.Equal("this[]", result.Pattern);
+            Assert.Equal("Item", result.MemberName);
+            Assert.False(result.IsGlob);
         }
 
         [Fact]
@@ -119,5 +133,10 @@ namespace ILInspector.Metadata.Tests
     {
         public void MemberSearchProbeBeta() { }
         public int MemberSearchProbeShared() => 4;
+    }
+
+    public sealed class MemberSearchProbeIndexerAlias
+    {
+        public int this[int index] => index;
     }
 }

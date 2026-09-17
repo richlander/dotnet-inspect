@@ -7,11 +7,10 @@ discovery and projection-diagnostic contract.
 
 The Markout `DocumentSchema` model, generated-schema projection,
 product-authored composition, CLI discovery, effective filtering, projection
-validation, and rendered-manifest filtering are implemented. Some older
-post-render projection paths still use Markout's rendered-string diagnostic;
-that nonconforming path does not own section-scoped rendered truth and its
-removal is tracked by
-[#7138](https://github.com/richlander/dotnet-inspect/issues/7138).
+validation, and rendered-manifest filtering are implemented. Post-render
+projection paths replay their already-built Markout views into a typed render
+manifest; no production diagnostic parses rendered output to recover field or
+column identity.
 The earlier [auto-generated schema note](auto-schema.md) records the first
 generated-schema migration but is not a current owner.
 
@@ -127,7 +126,7 @@ Structural, effective, and rendered evidence answer different questions:
 | --- | --- | --- |
 | Structural schema | What can this document address? | Markout-generated schema plus product-owned composition |
 | Effective schema | Which structural sections are applicable and have evidence for this request? | Section and operation planning owners |
-| Rendered manifest | Which fields and columns did this exact render emit? | Markout formatter events captured by the product host |
+| Rendered manifest | Which fields and columns did this exact render emit? | Markout formatter events plus typed evidence from composite-shape owners |
 
 ### Structural discovery
 
@@ -155,25 +154,39 @@ was invalid. Effective filtering consumes owner-issued outcomes.
 ### Rendered manifest
 
 A valid structural field or column may still produce no row in one render.
-Post-render diagnosis uses formatter events, not text search over the final
-Markdown, table, or JSON artifact.
+Post-render diagnosis uses typed render evidence, not text search over the
+final Markdown, table, or JSON artifact.
 
-`RenderedSectionManifest` records section-scoped fields and table columns from
-the actual Markout render. A heading event establishes section scope only at
-the configured section level; the heading text is not recorded as a field.
-Cell values, nested headings, and unrelated sections do not become evidence
-that a requested item rendered.
+`RenderedSectionManifest` records section-scoped fields, declared table
+headers, and data-bearing table columns from the actual Markout render. It
+also represents document-root fields and tables, unions evidence when a
+section or table is emitted repeatedly, and keeps a zero-row table's declared
+columns separate from columns that carried data. A heading event establishes
+section scope only at the configured section level; the heading text is not
+recorded as a field. Cell values, nested headings, and unrelated sections do
+not become evidence that a requested item rendered.
+
+Post-render diagnosis replays the already-built view to `TextWriter.Null`
+through `RenderManifestFormatter`, using the same projection, selected
+sections, section order, heading offset, row window, and relevant writer
+options as the user-visible render. The replay does not repeat acquisition or
+rebuild the domain model. When a request combines field and column projection,
+one additional field-only replay preserves field-row identity after column
+lowering removes the `Field` cell. A fan-out formatter is not used because
+Markout formatters carry format-specific behavior as well as event callbacks.
+
+When a generic Markout shape cannot carry a product domain's projected field
+identities, the product adapter that created the shape records those identities
+from the same typed facts and selected rows. The Call Graph adapter follows
+this rule: Markout owns graph nodes and edges but not the analysis-field
+vocabulary embedded in node labels, so the adapter records only fields that
+produced annotations on nodes present in the selected graph lowering. The
+section owner merges that evidence into the manifest. It does not parse node
+labels or mark every requested field as present.
 
 The manifest is render evidence, not a replacement schema. It cannot advertise
 an item that was not structurally addressable, and one empty render must not
 erase that item from future structural discovery.
-
-Some retained projection paths call Markout's
-`DocumentSchema.DiagnoseRendered` over a rendered string. They preserve the
-structural-miss versus valid-but-empty distinction, but they are not authority
-for section-scoped field or column identity. New section-scoped work must use a
-render manifest or typed projected identities. #7138 deletes the string path;
-it is not an alternate or fallback contract.
 
 ## Discovery behavior
 
@@ -226,12 +239,14 @@ After rendering or typed projection, the product compares the resolved request
 with rendered evidence or the projected item set. A structurally valid item
 that produced no data is reported as a no-data note, not reclassified as an
 unknown field or column. Section-scoped conclusions require the render manifest
-or typed identities. The rendered-string path is a current violation scheduled
-for removal under #7138, not a supported diagnostic alternative.
+or typed identities; rendered strings are never searched for field or column
+identity.
 
 Pattern diagnosis uses the concrete names selected by the pattern. One rendered
 concrete name satisfies that pattern; a cell value that merely contains the
-same text does not.
+same text does not. Structural resolution and render evidence remain paired by
+section, so an identically named item emitted by another selected section does
+not satisfy the owning section.
 
 ## Ownership boundaries
 
@@ -298,10 +313,10 @@ The current Release CLI suite owns the executable contract:
 | Gate | Required observation |
 | --- | --- |
 | `OutputFormatterTests.TypeViewSchema_DoesNotOwnFirstClassMemberRows` and `TypeDocumentSchema_MergesFirstClassMemberViews` | One generated view is not mistaken for the complete composed product document. |
-| `OutputFormatterTests.RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields` and `RenderManifestFormatter_DoesNotTreatTitleTextAsAField` | Render evidence is section-scoped and comes from formatter events rather than coincidental display text. |
+| `OutputFormatterTests.RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields`, `RenderManifestFormatter_CapturesRootFieldTableData`, `RenderManifestFormatter_UsesFieldColumnIdentityAfterReordering`, `RenderManifestFormatter_ZeroRowTableDeclaresColumnsWithoutData`, `RenderManifestFormatter_UnionsRepeatedTablesAndTracksDataColumns`, `RenderManifestFormatter_ScopesSameNamedFieldsBySection`, `RenderManifestFormatter_CanonicalizesMachineColumnNames`, `RenderManifestFormatter_RootScopeIgnoresSyntheticHeading`, and `RenderManifestFormatter_DoesNotTreatTitleTextAsAField` | Render evidence covers root and section-scoped fields, declared versus data-bearing columns, reordered field tables, machine-name lowering, repeated tables, synthetic headings, and same-name isolation without relying on coincidental display text. |
 | `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInOneSection_SucceedsWithoutWarning` | Multi-section validation accepts a name owned by any selected section. |
 | `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInNoSection_FailsWithError` and `ValidateProjection_MixedValidAndUnknown_WarnsOnUnknownButSucceeds` | Complete structural misses fail; partial requests preserve valid work and report only unresolved names. |
-| `ProjectionDiagnosticsTests.DiagnoseRendered_WildcardUsesResolvedNames` and `DiagnoseRendered_OverlappingPatternsUseResolvedNames` | Post-render pattern diagnosis follows resolved structural names. |
+| `ProjectionDiagnosticsTests.DiagnoseProjected_WildcardUsesResolvedNames`, `DiagnoseProjected_OverlappingPatternsUseResolvedNames`, and `DiagnoseProjected_DoesNotUseAnotherSectionsEvidence` | Post-render pattern diagnosis follows resolved structural names and pairs typed present identities with their owning section. |
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
 | `CommandExecutionTests.Member_DiscoverEffective_ListsCategoriesBeforeSections` | Bare effective discovery presents category doors before regular sections. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
@@ -313,7 +328,7 @@ merged, augmented, or dynamic vocabulary matches the product document. A
 documentation-only change to this owner requires Markdown validation and
 verification that every named gate still exists.
 
-## Non-claims and required removals
+## Non-claims
 
 This design does not:
 
@@ -328,10 +343,8 @@ This design does not:
 
 Generated schema, product composition, structural discovery, effective
 filtering, and rendered-manifest effective discovery are current behavior.
-Replacing the remaining rendered-string projection diagnostics with manifest
-or typed identity evidence is required by
-[#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
-section-scoped claim rests on the string path. Any new cross-host query
-language, generated accessor model, schema serialization contract, or
-additional pattern semantics requires a focused issue and owner; the retired
-proposal checklist is not standing authorization.
+Rendered-manifest and typed-identity evidence are the sole post-render
+diagnostic authorities. Any new cross-host query language, generated accessor
+model, schema serialization contract, or additional pattern semantics requires
+a focused issue and owner; the retired proposal checklist is not standing
+authorization.

@@ -42,6 +42,16 @@ domain category is the gesture that enters that domain.
 Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Package` and `@Files`; package evidence is also cross-listed into
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
+Member and exact-type inspection use `@Member` as the base category. Their
+domain doors are `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`,
+and `@SourceLink`; the resolved broad, overload, or exact-member catalog
+determines which authored members each door exposes.
+Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
+Diff`, and `Implementation Diff` views. Its focused, non-composable `Finding
+Transitions` view remains a standalone exact-name section.
+Project uses `@Project` as its base category for package-authored `Skills` and
+`Package README file` documents from restored direct dependencies. Bare `-S`
+retains `Skills`; selecting `@Project` explicitly requests both inventories.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -92,6 +102,7 @@ dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S References --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
+dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
 Selection controls both rendering and data collection. Only producers needed
@@ -118,8 +129,9 @@ This is a stable candidate rule, not a promise of an identical rendered set
 for every target. A missing README or unavailable symbol record legitimately
 removes that section.
 
-Other command contexts may use an equivalent focused preset while they migrate
-to authored base categories. See [Bare `-S` default view](info-view.md).
+Member contexts use focused presets within `@Member`: member-kind summaries for
+a broad type view, the matching inventory for a member name, and `Signature`
+for one selected overload. See [Bare `-S` default view](info-view.md).
 
 ## Discovery
 
@@ -145,7 +157,8 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Commands not yet migrated may retain their existing discovery behavior. New
+Package, type-listing, member, diff, and project catalogs follow this model.
+Commands not yet migrated may retain their existing discovery behavior; new
 work should follow the reference model rather than copy a legacy command.
 
 ## Query discovery

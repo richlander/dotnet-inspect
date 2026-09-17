@@ -19,8 +19,27 @@ public static class SectionCategoryNames
     public const string Package = "@Package";
 
     /// <summary>
-    /// Safety, provenance, integrity, and vulnerability evidence at package or library scope.
-    /// Members that are also ordinary command evidence remain cross-listed in their base category.
+    /// Ordinary type/member identity, signature, inventory, and bounded implementation evidence.
+    /// This is the base category for the member command's broad, overload, and detail catalogs.
+    /// </summary>
+    public const string Member = "@Member";
+
+    /// <summary>
+    /// Composable API, analysis, and implementation comparison evidence.
+    /// This is the diff command's base category.
+    /// </summary>
+    public const string Diff = "@Diff";
+
+    /// <summary>
+    /// Package-authored documents exposed from a restored project's direct dependencies.
+    /// This is the project command's base category.
+    /// </summary>
+    public const string Project = "@Project";
+
+    /// <summary>
+    /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
+    /// member scope. Members that are also ordinary command evidence remain cross-listed in their
+    /// base category.
     /// </summary>
     public const string Audit = "@Audit";
 
@@ -30,6 +49,11 @@ public static class SectionCategoryNames
     public const string Dependencies = "@Dependencies";
 
     /// <summary>
+    /// Direct and reverse member-call relationships plus composed call graphs.
+    /// </summary>
+    public const string Calls = "@Calls";
+
+    /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs
     /// (API/member scope). Distinct from <see cref="SourceLink"/>, which is about SourceLink/PDB
     /// provenance and availability rather than the source text itself.
@@ -37,8 +61,8 @@ public static class SectionCategoryNames
     public const string Source = "@Source";
 
     /// <summary>
-    /// SourceLink / PDB provenance sections (library scope): the source-file listing derived from
-    /// the PDB plus the <c>SourceLink: &lt;X&gt;</c> availability/integrity audit sections.
+    /// SourceLink / PDB provenance sections: source-file and member-location evidence plus the
+    /// library/package <c>SourceLink: &lt;X&gt;</c> availability and integrity sections.
     /// </summary>
     public const string SourceLink = "@SourceLink";
 
@@ -79,10 +103,12 @@ public static class SectionCategoryNames
     /// </summary>
     public const string Hidden = "@Hidden";
 
-    /// <summary>Curated group of the kind-scoped performance sections (library scope).</summary>
+    /// <summary>Curated performance evidence at library, type, or member scope.</summary>
     public const string Performance = "@Performance";
 
-    /// <summary>Decompiler-backed rendered-source query sections.</summary>
+    /// <summary>
+    /// Decompiler-produced source and IL plus supporting fidelity, fact, and overlay evidence.
+    /// </summary>
     public const string Decompiler = "@Decompiler";
 
     /// <summary>

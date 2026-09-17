@@ -100,8 +100,9 @@ participant for a fresh unpublished Workspace: it validates the exact retained
 context and optional subject/lens pair, then returns either one complete
 independent `NavigationState` with effect authority or a typed non-prepared
 result with no state or authority. It does not implement Browser cutover
-(#6757), protected Scope-result admission (#5584), complete Definitions
-restoration, or Workspace publication. Implementation conformance is gated by
+(#6757), the
+[protected Scope-result consumption contract](navigation-scope-operation-consumption.md),
+complete Definitions restoration, or Workspace publication. Implementation conformance is gated by
 the named Release tests in [Verification](#verification). The workspace-owned
 identity prerequisite is implemented by `InspectionWorkspaceIdentity`; the
 observational occurrence view remains available for its unmigrated Browser
@@ -242,8 +243,11 @@ stale work. The existing opaque-snapshot TLA+ state machines remain sufficient
 for Navigation-local intent, maintenance, and authority ordering. Workspace
 scope-operation results are owned by
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md). Their
-protected Navigation consumption remains the separate focused contract in
-[#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
+protected Navigation consumption is implemented by the shared producer in
+[Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
+under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
+Source-retiring correspondence orchestration and CLI/Browser adoption remain
+unverified follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -1296,8 +1300,9 @@ Subject and lens activation return one of these semantic outcomes:
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
 `Rejected` is an admitted Navigation result with ordinary result authority. A
-future protected-membership refusal belongs to #5584 rather than this ordinary
-result algebra.
+protected-membership refusal belongs to the
+[Scope-operation consumption boundary](navigation-scope-operation-consumption.md)
+rather than this ordinary result algebra.
 
 A subject-activation request carries one exact destination subject and one
 complete exact route to it. Navigation rejects a foreign Workspace, invalid
@@ -2102,6 +2107,7 @@ retire it; no design-only claim presents that path as already shared.
 | `NavigationSession.tla` | Latest admitted Navigation-local explicit intent wins; semantic revision follows semantic snapshot change; retry publication can renew generation alone; composite receipt and exact-epoch installation govern acknowledgement; maintenance is request ordered; dedicated synchronization preserves exact request identity even after an intervening acknowledgement makes the receipt current |
 | `AtomicRestoration.tla` | One exact requested subject+lens pair initializes atomically; failed or superseded initialization is not published |
 | `SnapshotAuthority.tla` | Explicit host-current product state supplies retained prior state, never a consumer-supplied snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
+| [`NavigationScopeOperationConsumption.tla`](models/navigation-scope-operation-consumption/NavigationScopeOperationConsumption.tla) | Protected acceptance precedes Scope submission; only the exact Scope association can publish and release; complete result membership, cancellation-control distinction, stale-work exclusion, requested-occurrence activation, and forwarded defining-Library context survive composition |
 
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.

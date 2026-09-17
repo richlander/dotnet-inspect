@@ -71,6 +71,135 @@ Single-seed and peer-seed requests form the **seeded** mode family. Issue #4133
 used **ad hoc** for both peer seeds and induced sets; the distinction above
 preserves whether the user named graph anchors or only bounded the input.
 
+## CLI placement target
+
+Production CLI adoption is tracked by
+[#7308](https://github.com/richlander/dotnet-inspect/issues/7308). It is the
+focused Graph-placement path consumed by step 14 of the 16-step
+[Subject Relations adoption](subject-relations-workflows.md#adoption-and-retirement).
+The CLI is the production consumer for this placement. The existing typed
+Graph queries and Browser/Wasm consumers retain their current owners and are
+not reimplemented by the CLI.
+
+Top-level `graph` is the command namespace for graph questions that do not
+begin with one already selected local subject. InspectionGraph-backed root
+modes construct or reopen a Workspace. Their input may be inline Workspace
+registrations or a canonical Workspace packet. A packet remains owned by
+[Workspace definitions](workspace-definitions.md): Graph consumes the decoded
+definition and any separately admitted portable query payload rather than
+inventing another packet grammar or interpreting browser presentation state.
+
+The Workspace may be Type-oriented or Package-oriented without changing its
+identity:
+
+- a Type seed can orient traversal while Package registrations supply scope;
+- Package seeds can orient an induced or peer graph while a Type lens explains
+  their evidence;
+- subject lens, seed kind, and Workspace membership remain independent axes.
+
+Workspace-backed top-level Graph admits single-seed, peer-seed, induced-set,
+and future path requests. Supplying one seed does not make it a subject-local
+command when the request also constructs or reopens the broader Workspace.
+
+Subject graph children provide the local counterpart:
+
+```text
+package graph
+library graph
+type graph
+member graph
+```
+
+Each subject command resolves one subject through its ordinary source grammar,
+forms the minimum owner-defined local inspection scope, binds that subject as
+the one primary seed, and invokes the same host-neutral Graph request. A local
+graph may accept focused companion scope required by its producer, such as an
+explicit caller population, but it does not accept a Workspace packet or
+arbitrary participant registration. Use top-level `graph` when the Workspace
+itself is part of the request.
+
+This is a placement distinction, not two graph semantics:
+
+```text
+subject graph
+  -> local scope + one typed primary seed
+  -> Inspection Graph request
+
+top-level Inspection Graph mode
+  -> Workspace definition or packet + graph mode
+  -> Inspection Graph request
+```
+
+Direct subject sections such as Calls, Callers, Dependencies, References, and
+Extensions remain local evidence views. A subject graph child is justified
+only when it returns bounded topology with typed relationships, occurrences,
+limits, and failures. The existing member `Call Graph` section is the first
+migration candidate; permanent duplicate section and child entrances to the
+same graph operation are not the target.
+
+Exact CLI option spelling and packet-query adoption are deferred to focused
+implementation designs. This placement target is currently **unverified**.
+
+### Dependency-owned root mode
+
+Top-level command placement does not require every Graph mode to use one
+Workspace or Inspection Graph substrate. `graph dependencies` is a root mode
+because its caller supplies an explicit heterogeneous root set rather than one
+already selected local subject. It consumes the existing Dependency owner's
+typed root-set request, traversal, failures, and sectioned result.
+
+That mode does not construct a Workspace, accept a Workspace packet, or convert
+its result into `InspectionGraphDocument` merely to share the `graph` command
+namespace. Shared graph renderers may lower its owner-issued result where their
+input contracts already fit; rendering reuse does not transfer request or
+semantic ownership.
+
+[Dependency inspection command](dependency-inspection-command.md) remains the
+normative owner. `graph dependencies` replaces only its heterogeneous
+asset-root mode. The selected-Type relationship mode moves through the
+Dependency-backed `type graph` adoption in step 5. Retirement of `depends`
+requires both routes first. A future owner-approved adaptation of the
+asset-root mode to Workspace or Inspection Graph would be separately designed
+and counted rather than inferred from root command placement.
+
+### Production adoption
+
+The placement path has **9 steps**:
+
+| Step | Independently owned deliverable |
+| --- | --- |
+| 1 | Shared CLI binding for InspectionGraph-backed modes over existing typed Graph modes, relationships, lenses, limits, failures, and Markout lowering. |
+| 2 | Top-level Workspace construction from inline registrations. |
+| 3 | Top-level Workspace reopening from canonical packets without another packet grammar. |
+| 4 | `member graph`, followed by retirement of the duplicate member `Call Graph` section after equivalent direct Calls/Callers, traversal, fields, limits, failures, and rendering coverage. |
+| 5 | `type graph` with the Dependency-backed base-type and interface relationship family, preserving selected-Type scope, traversal, evidence, failures, exit status, and output-format classes while explicitly replacing the `type-dependencies` and Dependency discovery schemas with Inspection Graph schemas before retiring that `depends` mode. |
+| 6 | `library graph` with the existing resolved assembly-reference traversal, followed by retirement of `library -S References --tree`, `library --references --tree`, `library --dependencies`, and the legacy `library -S Dependencies` selector after equivalent edge, unresolved-target, limit, failure, and rendering coverage; retain the direct `References` section and its `--references` alias. |
+| 7 | `package graph` with the existing package-dependency traversal for one selected Package, followed by retirement of `package -S Dependencies --tree` and its `--dependencies` alias after equivalent declaration, edge, limit, failure, and rendering coverage; retain the direct `Dependencies` section. |
+| 8 | `graph dependencies` over the existing Dependency-owned heterogeneous asset-root request and sectioned result, preserving complete asset-mode parity before retiring that `depends` mode. |
+| 9 | Help, discovery, sharing/replay, completion, examples, relationship-skill adoption, and Type- and Package-oriented production demos. |
+
+Steps 4-7 are separate subject-owner adoptions and may use separate issues and
+PRs. No subject child advertises Graph before its relationship, local-scope,
+completeness, and failure contracts are executable. Step 4 removes the old
+section only after replacement parity. Step 5 specifically closes the
+selected-Type Dependency workflow. Steps 6-7 close the initial local Library
+and Package traversal routes and retire their duplicate traversal gestures only
+after parity. Library step 6 retains `-S References` and `--references` as
+direct evidence, rejects either spelling when combined with `--tree` and
+rejects legacy `-S Dependencies` with guidance to `library graph`, and reserves
+`--dependencies` without forwarding. Package step 7 applies the corresponding
+rule while retaining `-S Dependencies` as direct evidence. Step 8 retains
+asset-mode Dependency ownership and does not depend on steps 1-3. `depends`
+retires only after steps 5, 8, and the applicable step 9 discovery and
+obsolete-token work.
+
+The required pathological cases are a local subject whose selected
+relationship has no edges, a Workspace packet containing disconnected
+participants, a Type seed viewed through a Package lens, a Package seed viewed
+through a Type lens, and a bounded traversal that reaches an incomplete or
+truncated edge. Each implementation step names its focused Release gates.
+Until then these production claims remain unverified.
+
 Related:
 
 - [Inspection graph document](inspection-graph-document.md) owns the typed
@@ -125,6 +254,28 @@ Depth zero retains the bound seed and failures from requested producers and
 their required composition prerequisites without traversing an edge, including
 when those producers emit no relationship for the seed. Every result carries
 the request and a typed depth-bound limit.
+
+The target request generalizes finite `MaxDepth` into one typed depth intent:
+
+```text
+InspectionGraphNeighborhoodDepth
+  Finite(MaxDepth: non-negative integer)
+  Complete
+```
+
+`Finite` preserves the current request and typed depth-bound behavior.
+`Complete` follows admitted relationships until no new semantic edge is
+reachable within the request's finite subject population and producer-owned
+expansion authority. It is not an infinite budget: relationship-specific node,
+edge, acquisition, and work limits remain authoritative. Reaching one before
+closure returns the partial graph with its typed limit and incomplete status;
+it never reports complete traversal.
+
+The resulting document retains the depth intent. A finite request records
+`queries.neighborhood-depth-bound`; a complete request records
+`queries.neighborhood-complete` only when closure is reached. The first
+implementation adds a `Complete` construction path without changing the
+meaning of existing finite constructors.
 
 ### Member seed
 
@@ -265,6 +416,11 @@ gates the package-coordinate-to-typed-request composition, and
 surface. Query-level induced-set gates remain authoritative for admission and
 producer planning.
 
+Under the target placement, this remains a top-level Workspace Graph mode. It
+may later consume equivalent inline Workspace registrations or a Workspace
+packet, but it does not move beneath one arbitrary Package merely because every
+current input is a Package coordinate.
+
 ## Relationship-specific admission
 
 Mode does not impose one expansion algorithm on every producer:
@@ -364,6 +520,10 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 - unsupported seed/relation combinations fail with guidance;
 - failures admitted by each selected relationship's producer policy remain
   visible in every mode, as do traversal limits; and
+- a complete-depth request over a finite cyclic relationship population
+  terminates at semantic closure without duplicating nodes or edges;
+- a complete-depth request stopped by an owner work limit is incomplete and
+  never records `queries.neighborhood-complete`;
 - the same evidence has identical identity and direction across modes.
 
 ## Non-goals
@@ -372,4 +532,5 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 - Replacing relationship-specific admission with one generic containment walk.
 - Conflating acquisition scope, graph focus, subject lens, and grouping.
 - Requiring peer-seed or induced modes before further single-seed improvements.
-- Unbounded whole-program closure.
+- Unbounded whole-program closure. Complete neighborhood depth remains inside
+  one finite admitted subject population and every producer-owned work limit.

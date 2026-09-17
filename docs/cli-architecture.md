@@ -48,11 +48,46 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Workspace top-level inventory
+
+The `workspace` command constructs one ephemeral
+`WorkspaceRealizationCoordinator` candidate from direct Package and
+registration inputs, or delegates current-format packet input to the
+Definitions-owned complete restoration transaction. Direct Package membership
+remains separate from the `WorkspacePlan`. Complete restoration owns packet
+decoding and version dispatch, complete context loading, Scope publication,
+retained Navigation restoration, projection, cancellation, and cleanup. Both
+routes activate and admit one realization before calling
+`WorkspaceTopLevelInventoryOperation`.
+
+The CLI does not read current Scope and registration collections separately.
+It lowers the shared typed document through Markout as compact `Kind`,
+`Location`, and `State` rows. JSON and JSONL retain the shared polymorphic
+entry arms. Kind filtering occurs in the shared operation and does not change
+construction.
+
+Direct construction supplies a non-projectable realized-Workspace Share
+basis. Packet restoration derives its basis from the exact
+`CompleteRestorationResult.Activated`, including the owner-issued definition
+and projection. The unfiltered packet route therefore re-emits the exact
+canonical packet without letting the CLI independently pair packet text with a
+definition snapshot.
+
+The existing `--active-package` path resolves Package source order through the
+operation's selection receipt, validates the exact occurrence identity, and
+then enters Navigation. Packet-restored Navigation refinement and filtered
+inventory Navigation are rejected rather than silently changing either
+contract. Share is likewise top-level-inventory output and is rejected with
+Package Navigation instead of being silently skipped. Human output remains
+compact by default; verbose lowering appends the Package producer, distinct
+target fields, runtime identifier, and asset-selection status.
+
 ### Stateless Workspace navigation
 
 The `workspace` command is the first production consumer of
 `NavigationWorkspaceSnapshotEvaluation`. The default path preserves the
-ordered Package inventory without choosing an active occurrence. An explicit
+ordered Package subset of the top-level inventory without choosing an active
+occurrence. An explicit
 `--active-package` request borrows the exact committed Package Root generation,
 materializes bounded API-surface evidence, and retains each realization-issued
 Package asset/participant association through Navigation classification. It

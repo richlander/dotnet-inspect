@@ -5,9 +5,9 @@ using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;
 
-namespace DotnetInspect.Cli.Models;
+namespace DotnetInspector.Sections;
 
-internal enum DependencyGraphNodeKind
+public enum DependencyGraphNodeKind
 {
     Type,
     Library,
@@ -20,7 +20,7 @@ internal enum DependencyGraphNodeKind
     PackageBudget,
 }
 
-internal enum DependencyGraphResolutionState
+public enum DependencyGraphResolutionState
 {
     Declared,
     Resolved,
@@ -28,98 +28,98 @@ internal enum DependencyGraphResolutionState
     Rejected,
 }
 
-internal abstract record DependencyGraphNodeIdentity
+public abstract record DependencyGraphNodeIdentity
 {
     private DependencyGraphNodeIdentity()
     {
     }
 
-    internal abstract DependencyGraphNodeKind Kind { get; }
+    public abstract DependencyGraphNodeKind Kind { get; }
 
-    internal sealed record Type(string Name) : DependencyGraphNodeIdentity
+    public sealed record Type(string Name) : DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Type;
     }
 
-    internal sealed record Library(ManagedMetadataIdentity Identity) :
+    public sealed record Library(ManagedMetadataIdentity Identity) :
         DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Library;
     }
 
-    internal sealed record Package(string Id, string Version) :
+    public sealed record Package(string Id, string Version) :
         DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Package;
     }
 
-    internal sealed record RestoredRoot(RestoredProjectRootIdentity Identity) :
+    public sealed record RestoredRoot(RestoredProjectRootIdentity Identity) :
         DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredRoot;
     }
 
-    internal sealed record RestoredProject(
+    public sealed record RestoredProject(
         RestoredProjectProjectNodeIdentity Identity) :
         DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredProject;
     }
 
-    internal sealed record RestoredPackage(
+    public sealed record RestoredPackage(
         RestoredProjectPackageNodeIdentity Identity) :
         DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredPackage;
     }
 
-    internal sealed record PackageBoundary(
+    public sealed record PackageBoundary(
         int SourceProjectionIndex,
         PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageBoundary;
     }
 
-    internal sealed record PackageFailure(
+    public sealed record PackageFailure(
         int SourceProjectionIndex,
         PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageFailure;
     }
 
-    internal sealed record PackageBudget(
+    public sealed record PackageBudget(
         int SourceProjectionIndex,
         PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
-        internal override DependencyGraphNodeKind Kind =>
+        public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageBudget;
     }
 }
 
-internal sealed record DependencyGraphRootOccurrence(
+public sealed record DependencyGraphRootOccurrence(
     int OccurrenceIndex,
     int NodeId);
 
-internal sealed record DependencyGraphNode(
+public sealed record DependencyGraphNode(
     int Id,
     DependencyGraphNodeIdentity Identity,
     InertString Label);
 
-internal enum DependencyGraphDepthBoundaryProducerKind
+public enum DependencyGraphDepthBoundaryProducerKind
 {
     Type,
     Library,
@@ -131,7 +131,7 @@ internal enum DependencyGraphDepthBoundaryProducerKind
 /// Producer-issued context that identifies a graph node or package projection
 /// whose outgoing relationships were intentionally excluded by a depth bound.
 /// </summary>
-internal sealed record DependencyGraphDepthBoundary(
+public sealed record DependencyGraphDepthBoundary(
     int NodeId,
     int? PackageProjectionId,
     int MaximumDepth,
@@ -142,7 +142,7 @@ internal sealed record DependencyGraphDepthBoundary(
 /// One source-relative package-manifest projection retained separately from
 /// the semantic package node it describes.
 /// </summary>
-internal sealed record DependencyGraphPackageProjection(
+public sealed record DependencyGraphPackageProjection(
     int Id,
     int NodeId,
     PackageDependencyTraversalProjectionKind Kind,
@@ -152,36 +152,36 @@ internal sealed record DependencyGraphPackageProjection(
     int? RootOccurrence,
     ImmutableArray<PackageAuthorityFailure> Diagnostics);
 
-internal abstract record DependencyGraphEvidenceIdentity
+public abstract record DependencyGraphEvidenceIdentity
 {
     private DependencyGraphEvidenceIdentity()
     {
     }
 
-    internal sealed record AssemblyReference(
+    public sealed record AssemblyReference(
         AssemblyReferenceIdentity Identity) :
         DependencyGraphEvidenceIdentity;
 
-    internal sealed record PackageVersionConstraint(
+    public sealed record PackageVersionConstraint(
         InertString Value) :
         DependencyGraphEvidenceIdentity;
 
-    internal sealed record PackageDeclaration(
+    public sealed record PackageDeclaration(
         int SourceProjectionIndex,
         PackageDependencyEvidenceDeclarationIdentity Identity,
         InertString VersionConstraint) :
         DependencyGraphEvidenceIdentity;
 
-    internal sealed record RestoredProjectRelationship(
+    public sealed record RestoredProjectRelationship(
         RestoredProjectProjectRelationshipIdentity Identity) :
         DependencyGraphEvidenceIdentity;
 
-    internal sealed record RestoredPackageRelationship(
+    public sealed record RestoredPackageRelationship(
         RestoredProjectEdgeIdentity Identity) :
         DependencyGraphEvidenceIdentity;
 }
 
-internal sealed record DependencyGraphEdge(
+public sealed record DependencyGraphEdge(
     int Id,
     int SourceNodeId,
     int TargetNodeId,
@@ -196,7 +196,7 @@ internal sealed record DependencyGraphEdge(
         null,
     ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default);
 
-internal sealed record DependencyGraphDocument(
+public sealed record DependencyGraphDocument(
     ImmutableArray<DependencyGraphRootOccurrence> Roots,
     ImmutableArray<DependencyGraphNode> Nodes,
     ImmutableArray<DependencyGraphEdge> Edges,

@@ -5,5 +5,15 @@ namespace Shared
     public static class Entry
     {
         public static void Run() => Target.Api.Ping();
+
+        public static IEnumerable<int> IteratorRoot()
+        {
+            IteratorUse();
+            yield return 1;
+        }
+
+        static void IteratorUse()
+        {
+        }
     }
 }
