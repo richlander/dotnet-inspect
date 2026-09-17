@@ -298,9 +298,8 @@ public class QueryDiscoveryTests
 
     [Theory]
     [InlineData("Integrations")]
-    [InlineData("Integration: Aspire")]
-    [InlineData("Integration: Opportunities")]
-    public async Task IntegrationQuery_ExposesOnlyItsExecutableEcosystemBinding(string section)
+    [InlineData("Integration Opportunities")]
+    public async Task IntegrationQuery_ExposesConceptAndEcosystemBindings(string section)
     {
         var result = await Run("library", "--package", "/missing/query-discovery.nupkg",
             "-Q", section, "--json");
@@ -308,17 +307,31 @@ public class QueryDiscoveryTests
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
         JsonElement described = Assert.Single(json.RootElement.GetProperty("sections").EnumerateArray());
-        JsonElement facet = Assert.Single(described.GetProperty("facets").EnumerateArray());
-        Assert.Equal("ecosystem", facet.GetProperty("name").GetString());
-        Assert.Equal(["--where"], facet.GetProperty("operators").EnumerateArray()
-            .Select(value => value.GetString()));
-        Assert.Equal(["="], facet.GetProperty("comparisons").EnumerateArray()
-            .Select(value => value.GetString()));
-        Assert.Equal(["ecosystem.aspire"], facet.GetProperty("values").EnumerateArray()
-            .Select(value => value.GetString()));
-        foreach (string value in IntegrationQueryOptions.QueryKey.Values)
+        JsonElement[] facets =
+            [.. described.GetProperty("facets").EnumerateArray()];
+        Assert.Equal(["integration", "ecosystem"], facets.Select(
+            facet => facet.GetProperty("name").GetString()));
+        Assert.All(facets, facet =>
+        {
+            Assert.Equal(["--where"], facet.GetProperty("operators")
+                .EnumerateArray().Select(value => value.GetString()));
+            Assert.Equal(["="], facet.GetProperty("comparisons")
+                .EnumerateArray().Select(value => value.GetString()));
+        });
+        Assert.Equal(
+            IntegrationQueryOptions.IntegrationQueryKey.Values,
+            facets[0].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["ecosystem.aspire"],
+            facets[1].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        foreach (string value in IntegrationQueryOptions.EcosystemQueryKey.Values)
             Assert.True(IntegrationQueryOptions.TryExtract(
                 [$"ecosystem={value}"], out _, out _, out var error), error.ToString());
+        foreach (string value in IntegrationQueryOptions.IntegrationQueryKey.Values)
+            Assert.True(IntegrationQueryOptions.TryExtract(
+                [$"integration={value}"], out _, out _, out var error), error.ToString());
     }
 
     [Fact]

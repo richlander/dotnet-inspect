@@ -145,7 +145,7 @@ The command projects per-participant evidence or failure into compatibility
 models and continues each library inspection over the same retained immutable
 image. Package `--all-libraries` partitions those groups by package asset
 directory, preserving non-`net*` framework and runtime contexts, and releases
-each participant after inspection. `Integration: Opportunities` consumes the
+each participant after inspection. `Integration Opportunities` consumes the
 typed Integrations result as a declared prerequisite and scans the same
 retained participant snapshot before release; direct `library` and package
 `--library` retain their existing controls.

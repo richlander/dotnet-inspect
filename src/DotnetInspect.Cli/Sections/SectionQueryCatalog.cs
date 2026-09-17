@@ -96,20 +96,18 @@ public sealed record SectionQueryCatalog(
         }
         if (command == "library")
         {
-            string[] integrationSections =
-            [
-                LibraryIntegrationCatalog.RollupName,
-                .. LibraryIntegrationCatalog.CategorySections,
+            foreach (string section in new[]
+            {
+                IntegrationSectionNames.Integrations,
                 IntegrationSectionNames.Opportunities,
-            ];
-            foreach (string section in integrationSections)
+            })
             {
                 queries.Add(new(
                     section,
-                    "All integrations are enabled by default. An ecosystem equality predicate narrows "
-                    + "ordinary Integration evidence and opportunities; it does not replace full-library presence or Census. "
+                    "All integrations are enabled by default. Integration and ecosystem equality predicates narrow "
+                    + "ordinary Integration evidence and opportunities; they do not replace full-library presence or Census. "
                     + "This query cannot be combined with Body Shapes or Performance Triage predicates/ranking.",
-                    [IntegrationQueryOptions.QueryKey]));
+                    IntegrationQueryOptions.QueryKeys));
             }
         }
         if (command == "graph libraries")
