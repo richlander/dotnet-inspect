@@ -25,14 +25,35 @@ public class PackageCompileAssetSelectorTests : IDisposable
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net8.0",
                 "linux-x64");
 
         Assert.Same(content.GenerationIdentity, receipt.Generation);
         Assert.Equal("Example", receipt.PackageId);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            receipt.Policy);
         Assert.Equal("net8.0", receipt.RequestedTargetFramework);
         Assert.Equal("linux-x64", receipt.RequestedRuntimeIdentifier);
         Assert.True(receipt.Selection.IsSelected);
+    }
+
+    [Fact]
+    public void Evaluate_AbsentTargetRetainsHighestAvailablePolicy()
+    {
+        IPackageContent content = InMemory(
+            "lib/net8.0/Example.dll",
+            "lib/net10.0/Example.dll");
+
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(content, "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.HighestAvailable,
+            receipt.Policy);
+        Assert.Null(receipt.RequestedTargetFramework);
+        Assert.Equal("net10.0", receipt.Selection.TargetFramework);
     }
 
     [Fact]
@@ -110,8 +131,14 @@ public class PackageCompileAssetSelectorTests : IDisposable
 
         Assert.True(selection.IsSelected);
         Assert.Equal(
-            ["lib/net8.0/Example.Companion.dll", "lib/net8.0/Example.dll"],
+            [
+                "lib/net8.0/Example.Companion.dll",
+                "lib/net8.0/Example.dll",
+            ],
             selection.Assets.Select(asset => asset.Path));
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal(3, slice.CandidateAssets.Count);
         Assert.Equal(
             [
                 "lib/net8.0/Example.Companion.dll",
@@ -119,6 +146,9 @@ public class PackageCompileAssetSelectorTests : IDisposable
                 "runtimes/linux-x64/lib/net8.0/Example.dll",
             ],
             selection.ImplementationAssets.Select(asset => asset.Path));
+        Assert.Equal(
+            "linux-x64",
+            selection.ImplementationAssets[2].RuntimeIdentifier);
         Assert.Equal("lib/net8.0/Example.dll", selection.DefaultAsset!.Path);
         Assert.Equal(
             "runtimes/linux-x64/lib/net8.0/Example.dll",
@@ -207,6 +237,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
         [
             "lib/net8.0/Example.dll",
             "LIB/NET8.0/example.dll",
+            "ref/net6.0/_._",
         ];
 
         PackageCompileAssetSelection first =
@@ -221,6 +252,28 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(
             PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
             first.Status);
+        Assert.Equal(["NET8.0", "net6.0"], first.AvailableTargetFrameworks);
+        Assert.Equal(
+            entries.Where(path =>
+                    path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ThenBy(path => path, StringComparer.Ordinal),
+            first.CandidateAssets.Select(asset => asset.Path));
+        Assert.Equal(["net6.0"], first.ExplicitEmptyTargetFrameworks);
+        Assert.Collection(
+            first.AvailableSlices,
+            slice =>
+            {
+                Assert.Equal("NET8.0", slice.TargetFramework);
+                Assert.Equal(2, slice.CandidateAssets.Count);
+                Assert.False(slice.HasExplicitEmptyReferenceGroup);
+            },
+            slice =>
+            {
+                Assert.Equal("net6.0", slice.TargetFramework);
+                Assert.Empty(slice.CandidateAssets);
+                Assert.True(slice.HasExplicitEmptyReferenceGroup);
+            });
         Assert.Equal(first.Status, reversed.Status);
         Assert.Equal(first.Message, reversed.Message);
     }
@@ -299,6 +352,9 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(expected.Assets, actual.Assets);
         Assert.Equal(expected.DefaultAsset, actual.DefaultAsset);
         Assert.Equal(expected.CandidateAssets, actual.CandidateAssets);
+        Assert.Equal(
+            expected.ExplicitEmptyTargetFrameworks,
+            actual.ExplicitEmptyTargetFrameworks);
     }
 
     // NuGet reads `ref/<tfm>/_._` as an explicit statement that the package contributes no
@@ -349,23 +405,71 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback()
+    public void EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice()
     {
         IPackageContent content = InMemory(
             "ref/netstandard2.0/_._",
-            "lib/net8.0/Example.dll");
+            "lib/net8.0/x64/Example.dll");
 
         PackageCompileAssetSelection selection =
-            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net8.0").Selection;
 
-        Assert.Equal(
-            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            selection.Status);
+        Assert.True(selection.IsSelected);
         Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            ["lib/net8.0/x64/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["net8.0", "netstandard2.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["netstandard2.0"],
+            selection.ExplicitEmptyTargetFrameworks);
+        Assert.Collection(
+            selection.AvailableSlices,
+            slice =>
+            {
+                Assert.Equal("net8.0", slice.TargetFramework);
+                Assert.Equal(
+                    ["lib/net8.0/x64/Example.dll"],
+                    slice.CandidateAssets.Select(asset => asset.Path));
+                Assert.False(slice.HasExplicitEmptyReferenceGroup);
+            },
+            slice =>
+            {
+                Assert.Equal("netstandard2.0", slice.TargetFramework);
+                Assert.Empty(slice.CandidateAssets);
+                Assert.True(slice.HasExplicitEmptyReferenceGroup);
+            });
+        PackageCompileAssetSelection exact =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net8.0");
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            exact.Status);
+        Assert.Equal(
+            selection.AvailableSlices.Select(slice =>
+                slice.TargetFramework),
+            exact.AvailableSlices.Select(slice =>
+                slice.TargetFramework));
+        Assert.Equal(
+            selection.CandidateAssets.Select(asset => asset.Path),
+            exact.CandidateAssets.Select(asset => asset.Path));
+        Assert.Equal(
+            selection.AvailableSlices.Select(slice =>
+                slice.HasExplicitEmptyReferenceGroup),
+            exact.AvailableSlices.Select(slice =>
+                slice.HasExplicitEmptyReferenceGroup));
     }
 
     [Fact]
-    public void CompatibleImplementation_UsesRequestedFrameworkForEmptyGroupReduction()
+    public void CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately()
     {
         IPackageContent content = InMemory(
             "ref/net6.0/Example.dll",
@@ -382,7 +486,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             selection.Status);
-        Assert.Equal("net6.0", selection.TargetFramework);
+        Assert.Equal("net8.0", selection.TargetFramework);
         Assert.Empty(selection.Assets);
         Assert.Equal(
             ["lib/net6.0/Example.dll"],
@@ -390,7 +494,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void CompatibleImplementation_DoesNotUseCompatibleReferenceAssets()
+    public void CompatibleImplementation_PrefersReferenceAssetsInItsSelectedSlice()
     {
         IPackageContent content = InMemory(
             "ref/net6.0/Example.dll",
@@ -406,10 +510,10 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.True(selection.IsSelected);
         Assert.Equal("net6.0", selection.TargetFramework);
         Assert.Equal(
-            ["lib/net6.0/Example.dll"],
+            ["ref/net6.0/Example.dll"],
             selection.Assets.Select(asset => asset.Path));
         Assert.Equal(
-            PackageCompileAssetKind.Library,
+            PackageCompileAssetKind.Reference,
             Assert.Single(selection.Assets).Kind);
     }
 
@@ -450,7 +554,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
     public void EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework()
     {
         IPackageContent content = InMemory(
-            "ref/netstandard2.0/_._",
+            "ref/net8.0/_._",
             "ref/net8.0/Example.dll",
             "lib/net8.0/Example.dll");
 
@@ -503,14 +607,109 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void EmptyReferenceGroup_AloneStillReportsNoCompileAssets()
+    public void EmptyReferenceGroup_AloneIsASelectedEmptySlice()
     {
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(InMemory("ref/net8.0/_._"), "Example");
 
         Assert.Equal(
-            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             selection.Status);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(["net8.0"], selection.AvailableTargetFrameworks);
+        Assert.Equal(["net8.0"], selection.ExplicitEmptyTargetFrameworks);
+        Assert.Empty(selection.CandidateAssets);
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal("net8.0", slice.TargetFramework);
+        Assert.Empty(slice.CandidateAssets);
+        Assert.True(slice.HasExplicitEmptyReferenceGroup);
+    }
+
+    [Fact]
+    public void HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "lib/net8.0/Example.dll",
+                    "ref/net10.0/_._"),
+                "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net10.0", selection.TargetFramework);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+        Assert.Equal(["net10.0"], selection.ExplicitEmptyTargetFrameworks);
+    }
+
+    [Fact]
+    public void ExplicitTarget_SelectsCompatibleLowerSlice()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                InMemory("ref/net8.0/Example.dll"),
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net10.0").Selection;
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            ["ref/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void ExactTargetConveniencePathDoesNotApplyPackageLocalFallback()
+    {
+        IPackageContent content = InMemory("ref/net8.0/Example.dll");
+
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                "net10.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            receipt.Policy);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            receipt.Selection.Status);
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net10.0");
+        Assert.Equal(receipt.Selection.Status, selection.Status);
+        Assert.Equal(
+            receipt.Selection.TargetFramework,
+            selection.TargetFramework);
+    }
+
+    [Fact]
+    public void PackageLocalPolicyRejectsAnInconsistentTarget()
+    {
+        IPackageContent content = InMemory("ref/net8.0/Example.dll");
+
+        Assert.Throws<ArgumentException>(() =>
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.HighestAvailable,
+                "net8.0"));
+        Assert.Throws<ArgumentException>(() =>
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
 
     static IPackageContent InMemory(params string[] entries)

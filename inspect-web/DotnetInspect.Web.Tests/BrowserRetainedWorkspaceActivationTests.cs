@@ -10,19 +10,38 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
-    public async Task A_B_A_UsesFreshRealizationsAndObservableSettlement()
+    public async Task A_B_A_RestoresWholeWorkspaceAndSelectedPackage()
     {
-        CompleteRestorationExecutionOptions options = await OptionsAsync();
-        string packet = Packet();
+        const string foo = "FooPackage";
+        const string bar = "BarPackage";
+        const string baz = "BazPackage";
+        CompleteRestorationExecutionOptions options =
+            await MultiPackageOptionsAsync();
+        string firstPacket = Packet([foo, bar], selectedIndex: 1);
+        string secondPacket = Packet([baz, bar], selectedIndex: 0);
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
         BrowserRetainedWorkspaceInstallation first =
-            await ActivateAsync(owner, "a", packet);
+            await ActivateAsync(owner, "workspace-1", firstPacket);
         using WorkspaceRealizationOperationLease firstOperation =
-            await EnterAsync(owner, "a");
+            await EnterAsync(owner, "workspace-1");
+        AssertWorkspace(
+            first,
+            firstOperation,
+            [foo, bar],
+            selectedIndex: 1);
         BrowserRetainedWorkspaceInstallation second =
-            await ActivateAsync(owner, "b", packet);
+            await ActivateAsync(owner, "workspace-2", secondPacket);
+        using (WorkspaceRealizationOperationLease secondOperation =
+            await EnterAsync(owner, "workspace-2"))
+        {
+            AssertWorkspace(
+                second,
+                secondOperation,
+                [baz, bar],
+                selectedIndex: 0);
+        }
 
         Assert.NotNull(second.Predecessor);
         Task<BrowserRetainedWorkspaceSettlementResult> observation =
@@ -40,13 +59,22 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             settled.Settlement.Reason);
 
         BrowserRetainedWorkspaceInstallation third =
-            await ActivateAsync(owner, "a", packet);
+            await ActivateAsync(owner, "workspace-1", firstPacket);
+        using WorkspaceRealizationOperationLease thirdOperation =
+            await EnterAsync(owner, "workspace-1");
+        AssertWorkspace(
+            third,
+            thirdOperation,
+            [foo, bar],
+            selectedIndex: 1);
         Assert.NotEqual(first.RealizationId, third.RealizationId);
         Assert.NotEqual(second.RealizationId, third.RealizationId);
         Assert.True(
             first.PublicationOrdinal < second.PublicationOrdinal
             && second.PublicationOrdinal < third.PublicationOrdinal);
-        Assert.Equal("a", owner.Active!.RetainedDefinitionId);
+        Assert.Equal(
+            "workspace-1",
+            owner.Active!.RetainedDefinitionId);
     }
 
     [Fact]
@@ -270,9 +298,27 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                     Request(id, packet),
                     TestContext.Current.CancellationToken));
         Assert.Equal(packet, activated.Installation.CanonicalPacket);
-        Assert.Equal(2, activated.Installation.Navigation.States.Length);
-        Assert.Equal(1, activated.Installation.Navigation.ActiveStateIndex);
         return activated.Installation;
+    }
+
+    static void AssertWorkspace(
+        BrowserRetainedWorkspaceInstallation installation,
+        WorkspaceRealizationOperationLease operation,
+        IReadOnlyList<string> expectedPackages,
+        int selectedIndex)
+    {
+        Assert.Equal(
+            [.. expectedPackages.Order(StringComparer.Ordinal)],
+            [.. operation.Scope.Packages
+                .Select(package => package.Occurrence.Package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+        Assert.Equal(
+            selectedIndex + 1,
+            installation.Navigation.ActiveStateIndex);
+        Assert.Equal(
+            expectedPackages[selectedIndex],
+            operation.Scope.Packages[selectedIndex]
+                .Occurrence.Package.PackageId);
     }
 
     static async ValueTask<WorkspaceRealizationOperationLease> EnterAsync(
@@ -289,27 +335,52 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     static string Packet(
+        int schemaVersion = InspectionDefinitionSchema.Version3) =>
+        Packet(
+            ["System.Text.Json"],
+            selectedIndex: 0,
+            packageVersion: "9.0.4",
+            framework: "net9.0",
+            schemaVersion);
+
+    static string Packet(
+        IReadOnlyList<string> packageIds,
+        int selectedIndex,
+        string packageVersion = "11.0.0-preview.7.26381.103",
+        string framework = "net10.0",
         int schemaVersion = InspectionDefinitionSchema.Version3)
     {
+        if ((uint)selectedIndex >= (uint)packageIds.Count)
+            throw new ArgumentOutOfRangeException(nameof(selectedIndex));
+
         var registry = new InspectionDefinitionRegistry();
-        var package = new DefinitionMemberCoordinate.PackageCoordinate(
-            "System.Text.Json",
-            "9.0.4",
-            "net9.0");
+        var packages = packageIds
+            .Select(packageId =>
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    packageId,
+                    packageVersion,
+                    framework))
+            .ToArray();
+        string[] tabIds = packages
+            .Select((_, index) => $"package-{index}")
+            .ToArray();
         registry.Add(new WorkspaceDefinition(
             schemaVersion,
             "workspace",
             [
                 new WorkspaceContextDefinition(
                     "context",
-                    framework: "net9.0",
-                    members: [package]),
+                    framework,
+                    members: packages),
             ]));
         registry.Add(new CommittedNavigationDefinition(
             schemaVersion,
             "navigation",
-            [new NavigationTabDefinition("package", coordinate: package)],
-            focus: "package"));
+            [.. packages.Select(
+                (package, index) => new NavigationTabDefinition(
+                    tabIds[index],
+                    coordinate: package))],
+            focus: tabIds[selectedIndex]));
         registry.Add(new CommittedViewDefinition(
             schemaVersion,
             "view",
@@ -317,10 +388,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 new CommittedViewStateDefinition(
                     null,
                     new PortableSubjectRequest.Workspace()),
-                new CommittedViewStateDefinition(
-                    "package",
-                    new PortableSubjectRequest.Package(),
-                    new PortableRetainedSubjectContext.Package()),
+                .. tabIds.Select(tabId =>
+                    new CommittedViewStateDefinition(
+                        tabId,
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package())),
             ]));
         registry.Add(new ScenarioDefinition(
             schemaVersion,
@@ -345,6 +417,55 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 TestContext.Current.CancellationToken);
         return WorkspaceSharePacketCodec.Encode(
             Assert.IsType<WorkspaceSharePacket>(projection.Packet));
+    }
+
+    static async Task<CompleteRestorationExecutionOptions>
+        MultiPackageOptionsAsync()
+    {
+        const string sourceUrl = "https://api.nuget.org/v3/index.json";
+        PackageFixture[] fixtures =
+        [
+            new(
+                "FooPackage",
+                "System.Text.Json",
+                "Spotlight/package"),
+            new(
+                "BarPackage",
+                "Microsoft.Extensions.Logging",
+                "PlatformDemo"),
+            new(
+                "BazPackage",
+                "Microsoft.Extensions.DependencyInjection.Abstractions",
+                "PlatformDemo"),
+        ];
+        var store = new InMemoryPackageStore();
+        foreach (PackageFixture fixture in fixtures)
+        {
+            byte[] assembly = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    fixture.AssetDirectory,
+                    $"{fixture.AssemblyName}.dll"),
+                TestContext.Current.CancellationToken);
+            byte[] package = Archive(
+                ($"lib/net10.0/{fixture.AssemblyName}.dll", assembly));
+            await store.CommitAsync(
+                fixture.PackageId,
+                "11.0.0-preview.7.26381.103",
+                NuGetCache.GetSourceKey(sourceUrl),
+                new MemoryStream(package, writable: false),
+                TestContext.Current.CancellationToken);
+        }
+
+        CompleteRestorationExecutionOptions baseline = await OptionsAsync();
+        return baseline with
+        {
+            ContextLoad = baseline.ContextLoad with
+            {
+                PackageStore = store,
+            },
+        };
     }
 
     static string LegacyPacket() =>
@@ -425,6 +546,28 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         throw new InvalidOperationException(
             "Could not locate the repository root.");
     }
+
+    static byte[] Archive(params (string Path, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(
+            buffer,
+            System.IO.Compression.ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            foreach ((string path, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(path).Open();
+                stream.Write(content);
+            }
+        }
+        return buffer.ToArray();
+    }
+
+    sealed record PackageFixture(
+        string PackageId,
+        string AssemblyName,
+        string AssetDirectory);
 
     static void RegisterThrowingResource(InspectionWorkspace workspace)
     {

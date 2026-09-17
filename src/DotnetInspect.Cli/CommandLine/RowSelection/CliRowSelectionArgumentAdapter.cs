@@ -205,13 +205,16 @@ internal static class CliRowSelectionArgumentAdapter
         Command command,
         string[] arguments,
         CliRowSelectionOptionBindings bindings,
-        CliRowSelectionCapabilities capabilities)
+        CliRowSelectionCapabilities capabilities,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
         => AnalyzeExplicit(
             command,
             arguments,
             bindings,
             capabilities,
-            preserveRowEvidenceAcrossParseErrors: false);
+            preserveRowEvidenceAcrossParseErrors: false,
+            defaultUnit: defaultUnit);
 
     internal static CliRowSelectionArgumentResult InspectExplicit(
         Command command,
@@ -232,7 +235,9 @@ internal static class CliRowSelectionArgumentAdapter
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
         bool preserveRowEvidenceAcrossParseErrors,
-        CommandResult? expectedScope = null)
+        CommandResult? expectedScope = null,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -340,7 +345,8 @@ internal static class CliRowSelectionArgumentAdapter
             argumentFailures,
             CliRowSelectionLowerer.Lower(
                 occurrences,
-                capabilities),
+                capabilities,
+                defaultUnit),
             selectedCommandPosition);
     }
 

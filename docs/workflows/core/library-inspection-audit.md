@@ -160,7 +160,7 @@ Tips:
 > Goal: See what assemblies this library references.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 --references -n 40
+dotnet-inspect library --package System.CommandLine@2.0.3 --references -n 40 --lines
 ```
 
 ```expect
@@ -175,7 +175,7 @@ System.Runtime
 > Goal: See full transitive dependency graph for a library.
 
 ```bash
-dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 -S References --tree --depth 3 -n 25
+dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 -S References --tree --depth 3 -n 25 --lines
 ```
 
 ```expect
@@ -221,7 +221,7 @@ SR.resources
 > Goal: See assembly-level attributes.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S "Custom Attributes" -n 12
+dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S "Custom Attributes" -n 12 --lines
 ```
 
 ```expect
@@ -241,7 +241,7 @@ Tips:
 > Goal: See extension methods defined in the library.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -S "Extension Methods" -n 15
+dotnet-inspect library System.Text.Json -v:d -S "Extension Methods" -n 15 --lines
 ```
 
 ```expect
@@ -351,7 +351,7 @@ Extracted
 > Goal: Get library metadata in machine-readable JSON format.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 --json -n 30
+dotnet-inspect library --package System.CommandLine@2.0.3 --json --rows 1..30
 ```
 
 ```expect

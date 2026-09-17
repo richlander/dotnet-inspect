@@ -54,6 +54,6 @@ Expected `net9.0` asset shape:
 
 This nested pack-and-build probe is preserved as SDK-dependent design evidence,
 not run in normal CI. The product contract is enforced in Release by
-`CompatibleImplementation_UsesRequestedFrameworkForEmptyGroupReduction`,
-`PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback`, and
+`CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately`,
+`PackageRootBinding_CompatibleEmptyGroupSelectsItsCompileSlice`, and
 `QueryPackage_CompatibleEmptyCompileGroupSuppressesLibraryFallback`.

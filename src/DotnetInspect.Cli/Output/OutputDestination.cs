@@ -35,7 +35,8 @@ internal static class OutputDestination
 
         TailLineLimitingTextWriter? tailWriter = null;
         bool hasLineWindow = false;
-        if (rowWindow is null
+        if ((rowWindow is null
+                || CommandLineBuilder.LineWindowExplicitlySet)
             && CommandLineBuilder.HeadLines is int headLines)
         {
             destination = new LineLimitingTextWriter(
@@ -44,7 +45,8 @@ internal static class OutputDestination
             hasLineWindow = true;
         }
 
-        if (rowWindow is null
+        if ((rowWindow is null
+                || CommandLineBuilder.LineWindowExplicitlySet)
             && CommandLineBuilder.TailLines is int tailLines)
         {
             tailWriter = new TailLineLimitingTextWriter(
