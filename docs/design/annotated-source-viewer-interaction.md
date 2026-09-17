@@ -276,6 +276,15 @@ category, conditionality, detail, origin, and targets are shown when present.
 Unavailable optional evidence appears with its typed reason; it does not turn
 the chip inert or produce an empty success-shaped detail.
 
+For an instruction-level callee Finding, detail distinguishes the caller
+relationship targets from the separately projected callee evidence. It shows
+only the product-issued callee nodes selected by
+[Annotated Source callee evidence](annotated-source-callee-evidence.md), plus
+typed **Member** and **Source** destination actions. Coordinate disclosure adds
+the callee evidence kind and method-relative IL offset. A missing or ambiguous
+callee correspondence remains visible and never substitutes the caller
+snippet.
+
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
@@ -382,6 +391,8 @@ construction:
 - [Annotated Source invocation destinations](annotated-source-invocation-destinations.md)
   owns the Research join from physical calls and C# provenance to typed member
   targets.
+- [Annotated Source callee evidence](annotated-source-callee-evidence.md) owns
+  the exact Finding-to-callee-document and node composition.
 - [Workspace Definitions](workspace-definitions.md) owns canonical workspace
   restoration and any future portable view fields, with implementation tracked
   by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).

@@ -324,7 +324,7 @@ static class TsTypeMapper
                 && IsGenericShape(typeShape, "System.Nullable`1")
                     ? GenericArgumentShape(typeShape, 0)
                     : typeShape;
-            return $"{Map(
+            return TsJsonUnionMapper.WithNull(Map(
                 inner,
                 recordNames,
                 diagnostics,
@@ -334,7 +334,7 @@ static class TsTypeMapper
                 mappingContext,
                 nullableInnerShape,
                 identityNames,
-                unionContext)} | null";
+                unionContext));
         }
 
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
@@ -391,7 +391,7 @@ static class TsTypeMapper
                     trimmed);
                 return "unknown";
             }
-            return $"{Map(
+            return TsJsonUnionMapper.WithNull(Map(
                 nullableArg!,
                 recordNames,
                 diagnostics,
@@ -401,7 +401,7 @@ static class TsTypeMapper
                 mappingContext,
                 GenericArgumentShape(typeShape, 0),
                 identityNames,
-                unionContext)} | null";
+                unionContext));
         }
 
         if (TryMapDictionary(
