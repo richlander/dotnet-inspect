@@ -1,7 +1,7 @@
 # Research evidence locations
 
-Status: proposed for
-[#5610](https://github.com/richlander/dotnet-inspect/issues/5610).
+Status: implemented by
+[#7360](https://github.com/richlander/dotnet-inspect/pull/7360).
 
 **Owner:** `ILInspector.Research` evidence-location composition.
 

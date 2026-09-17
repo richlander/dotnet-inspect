@@ -2615,6 +2615,12 @@ public static class CostOverlayFixture
         values[0] = value;
         return values[0];
     }
+
+    public static unsafe int CallsPointerDeref(int* value)
+        => PointerDeref(value);
+
+    public static unsafe int PointerDeref(int* value)
+        => *value;
 }
 
 public static class FidelityCauseFixture
