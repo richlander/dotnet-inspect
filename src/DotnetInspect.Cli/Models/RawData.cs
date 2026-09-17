@@ -21,7 +21,7 @@ public enum TypeFindMatchKind
 [JsonConverter(typeof(JsonStringEnumConverter<MemberFindMatchKind>))]
 public enum MemberFindMatchKind
 {
-    Exact,
+    Direct,
     Glob
 }
 
@@ -74,7 +74,7 @@ public record TypeFindResult
 /// <summary>
 /// Raw result from member-name search (<c>find --members</c> / leading-dot shortcut). One record per
 /// matched member. Mirrors <see cref="TypeFindResult"/> for the member lens: services return this flat
-/// model and writers decide presentation. Member search is exact/glob only (no fuzzy fallback), so
+/// model and writers decide presentation. Member search is direct/glob only (no fuzzy fallback), so
 /// there is no similarity score.
 /// </summary>
 public record MemberFindResult
