@@ -389,8 +389,7 @@ internal sealed record PackageQueryDependencySelection(
     PackageQueryDependencyTarget Target,
     ImmutableArray<DeclaredPackageDependencyGroup> Groups,
     PackageDependencyGroupSelectionStatus? SelectionStatus,
-    DeclaredPackageDependencyGroup? SelectedGroup,
-    int? SelectedGroupIndex);
+    DeclaredPackageDependencyGroup? SelectedGroup);
 
 internal sealed record PackageQueryDependencyMatch(
     DeclaredPackageDependencyGroup Group,
@@ -1470,8 +1469,7 @@ public static partial class PackageQuery
                 plan.DependencyTarget,
                 manifest.DependencyGroups,
                 SelectionStatus: null,
-                SelectedGroup: null,
-                SelectedGroupIndex: null);
+                SelectedGroup: null);
         }
 
         PackageDependencyGroups selection =
@@ -1479,16 +1477,11 @@ public static partial class PackageQuery
                 manifest,
                 plan.DependencyTarget.RequestedTargetFramework,
                 allowCompatibleFallbackForRequestedTfm: true);
-        DeclaredPackageDependencyGroup? selected =
-            selection.SelectedGroupIndex is int index
-                ? selection.Groups[index]
-                : null;
         return new PackageQueryDependencySelection(
             plan.DependencyTarget,
             selection.Groups,
             selection.SelectionStatus,
-            selected,
-            selection.SelectedGroupIndex);
+            selection.SelectedGroup);
     }
 
     static bool HasNoDependencies(

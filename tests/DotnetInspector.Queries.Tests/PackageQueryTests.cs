@@ -847,6 +847,44 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DependencyTargetAnyUsesAllImplicitRuns()
+    {
+        var source = SourceFor(Manifest(
+            "Contoso.Package",
+            dependencies:
+            """
+            <dependency id="Early.Dependency" version="1.0.0" />
+            <group targetFramework="net8.0" />
+            <dependency id="Late.Dependency" version="2.0.0" />
+            """));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Late.Dependency"),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "any"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Contains(
+            "any: Late.Dependency 2.0.0",
+            match.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Value,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DependencyTargetDistinguishesNoGroupsFromNoMatch()
     {
         SearchResult[] candidates =
