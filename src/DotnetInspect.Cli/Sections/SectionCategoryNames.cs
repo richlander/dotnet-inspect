@@ -31,6 +31,12 @@ public static class SectionCategoryNames
     public const string Diff = "@Diff";
 
     /// <summary>
+    /// Package-authored documents exposed from a restored project's direct dependencies.
+    /// This is the project command's base category.
+    /// </summary>
+    public const string Project = "@Project";
+
+    /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
     /// member scope. Members that are also ordinary command evidence remain cross-listed in their
     /// base category.
