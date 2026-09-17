@@ -384,6 +384,35 @@ public class StructuringGotoScopeTests
         Assert.Empty(tryFinally.TryBody.Descendants.OfType<Leave>());
     }
 
+    [Fact]
+    public void RoslynAggregateOrDefault_PreservesEmptySequenceExit()
+    {
+        using var source = MetadataSource.Open(typeof(Compilation).Assembly.Location);
+        const string typeName = "System.Linq.RoslynEnumerableExtensions";
+        const string methodName = "AggregateOrDefault";
+
+        var before = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(before);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(before, PassContext.None);
+        }
+        Assert.Contains(
+            before.Descendants.OfType<TryFinally>(),
+            tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
+
+        var after = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(after);
+        IrPasses.Run(after);
+        after.CheckInvariant();
+
+        string output = CSharpPrinter.Print(after).Output ?? "";
+        Assert.Contains("else", output);
+        Assert.Contains("V_2 = default;", output);
+    }
+
     [Theory]
     [InlineData(0x0077, 0x0062, false)]
     [InlineData(0x005E, 0x0062, false)]
@@ -559,6 +588,25 @@ public class StructuringGotoScopeTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
         return function;
+    }
+
+    static bool HasPrefixedFalseArmRegionExit(BlockContainer container)
+    {
+        for (int i = 0; i + 2 < container.Blocks.Count; i++)
+        {
+            var current = container.Blocks[i];
+            var falseArm = container.Blocks[i + 1];
+            var takenArm = container.Blocks[i + 2];
+            if (current.Children.Count > 0
+                && current.Children[^1] is ConditionalBranch conditional
+                && conditional.TargetOffset == takenArm.StartOffset
+                && falseArm.Children.Count > 1
+                && falseArm.Children[^1] is Leave)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static void AssertCompiles(string body)
