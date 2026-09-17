@@ -1,6 +1,6 @@
 export const MAX_RETAINED_WORKSPACE_DEFINITIONS = 4;
 
-export interface RetainedWorkspaceDefinition {
+interface RetainedWorkspaceDefinition {
   readonly id: string;
   readonly label: string;
   readonly packet: string;
