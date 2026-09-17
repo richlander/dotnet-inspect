@@ -288,7 +288,6 @@ export function createBrowserPackageQueryDataSource(
           if (unexpectedFailure) throw unexpectedFailure;
           const reason =
             result.error ?? "The Browser package query failed without an error.";
-          onFailure(reason);
           return { kind: "failed", reason };
         }
         if (result.kind !== "Succeeded") {

@@ -1063,7 +1063,7 @@ test("Browser source decodes managed failure and cancellation results", async ()
     { kind: "cancelled" });
 });
 
-test("Browser source surfaces expected planning rejection without diagnostics", async () => {
+test("Browser source surfaces expected planning rejection without source failure or diagnostics", async () => {
   const diagnostics: string[] = [];
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
@@ -1099,7 +1099,7 @@ test("Browser source surfaces expected planning rejection without diagnostics", 
       kind: "failed",
       reason: "A package-query term value is invalid.",
     });
-  assert.deepEqual(failures, ["A package-query term value is invalid."]);
+  assert.deepEqual(failures, []);
   assert.deepEqual(diagnostics, []);
 });
 

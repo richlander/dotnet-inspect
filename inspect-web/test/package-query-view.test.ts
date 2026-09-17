@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -35,6 +36,9 @@ const escapeHtml = (value: unknown) => String(value)
   .replace(/</g, "&lt;")
   .replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
+const styles = readFileSync(
+  new URL("../src/styles.css", import.meta.url),
+  "utf8");
 
 const NUSPEC_FACET: QueryPreset = {
   id: "readme:eq:true",
@@ -658,6 +662,28 @@ test("tool format presets render as one independently selectable segmented contr
   assert.match(
     html,
     /Content facts download up to 20 candidate package archives/);
+});
+
+test("preset markup classes have matching Package Query style selectors", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availablePresets: FACETS,
+    escapeHtml,
+  });
+
+  for (const className of [
+    "query-preset",
+    "query-preset-group",
+    "query-preset-rail",
+    "query-preset-disclosure",
+  ]) {
+    assert.match(html, new RegExp(`class="[^"]*${className}`));
+    assert.match(styles, new RegExp(`\\.${className}(?:[\\s:{.,]|$)`));
+  }
+
+  assert.doesNotMatch(
+    styles,
+    /\.query-facet(?:-group|-rail)?(?:[\s:{.,]|$)/);
 });
 
 test("package-content results disclose their evidence tier", () => {
