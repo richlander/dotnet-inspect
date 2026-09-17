@@ -137,7 +137,7 @@ public class SharedOptions
 
         Limit = new Option<int?>("-n")
         {
-            Description = "Select semantic rows; add --lines to select rendered lines instead; pair with --tail to take from the end"
+            Description = "Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end"
         };
 
         Tips = new Option<string?>("--tips")
@@ -322,8 +322,7 @@ public class SharedOptions
     public void AddLineSelectionOptionsTo(
         Command command,
         Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
-        Option<int?>? limit = null,
-        bool inferLines = false)
+        Option<int?>? limit = null)
     {
         limit ??= Limit;
         command.Options.Add(limit);
@@ -334,15 +333,13 @@ public class SharedOptions
         RegisterLineSelectionFallback(
             command,
             limit,
-            resolveOutputFormat,
-            inferLines);
+            resolveOutputFormat);
     }
 
     public void RegisterLineSelectionFallback(
         Command command,
         Option? limit = null,
-        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
-        bool inferLines = false)
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null)
     {
         limit ??= Limit;
         resolveOutputFormat ??= result => ResolveFormat(result);
@@ -374,10 +371,7 @@ public class SharedOptions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     IsJsonDocumentOutput(result, resolveOutputFormat),
                     lowering),
-            defaultUnit:
-                inferLines
-                    ? CliRowSelectionDefaultUnit.RenderedLines
-                    : CliRowSelectionDefaultUnit.SemanticRows);
+            defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
     }
 
     /// <summary>

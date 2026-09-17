@@ -316,10 +316,10 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` select semantic rows on commands
-  that declare them. Other commands reject `-n` alone.
-- Add `--lines` for the first N rendered lines or `--tail-lines` for the last
-  N. `--lines --tail` is equivalent to `--tail-lines`.
+- `-n N` and numeric shorthand like `-6` select semantic rows when the active
+  command or lens declares them; otherwise they select rendered lines.
+- Add `--tail` for the last N items. Use `--lines` to switch a semantic command
+  to rendered lines or `--tail-lines` for trailing rendered lines.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.

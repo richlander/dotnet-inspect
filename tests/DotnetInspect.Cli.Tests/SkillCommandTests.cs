@@ -287,7 +287,7 @@ public class SkillCommandTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SkillList_BareCountDoesNotInferDocumentLines(
+    public async Task SkillList_BareCountSelectsRenderedLines(
         bool beforeSubcommand)
     {
         string[] args =
@@ -302,11 +302,13 @@ public class SkillCommandTests
                     parseResult,
                     args));
 
-        Assert.Equal(1, exitCode);
-        Assert.Empty(output);
-        Assert.Contains(
-            "add --lines to select rendered lines",
-            error);
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
     }
 
     [Theory]
@@ -351,7 +353,7 @@ public class SkillCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains(
-            "rendered lines for skill documents",
+            "Select rendered lines",
             output);
     }
 

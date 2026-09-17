@@ -2992,11 +2992,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--head", true)]
-    [InlineData("--tail", false)]
+    [InlineData("-n", "1", "--head", 0)]
+    [InlineData("-n", "1", "--tail", -1)]
+    [InlineData("--rows", "2..2", null, 1)]
     public async Task Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization(
-        string direction,
-        bool selectsFirst)
+        string window,
+        string value,
+        string? direction,
+        int selectedIndex)
     {
         string[] common =
         [
@@ -3008,8 +3011,11 @@ public partial class CommandExecutionTests
         ];
         var (allExit, allOutput, allError) =
             await RunAppAsync(common);
+        string[] selection = direction is null
+            ? [window, value]
+            : [window, value, direction];
         var (windowExit, windowOutput, windowError) =
-            await RunAppAsync([.. common, "-n", "1", direction]);
+            await RunAppAsync([.. common, .. selection]);
 
         Assert.Equal(0, allExit);
         Assert.Empty(allError);
@@ -3022,7 +3028,7 @@ public partial class CommandExecutionTests
             .ToArray();
         Assert.True(allIds.Length > 1);
 
-        Assert.Equal(0, windowExit);
+        Assert.True(windowExit == 0, windowError);
         Assert.Empty(windowError);
         using JsonDocument windowDocument =
             JsonDocument.Parse(windowOutput);
@@ -3031,14 +3037,16 @@ public partial class CommandExecutionTests
                 .GetProperty("facts")
                 .EnumerateArray());
         Assert.Equal(
-            selectsFirst ? allIds[0] : allIds[^1],
+            selectedIndex < 0
+                ? allIds[^1]
+                : allIds[selectedIndex],
             selected.GetProperty("id").GetString());
     }
 
     [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
-    public async Task Member_FactsJson_RejectsDirectionOnlyWindow(
+    public async Task Member_FactsJson_DirectionRequiresCount(
         string direction)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3050,7 +3058,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("complete typed document", error);
+        Assert.Contains($"{direction} requires -n", error);
     }
 
     [Fact]

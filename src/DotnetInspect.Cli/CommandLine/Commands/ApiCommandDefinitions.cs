@@ -335,6 +335,26 @@ public static class ApiCommandDefinitions
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
+        CliRowSelectionCommandRegistry.Register(
+            memberCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => IsProjectedMemberFactsJson(result, opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
@@ -515,6 +535,24 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static bool IsProjectedMemberFactsJson(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        if (opts.ResolveFormat(parseResult) != OutputFormat.Json
+            || opts.ParseColumns(parseResult) is null
+                && opts.ParseFields(parseResult) is null)
+        {
+            return false;
+        }
+
+        string[]? selectors = opts.ParseSelect(parseResult);
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.Facts,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static int WriteMatchError(OptionError error)

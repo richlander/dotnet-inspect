@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Makes `-n` adapt to the active command's available item sequence: declared
+  semantic rows remain preferred, while commands and modes without semantic
+  row adoption now select rendered lines instead of rejecting the count.
+  `--lines` remains an explicit unit override, and numeric `-t` on
+  `implements` and `extensions` is treated as type-filter input rather than a
+  legacy count or migration diagnostic (#4677).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection with named `--library`, `--package`, and `--platform` source
   context. Heap coordinates remain bound to the selected `--metadata-root`. The

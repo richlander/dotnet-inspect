@@ -426,7 +426,7 @@ public sealed class PackageChangesCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--lines and --tail-lines cannot be combined with JSON output",
+            "Rendered-line selection cannot be combined with JSON output",
             result.Error);
     }
 

@@ -360,12 +360,11 @@ have not adopted this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
-`-n N` selects the command's declared items. That normally means semantic rows.
-For `skill` and focused skill-document commands, text lines are the only item
-domain, so bare `-n` selects rendered lines. Other commands without a
-semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
-lines or `--tail-lines` for the last N. Rendered-line clipping is not available
-with JSON document output.
+`-n N` selects the command's items. It selects semantic rows when the active
+command or lens declares them; otherwise it selects the first N rendered lines.
+Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
+on a semantic-row command, and `--tail-lines` selects rendered lines from the
+end. Rendered-line clipping is not available with JSON document output.
 
 Useful discovery and projection patterns:
 
