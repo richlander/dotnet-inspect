@@ -200,7 +200,7 @@ that document vocabulary again.
 | Representation | Responsibility |
 | --- | --- |
 | `WorkspaceDefinition` | Portable, versioned request with document references and authoring metadata, under [Workspace Definitions](workspace-definitions.md). |
-| `WorkspacePlan` | Validated, immutable, resource-free construction intent, with owner-issued coordinates and in-process declaration bindings. |
+| `WorkspacePlan` | Validated, immutable, resource-free construction intent, with one root target framework, owner-issued coordinates, and in-process declaration bindings. |
 | `InspectionWorkspace` | Independent live identity, operation authority and resource lifetime, under [Inspection Space](../inspection-space.md#workspace-close-and-group-release-authority). |
 
 This section is the normative owner of the plan boundary, not of the wire
@@ -209,8 +209,9 @@ contracts. The target claim is:
 
 > Equivalent supported construction intent, whether lowered from a portable
 > request or authored programmatically, can invoke the same Workspace
-> construction path. The retained plan is reusable data, not an acquired
-> resource or a live Workspace's authority.
+> construction path. The retained plan carries one canonical root target
+> framework and remains reusable data, not an acquired resource or a live
+> Workspace's authority.
 
 Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
 this distinction. The registration and context-bearing profiles below and
@@ -355,6 +356,46 @@ delegates or portable authorization. Document identity and display metadata,
 scenario composition, query/view/navigation state and their associations remain
 with their existing owners rather than becoming plan execution state.
 
+##### Implemented root target framework profile
+
+`WorkspacePlan.RootTargetFramework` is the host-neutral compatibility target
+for root-relative Package asset and dependency-group selection. Every plan has
+exactly one canonical NuGet target-framework identity. Omitted configuration
+uses `net11.0`; callers configure another target by supplying a validated
+`WorkspaceRootTargetFramework` during plan construction.
+
+The root target and a selected physical asset target are intentionally
+different facts. A Workspace rooted at `net11.0` may inspect a hub Package
+whose best compatible asset is `netstandard2.0`, then traverse to a dependency
+whose best compatible asset is `net8.0`. Consumers must use the root target for
+compatibility selection instead of requiring every participating asset path to
+contain identical TFM text. The selected assets and their physical target
+frameworks remain visible evidence.
+
+The root target does not:
+
+- rewrite an explicit `WorkspaceContextInput.Framework`;
+- combine independently declared contexts or make incompatible assemblies
+  binding-compatible;
+- select a Package version, authorize a source, acquire content, or start
+  traversal during construction; or
+- imply that every Package provides a compatible asset.
+
+An invalid root target is rejected when the plan is constructed. The
+configuration is immutable for the life of a plan and every Workspace
+constructed from it. Registration replacement preserves the exact
+`WorkspaceRootTargetFramework` instance. Changing the setting constructs a new
+plan and live Workspace rather than mutating the binding basis of an existing
+owner.
+
+This slice establishes and gates the Workspace-owned configuration only.
+Workspace Definitions must add its portable field and lower it to this value;
+Package asset selection and dependency traversal must consume it as their
+compatibility target; call-graph composition must use the resulting resolved
+participants; and CLI and Browser hosts must expose and persist the setting.
+Those are focused follow-on adoptions under their existing owners, not behavior
+implemented by this profile.
+
 ##### Request-to-plan adoption and evidence
 
 This is a five-step construction subplan of the overall
@@ -401,6 +442,7 @@ claiming the corresponding property. The planned gates are:
 | Pinned equivalent inline document and programmatic intent preserve the same context/target associations. | Definitions lowering is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; **implemented by #6750**. |
 | CLI and Browser/Wasm inspect the same System.Text.Json subject through the shared plan path. | CLI is gated by `DemoCommandTests.ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods` under #6836. Browser/Wasm is gated by `BrowserEngineBoundaryTests.PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods` under #6855. |
 | A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **implemented by #6810**. |
+| Every plan has one canonical root target, omitted configuration defaults to `net11.0`, independent owners retain the same value, and registration replacement cannot change it. | `WorkspacePlanTests.EmptyPlanIsReusableWithoutSharingLiveIdentity`, `ExplicitRootTargetIsCanonicalReusableConstructionIntent`, and `ReplacementChangesOneLivePlanWithoutMutatingSharedData`; **implemented by this slice**. |
 | Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | `InspectionDefinitionTests.ResolveScenario_DefersTargetValidationToPlanInvocation` and `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`; **implemented by #6750**. |
 | Browser plan invocation preserves loader validation before acquisition; interactive demo graphs retain their selected composition rather than ordinary cumulative browsing. | `PlatformHomeDemo_ProductionValidatesBeforeAcquisition` and `PlatformHomeDemo_ExportRetainsExactContextAcrossReloadAndDrill` in the Release Browser suite; frontend activation/coordinator tests gate the exported request handoff. Browser retention and expiry remain under [Platform demo construction and retained selection](../../inspect-web/README.md#platform-demo-construction-and-retained-selection). |
 | Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; CLI plan parity and raw registrations are gated by `ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods`. Explicit catalog plans retain the existing `EcosystemWorkspaceConstructionTests` and public-consumer gates. Browser adoption is gated by `PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods`. |
@@ -561,6 +603,8 @@ It owns:
   Workspace-bound identities;
 - explicit Package addition, replacement, removal, and Clear operations;
 - complete ordered inert registration and exact-revision replacement;
+- one immutable canonical root target framework for compatible Package
+  selection;
 - finite logical-scope limits;
 - exact closure-completeness and boundary-failure evidence;
 - revision-bound mutation admission, supersession, and publication; and

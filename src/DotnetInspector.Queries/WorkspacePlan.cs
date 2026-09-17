@@ -7,30 +7,70 @@ namespace DotnetInspector.Queries;
 public sealed class WorkspacePlan
 {
     public WorkspacePlan()
-        : this([], Array.Empty<WorkspaceContextInput>())
+        : this(
+            WorkspaceRootTargetFramework.Default,
+            [],
+            Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(ImmutableArray<WorkspaceRegistration> registrations)
-        : this(registrations, Array.Empty<WorkspaceContextInput>())
+        : this(
+            WorkspaceRootTargetFramework.Default,
+            registrations,
+            Array.Empty<WorkspaceContextInput>())
+    {
+    }
+
+    public WorkspacePlan(
+        WorkspaceRootTargetFramework rootTargetFramework)
+        : this(
+            rootTargetFramework,
+            [],
+            Array.Empty<WorkspaceContextInput>())
+    {
+    }
+
+    public WorkspacePlan(
+        WorkspaceRootTargetFramework rootTargetFramework,
+        ImmutableArray<WorkspaceRegistration> registrations)
+        : this(
+            rootTargetFramework,
+            registrations,
+            Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts)
+        : this(
+            WorkspaceRootTargetFramework.Default,
+            registrations,
+            contexts)
     {
+    }
+
+    public WorkspacePlan(
+        WorkspaceRootTargetFramework rootTargetFramework,
+        ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspaceContextInput> contexts)
+    {
+        ArgumentNullException.ThrowIfNull(rootTargetFramework);
         if (ValidateRegistrations(registrations) is { } invalid)
             throw new ArgumentException(
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
         ArgumentNullException.ThrowIfNull(contexts);
 
+        RootTargetFramework = rootTargetFramework;
         Registrations = registrations;
         Contexts = SnapshotContexts(contexts);
     }
 
     public static WorkspacePlan Empty { get; } = new();
+
+    public WorkspaceRootTargetFramework RootTargetFramework { get; }
 
     public ImmutableArray<WorkspaceRegistration> Registrations { get; }
 
@@ -43,7 +83,10 @@ public sealed class WorkspacePlan
             throw new ArgumentException(
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
-        return new WorkspacePlan(registrations, Contexts);
+        return new WorkspacePlan(
+            RootTargetFramework,
+            registrations,
+            Contexts);
     }
 
     internal static WorkspaceRegistrationRejection? ValidateRegistrations(
@@ -73,9 +116,11 @@ public sealed class WorkspacePlan
     }
 
     WorkspacePlan(
+        WorkspaceRootTargetFramework rootTargetFramework,
         ImmutableArray<WorkspaceRegistration> registrations,
         ImmutableArray<WorkspaceContextInput> contexts)
     {
+        RootTargetFramework = rootTargetFramework;
         Registrations = registrations;
         Contexts = contexts;
     }

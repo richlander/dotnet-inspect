@@ -14,8 +14,17 @@ public sealed class WorkspacePlanTests
     public async Task EmptyPlanIsReusableWithoutSharingLiveIdentity()
     {
         WorkspacePlan plan = new();
+        Assert.Same(
+            WorkspaceRootTargetFramework.Default,
+            plan.RootTargetFramework);
+        Assert.Equal(
+            "net11.0",
+            plan.RootTargetFramework.TargetFramework);
         Assert.Empty(plan.Registrations);
         Assert.Empty(plan.Contexts);
+        Assert.Same(
+            WorkspaceRootTargetFramework.Default,
+            WorkspacePlan.Empty.RootTargetFramework);
         Assert.Empty(WorkspacePlan.Empty.Registrations);
         Assert.Empty(WorkspacePlan.Empty.Contexts);
         await using InspectionWorkspace first = WorkspaceRegistrationConsumer.Create(plan);
@@ -27,9 +36,36 @@ public sealed class WorkspacePlanTests
             WorkspaceRegistrationConsumer.Observe(first);
         Assert.Same(plan, firstRevision.Plan);
         Assert.Same(plan, secondRevision.Plan);
+        Assert.Same(
+            plan.RootTargetFramework,
+            firstObservation.RootTargetFramework);
         Assert.Equal(plan.Contexts, firstObservation.Contexts);
         Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
         Assert.NotSame(firstRevision.Identity, secondRevision.Identity);
+    }
+
+    [Fact]
+    public async Task ExplicitRootTargetIsCanonicalReusableConstructionIntent()
+    {
+        var rootTarget = new WorkspaceRootTargetFramework("NET10.0");
+        WorkspacePlan emptyPlan = new(rootTarget);
+        WorkspacePlan plan =
+            WorkspaceRegistrationConsumer.CreatePlan(
+                rootTarget,
+                [],
+                RealContexts());
+
+        Assert.Equal("net10.0", rootTarget.TargetFramework);
+        Assert.Equal("net10.0", rootTarget.ToString());
+        Assert.Same(rootTarget, emptyPlan.RootTargetFramework);
+        Assert.Same(rootTarget, plan.RootTargetFramework);
+
+        await using InspectionWorkspace first =
+            WorkspaceRegistrationConsumer.Create(plan);
+        await using InspectionWorkspace second =
+            WorkspaceRegistrationConsumer.Create(plan);
+        Assert.Same(rootTarget, Current(first).Plan.RootTargetFramework);
+        Assert.Same(rootTarget, Current(second).Plan.RootTargetFramework);
     }
 
     [Fact]
@@ -208,6 +244,13 @@ public sealed class WorkspacePlanTests
         Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.Create((WorkspacePlan)null!));
         Assert.Throws<ArgumentNullException>(
+            () => WorkspaceRegistrationConsumer.CreatePlan(
+                null!,
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceRootTargetFramework("not a framework"));
+        Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.CreatePlan([], null!));
         Assert.Throws<ArgumentException>(
             () => WorkspaceRegistrationConsumer.CreatePlan([], [null!]));
@@ -237,6 +280,9 @@ public sealed class WorkspacePlanTests
         Assert.NotSame(plan, changed.Revision.Plan);
         Assert.Equal([replacement], changed.Revision.Plan.Registrations);
         Assert.Equal(2, changed.Revision.Plan.Contexts.Length);
+        Assert.Same(
+            plan.RootTargetFramework,
+            changed.Revision.Plan.RootTargetFramework);
         Assert.Same(plan.Contexts[0], changed.Revision.Plan.Contexts[0]);
         Assert.Same(plan.Contexts[1], changed.Revision.Plan.Contexts[1]);
         Assert.Equal([original], plan.Registrations);
