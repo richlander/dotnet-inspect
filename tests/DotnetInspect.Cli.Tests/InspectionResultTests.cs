@@ -294,6 +294,47 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_SeparatesArchiveSizeFromHighestTfmAssemblySize()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TargetFrameworks = ["net8.0", "netstandard2.0"],
+            PackageSize = 2_271_169,
+            HighestTfmAssemblySize = 1_060_008,
+        };
+
+        var output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Contains("| Package Size | 2.2 MB |", output);
+        Assert.Contains("| Highest TFM | net8.0 |", output);
+        Assert.Contains("| Highest TFM Assembly Size | 1 MB |", output);
+        Assert.DoesNotContain("| Size |", output);
+    }
+
+    [Fact]
+    public void PackageInfo_OmitsAssemblySizeWhenHighestTfmShipsNoAssembly()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            TargetFrameworks = ["net8.0"],
+            PackageSize = 1_024,
+        };
+
+        var output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Contains("| Package Size | 1 KB |", output);
+        Assert.DoesNotContain("Highest TFM Assembly Size", output);
+    }
+
+    [Fact]
     public void PackageInfo_HighestTfm_RemainsIndependentOfSelectionOverride()
     {
         var result = new InspectionResult

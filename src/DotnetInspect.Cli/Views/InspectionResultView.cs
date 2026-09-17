@@ -31,12 +31,17 @@ public class InspectionResultView
     [
         new("Version", static view => view.Version),
         new("Type", static view => view.PackageType),
-        new("Size", static view =>
+        new("Package Size", static view =>
             view._data.PackageSize.HasValue
                 ? new ByteSizeFormatter().Format(view._data.PackageSize.Value)
                 : null),
         new("Highest TFM", static view =>
             !string.IsNullOrEmpty(view.HighestTfm) ? view.HighestTfm : null),
+        new("Highest TFM Assembly Size", static view =>
+            view._data.HighestTfmAssemblySize.HasValue
+                ? new ByteSizeFormatter().Format(
+                    view._data.HighestTfmAssemblySize.Value)
+                : null),
         new("TFM Count", static view =>
             view.TargetFrameworkCount > 0
                 ? view.TargetFrameworkCount.ToString()

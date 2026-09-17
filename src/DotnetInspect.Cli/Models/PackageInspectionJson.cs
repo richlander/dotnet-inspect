@@ -38,6 +38,7 @@ internal sealed class PackageInspectionJson
     public long? VersionDownloads => _data.VersionDownloads;
     public int? VersionCount => _data.VersionCount;
     public long? PackageSize => _data.PackageSize;
+    public long? HighestTfmAssemblySize => _data.HighestTfmAssemblySize;
     public bool? IsVerified => _data.IsVerified;
     public bool? Listed => _data.Listed;
     public List<string>? Owners => Render(_text.Owners);

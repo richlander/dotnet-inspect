@@ -66,6 +66,13 @@ public class InspectionResult
     public long? PackageSize { get; set; }
 
     /// <summary>
+    /// Size in bytes of the package's primary managed assembly at its highest target framework,
+    /// read from the extracted package layout. Null when the highest target framework carries no
+    /// assembly (a placeholder or content-only asset group).
+    /// </summary>
+    public long? HighestTfmAssemblySize { get; set; }
+
+    /// <summary>
     /// Whether the package owner is verified by NuGet.org.
     /// </summary>
     public bool? IsVerified { get; set; }

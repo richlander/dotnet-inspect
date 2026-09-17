@@ -198,6 +198,7 @@ public sealed class PackageIndexCacheTests
             InPackagePdbs = 1,
             EmbeddedSourceLinkPdbs = 1,
         };
+        value.HighestTfmAssemblySize = 4096;
         value.BuiltDate = DateTimeOffset.UtcNow;
         value.Published = DateTimeOffset.UtcNow;
         value.TotalDownloads = 42;
@@ -217,6 +218,7 @@ public sealed class PackageIndexCacheTests
                 .Dependencies[0].Version);
         Assert.Equal("A", Assert.Single(cached.RuntimeDependencies!, d => d.Id == "A").Id);
         Assert.Null(Assert.Single(cached.RuntimeIdentifierPackages!).Exists);
+        Assert.Equal(4096, cached.HighestTfmAssemblySize);
         Assert.Equal(2, cached.BinarySignals!.SymbolsAvailable);
         Assert.Equal(1, cached.BinarySignals.SourceLinkAvailable);
         Assert.Equal(0, cached.BinarySignals.SnupkgPdbs);
@@ -232,6 +234,16 @@ public sealed class PackageIndexCacheTests
                 subject.Generation,
                 value,
                 isComplete: true));
+
+        value.TargetFrameworks = ["net8.0", "net9.0"];
+        value.HighestTfmAssemblySize = -1;
+        Assert.IsType<PackageIndexProduction.Incomplete>(
+            PackageIndexProduction.Create(
+                subject,
+                subject.Generation,
+                value,
+                isComplete: true));
+        value.HighestTfmAssemblySize = 4096;
 
         InspectionResult externalSignals = Result(packageId);
         externalSignals.BinarySignals = new PackageBinarySignals
@@ -379,7 +391,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCacheSubject predecessorSubject = Subject(
             $"{packageId}.predecessor");
         PersistentCache.SetBytes(
-            "pkg-index-v16",
+            "pkg-index-v17",
             PackageIndexCache.CacheKey(predecessorSubject),
             bytes,
             extension: "bin");

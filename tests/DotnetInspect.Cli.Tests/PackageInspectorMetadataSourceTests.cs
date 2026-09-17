@@ -177,6 +177,202 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.False(queriedSourceA);
     }
 
+    // AWSSDK.Core ships one assembly plus one XML doc per target framework, so its 2.2 MB archive
+    // dwarfs the single assembly a net8.0 consumer binds to. This fixture mirrors that layout:
+    // the reported assembly size must follow the highest target framework, not the archive, not a
+    // lower framework's larger assembly, and not a sibling or satellite at the same framework.
+    [Fact]
+    public async Task InspectAsync_ReportsAssemblySizeForTheHighestTargetFramework()
+    {
+        const string packageId = "Assembly.Size.Package";
+        const string version = "1.0.0";
+        string root = Path.Combine(_root, "assembly-size");
+        string highest = Path.Combine(root, "lib", "net8.0");
+        string lower = Path.Combine(root, "lib", "netstandard2.0");
+        Directory.CreateDirectory(Path.Combine(highest, "fr"));
+        Directory.CreateDirectory(lower);
+
+        byte[] highestAssembly = new byte[4096];
+        await File.WriteAllBytesAsync(
+            Path.Combine(highest, $"{packageId}.dll"),
+            highestAssembly,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(highest, "fr", $"{packageId}.resources.dll"),
+            new byte[9000],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(highest, $"{packageId}.Internal.dll"),
+            new byte[16384],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(highest, $"{packageId}.xml"),
+            new byte[65536],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(lower, $"{packageId}.dll"),
+            new byte[8192],
+            TestContext.Current.CancellationToken);
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: version,
+            ProducerKey: "assembly-size-producer");
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageId,
+            version,
+            isLocalFile: true,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal(highestAssembly.Length, result.HighestTfmAssemblySize);
+        Assert.Null(result.PackageSize);
+    }
+
+    // Microsoft.Data.SqlClient publishes the same assembly four ways for its highest framework: a
+    // reference facade under ref/, the implementation under lib/, and a larger copy per runtime
+    // identifier. A size claim describes what a consumer carries, so the implementation wins.
+    [Fact]
+    public async Task InspectAsync_PrefersTheImplementationOverReferenceAndRuntimeCopies()
+    {
+        const string packageId = "Copies.Size.Package";
+        const string version = "1.0.0";
+        string root = Path.Combine(_root, "copies-size");
+        string reference = Path.Combine(root, "ref", "net9.0");
+        string implementation = Path.Combine(root, "lib", "net9.0");
+        string runtime = Path.Combine(root, "runtimes", "win-x64", "lib", "net9.0");
+        Directory.CreateDirectory(reference);
+        Directory.CreateDirectory(implementation);
+        Directory.CreateDirectory(runtime);
+
+        byte[] implementationBytes = new byte[32768];
+        await File.WriteAllBytesAsync(
+            Path.Combine(reference, $"{packageId}.dll"),
+            new byte[4096],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(implementation, $"{packageId}.dll"),
+            implementationBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(runtime, $"{packageId}.dll"),
+            new byte[98304],
+            TestContext.Current.CancellationToken);
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: version,
+            ProducerKey: "copies-size-producer");
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageId,
+            version,
+            isLocalFile: true,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("net9.0", result.Tfm);
+        Assert.Equal(implementationBytes.Length, result.HighestTfmAssemblySize);
+    }
+
+    // A packed tool ships its whole dependency closure under one framework folder. No single
+    // member represents that package, so reporting an arbitrary one would mislead; the Libraries
+    // count already says how many there are.
+    [Fact]
+    public async Task InspectAsync_OmitsAssemblySizeWhenNoSingleAssemblyRepresentsThePackage()
+    {
+        const string packageId = "Closure.Size.Package";
+        const string version = "1.0.0";
+        string root = Path.Combine(_root, "closure-size");
+        string tools = Path.Combine(root, "tools", "net10.0", "any");
+        Directory.CreateDirectory(tools);
+        foreach (string name in new[] { "Alpha", "Beta", "Gamma" })
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(tools, $"{name}.dll"),
+                new byte[2048],
+                TestContext.Current.CancellationToken);
+        }
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: version,
+            ProducerKey: "closure-size-producer");
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageId,
+            version,
+            isLocalFile: true,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("net10.0", result.Tfm);
+        Assert.Null(result.HighestTfmAssemblySize);
+    }
+
+    [Fact]
+    public async Task InspectAsync_OmitsAssemblySizeWhenHighestTargetFrameworkShipsNoAssembly()
+    {
+        const string packageId = "Placeholder.Size.Package";
+        const string version = "1.0.0";
+        string root = Path.Combine(_root, "placeholder-size");
+        string highest = Path.Combine(root, "lib", "net9.0");
+        Directory.CreateDirectory(highest);
+        await File.WriteAllTextAsync(
+            Path.Combine(highest, "_._"),
+            string.Empty,
+            TestContext.Current.CancellationToken);
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: version,
+            ProducerKey: "placeholder-size-producer");
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        InspectionResult result = await PackageInspector.InspectAsync(
+            resolution,
+            packageId,
+            version,
+            isLocalFile: true,
+            localFilePath: null,
+            nuspec: null,
+            client,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("net9.0", result.Tfm);
+        Assert.Null(result.HighestTfmAssemblySize);
+    }
+
     [Fact]
     public async Task InspectAsync_PreservesToolWrapperClassificationOnPayload()
     {

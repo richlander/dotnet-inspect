@@ -197,6 +197,7 @@ internal static class PackageInspector
         ToolsAnalyzer.AnalyzeContentDirectories(extractPath, result);
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
         PopulateLibraryFiles(extractPath, result);
+        PopulateHighestTfmAssemblySize(extractPath, result);
         PackageBinarySignalScan binaryScan =
             await ScanBinarySignalsForCacheAsync(
             extractPath, packageName, version, httpClient, logger,
@@ -659,6 +660,98 @@ internal static class PackageInspector
         if (files.Count > 0)
             result.LibraryFiles = files;
     }
+
+    /// <summary>
+    /// Records the size of the assembly the package ships for its highest target framework — the
+    /// same framework the Package Info view reports as "Highest TFM" — so the view can contrast a
+    /// package's download size against the one assembly a consumer of that framework binds to.
+    /// A package whose highest framework carries no single identifiable assembly reports nothing
+    /// rather than an arbitrary member: the framework may ship a placeholder, and a package such
+    /// as a packed tool ships a whole closure whose size no one member represents.
+    /// </summary>
+    private static void PopulateHighestTfmAssemblySize(
+        string extractPath,
+        InspectionResult result)
+    {
+        if (result.TargetFrameworks is not { Count: > 0 } targetFrameworks)
+            return;
+
+        if (TfmSelector.SelectHighestTfm(targetFrameworks) is not { Length: > 0 } highestTfm)
+            return;
+
+        (List<string> assemblies, _) = TfmSelector.SelectAssembliesByTfmFromPackage(
+            extractPath,
+            highestTfm);
+
+        // Assets published directly for the framework outrank ones nested under a further
+        // qualifier, so a runtime-identifier copy never stands in for the framework's own asset.
+        List<string> candidates = assemblies
+            .Where(path => IsDirectFrameworkAsset(extractPath, path))
+            .ToList();
+        if (candidates.Count == 0)
+            candidates = assemblies;
+        if (candidates.Count == 0)
+            return;
+
+        // A package that ships several distinct assemblies for the framework names its own; a
+        // package whose only matches are copies of one assembly needs no such disambiguation.
+        List<string> named = candidates
+            .Where(path => string.Equals(
+                Path.GetFileNameWithoutExtension(path),
+                result.PackageName,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (named.Count > 0)
+            candidates = named;
+        if (candidates
+                .Select(Path.GetFileNameWithoutExtension)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() != 1)
+        {
+            return;
+        }
+
+        // Among copies of that one assembly the implementation is what a consumer carries, so
+        // prefer it over the reference facade the package may also publish for the framework.
+        string selected = candidates
+            .OrderBy(path => GetAssemblySizeAssetRank(extractPath, path))
+            .ThenBy(
+                path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'),
+                StringComparer.Ordinal)
+            .First();
+
+        var assembly = new FileInfo(selected);
+        if (assembly.Exists)
+            result.HighestTfmAssemblySize = assembly.Length;
+    }
+
+    /// <summary>
+    /// Whether the path names an asset the package publishes directly for a target framework
+    /// (<c>lib/net8.0/A.dll</c>) rather than one nested under a further qualifier such as a
+    /// runtime identifier (<c>runtimes/win-x64/lib/net8.0/A.dll</c>).
+    /// </summary>
+    private static bool IsDirectFrameworkAsset(string extractPath, string path)
+        => Path.GetRelativePath(extractPath, path)
+            .Replace('\\', '/')
+            .Split('/')
+            .Length <= 3;
+
+    /// <summary>
+    /// Ranks the asset roots that can publish the same assembly for one framework, implementation
+    /// first. This deliberately differs from the API-surface lookup order, which prefers the
+    /// reference assembly: a size claim describes the binary a consumer carries.
+    /// </summary>
+    private static int GetAssemblySizeAssetRank(string extractPath, string path)
+        => Path.GetRelativePath(extractPath, path).Replace('\\', '/').Split('/') is [var root, ..]
+            ? root switch
+            {
+                "lib" => 0,
+                "runtimes" => 1,
+                "tools" => 2,
+                "ref" => 3,
+                _ => 4,
+            }
+            : 4;
 
     private static void CanonicalizePersistentProjection(
         InspectionResult result)

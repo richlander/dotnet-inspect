@@ -2925,7 +2925,7 @@ public partial class CommandExecutionTests
                 [
                     "Version",
                     "Type",
-                    "Size",
+                    "Package Size",
                     "Built",
                     "Source",
                     "Authors",
@@ -2933,7 +2933,7 @@ public partial class CommandExecutionTests
                     "Readme",
                     "Version",
                     "Type",
-                    "Size",
+                    "Package Size",
                     "Built",
                     "Source",
                     "Authors",

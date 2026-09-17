@@ -137,13 +137,13 @@ internal abstract record PackageIndexProduction
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v17";
-    internal const string Projection = "package-index-projection-v17";
-    private const int FormatVersion = 17;
+    internal const string Category = "pkg-index-v18";
+    internal const string Projection = "package-index-projection-v18";
+    private const int FormatVersion = 18;
     private const int CompletionMarker = unchecked((int)0x434F4D50);
     private const int EndMarker = unchecked((int)0x454E4421);
     private const int MaxCollectionCount = 1_000_000;
-    private static readonly byte[] Magic = "PKGIDX17"u8.ToArray();
+    private static readonly byte[] Magic = "PKGIDX18"u8.ToArray();
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -201,6 +201,7 @@ internal static class PackageIndexCache
                 TargetFrameworks = ReadStringList(reader),
                 SupportedRids = ReadStringList(reader),
                 AssemblyCount = reader.ReadInt32(),
+                HighestTfmAssemblySize = ReadNullableInt64(reader),
                 BinarySignals = ReadBinarySignals(reader),
                 IsFrameworkDependent = ReadBoolean(reader),
                 HasRidSpecificAssets = ReadBoolean(reader),
@@ -295,6 +296,7 @@ internal static class PackageIndexCache
             WriteStringList(writer, result.TargetFrameworks);
             WriteStringList(writer, result.SupportedRids);
             writer.Write(result.AssemblyCount);
+            WriteNullableInt64(writer, result.HighestTfmAssemblySize);
             WriteBinarySignals(writer, result.BinarySignals);
             WriteBoolean(writer, result.IsFrameworkDependent);
             WriteBoolean(writer, result.HasRidSpecificAssets);
@@ -365,6 +367,7 @@ internal static class PackageIndexCache
         }
 
         if (result.AssemblyCount < 0
+            || result.HighestTfmAssemblySize is < 0
             || !IsValidBinarySignals(result.BinarySignals)
             || !IsOrdered(result.ContentDirectories, StringComparer.Ordinal)
             || !IsOrdered(result.TargetFrameworks, StringComparer.Ordinal)
@@ -474,6 +477,21 @@ internal static class PackageIndexCache
             0 => null,
             1 => ReadString(reader),
             _ => throw new InvalidDataException("Invalid string discriminator."),
+        };
+
+    private static void WriteNullableInt64(BinaryWriter writer, long? value)
+    {
+        writer.Write(value is null ? (byte)0 : (byte)1);
+        if (value is not null)
+            writer.Write(value.Value);
+    }
+
+    private static long? ReadNullableInt64(BinaryReader reader)
+        => ReadDiscriminator(reader) switch
+        {
+            0 => null,
+            1 => reader.ReadInt64(),
+            _ => throw new InvalidDataException("Invalid int64 discriminator."),
         };
 
     private static void WriteBoolean(BinaryWriter writer, bool value)
