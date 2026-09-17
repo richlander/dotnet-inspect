@@ -488,7 +488,11 @@ public static class TypeCommand
                             apiType,
                             apiType.FullName,
                             sourceFilesDllPath,
-                            effectiveOptions,
+                            effectiveOptions with
+                            {
+                                ShowDocs = false,
+                                UseLocalDocs = false,
+                            },
                             logger,
                             context.HttpClient,
                             sourceAssembly,
@@ -1204,7 +1208,7 @@ public static class TypeCommand
 
     private static bool ShouldRejectQuietShape(TypeOptions options)
     {
-        if (options.Verbosity != Verbosity.Quiet)
+        if (options.UserVerbosity != Verbosity.Quiet)
             return false;
         if (options.BodyKindQuery.HasFilter)
             return true;

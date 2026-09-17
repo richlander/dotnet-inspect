@@ -11,6 +11,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -363,6 +364,33 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public void WorkspaceCommand_RegistersInventoryConstructionOptions()
+    {
+        string[] arguments =
+        [
+            "workspace",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--register-library",
+            "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+            "--register-package-prefix",
+            "Microsoft.Extensions.",
+            "--register-ecosystem",
+            "aspire",
+            "--kind",
+            "exact-library",
+            "--share",
+            "packet",
+        ];
+
+        var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public async Task EmptyWorkspace_RendersTheTypedEmptyInventory()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -382,7 +410,7 @@ public sealed class WorkspaceCommandTests
             """
             # Workspace
 
-            No package occurrences.
+            No top-level entries.
 
             """.ReplaceLineEndings(),
             captured.Output);
@@ -436,7 +464,7 @@ public sealed class WorkspaceCommandTests
         Assert.Contains("# Workspace", captured.Output);
         Assert.Contains(PackageId, captured.Output);
         Assert.Contains(Version, captured.Output);
-        Assert.Contains(Framework, captured.Output);
+        Assert.Contains("Ready", captured.Output);
         Assert.Equal(
             1,
             captured.Output.Split(
@@ -488,7 +516,7 @@ public sealed class WorkspaceCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains(PackageId, captured.Output);
-        Assert.Contains(Framework, captured.Output);
+        Assert.Contains("Ready", captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -534,7 +562,7 @@ public sealed class WorkspaceCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains(PackageId, captured.Output);
-        Assert.Contains(Framework, captured.Output);
+        Assert.Contains("Ready", captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -563,19 +591,26 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
         string json = format == OutputFormat.Json
-            ? captured.Output
+            ? JsonDocument.Parse(captured.Output)
+                .RootElement.GetProperty("entries").GetRawText()
             : $"[{string.Join(",", captured.Output.Split(
                 '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))}]";
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
         Assert.Equal(["Workspace.Z", "Workspace.A"],
-            rows.Select(row => row.GetProperty("package").GetString()));
+            rows.Select(row => row.GetProperty("package_id").GetString()));
         Assert.All(rows, row =>
         {
-            Assert.Equal(["package", "version", "framework"],
-                row.EnumerateObject().Select(property => property.Name));
-            Assert.Equal(Version, row.GetProperty("version").GetString());
-            Assert.Equal(Framework, row.GetProperty("framework").GetString());
+            Assert.Equal("package", row.GetProperty("kind").GetString());
+            Assert.Equal(
+                Version,
+                row.GetProperty("package_version").GetString());
+            Assert.Equal(
+                Framework,
+                row.GetProperty("requested_target_framework").GetString());
+            Assert.Equal(
+                "ready",
+                row.GetProperty("state").GetProperty("kind").GetString());
         });
     }
 
@@ -604,7 +639,7 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains(PackageId, captured.Output);
         Assert.Contains(Version, captured.Output);
-        Assert.Contains(Framework, captured.Output);
+        Assert.Contains("Ready", captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -725,9 +760,510 @@ public sealed class WorkspaceCommandTests
         else
         {
             using JsonDocument document = JsonDocument.Parse(captured.Output);
-            JsonElement row = Assert.Single(document.RootElement.EnumerateArray());
-            Assert.Equal("Workspace.B", row.GetProperty("package").GetString());
+            JsonElement row = Assert.Single(
+                document.RootElement.GetProperty("entries").EnumerateArray());
+            Assert.Equal(
+                "Workspace.B",
+                row.GetProperty("package_id").GetString());
         }
+    }
+
+    [Fact]
+    public async Task MixedWorkspace_RendersPackagesThenRegistrations()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            "System.Text.Json",
+            ("lib/net10.0/System.Text.Json.dll",
+                BuildTypeAssembly("System.Text.Json", "System.Text.Json.JsonSerializer")));
+        await AddPackageAsync(
+            store,
+            "Markout",
+            ("lib/net10.0/Markout.dll",
+                BuildTypeAssembly("Markout", "Markout.Document")));
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages =
+                    [
+                        "System.Text.Json@1.0.0",
+                        "Markout@1.0.0",
+                    ],
+                    Tfm = Framework,
+                    RegisteredLibraries =
+                    [
+                        "System.Text.Json@1.0.0/System.Text.Json@1.0.0.0",
+                    ],
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    RegisteredEcosystems = ["aspire"],
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement[] entries =
+        [
+            .. document.RootElement.GetProperty("entries").EnumerateArray(),
+        ];
+        Assert.Equal(
+            ["package", "package", "exactLibrary", "packagePrefix", "ecosystem"],
+            entries.Select(entry => entry.GetProperty("kind").GetString()));
+        Assert.Equal(
+            "System.Text.Json",
+            entries[0].GetProperty("package_id").GetString());
+        Assert.Equal(
+            "System.Text.Json",
+            entries[2].GetProperty("coordinate")
+                .GetProperty("library_identity")
+                .GetProperty("name").GetString());
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            entries[3].GetProperty("prefix")
+                .GetProperty("prefix").GetString());
+        Assert.Equal(
+            "ecosystem.aspire",
+            entries[4].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task KindFilter_PreservesTypedRegistrationVector()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredLibraries =
+                    [
+                        "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+                    ],
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    RegisteredEcosystems = ["aspire"],
+                    InventoryKinds =
+                    [
+                        WorkspaceTopLevelInventoryEntryKind.ExactLibrary,
+                        WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+                    ],
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            3,
+            document.RootElement.GetProperty("total_entry_count").GetInt32());
+        Assert.Equal(
+            2,
+            document.RootElement.GetProperty("selected_entry_count").GetInt32());
+        Assert.Equal(
+            ["exactLibrary", "packagePrefix"],
+            document.RootElement.GetProperty("entries")
+                .EnumerateArray()
+                .Select(entry => entry.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
+    public async Task PacketRoute_UsesExactPacketShareBasis()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(WorkspaceCommandTests).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        WorkspaceSharePacket packet = CreatePacket(PackageId);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            PackageId,
+            Assert.Single(
+                document.RootElement.GetProperty("entries")
+                    .EnumerateArray())
+                .GetProperty("package_id").GetString());
+        Assert.Equal(encoded, captured.Error.Trim());
+
+        var direct = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(0, direct.ExitCode);
+        using JsonDocument directDocument = JsonDocument.Parse(direct.Output);
+        Assert.Equal(
+            directDocument.RootElement.GetProperty("entries").GetRawText(),
+            document.RootElement.GetProperty("entries").GetRawText());
+    }
+
+    [Fact]
+    public async Task PacketRoute_InventoriesPackageMembershipFromEveryContext()
+    {
+        const string secondPackageId = "Markout";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        await AddPackageAsync(
+            store,
+            secondPackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [
+                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null],
+                ["{{secondPackageId}}", "{{Version}}", "{{Framework}}", null]
+              ],
+              "g": [[0], [1]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            [PackageId, secondPackageId],
+            document.RootElement.GetProperty("entries")
+                .EnumerateArray()
+                .Select(entry =>
+                    entry.GetProperty("package_id").GetString()));
+    }
+
+    [Fact]
+    public async Task PacketRoute_CoalescesFloatingAndExactMembersResolvingToOneRoot()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [
+                ["{{PackageId}}", null, "{{Framework}}", null],
+                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
+              ],
+              "g": [[0], [1]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new VersionListingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(encoded, captured.Error.Trim());
+    }
+
+    [Fact]
+    public async Task PacketRoute_PreservesRequestedFrameworkWithCompatibleAssets()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ("lib/net8.0/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = CreatePacket(PackageId);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(encoded, captured.Error.Trim());
+    }
+
+    [Fact]
+    public async Task PacketRoute_RejectsGroupConstructionIntent()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            """
+            {
+              "f": 1,
+              "t": [[":Platform", "10.0.10", "net10.0", null]],
+              "g": [[0]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains("group subscriptions", captured.Error);
+    }
+
+    [Fact]
+    public async Task VerbosePacketRows_DistinguishPackageContextTargets()
+    {
+        const string olderFramework = "net8.0";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [
+                ["{{PackageId}}", "{{Version}}", "{{olderFramework}}", null],
+                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
+              ],
+              "g": [[0], [1]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Verbose = true,
+                    Format = OutputFormat.Table,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains($"requested {olderFramework}", captured.Output);
+        Assert.Contains($"requested {Framework}", captured.Output);
+    }
+
+    [Fact]
+    public async Task ShareCannotBeCombinedWithPackageNavigation()
+    {
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--share reports top-level Workspace inventory",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task FilteredPacket_ContentRemainsAvailableButShareDoesNot()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(WorkspaceCommandTests).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        string encoded = WorkspaceSharePacketCodec.Encode(
+            CreatePacket(PackageId));
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    InventoryKinds =
+                    [
+                        WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+                    ],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("selected_entry_count")
+                .GetInt32());
+        Assert.Empty(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Contains(
+            "do not represent inventory kind filters",
+            captured.Error);
+    }
+
+    [Fact]
+    public async Task DirectRouteShare_RemainsNonProjectable()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("packagePrefix", captured.Output);
+        Assert.Contains(
+            "no retained Definitions-owned projection",
+            captured.Error);
+    }
+
+    [Theory]
+    [InlineData("--packet", "--package")]
+    [InlineData("--packet", "--register-library")]
+    [InlineData("--packet", "--active-package")]
+    [InlineData("--kind", "--active-package")]
+    public async Task IncompatibleConstructionAndInventoryOptionsFail(
+        string first,
+        string second)
+    {
+        var options = new WorkspaceOptions
+        {
+            Packet = first == "--packet" ? "invalid" : null,
+            Packages = second == "--package" ? ["P@1.0.0"] : [],
+            RegisteredLibraries =
+                second == "--register-library"
+                    ? ["P@1.0.0/P@1.0.0.0"]
+                    : [],
+            ActivePackage = second == "--active-package" ? 1 : null,
+            InventoryKinds =
+                first == "--kind"
+                    ? [WorkspaceTopLevelInventoryEntryKind.Package]
+                    : [],
+        };
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.NotEmpty(captured.Error);
     }
 
     [Fact]
@@ -1252,6 +1788,19 @@ public sealed class WorkspaceCommandTests
         PackageStore = store,
     };
 
+    static WorkspaceSharePacket CreatePacket(string packageId) =>
+        WorkspaceSharePacketCodec.ParseJson(
+            $$"""
+            {
+              "f": 1,
+              "t": [["{{packageId}}", "{{Version}}", "{{Framework}}", null]],
+              "g": [[0]],
+              "a": 0,
+              "x": 0,
+              "v": "api"
+            }
+            """);
+
     static async Task AddPackageAsync(
         InMemoryPackageStore store, string packageId,
         params (string Path, byte[] Content)[] entries)
@@ -1316,6 +1865,35 @@ public sealed class WorkspaceCommandTests
                 {
                     RequestMessage = request,
                 });
+    }
+
+    sealed class VersionListingHandler : HttpMessageHandler
+    {
+        const string FlatContainer = "https://fixture.invalid/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                "https://fixture.invalid/v3/index.json" =>
+                    $$"""
+                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """,
+                $"{FlatContainer}workspace.command.fixture/index.json" =>
+                    $$"""{"versions":["{{Version}}"]}""",
+                _ => null,
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body ?? ""),
+                    RequestMessage = request,
+                });
+        }
     }
 }
 
