@@ -1303,7 +1303,11 @@ public static class SourceHouse
 
         SourceLinkMapInspection? map =
             prepared.PdbContribution.SourceLinkMap?.Map;
-        if (map?.Status == SourceLinkMapStatus.Unusable
+        bool mapUnusable = map?.Status == SourceLinkMapStatus.Unusable;
+        bool documentRejected =
+            prepared.Candidate.Document.ResolutionStatus
+                == SourceDocumentResolutionStatus.Rejected;
+        if ((mapUnusable || documentRejected)
             && prepared.Candidate.Document.ResolvedUrl is null
             && capabilities.Any(
                 static capability =>
@@ -1312,12 +1316,14 @@ public static class SourceHouse
         {
             return Failed(
                 SourceHouseFailureStage.SourceLinkInspection,
-                "SourceLinkMapUnusable",
+                mapUnusable
+                    ? "SourceLinkMapUnusable"
+                    : "SourceLinkDocumentMappingRejected",
                 prepared.PdbContribution,
                 Charge(),
                 prepared.Mapping,
                 attempts,
-                map.Error);
+                map?.Error);
         }
 
         return SettleUnavailable(

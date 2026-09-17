@@ -97,9 +97,12 @@ source content does not exempt completed work from the deadline. Expiry before
 absence settlement returns `Incomplete` with its retained evidence. Empty
 source-capability plans follow the same rule.
 
-An unreadable SourceLink map remains producer failure evidence when it prevents
-authorized remote-source resolution. If no permitted candidate succeeds, that
-failure cannot become authoritative `Unavailable`. Independently usable local
+An unreadable SourceLink map or rejection of the selected document's mapping
+remains producer failure evidence when it prevents authorized remote-source
+resolution. Unrelated usable entries do not clear that document's rejection,
+and unrelated rejected entries do not invalidate a resolved document.
+If no permitted candidate succeeds, the relevant failure cannot become
+authoritative `Unavailable`. Independently usable local
 or repository source may still succeed, retaining the map's diagnostic; an
 optional URL-map failure does not invalidate otherwise authoritative local-only
 settlement.
@@ -776,7 +779,7 @@ post-mapping expiry from earlier stops.
 | Correspondence rejection versus producer uncertainty | `ForeignLease_IsRejectedAndSettled`, `MismatchedClaimedPdb_RejectsOwnerCorrespondence`, `ExactTargetMismatch_IsRejected`, `TargetMissingUnderInspectionFailure_IsFailedNotRejected` |
 | Candidate-local failure and retained incomplete evidence | `CapabilityFailures_AreRetainedAndLaterCandidateCanSucceed`, `FiniteBoundary_ReturnsIncomplete`, `CandidateAttemptBoundary_PreservesMappingAndEarlierAttempt`, `SourceByteBoundary_PreservesRejectedAttemptAndObservedBytes`, `DeadlineAfterCapability_RecordsCompletedAttemptAndWork` |
 | Cooperative deadline settlement, empty capabilities after mapping, final checksum rejection, exception parity and long finite deadlines | `DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete`, `DeadlineDuringMappingWithoutCapabilities_IsIncomplete`, `DeadlineDuringFinalChecksumRejection_IsIncomplete`, `LateRecognizedCapabilityExceptionAfterDeadline_IsIncomplete`, `DeadlineBeyondSingleTimerRange_CanCompleteNormally` |
-| SourceLink-map failure relevance and successful independent fallback | `UnusableSourceLinkMap_RemoteExhaustionIsFailed`, `UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed`, `UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable` |
+| SourceLink-map failure relevance and successful independent fallback | `UnusableSourceLinkMap_RemoteExhaustionIsFailed`, `UnusableSourceLinkMap_IndependentRepositorySourceCanSucceed`, `UnusableSourceLinkMap_LocalOnlyAbsenceRemainsUnavailable`, `PartiallyUsableSourceLinkMap_PreservesDocumentFailure` |
 | Transferred ownership and detached outcomes | `NullRequest_StillSettlesTransferredLease`, `CancellationDuringCapability_SettlesLease`, `UnexpectedCapabilityException_PropagatesAfterSettlement`, `OwnerAndArtifactRetirement_DrainIssuedOperation`, `PublicOutcomeClosureRetainsNoLiveAuthority` |
 
 These cases gate the authored-only delivery, not production-host parity,

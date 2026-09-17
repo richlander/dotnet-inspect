@@ -475,6 +475,93 @@ public sealed class AuthoredSourceHouseTests
         Assert.Single(unavailable.AuthoredAttempt.SourceAttempts);
     }
 
+    [Theory]
+    [InlineData(SourceHouseCapabilityCategory.Remote, false, true)]
+    [InlineData(SourceHouseCapabilityCategory.Repository, true, true)]
+    [InlineData(SourceHouseCapabilityCategory.Local, false, true)]
+    [InlineData(SourceHouseCapabilityCategory.Remote, false, false)]
+    [InlineData(SourceHouseCapabilityCategory.Remote, true, false)]
+    public async Task
+        PartiallyUsableSourceLinkMap_PreservesDocumentFailure(
+            SourceHouseCapabilityCategory category,
+            bool sourceAvailable,
+            bool selectedDocumentRejected)
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] sourceBytes = File.ReadAllBytes(asset.SourcePath);
+        string map = selectedDocumentRejected
+            ? """{"documents":{"*":null,"/unrelated/*":"https://example.com/*"}}"""
+            : """{"documents":{"/unrelated/*":null,"*":"https://example.com/*"}}""";
+        byte[] suppliedPdb = ReplaceSourceLinkMap(
+            File.ReadAllBytes(asset.PdbPath),
+            map);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath, suppliedPdb);
+        LibraryOperationLease operation = library.IssueOperation();
+        SourceHouseOutcome outcome =
+            await SourceHouse.ExecuteAuthoredAsync(
+                Request(
+                    library,
+                    asset.MemberTarget,
+                    [
+                        Capability(
+                            "source",
+                            category,
+                            (candidate, _, _) =>
+                                ValueTask.FromResult<SourceHouseCapabilityOutcome>(
+                                    sourceAvailable
+                                        ? new SourceHouseCapabilityOutcome.Available(
+                                            sourceBytes)
+                                        : new SourceHouseCapabilityOutcome.Unavailable(
+                                            new(candidate.Document.ResolvedUrl is null
+                                                ? "NoRemoteUrl"
+                                                : "NotFound")))),
+                    ]),
+                operation,
+                TestContext.Current.CancellationToken);
+
+        AssertOperationSettled(operation, library.Reference.ApiAssembly);
+        Assert.Equal(
+            SourceLinkMapStatus.PartiallyUsable,
+            outcome.PdbContribution.SourceLinkMap?.Map.Status);
+        SourceHouseAuthoredMapping.Member mapping =
+            Assert.IsType<SourceHouseAuthoredMapping.Member>(
+                outcome.AuthoredAttempt.Mapping);
+        Assert.Equal(
+            selectedDocumentRejected
+                ? SourceDocumentResolutionStatus.Rejected
+                : SourceDocumentResolutionStatus.Resolved,
+            mapping.Document.ResolutionStatus);
+        SourceHouseSourceAttempt attempt =
+            Assert.Single(outcome.AuthoredAttempt.SourceAttempts);
+        if (sourceAvailable)
+        {
+            Assert.IsType<SourceHouseOutcome.Available>(outcome);
+            Assert.Equal(SourceHouseSourceAttemptKind.Available, attempt.Kind);
+        }
+        else
+        {
+            Assert.Equal(SourceHouseSourceAttemptKind.Unavailable, attempt.Kind);
+            if (category == SourceHouseCapabilityCategory.Remote
+                && selectedDocumentRejected)
+            {
+                SourceHouseOutcome.Failed failed =
+                    Assert.IsType<SourceHouseOutcome.Failed>(outcome);
+                Assert.Equal(
+                    SourceHouseFailureStage.SourceLinkInspection,
+                    failed.Failure.Stage);
+                Assert.Equal(
+                    "SourceLinkDocumentMappingRejected",
+                    failed.Failure.Code);
+                Assert.Equal("NoRemoteUrl", attempt.Observation?.Code);
+            }
+            else
+            {
+                Assert.IsType<SourceHouseOutcome.Unavailable>(outcome);
+            }
+        }
+    }
+
     [Fact]
     public async Task MissingPortablePdb_IsUnavailable()
     {
@@ -1949,6 +2036,28 @@ public sealed class AuthoredSourceHouseTests
             "The real portable PDB did not contain a SourceLink map.");
         malformed[offset] = (byte)'!';
         return malformed;
+    }
+
+    private static byte[] ReplaceSourceLinkMap(byte[] portablePdb, string json)
+    {
+        byte[] result = [.. portablePdb];
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(
+            new MemoryStream(portablePdb, writable: false));
+        MetadataReader reader = provider.GetMetadataReader();
+        byte[] original = reader.CustomDebugInformation
+            .Select(reader.GetCustomDebugInformation)
+            .Where(information =>
+                reader.GetGuid(information.Kind)
+                    == new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A"))
+            .Select(information => reader.GetBlobBytes(information.Value))
+            .Single();
+        byte[] replacement = Encoding.UTF8.GetBytes(json);
+        Assert.True(replacement.Length <= original.Length);
+        int offset = result.AsSpan().IndexOf(original);
+        Assert.True(offset >= 0);
+        result.AsSpan(offset, original.Length).Fill((byte)' ');
+        replacement.CopyTo(result.AsSpan(offset));
+        return result;
     }
 
     private static byte[] BuildMalformedTargetSurface()
