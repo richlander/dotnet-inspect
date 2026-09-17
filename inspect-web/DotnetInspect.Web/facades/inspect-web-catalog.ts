@@ -330,6 +330,7 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "Catalog": {
           readonly "CatalogExports": {
+            readonly "CanonicalizeWorkspaceSharePacket.304094707": (encoded: string) => string;
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -385,6 +386,18 @@ function $requireManagedExports(): $ManagedExports {
 }
 
 function $validateManagedExports(exports: unknown): asserts exports is $ManagedExports {
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "CanonicalizeWorkspaceSharePacket.304094707");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CanonicalizeWorkspaceSharePacket.304094707\u0027 is not callable.");
+    }
+  }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "DotnetInspect");
@@ -492,6 +505,12 @@ export function runEntryPoint(
   args?: string[],
 ): Promise<number> {
   return $requireRuntime().runMain(mainAssemblyName, args);
+}
+
+export function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanonicalizeWorkspaceSharePacket.304094707"](encoded);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspaceShareEncodeResult;
 }
 
 export function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult {

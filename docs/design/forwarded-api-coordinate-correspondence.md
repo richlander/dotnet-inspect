@@ -309,6 +309,14 @@ The Member overload requires Metadata's declaration kind because
 from the same one-time source selection; Queries never parses the anchor or
 replays an ordinal or digest against the destination.
 
+`ApiCoordinateSourceSelectionResult` is live because its selected subject and
+Type candidates are structural identities. A caller that needs the completed
+selection after Workspace close invokes `Detach(sourceObservation)` while the
+source observation remains live. The resulting
+`ApiCoordinateSourceSelectionEvidence` retains resource-free declaration
+coordinates, portable candidate anchors, inspection failures, and typed
+selection failure evidence without retaining a structural subject.
+
 The live result retains Library pairing, strict source binding, detached
 resolution, strict declaration correspondence, and a destination structural
 subject only for an exact result. Its detached projection replaces structural

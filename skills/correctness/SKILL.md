@@ -43,10 +43,11 @@ dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Ope
 with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
 methods) and provenance/supply-chain signals, see the `signals` skill.
 
-For one crash or profiler coordinate, use `library --il-offset
-0x06000001+0x5` for the default source-location, member, instruction, exception,
-callsite, and return-address context. Safety evidence is opt-in:
-`--il-offset 0x06000001+0x5 -S "Context: Safety"`.
+For one crash or profiler coordinate, use `library coordinate
+0x06000001+0x5 --library Foo.dll` for the default source-location, member,
+instruction, exception, callsite, and return-address context. Safety evidence
+is opt-in: `library coordinate 0x06000001+0x5 --library Foo.dll -S
+"Context: Safety"`.
 
 To confirm whether one definite unsafe operation appeared at an adjacent
 version boundary, first correlate caller-selected package cells:

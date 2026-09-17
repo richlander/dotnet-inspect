@@ -4,7 +4,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
 
-internal enum SourceFetchFailureKind
+internal enum SourceError
 {
     InvalidUrl,
     RequestNotAuthorized,
@@ -14,9 +14,16 @@ internal enum SourceFetchFailureKind
     StorageFailed,
 }
 
-internal readonly record struct SourceFetchBytesResult(
-    byte[]? Bytes,
-    SourceFetchFailureKind? Failure = null);
+internal abstract record FetchSourceResult
+{
+    private protected FetchSourceResult()
+    {
+    }
+
+    internal sealed record Success(byte[] Content) : FetchSourceResult;
+
+    internal sealed record Failure(SourceError Error) : FetchSourceResult;
+}
 
 /// <summary>
 /// Fetches caller-validated source bytes through a host-selected content store.
@@ -54,19 +61,7 @@ public class SourceFetch
     /// <paramref name="validator"/>. Invalid cached bytes are bypassed; invalid network bytes are
     /// neither returned nor cached.
     /// </summary>
-    internal async Task<byte[]?> FetchVerifiedSourceBytesAsync(
-        string url,
-        Func<ReadOnlyMemory<byte>, bool> validator,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(validator);
-        return (await FetchSourceBytesCoreAsync(
-            url,
-            validator,
-            cancellationToken).ConfigureAwait(false)).Bytes;
-    }
-
-    internal Task<SourceFetchBytesResult> FetchVerifiedSourceBytesResultAsync(
+    internal Task<FetchSourceResult> FetchVerifiedSourceBytesAsync(
         string url,
         Func<ReadOnlyMemory<byte>, bool> validator,
         CancellationToken cancellationToken = default)
@@ -75,7 +70,7 @@ public class SourceFetch
         return FetchSourceBytesCoreAsync(url, validator, cancellationToken);
     }
 
-    private async Task<SourceFetchBytesResult> FetchSourceBytesCoreAsync(
+    private async Task<FetchSourceResult> FetchSourceBytesCoreAsync(
         string url,
         Func<ReadOnlyMemory<byte>, bool> validator,
         CancellationToken cancellationToken)
@@ -86,7 +81,7 @@ public class SourceFetch
             || (parsed.Scheme != Uri.UriSchemeHttps
                 && parsed.Scheme != Uri.UriSchemeHttp))
         {
-            return new SourceFetchBytesResult(null, SourceFetchFailureKind.InvalidUrl);
+            return new FetchSourceResult.Failure(SourceError.InvalidUrl);
         }
         if (_fetchPolicy is not null)
         {
@@ -94,9 +89,8 @@ public class SourceFetch
             cancellationToken.ThrowIfCancellationRequested();
             if (!allowed)
             {
-                return new SourceFetchBytesResult(
-                    null,
-                    SourceFetchFailureKind.RequestNotAuthorized);
+                return new FetchSourceResult.Failure(
+                    SourceError.RequestNotAuthorized);
             }
         }
 
@@ -105,7 +99,7 @@ public class SourceFetch
             bool valid = validator(memoryBytes);
             cancellationToken.ThrowIfCancellationRequested();
             if (valid)
-                return new SourceFetchBytesResult(memoryBytes);
+                return new FetchSourceResult.Success(memoryBytes);
 
             _byteMemoryCache.TryRemove(url, out _);
         }
@@ -121,9 +115,8 @@ public class SourceFetch
         }
         catch (Exception ex) when (IsContentStoreFailure(ex))
         {
-            return new SourceFetchBytesResult(
-                null,
-                SourceFetchFailureKind.StorageFailed);
+            return new FetchSourceResult.Failure(
+                SourceError.StorageFailed);
         }
 
         if (cachedBytes is not null)
@@ -133,7 +126,7 @@ public class SourceFetch
             if (valid)
             {
                 _byteMemoryCache[url] = cachedBytes;
-                return new SourceFetchBytesResult(cachedBytes);
+                return new FetchSourceResult.Success(cachedBytes);
             }
         }
 
@@ -153,14 +146,15 @@ public class SourceFetch
             .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (fetch.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return new SourceFetchBytesResult(null, SourceFetchFailureKind.NotFound);
+            return new FetchSourceResult.Failure(SourceError.NotFound);
         if (fetch.Bytes is not { } bytes)
-            return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
+            return new FetchSourceResult.Failure(SourceError.Unavailable);
 
         bool networkBytesValid = validator(bytes);
         cancellationToken.ThrowIfCancellationRequested();
         if (!networkBytesValid)
-            return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);
+            return new FetchSourceResult.Failure(
+                SourceError.ValidationFailed);
 
         try
         {
@@ -172,13 +166,12 @@ public class SourceFetch
         }
         catch (Exception ex) when (IsContentStoreFailure(ex))
         {
-            return new SourceFetchBytesResult(
-                null,
-                SourceFetchFailureKind.StorageFailed);
+            return new FetchSourceResult.Failure(
+                SourceError.StorageFailed);
         }
 
         _byteMemoryCache[url] = bytes;
-        return new SourceFetchBytesResult(bytes);
+        return new FetchSourceResult.Success(bytes);
     }
 
     static bool IsContentStoreFailure(Exception exception)

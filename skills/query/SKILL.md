@@ -117,6 +117,7 @@ evidence unless a category is named.
 | `type` listing | `@Surface` | none |
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 | `diff` | `@Diff` | none |
+| `project` | `@Project` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -129,8 +130,9 @@ member name, or signature and local implementation evidence for one selected
 overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
-by exact name. `Switches` is a section. There are no user-facing
-`@All`, `@Default`, or `@Hidden` categories.
+by exact name. Project `@Project` composes restored dependency `Skills` and
+`Package README file` inventories. `Switches` is a section. There are no
+user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
@@ -176,32 +178,33 @@ Each named description is a companion section called `Query: <Section>`;
 wildcards omit companions. `-D "Query: Body Shapes"` describes one companion's
 columns; companion schema discovery requires one resolved section.
 A known section with no implemented query bindings
-says so; for example, `find -Q Results` does not advertise package facets as
-API-search predicates.
+says so; for example, `find -Q Results` does not advertise Package Query terms
+as API-search predicates.
 
-`package query -Q Packages` exposes the `facet` equality selector and the
-product-issued Package Query IDs admitted by the CLI:
+`package query -Q Packages` exposes the product-owned Package Query term keys,
+operators, values, and examples admitted by the CLI:
 
 ```bash
 dnx dotnet-inspect -y -- package query -Q Packages --json
 dnx dotnet-inspect -y -- package query Azure.Mcp \
-  --where "facet=package.query.dotnet-tool"
-dnx dotnet-inspect -y -- package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5 --jsonl
+  --where "tool=true"
+dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
+  --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
-`--where` repeats select product facets, not arbitrary package-field
-expressions. Independent facets are ANDed; the broad tool facet reports CLI v1,
-CLI v2, or unrecognized settings, while compatible tool v1/v2 alternatives are
-ORed. Query rows represent individual packages, with exact versions and
-product-authored evidence. `--take` bounds candidate work, while `-n` and
-`--rows` select final matched-package rows. Without explicit `--take`, a
-simple `-n N` is pushed into execution: direct package rows use an effective
-candidate bound of N, while filtered queries scan until N matches or their
-default candidate bound. Pushdown is capped at 1,000 candidates; larger
-semantic heads remain valid and are applied after bounded execution.
-Selecting a package-content facet is itself approval for archive acquisition
-and permits at most 20 candidates; use
+`--where` repeats select product terms, not arbitrary package-field
+expressions. Independent terms are ANDed; the broad `tool=true` term identifies
+the .NET tool package type from manifest evidence. Use `tool-format=v1` or
+`tool-format=v2` for settings-based format classification; those specific
+formats are ORed. Query rows represent individual packages, with exact versions
+and product-authored evidence. `--take` bounds candidate work, while `-n` and
+`--rows` select final matched-package rows. Without explicit `--take`, a simple
+`-n N` is pushed into execution: direct package rows use an effective candidate
+bound of N, while filtered queries scan until N matches or their default
+candidate bound. Pushdown is capped at 1,000 candidates; larger semantic heads
+remain valid and are applied after bounded execution. Selecting a
+package-content term is itself approval for archive acquisition and permits at
+most 20 candidates; use
 `--nuspec-only` to reject such a query. `--count` observes selected rows and
 succeeds only when completion or a satisfied finite row selection proves that
 count exact. Reached candidate bounds and failures remain visible.

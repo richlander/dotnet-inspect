@@ -1488,9 +1488,14 @@ the form a user is most likely to click, so it is held to the same rule and
 gated by
 `SourceLinkProvenanceTests.ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin`.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`
-and `SourceLinkMapConformanceTests.OnlyTheSourceLinkOwner_ReadsTheDocumentsMap`
-pin the reader sets by set equality, so a second implementation of either rule
-fails rather than quietly diverging.
+pins the raw-host reader set by set equality. SourceLink document-map behavior
+is gated at the untrusted JSON boundary by
+`SourceLinkMapConformanceTests.TheSpecifiedUrl_IsProducedByTheSourceLinkOwner`
+and
+`SourceLinkMapConformanceTests.TheSpecifiedUrl_IsProducedThroughTheMetadataEntryPoint`,
+which drive the same specification rows through the owner and the supported
+delegating entry point. No repository-source census is part of that behavioral
+claim.
 
 ### Artifact-derived source URLs use an SSRF-hardened client
 

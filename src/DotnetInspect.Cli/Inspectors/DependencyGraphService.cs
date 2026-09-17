@@ -541,9 +541,10 @@ internal static class DependencyGraphService
 
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         PackageDependencyGraph dependencyGraph;
+        IReadOnlyList<DependencyResolutionDiagnostic> diagnostics;
         if (buildGraph)
         {
-            dependencyGraph =
+            DependencyResolutionResult<PackageDependencyGraph> result =
                 await DependencyResolutionService
                     .ResolveDependencyGraphAsync(
                         httpClient,
@@ -556,10 +557,12 @@ internal static class DependencyGraphService
                         globalSeen,
                         logger.Log,
                         sourceOptions);
+            dependencyGraph = result.Value;
+            diagnostics = result.Diagnostics;
         }
         else
         {
-            List<DependencyNode> tree =
+            DependencyResolutionResult<List<DependencyNode>> result =
                 await DependencyResolutionService
                     .ResolveDependencyTreeAsync(
                         httpClient,
@@ -568,10 +571,11 @@ internal static class DependencyGraphService
                         globalSeen,
                         logger.Log,
                         sourceOptions);
+            diagnostics = result.Diagnostics;
             dependencyGraph = new PackageDependencyGraph(
                 Nodes: [],
                 Relationships: [],
-                tree);
+                result.Value);
         }
 
         return new PackageDependencyGraphResult.Graph(
@@ -579,7 +583,8 @@ internal static class DependencyGraphService
             resolution.Version,
             resolution.ManifestPackageName,
             resolution.ManifestVersion,
-            dependencyGraph);
+            dependencyGraph,
+            diagnostics);
     }
 
     private static async Task<PackageNuspecResolution> ResolvePackageNuspecAsync(
@@ -1016,7 +1021,9 @@ internal abstract record PackageDependencyGraphResult
         string Version,
         string ManifestPackageName,
         string ManifestVersion,
-        PackageDependencyGraph DependencyGraph) : PackageDependencyGraphResult
+        PackageDependencyGraph DependencyGraph,
+        IReadOnlyList<DependencyResolutionDiagnostic> Diagnostics) :
+        PackageDependencyGraphResult
     {
         public string Title => $"{PackageName} ({Version})";
 
