@@ -285,6 +285,7 @@ public static class InspectionCommandDefinitions
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
+        diffCommand.Options.Add(opts.Schema);
         diffCommand.Options.Add(opts.Tree);
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
