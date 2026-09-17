@@ -1,6 +1,6 @@
 import type {
   BrowserPackageQueryCatalog,
-  BrowserPackageQueryFacetDescriptor,
+  BrowserPackageQueryPresetDescriptor,
   BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
@@ -16,7 +16,7 @@ import type {
 import type {
   PackageQueryDataSource,
   QueryAssemblyAssessment,
-  QueryFacetTerm,
+  QueryPreset,
   QueryProgress,
   QueryResultRow,
   QueryTermDescriptor,
@@ -48,7 +48,6 @@ export interface BrowserPackageQueryEngine {
   run(
     operationId: string,
     searchText: string,
-    facetIdsJson: string,
     termsJson: string,
     maximumCandidates: number,
     maximumMatches: number,
@@ -82,20 +81,23 @@ export interface BrowserPackageQueryDataSourceOptions {
 export function packageQueryCatalog(
   catalog: BrowserPackageQueryCatalog,
 ): {
-  readonly facets: QueryFacetTerm[];
+  readonly presets: QueryPreset[];
   readonly terms: QueryTermDescriptor[];
 } {
   return {
-    facets: catalog.facets.map(toQueryFacet),
+    presets: catalog.presets.map(toQueryPreset),
     terms: catalog.terms.map(toQueryTermDescriptor),
   };
 }
 
-function toQueryFacet(
-  descriptor: BrowserPackageQueryFacetDescriptor,
-): QueryFacetTerm {
+function toQueryPreset(
+  descriptor: BrowserPackageQueryPresetDescriptor,
+): QueryPreset {
   return {
-    key: descriptor.id,
+    id: `${descriptor.key}:${descriptor.operator}:${descriptor.value}`,
+    key: descriptor.key,
+    operator: descriptor.operator,
+    value: descriptor.value,
     label: descriptor.label,
     summary: descriptor.summary,
     weight: descriptor.weight,
@@ -240,12 +242,18 @@ export function createBrowserPackageQueryDataSource(
         const result = await engine.run(
           operationId,
           request.scopeQuery,
-          JSON.stringify(request.facets.map(facet => facet.key)),
-          JSON.stringify(request.terms.map(term => ({
-            key: term.descriptor.key,
-            operator: term.operator,
-            value: term.value,
-          }))),
+          JSON.stringify([
+            ...request.presets.map(preset => ({
+              key: preset.key,
+              operator: preset.operator,
+              value: preset.value,
+            })),
+            ...request.terms.map(term => ({
+              key: term.descriptor.key,
+              operator: term.operator,
+              value: term.value,
+            })),
+          ]),
           request.requestedLimit,
           request.requestedMatchLimit,
           request.includePrerelease,
@@ -984,9 +992,11 @@ function toQueryTier(
 }
 
 function toInspectionTier(
-  tier: BrowserPackageQueryFacetDescriptor["tier"],
-): QueryFacetTerm["tier"] {
+  tier: BrowserPackageQueryPresetDescriptor["tier"],
+): QueryPreset["tier"] {
   switch (tier) {
+    case "SearchMetadata":
+      return "search-metadata";
     case "Nuspec":
       return "nuspec";
     case "PackageContent":

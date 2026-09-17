@@ -69,7 +69,7 @@ const maximumDiagnosticCharacters = 64 * 1024;
 // plus one source-wide failure that is not itself a candidate.
 const maximumInspectionItems = 10_001;
 
-type PackageQueryFacetTier =
+type PackageQueryAcquisitionTier =
   Extract<BrowserPackageQueryRow["tier"], string>;
 type PackageQueryEvidenceScope =
   Extract<BrowserPackageQueryEvidence["scope"], string>;
@@ -104,7 +104,7 @@ interface EngineWorkerPackageQueryEvidence
 
 interface EngineWorkerPackageQueryRow
   extends Omit<BrowserPackageQueryRow, "tier" | "evidence"> {
-  readonly tier: PackageQueryFacetTier;
+  readonly tier: PackageQueryAcquisitionTier;
   readonly evidence: readonly EngineWorkerPackageQueryEvidence[];
 }
 
@@ -188,7 +188,6 @@ export interface EngineWorkerPackageQueryTerminal {
 export interface EngineWorkerPackageQueryInput {
   readonly kind: "query";
   readonly searchText: string;
-  readonly facetIds: readonly string[];
   readonly terms: readonly {
     readonly key: string;
     readonly operator: string;
@@ -461,7 +460,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
     const input = dataRecord(value, [
       "kind",
       "searchText",
-      "facetIds",
       "terms",
       "maximumCandidates",
       "maximumMatches",
@@ -473,10 +471,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       searchText: text(
         input.searchText,
         "Package Query search",
-        budget),
-      facetIds: stringArray(
-        input.facetIds,
-        "Package Query facets",
         budget),
       terms: queryTerms(input.terms, budget),
       maximumCandidates: integer(
@@ -741,7 +735,7 @@ function parseRow(
     tier: literal(
       row.tier,
       ["Nuspec", "PackageContent", "SearchMetadata", "Assembly"] as const,
-      "Package Query facet tier"),
+      "Package Query preset tier"),
     evidence: arrayItems(
       row.evidence,
       "Package Query evidence",
@@ -1549,12 +1543,18 @@ function encodeQueryRequest(
   const payload: EngineWorkerPackageQueryInput = {
     kind: "query",
     searchText: request.scopeQuery,
-    facetIds: request.facets.map(facet => facet.key),
-    terms: request.terms.map(term => ({
-      key: term.descriptor.key,
-      operator: term.operator,
-      value: term.value,
-    })),
+    terms: [
+      ...request.presets.map(preset => ({
+        key: preset.key,
+        operator: preset.operator,
+        value: preset.value,
+      })),
+      ...request.terms.map(term => ({
+        key: term.descriptor.key,
+        operator: term.operator,
+        value: term.value,
+      })),
+    ],
     maximumCandidates: request.requestedLimit,
     maximumMatches: request.requestedMatchLimit,
     includePrerelease: request.includePrerelease,
@@ -1701,7 +1701,6 @@ export function registerEngineWorkerPackageQueryOperation(
         await packageFacade.runPackageQuery(
           context.operation.operationId,
           input.searchText,
-          JSON.stringify(input.facetIds),
           JSON.stringify(input.terms),
           input.maximumCandidates,
           input.maximumMatches,

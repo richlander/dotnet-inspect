@@ -253,8 +253,8 @@ public sealed record BrowserWorkspacePackageOccurrenceActivation(
     bool Superseded,
     BrowserPackageSurface? Package);
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFacetTier>))]
-public enum BrowserPackageQueryFacetTier
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryAcquisitionTier>))]
+public enum BrowserPackageQueryAcquisitionTier
 {
     Nuspec,
     PackageContent,
@@ -262,19 +262,21 @@ public enum BrowserPackageQueryFacetTier
     Assembly,
 }
 
-public sealed record BrowserPackageQueryFacetDescriptor(
-    string Id,
+public sealed record BrowserPackageQueryPresetDescriptor(
+    string Key,
+    string Operator,
+    string Value,
     string Label,
     string Summary,
     int Weight,
-    BrowserPackageQueryFacetTier Tier,
+    BrowserPackageQueryAcquisitionTier Tier,
     string? SelectionGroupId,
     bool CombinesWithinSelectionGroup,
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 
 public sealed record BrowserPackageQueryCatalog(
-    BrowserPackageQueryFacetDescriptor[] Facets,
+    BrowserPackageQueryPresetDescriptor[] Presets,
     BrowserPackageQueryTermDescriptor[] Terms);
 
 public sealed record BrowserPackageQueryTermDescriptor(
@@ -282,7 +284,7 @@ public sealed record BrowserPackageQueryTermDescriptor(
     string Label,
     string Summary,
     int Weight,
-    BrowserPackageQueryFacetTier Tier,
+    BrowserPackageQueryAcquisitionTier Tier,
     string[] Operators,
     string ValueKind,
     string Example);
@@ -348,7 +350,7 @@ public sealed record BrowserPackageQueryManifest(
 public sealed record BrowserPackageQueryRow(
     string PackageId,
     string Version,
-    BrowserPackageQueryFacetTier Tier,
+    BrowserPackageQueryAcquisitionTier Tier,
     BrowserPackageQueryEvidence[] Evidence,
     long? TotalDownloads,
     bool? Verified,

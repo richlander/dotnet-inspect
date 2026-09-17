@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.RowSelection;
+using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -22,70 +24,110 @@ public static partial class PackageQuery
     /// <summary>Plans an exact package ID or one explicit terminal-star prefix.</summary>
     public static PackageQueryPlanResult PlanInput(
         string text,
-        IReadOnlyCollection<string>? facetIds = null,
+        IReadOnlyCollection<PortableQueryTerm>? terms = null,
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
-        bool includePrerelease = false)
-        => PlanInput(
-            text,
-            facetIds,
-            terms: null,
-            maximumCandidates,
-            maximumMatches,
-            includePrerelease);
-
-    /// <summary>
-    /// Plans an input with the existing facet selections and parameterized
-    /// Package Query terms.
-    /// </summary>
-    public static PackageQueryPlanResult PlanInput(
-        string text,
-        IReadOnlyCollection<string>? facetIds,
-        IReadOnlyCollection<PortableQueryTerm>? terms,
-        int maximumCandidates = DefaultMaximumCandidates,
-        int? maximumMatches = DefaultMaximumMatches,
-        bool includePrerelease = false)
+        bool includePrerelease = false,
+        RowSelectionIntent<string>? rowSelection = null)
     {
         ArgumentNullException.ThrowIfNull(text);
-        if (maximumCandidates is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.InvalidCandidateLimit,
-                value: maximumCandidates);
-        }
 
         string spelling = text.Trim();
-        SourceSelector input;
-        string scope;
-        string explanation;
-        try
+        string populationKey;
+        string populationValue;
+        if (spelling.EndsWith('*'))
         {
-            if (spelling.EndsWith('*'))
+            string prefix = spelling[..^1];
+            if (prefix.Length == 0
+                || prefix.Contains('*')
+                || !PackageProfileQuery.IsValidPrefix(prefix)
+                || !InertString.IsPermitted(TextPolicy.Field, prefix))
             {
-                var prefix = new PackagePrefixRequest(
-                    spelling[..^1], maximumCandidates, includePrerelease);
-                input = new SourceSelector.PackagePrefix(prefix);
-                scope = prefix.Prefix;
-                explanation = $"Package ID matches prefix \"{scope}\".";
+                return Rejected(
+                    PackageQueryRequestFailureReason.InvalidPackageInput);
             }
-            else
-            {
-                input = new SourceSelector.Package(new PackageCoordinate(spelling));
-                scope = spelling;
-                explanation = $"Package ID is \"{scope}\".";
-                maximumCandidates = 1;
-            }
+
+            populationKey = PrefixTermKey;
+            populationValue = prefix;
         }
-        catch (ArgumentException)
+        else
         {
-            return Rejected(PackageQueryRequestFailureReason.InvalidPackageInput);
+            if (spelling.Contains('*')
+                || !DotnetInspector.Packages.PackageExtractor
+                    .IsValidPackageId(spelling)
+                || !InertString.IsPermitted(TextPolicy.Field, spelling))
+            {
+                return Rejected(
+                    PackageQueryRequestFailureReason.InvalidPackageInput);
+            }
+
+            populationKey = PackageTermKey;
+            populationValue = spelling;
         }
 
-        return PlanCore(
-            Evidence(scope), Evidence(explanation), facetIds, terms,
-            maximumCandidates, maximumMatches, includePrerelease,
-            packageInput: input);
+        if (maximumCandidates is <= 0 or > MaximumCandidates)
+            return Rejected(PackageQueryRequestFailureReason.InvalidCandidateLimit);
+        if (maximumMatches is <= 0 or > MaximumCandidates)
+            return Rejected(PackageQueryRequestFailureReason.InvalidMatchLimit);
+        if (populationKey == PackageTermKey)
+            maximumCandidates = 1;
+
+        var intentTerms = new List<PortableQueryTerm>
+        {
+            new(
+                populationKey,
+                PortableQueryOperator.Equal,
+                populationValue),
+            new(
+                PrereleaseTermKey,
+                PortableQueryOperator.Equal,
+                includePrerelease ? "include" : "stable"),
+        };
+        if (terms is not null)
+            intentTerms.AddRange(terms);
+
+        var bounds = new List<PortableQueryBound>
+        {
+            new(PackageQueryVocabulary.CandidatesDimension, maximumCandidates),
+        };
+        if (maximumMatches is int matches)
+        {
+            bounds.Add(new(
+                PackageQueryVocabulary.MatchesDimension,
+                matches));
+        }
+
+        PortableQueryIntent intent = PortableQueryIntent.Create(
+            intentTerms,
+            bounds,
+            ToPortableStages(rowSelection),
+            []);
+        return ResolveIntent(intent);
     }
+
+    private static IReadOnlyList<PortableQueryStage> ToPortableStages(
+        RowSelectionIntent<string>? rowSelection) =>
+        rowSelection is null
+            ? []
+            :
+            [
+                .. rowSelection.Operations.Select(operation =>
+                    operation.Kind switch
+                    {
+                        RowSelectionStageKind.Head =>
+                            PortableQueryStage.Head(operation.Count),
+                        RowSelectionStageKind.Tail =>
+                            PortableQueryStage.Tail(operation.Count),
+                        RowSelectionStageKind.Window =>
+                            PortableQueryStage.Window(
+                                operation.Start,
+                                operation.End),
+                        RowSelectionStageKind.Top =>
+                            PortableQueryStage.Top(operation.Count),
+                        _ => throw new InvalidOperationException(
+                            "Unknown row-selection stage."),
+                    }),
+            ];
 
     static void AddScopeEvidence(
         PackageQueryPlan plan,
@@ -113,8 +155,7 @@ public static partial class PackageQuery
         }
 
         if (plan.PackageInput is SourceSelector.PackagePrefix prefix
-            && plan.Definitions.IsEmpty
-            && plan.BoundTerms.IsEmpty)
+            && !plan.RequiresManifest)
         {
             await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
                 source, prefix.Request, cancellationToken).ConfigureAwait(false))
@@ -182,7 +223,7 @@ public static partial class PackageQuery
                 "Listed package resolution returned no source observation.");
         yield return new PackageQueryInputEvent.Acquired(1);
         PackageManifestFacts? manifest = null;
-        if (!plan.Definitions.IsEmpty || !plan.BoundTerms.IsEmpty)
+        if (plan.RequiresManifest)
         {
             var (facts, failure) = await PackageProfileQuery.AcquireManifestAsync(
                 source, candidate, input.Coordinate.PackageId, candidate.Coordinate.Version,

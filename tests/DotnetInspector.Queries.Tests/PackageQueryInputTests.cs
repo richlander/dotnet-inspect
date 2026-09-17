@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using NuGetFetch;
 
@@ -56,12 +57,16 @@ public sealed class PackageQueryInputTests
     public void ExactContentInputUsesOneCandidateWithoutWeakeningFacetValidation()
     {
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
-            "Newtonsoft.Json", [PackageQuery.EmbeddedSkillFacetId]));
+            "Newtonsoft.Json", [Term(PackageQuery.SkillTermKey, "true")]));
         Assert.Equal(1, plan.MaximumCandidates);
         Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
-            "Newtonsoft.*", [PackageQuery.EmbeddedSkillFacetId]));
+            "Newtonsoft.*", [Term(PackageQuery.SkillTermKey, "true")]));
         Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
-            "Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId, PackageQuery.NoDependenciesFacetId]));
+            "Newtonsoft.Json",
+            [
+                Term(PackageQuery.ToolTermKey, "true"),
+                Term(PackageQuery.ToolFormatTermKey, "v1"),
+            ]));
     }
 
     [Theory]
@@ -85,7 +90,7 @@ public sealed class PackageQueryInputTests
         Assert.Null(match.Package.Manifest);
         Assert.Null(match.Package.TotalDownloads);
         Assert.Null(match.Package.Verified);
-        Assert.Equal(PackageQueryFacetTier.SearchMetadata, match.Tier);
+        Assert.Equal(PackageQueryAcquisitionTier.SearchMetadata, match.Tier);
         Assert.Equal(PackageQuery.ExactPackageEvidenceId, Assert.Single(match.Evidence).Id);
         Assert.Equal(PackageQueryEvidenceScope.Query, Assert.Single(match.Evidence).Scope);
         Assert.Equal(PackageQueryCompletionKind.ExactPackageComplete, Summary(events).Completion);
@@ -151,11 +156,13 @@ public sealed class PackageQueryInputTests
         using var source = Source(handler);
         var events = await PackageQuery.ExecuteToArrayAsync(
             source,
-            Accepted(PackageQuery.PlanInput("Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId])),
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DependsTermKey, "Example.Dependency")])),
             TestContext.Current.CancellationToken);
         PackageQueryMatch match = Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         Assert.NotNull(match.Package.Manifest);
-        Assert.Equal(PackageQueryFacetTier.Nuspec, match.Tier);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, match.Tier);
         Assert.Equal("Fixture package.", match.Package.Description);
         Assert.Equal("/v3-flatcontainer/newtonsoft.json/1.0.0/newtonsoft.json.nuspec",
             handler.Requests[^1].AbsolutePath);
@@ -177,7 +184,7 @@ public sealed class PackageQueryInputTests
         Assert.All(matches, match =>
         {
             Assert.Null(match.Value.Package.Manifest);
-            Assert.Equal(PackageQueryFacetTier.SearchMetadata, match.Value.Tier);
+            Assert.Equal(PackageQueryAcquisitionTier.SearchMetadata, match.Value.Tier);
         });
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, uri => Assert.Contains("query", uri.AbsolutePath));
@@ -266,7 +273,9 @@ public sealed class PackageQueryInputTests
         using var source = Source(handler);
         await using var events = PackageQuery.ExecuteAsync(
             source,
-            Accepted(PackageQuery.PlanInput("Newtonsoft.Json", [PackageQuery.HasDependenciesFacetId])),
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft.Json",
+                [Term(PackageQuery.DependsTermKey, "Example.Dependency")])),
             TestContext.Current.CancellationToken)
             .GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
@@ -283,6 +292,9 @@ public sealed class PackageQueryInputTests
 
     static PackageQueryPlan Accepted(PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Accepted>(result).Plan;
+
+    static PortableQueryTerm Term(string key, string value) =>
+        new(key, PortableQueryOperator.Equal, value);
 
     static PackageQuerySummary Summary(IEnumerable<PackageQueryEvent> events) =>
         Assert.Single(events.OfType<PackageQueryEvent.Completed>()).Value;

@@ -128,7 +128,7 @@ public sealed class PackageProfileQueryTests
         using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
             PackageSourceAssociation.Create(), handler);
         PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
-            PackageQuery.Plan(new PackageQueryRequest("Contoso."))).Plan;
+            PackageQuery.Plan(new PackageQueryRequest("Contoso.*"))).Plan;
         List<PackageQueryEvent> events = [];
         await foreach (PackageQueryEvent item in PackageQuery.ExecuteAsync(
             source, plan, TestContext.Current.CancellationToken))
@@ -153,7 +153,7 @@ public sealed class PackageProfileQueryTests
             PackageSourceAssociation.Create(), handler);
         PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
             PackageQuery.Plan(new PackageQueryRequest(
-                "Contoso.", MaximumCandidates: 100, MaximumMatches: 1))).Plan;
+                "Contoso.*", MaximumCandidates: 100, MaximumMatches: 1))).Plan;
         List<PackageQueryEvent> events = [];
         await foreach (PackageQueryEvent item in PackageQuery.ExecuteAsync(
             source, plan, TestContext.Current.CancellationToken))
@@ -162,7 +162,7 @@ public sealed class PackageProfileQueryTests
         Assert.Single(events.OfType<PackageQueryEvent.Match>());
         Assert.Equal(PackageQueryCompletionKind.MatchLimitReached,
             Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value.Completion);
-        Assert.Equal(["search:0", "manifest:contoso.first"], handler.Requests);
+        Assert.Equal(["search:0"], handler.Requests);
     }
 
     [Fact]

@@ -3708,7 +3708,7 @@ kbd {
   font-size: 12px;
   line-height: 1.5;
 }
-.query-facets { display: flex; flex-direction: column; gap: 7px; }
+.query-presets { display: flex; flex-direction: column; gap: 7px; }
 .query-facet-group {
   display: flex;
   width: 100%;
@@ -4086,7 +4086,7 @@ kbd {
   .query-bar input { grid-column: 1 / -1; }
   .query-layout { grid-template-columns: 1fr; }
   .query-facet-rail { position: static; max-height: none; overflow-y: visible; }
-  .query-facets { flex-flow: row wrap; }
+  .query-presets { flex-flow: row wrap; }
   .query-facet { width: auto; text-align: center; }
   .query-facet-group { width: auto; }
   .query-progress-item { grid-template-columns: 1fr; gap: 4px; }

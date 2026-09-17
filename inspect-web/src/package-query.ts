@@ -2,19 +2,22 @@
 //
 // This module owns the request/outcome contract and pure state transitions for a
 // wide, streaming query over a package source (nuget.org today; other feeds
-// possible later), narrowed by product-issued package facets.
+// possible later), narrowed by product-issued term presets and active terms.
 //
 // It is deliberately data-source-agnostic: `PackageQueryDataSource` is supplied
 // by the caller so this module can be built and tested against fake sources
 // independently from the Browser engine adapter.
 
-/** One product-issued package-query facet descriptor. */
-export interface QueryFacetTerm {
+/** One product-issued package-query preset descriptor. */
+export interface QueryPreset {
+  id: string;
   key: string;
+  operator: string;
+  value: string;
   label: string;
   summary?: string;
   weight?: number;
-  tier: "nuspec" | "package-content";
+  tier: "search-metadata" | "nuspec" | "package-content";
   selectionGroupId?: string | null;
   combinesWithinSelectionGroup?: boolean;
   displayGroupId?: string | null;
@@ -27,7 +30,7 @@ export interface QueryTermDescriptor {
   label: string;
   summary: string;
   weight: number;
-  tier: "nuspec" | "package-content";
+  tier: "search-metadata" | "nuspec" | "package-content";
   operators: readonly string[];
   valueKind: string;
   example: string;
@@ -62,7 +65,7 @@ export interface QuerySourceSelection {
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
-  facets: readonly QueryFacetTerm[];
+  presets: readonly QueryPreset[];
   terms: readonly QueryTerm[];
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
@@ -79,7 +82,7 @@ export function createQueryRequest(
   return {
     scopeQuery,
     includePrerelease: false,
-    facets: [],
+    presets: [],
     terms: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
@@ -114,40 +117,40 @@ export function withEditorDraft(
   return withScopeQuery(request, scopeQuery);
 }
 
-export function withFacet(
+export function withPreset(
   request: QueryRequest,
-  facet: QueryFacetTerm,
+  preset: QueryPreset,
 ): QueryRequest {
-  if (request.facets.some(existing => existing.key === facet.key)) {
+  if (request.presets.some(existing => existing.id === preset.id)) {
     return queryRequest(request, {});
   }
-  return withFacets(request, [...request.facets, facet]);
+  return withPresets(request, [...request.presets, preset]);
 }
 
-export function withoutFacet(
+export function withoutPreset(
   request: QueryRequest,
-  facetKey: string,
+  presetId: string,
 ): QueryRequest {
-  return withFacets(
+  return withPresets(
     request,
-    request.facets.filter(facet => facet.key !== facetKey));
+    request.presets.filter(preset => preset.id !== presetId));
 }
 
-function withFacets(
+function withPresets(
   request: QueryRequest,
-  facets: readonly QueryFacetTerm[],
+  presets: readonly QueryPreset[],
 ): QueryRequest {
   return queryRequest(request, {
-    facets,
-    requestedLimit: queryCandidateLimit(facets, request.terms),
+    presets,
+    requestedLimit: queryCandidateLimit(presets, request.terms),
   });
 }
 
 function queryCandidateLimit(
-  facets: readonly QueryFacetTerm[],
+  presets: readonly QueryPreset[],
   terms: readonly QueryTerm[],
 ): number {
-  return facets.some(facet => facet.tier === "package-content")
+  return presets.some(preset => preset.tier === "package-content")
       || terms.some(term => term.descriptor.tier === "package-content")
     ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
     : DEFAULT_QUERY_CANDIDATE_LIMIT;
@@ -160,7 +163,7 @@ function queryRequest(
   return {
     scopeQuery: request.scopeQuery,
     includePrerelease: request.includePrerelease,
-    facets: request.facets,
+    presets: request.presets,
     terms: request.terms,
     requestedLimit: request.requestedLimit,
     requestedMatchLimit: request.requestedMatchLimit,
@@ -168,21 +171,21 @@ function queryRequest(
   };
 }
 
-export function toggleFacet(
+export function togglePreset(
   request: QueryRequest,
-  facet: QueryFacetTerm,
+  preset: QueryPreset,
 ): QueryRequest {
-  if (request.facets.some(existing => existing.key === facet.key)) {
-    return withoutFacet(request, facet.key);
+  if (request.presets.some(existing => existing.id === preset.id)) {
+    return withoutPreset(request, preset.id);
   }
 
-  const compatible = facet.selectionGroupId
-    ? request.facets.filter(existing =>
-        existing.selectionGroupId !== facet.selectionGroupId
-        || (facet.combinesWithinSelectionGroup === true
+  const compatible = preset.selectionGroupId
+    ? request.presets.filter(existing =>
+        existing.selectionGroupId !== preset.selectionGroupId
+        || (preset.combinesWithinSelectionGroup === true
           && existing.combinesWithinSelectionGroup === true))
-    : request.facets;
-  return withFacet(withFacets(request, compatible), facet);
+    : request.presets;
+  return withPreset(withPresets(request, compatible), preset);
 }
 
 export function withTerm(
@@ -194,7 +197,7 @@ export function withTerm(
   const terms = [...request.terms, { descriptor, operator, value }];
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedLimit: queryCandidateLimit(request.presets, terms),
   });
 }
 
@@ -209,7 +212,7 @@ export function replaceTerm(
     termIndex === index ? { ...term, operator, value } : term);
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedLimit: queryCandidateLimit(request.presets, terms),
   });
 }
 
@@ -221,7 +224,7 @@ export function withoutTerm(
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.facets, terms),
+    requestedLimit: queryCandidateLimit(request.presets, terms),
   });
 }
 

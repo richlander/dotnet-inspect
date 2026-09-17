@@ -50,8 +50,9 @@ const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
 };
 const catalog: BrowserPackageQueryCatalog = {
-  facets: [{
-    id: "license", label: "License", summary: "Package license", weight: 2, tier: "Nuspec",
+  presets: [{
+    key: "readme", operator: "eq", value: "true",
+    label: "Embedded README", summary: "Package declares an embedded README.", weight: 2, tier: "Nuspec",
     selectionGroupId: null, combinesWithinSelectionGroup: false,
     displayGroupId: "package", displayGroupLabel: "Package",
   }],
@@ -82,7 +83,7 @@ const cases = [
     read: (client: EngineStartupClient) => client.catalog.listVocabulary() },
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
-  { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "facets",
+  { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
   {
     operation: engineStartupOperations.listPackageActivityPackageSets,
@@ -273,15 +274,15 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
     assert.equal(item.operation.value.decode("{").kind, "rejected");
   }
   assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    facets: [{ ...catalog.facets[0], tier: 42 }],
+    presets: [{ ...catalog.presets[0], tier: 42 }],
     terms: catalog.terms,
   })).kind, "decoded");
   assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    facets: [{ ...catalog.facets[0], tier: "not-a-tier" }],
+    presets: [{ ...catalog.presets[0], tier: "not-a-tier" }],
     terms: catalog.terms,
   })).kind, "rejected");
   assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    facets: catalog.facets,
+    presets: catalog.presets,
     terms: [{ ...catalog.terms[0], operators: [42] }],
   })).kind, "rejected");
   assert.equal(engineStartupInput.decode(null).kind, "decoded");
