@@ -37,6 +37,10 @@ CLI Workspace Sharing owns:
 portable scenario records, packet versions, canonical encoding, projection
 validity, capacity, and restoration. Each inspection command remains the owner
 of its source, focus, selector, query, traversal, and execution semantics.
+[Workspace Definitions](workspace-definitions.md#definition-first-workspace-interchange)
+also owns the `workspace` command's definition-first authoring and
+transformation role, plus the boundary through which noun commands consume a
+Workspace packet.
 Inspect Web remains the owner of URL activation and presentation. This design
 composes those owner-issued contracts without redefining them.
 [Inspection Plan Projections](inspection-plan-projections.md) owns the shared
@@ -61,10 +65,12 @@ remains intact until that canonical encoding boundary.
    arguments and options are the only CLI grammar for selecting source,
    context, subject, lens, query, and traversal. Appending `--share` projects
    that selection.
-2. **There is no `workspace create` command.** A user never restates a working
-   `package`, `library`, `type`, `member`, `depends`, `graph`, or other
-   invocation through a second Workspace-construction grammar merely to obtain
-   a link.
+2. **Workspace authoring does not duplicate noun inspection.** The `workspace`
+   command authors or transforms portable aggregate context. A user never
+   restates a Library, Type, Member, dependency query, graph query, or other
+   noun invocation through a second Workspace subject grammar merely to obtain
+   a link. Instead, an adopting inspection command consumes the Workspace
+   packet and retains its ordinary subject/query grammar.
 3. **Sharing serializes the resolved semantic invocation, not argv, target
    content, or results.** Commands hand owner-issued coordinates, identities,
    selectors, facets, and query payloads to Workspace Definitions. A packet
@@ -259,17 +265,24 @@ non-projectable packet valid.
 
 ## The `workspace` and codec command boundaries
 
-The `workspace` command may eventually consume a packet or URL and replay it
-under the CLI host contract tracked by #4647. It may also expose inspection of
-an already-defined Workspace. Neither role makes it a generic construction
-proxy for other commands.
+The `workspace` command authors and transforms portable Workspace definitions
+under
+[Workspace Definitions](workspace-definitions.md#definition-first-workspace-interchange).
+It
+may normalize or compose a definition without acquisition, or realize it when
+an owner must supply facts that can be serialized into the derived definition.
+It does not become a generic Library, Type, Member, or query proxy.
 
-`workspace-state encode` and `workspace-state decode` are low-level conversion
-utilities over the canonical packet JSON boundary. They are not the authoring
-workflow for a shareable inspection, and this design does not require users to
-construct their JSON input. Their eventual naming or retirement is a separate
-CLI-surface decision after direct command sharing and required diagnostics are
-available.
+Inspection commands may consume that packet as aggregate context and append
+their own projectable semantic selection through this design's `--share`
+contract. They do not require the user to restate that selection under
+`workspace`.
+
+`workspace-state encode` and `workspace-state decode` remain low-level
+conversion utilities over the canonical packet JSON boundary. They are not the
+ordinary definition-authoring workflow, and users are not required to construct
+their JSON input. Their eventual naming or retirement is a separate CLI-surface
+decision.
 
 ## Adoption
 
@@ -413,7 +426,8 @@ Neighboring cases prove the boundary:
 
 ## Non-goals
 
-- A new Workspace construction language or serialized CLI grammar.
+- A serialized CLI grammar or duplicate noun-command subject/query language
+  under `workspace`.
 - Inspected artifact content, live inspection objects, a snapshot of inspection
   results, or a guarantee that remote content remains available.
 - Uploading artifacts, opening a browser, hosting shortened URLs, or storing

@@ -679,18 +679,29 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    producer already has the testified type. This does not expand the coercion
    domain or infer reference conversions: an object-typed null cannot testify
    to string storage, and a string-typed producer cannot testify to object
-   storage. Exact single-dimensional, zero-based arrays use the same admission
-   across element families when their complete array type passes the shared
-   explicit-type spelling gate. The array itself, not merely its element
-   representation, must already have the testified type. Jagged arrays,
-   generic elements, and in-scope generic parameters use that same gate;
-   unsupported constituents, unspellable names, unbound generic shapes, and
-   top-level non-SZ arrays remain deferred. The spelling gate is not a
+   storage. Exact arrays use the same admission across element families when
+   their complete array type passes the shared explicit-type spelling gate.
+   This covers single-dimensional zero-based arrays and C#-spellable
+   multidimensional arrays of rank 2 through 32. The array itself, including
+   rank, not merely its element representation, must already have the testified
+   type. Jagged arrays, generic elements, and in-scope generic parameters use
+   that same gate; unsupported constituents, unspellable names, unbound
+   generic shapes, non-SZ rank-one arrays, and explicit bounds or sizes that
+   C# would erase remain deferred. The spelling gate is not a
    universal binding or generic-constraint proof. Existing explicit casts are
    preserved; array conversions are not inferred. In particular, covariance
    does not make `string[]` and `object[]` the same storage type.
    A covariant consumer may receive an explicitly
    string-array-typed load without widening its storage identity.
+   Microsoft.CodeAnalysis.CSharp 5.0.0
+   `ConversionsBase.ConversionEasyOut`'s static `byte[,]` table motivates
+   multidimensional storage. `ExactMdArraySlotMaterializationTests` gates
+   that real witness, compiler-produced reads and allocations, rank and
+   constituent boundaries, exact producer identity, mutation/copy ordering,
+   complete copy components, and the retained swap. Admission cases are
+   PR-fast; its slow native-RTS fixture gate is owned by Deep Inspect and
+   the focused pre-merge selection. The same shared pipeline adopts this
+   storage in CLI and Browser/Wasm; array conversions are not added.
    Named reference storage also materializes when the imported type-shape map
    confirms its named definition is a reference type and its complete type
    passes that same explicit-type spelling gate. This includes classes,
@@ -736,6 +747,26 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    gate is owned by Deep Inspect and the focused pre-merge selection.
    Existing rewrite conservation, pending-swap and scope boundaries apply;
    the same shared pipeline serves CLI and Browser/Wasm.
+   Exact pointer storage also materializes when its complete pointer type
+   passes the shared explicit-type spelling gate and every producer already
+   has that same type. Pointee identity and pointer depth remain part of
+   storage identity; no pointer conversion, native-integer conversion,
+   allocation movement, or lifetime proof is inferred. Existing explicit
+   conversions are preserved. Managed references, pinned storage, and
+   function-pointer storage remain outside this admission, as do unspellable
+   or out-of-scope pointer shapes and incomplete copy components.
+   Microsoft.CodeAnalysis 5.0.0
+   `System.IO.Hashing.XxHash128.HashLengthOver240` motivates the
+   stack-allocation boundary, alongside the retained pointer arithmetic in
+   `XxHashShared.Accumulate512Inlined`. `ExactPointerSlotMaterializationTests`
+   gates the real hash witness, exact pointer identity, producer preservation,
+   atomic copies, and compiler-produced reads, mutation, and stack allocation.
+   Its slow native-RTS gate requires seven Exact fixture outcomes with the
+   compile-back floor disabled, including the indirect compound assignment
+   enabled by the existing raiser consuming the typed pointer local.
+   Admission cases are PR-fast; Deep Inspect
+   and the focused pre-merge selection own the slow gate.
+   The unchanged shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.

@@ -102,6 +102,10 @@ dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" --changed
 ```
 
+Use `-S @Diff` to compose the API `Changes`, `Analysis Diff`, and
+`Implementation Diff` views. `Finding Transitions` remains exact-name-only
+because its focused endpoint-confirmation semantics do not compose with them.
+
 Use `Analysis Diff` for aggregate regression triage. To confirm whether one
 allocation occurrence was introduced at a caller-selected boundary, resolve one
 method and request the native Analysis Finding pairs:
