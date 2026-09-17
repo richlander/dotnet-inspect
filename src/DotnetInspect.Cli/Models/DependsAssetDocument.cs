@@ -25,14 +25,14 @@ internal sealed record DependsAssetDocument
     public List<DependsPruningJson>? Pruning { get; init; }
 
     public List<DependencyEvidenceRestoredEdgeJson>? RestoredEdges
-        { get; init; }
+    { get; init; }
 
     public List<DependsFailureJson>? Failures { get; init; }
 
     public List<DependencyEvidenceGroupJson>? DependencyGroups { get; init; }
 
     public List<DependencyEvidenceRestoredPackageJson>? RestoredPackages
-        { get; init; }
+    { get; init; }
 
     internal static DependsAssetDocument Create(
         DependsAssetProjection projection,
@@ -63,12 +63,12 @@ internal sealed record DependsAssetDocument
                         tokens,
                         includePackageSelectionEvidence:
                             projection.Summary.TraversalCompletion
-                                != DependsTraversalCompletion.NotRequested
+                                != DependencyInspectionTraversalCompletion.NotRequested
                             || projection.Summary.DeclarationCompletion
-                                != DependsEvidencePhaseCompletion.NotRequested,
+                                != DependencyInspectionEvidencePhaseCompletion.NotRequested,
                         includePackageDeclarationEvidence:
                             projection.Summary.DeclarationCompletion
-                                != DependsEvidencePhaseCompletion.NotRequested)
+                                != DependencyInspectionEvidencePhaseCompletion.NotRequested)
                     : null,
             Roots = sections.Contains(DependsAssetSections.Roots)
                 ? [.. selectedRoots.Select(row =>
@@ -136,7 +136,7 @@ internal sealed record DependsAssetDocument
         yield return projection.Summary.PackagePrefix?.Source;
         foreach (DependsRootRow root in projection.Roots)
             yield return root.Evidence?.Source;
-        foreach (DependsPruningRow pruning in projection.Pruning)
+        foreach (DependencyInspectionPruning pruning in projection.Pruning)
         {
             foreach (PackageSourceResultIdentity? source in
                      DependsPackageEvidenceJson.Sources(
@@ -145,14 +145,14 @@ internal sealed record DependsAssetDocument
                 yield return source;
             }
         }
-        foreach (DependsFailureRow failure in projection.Failures)
+        foreach (DependencyInspectionFailure failure in projection.Failures)
         {
             switch (failure)
             {
-                case DependsFailureRow.Evidence evidence:
+                case DependencyInspectionFailure.Evidence evidence:
                     yield return evidence.Value.Source;
                     break;
-                case DependsFailureRow.Traversal traversal:
+                case DependencyInspectionFailure.Traversal traversal:
                     foreach (PackageSourceResultIdentity? source in
                              DependsPackageEvidenceJson.Sources(
                                  traversal.Value))
@@ -213,7 +213,7 @@ internal sealed record DependsAssetDocument
                 tokens.ProjectAssociation(authority.Authority.Association);
             }
         }
-        foreach (DependsPruningRow pruning in projection.Pruning)
+        foreach (DependencyInspectionPruning pruning in projection.Pruning)
         {
             if (pruning.CandidateOutcome
                 is not PackageDependencyCandidateResult.Resolved resolved)
@@ -240,7 +240,7 @@ internal sealed record DependsAssetDocument
 
 internal sealed record DependsAssetSummaryJson
 {
-    public required DependsRootSetCompletion RootSetCompletion { get; init; }
+    public required DependencyInspectionRootSetCompletion RootSetCompletion { get; init; }
 
     public required int RequestedRoots { get; init; }
 
@@ -248,14 +248,15 @@ internal sealed record DependsAssetSummaryJson
 
     public required int FailedRoots { get; init; }
 
-    public required DependsTraversalCompletion TraversalCompletion
-        { get; init; }
+    public required DependencyInspectionTraversalCompletion TraversalCompletion
+    { get; init; }
 
-    public required DependsEvidencePhaseCompletion DeclarationCompletion
-        { get; init; }
+    public required DependencyInspectionEvidencePhaseCompletion DeclarationCompletion
+    { get; init; }
 
-    public required DependsEvidencePhaseCompletion
-        RestoredRelationshipCompletion { get; init; }
+    public required DependencyInspectionEvidencePhaseCompletion
+        RestoredRelationshipCompletion
+    { get; init; }
 
     public required DependsPruningSummaryJson Pruning { get; init; }
 
@@ -268,7 +269,7 @@ internal sealed record DependsAssetSummaryJson
     public DependencyEvidencePrefixJson? PackagePrefix { get; init; }
 
     internal static DependsAssetSummaryJson Create(
-        DependsAssetSummary summary,
+        DependencyInspectionSummary summary,
         DependencyEvidenceSourceTokens tokens) =>
         new()
         {
@@ -292,7 +293,7 @@ internal sealed record DependsAssetSummaryJson
 
 internal sealed record DependsPruningSummaryJson
 {
-    public required DependsPruningCompletion Completion { get; init; }
+    public required DependencyInspectionPruningCompletion Completion { get; init; }
 
     public required int Roots { get; init; }
 
@@ -311,7 +312,7 @@ internal sealed record DependsPruningSummaryJson
     public required int Failed { get; init; }
 
     internal static DependsPruningSummaryJson Create(
-        DependsPruningSummary summary) =>
+        DependencyInspectionPruningSummary summary) =>
         new()
         {
             Completion = summary.Completion,
@@ -330,29 +331,30 @@ internal sealed record DependsAssetRootJson
 {
     public required int Root { get; init; }
 
-    public required DependsAssetRootKind Kind { get; init; }
+    public required DependencyInspectionRootKind Kind { get; init; }
 
     [JsonConverter(typeof(InertStringJsonConverter))]
     public required InertString? Input { get; init; }
 
     public required string Source { get; init; }
 
-    public required DependsRootState State { get; init; }
+    public required DependencyInspectionRootState State { get; init; }
 
     public DependencyGraphJsonNodeIdentity? Identity { get; init; }
 
-    public required DependsTraversalCompletion Traversal { get; init; }
+    public required DependencyInspectionTraversalCompletion Traversal { get; init; }
 
-    public required DependsEvidenceAvailability Declaration { get; init; }
+    public required DependencyInspectionEvidenceAvailability Declaration { get; init; }
 
-    public required DependsEvidencePhaseCompletion DeclarationCompletion
-        { get; init; }
+    public required DependencyInspectionEvidencePhaseCompletion DeclarationCompletion
+    { get; init; }
 
-    public required DependsEvidenceAvailability RestoredRelationships
-        { get; init; }
+    public required DependencyInspectionEvidenceAvailability RestoredRelationships
+    { get; init; }
 
-    public required DependsEvidencePhaseCompletion
-        RestoredRelationshipCompletion { get; init; }
+    public required DependencyInspectionEvidencePhaseCompletion
+        RestoredRelationshipCompletion
+    { get; init; }
 
     public DependencyEvidenceRootIdentityJson? EvidenceIdentity { get; init; }
 
@@ -377,20 +379,20 @@ internal sealed record DependsAssetRootJson
     public string? ContentDigest { get; init; }
 
     public DependencyEvidenceRestoredSelectionIdentityJson? RestoredSelection
-        { get; init; }
+    { get; init; }
 
     public required int DeclarationGroups { get; init; }
 
     public required int Declarations { get; init; }
 
-    public required DependsSelectionStatus Selection { get; init; }
+    public required DependencyInspectionSelectionStatus Selection { get; init; }
 
     public DependencyEvidenceGroupIdentityJson? SelectedGroup { get; init; }
 
     public int? SelectedGroupOccurrence { get; init; }
 
     public DependencyEvidenceGroupOccurrenceJson? SelectedSourceOccurrence
-        { get; init; }
+    { get; init; }
 
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? RequestedFramework { get; init; }
@@ -413,7 +415,7 @@ internal sealed record DependsAssetRootJson
     public InertString? TargetRuntimeIdentifierSpelling { get; init; }
 
     public RestoredProjectTargetSelectionProvenance? TargetSelection
-        { get; init; }
+    { get; init; }
 
     internal static DependsAssetRootJson Create(
         DependsRootRow row,
@@ -455,42 +457,42 @@ internal sealed record DependsAssetRootJson
                         restoredSelection)
                     : null,
             DeclarationGroups =
-                row.DeclarationState == DependsEvidenceAvailability.NotRequested
+                row.DeclarationState == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.DeclarationGroupCount ?? 0,
             Declarations =
-                row.DeclarationState == DependsEvidenceAvailability.NotRequested
+                row.DeclarationState == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.DeclarationCount ?? 0,
             Selection = row.Selection,
             SelectedGroup =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : DependencyEvidenceGroupIdentityJson.CreateOptional(
                         row.SelectedGroup),
             SelectedGroupOccurrence =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : row.SelectedGroupIndex,
             SelectedSourceOccurrence =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : DependencyEvidenceGroupOccurrenceJson.CreateOptional(
                         row.SelectedSourceOccurrence),
             RequestedFramework =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : row.RequestedFramework,
             SelectedFramework =
-                row.Selection == DependsSelectionStatus.NotRequested
+                row.Selection == DependencyInspectionSelectionStatus.NotRequested
                     ? null
                     : row.SelectedFramework,
             RestoredPackages = row.RestoredRelationshipState
-                == DependsEvidenceAvailability.NotRequested
+                == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.RestoredPackageCount ?? 0,
             RestoredEdges = row.RestoredRelationshipState
-                == DependsEvidenceAvailability.NotRequested
+                == DependencyInspectionEvidenceAvailability.NotRequested
                     ? 0
                     : evidence?.RestoredEdgeCount ?? 0,
             TargetFrameworkIdentity =
@@ -517,20 +519,21 @@ internal sealed record DependsDependencyJson
     public required PackageDependencyEvidenceInputKind Owner { get; init; }
 
     public required PackageDependencyEvidenceAcquisitionForm SourceKind
-        { get; init; }
+    { get; init; }
 
     public required int Group { get; init; }
 
     public required DependencyEvidenceGroupIdentityJson GroupIdentity
-        { get; init; }
+    { get; init; }
 
     public required string GroupOrderKey { get; init; }
 
     public required DependencyEvidenceDeclarationIdentityJson
-        DeclarationIdentity { get; init; }
+        DeclarationIdentity
+    { get; init; }
 
     public required PackageDependencyFrameworkScopeKind FrameworkScope
-        { get; init; }
+    { get; init; }
 
     public string? CanonicalFramework { get; init; }
 
@@ -554,12 +557,12 @@ internal sealed record DependsDependencyJson
     public string? Resolved { get; init; }
 
     public DependencyEvidencePackageNodeIdentityJson? ResolvedPackageIdentity
-        { get; init; }
+    { get; init; }
 
     public DependencyEvidenceEdgeIdentityJson? ResolvedRelationshipIdentity
-        { get; init; }
+    { get; init; }
 
-    internal static DependsDependencyJson Create(DependsDependencyRow row)
+    internal static DependsDependencyJson Create(DependencyInspectionDependency row)
     {
         DependencyEvidenceDependencyRow declaration = row.Declaration;
         return new DependsDependencyJson
@@ -612,7 +615,8 @@ internal sealed record DependsPruningJson
     public required InertString? RootDisplay { get; init; }
 
     public required DependencyEvidenceDeclarationIdentityJson
-        DeclarationIdentity { get; init; }
+        DeclarationIdentity
+    { get; init; }
 
     [JsonConverter(typeof(InertStringJsonConverter))]
     public required InertString? RequestedFramework { get; init; }
@@ -640,15 +644,17 @@ internal sealed record DependsPruningJson
 
     public string? PlatformProvidedVersion { get; init; }
 
-    public required DependsPruningDisposition Disposition { get; init; }
+    public required DependencyInspectionPruningDisposition Disposition { get; init; }
 
     public required string Reason { get; init; }
 
     public required PackageHouseDependencyPruningApplicabilityState
-        Applicability { get; init; }
+        Applicability
+    { get; init; }
 
     public PackageHouseDependencyPruningTargetUnavailableReason?
-        TargetUnavailableReason { get; init; }
+        TargetUnavailableReason
+    { get; init; }
 
     public string? CandidateState { get; init; }
 
@@ -657,14 +663,14 @@ internal sealed record DependsPruningJson
     public DependsPackageCandidateOutcomeJson? Candidate { get; init; }
 
     public DependencyGraphJsonPackageCandidate? ResolvedCandidate
-        { get; init; }
+    { get; init; }
 
     public PlatformSubsumption? Subsumption { get; init; }
 
     public bool? DelegatesToPlatform { get; init; }
 
     internal static DependsPruningJson Create(
-        DependsPruningRow row,
+        DependencyInspectionPruning row,
         DependencyEvidenceSourceTokens tokens)
     {
         PackageHouseDependencyPruningResult.Evaluated? evaluated =
@@ -736,11 +742,11 @@ internal sealed record DependsFailureJson
     public DependsPruningFailureJson? Pruning { get; init; }
 
     internal static DependsFailureJson Create(
-        DependsFailureRow row,
+        DependencyInspectionFailure row,
         DependencyEvidenceSourceTokens tokens) =>
         row switch
         {
-            DependsFailureRow.Evidence evidence => new DependsFailureJson
+            DependencyInspectionFailure.Evidence evidence => new DependsFailureJson
             {
                 Phase = evidence.Value.Phase,
                 Reason = evidence.Value.Reason,
@@ -748,7 +754,7 @@ internal sealed record DependsFailureJson
                     evidence.Value,
                     tokens),
             },
-            DependsFailureRow.Traversal traversal => new DependsFailureJson
+            DependencyInspectionFailure.Traversal traversal => new DependsFailureJson
             {
                 Phase = DependencyEvidenceFailurePhase.Traversal,
                 Reason = traversal.Value.Reason,
@@ -756,7 +762,7 @@ internal sealed record DependsFailureJson
                     traversal.Value,
                     tokens),
             },
-            DependsFailureRow.Pruning pruning => new DependsFailureJson
+            DependencyInspectionFailure.Pruning pruning => new DependsFailureJson
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning,
                 Reason = pruning.Value.GetType().Name,
@@ -785,7 +791,7 @@ internal sealed record DependsPruningFailureJson
     public DependencyEvidenceRootIdentityJson? RootIdentity { get; init; }
 
     public DependencyEvidenceDeclarationIdentityJson? DeclarationIdentity
-        { get; init; }
+    { get; init; }
 
     public DependencyEvidenceDeclarationState? DeclarationState { get; init; }
 
@@ -804,22 +810,22 @@ internal sealed record DependsPruningFailureJson
     public required int AffectedDeclarations { get; init; }
 
     internal static DependsPruningFailureJson Create(
-        DependsPruningFailure failure,
+        DependencyInspectionPruningFailure failure,
         DependencyEvidenceSourceTokens tokens) =>
         failure switch
         {
-            DependsPruningFailure.Inventory inventory => new()
+            DependencyInspectionPruningFailure.Inventory inventory => new()
             {
-                Kind = nameof(DependsPruningFailure.Inventory),
+                Kind = nameof(DependencyInspectionPruningFailure.Inventory),
                 PlatformFamily = inventory.PlatformFamily,
                 TargetFramework = inventory.TargetFramework,
                 Message = inventory.Message,
                 AffectedRoots = [.. inventory.AffectedRootOccurrences],
                 AffectedDeclarations = inventory.AffectedDeclarations,
             },
-            DependsPruningFailure.Prerequisite prerequisite => new()
+            DependencyInspectionPruningFailure.Prerequisite prerequisite => new()
             {
-                Kind = nameof(DependsPruningFailure.Prerequisite),
+                Kind = nameof(DependencyInspectionPruningFailure.Prerequisite),
                 Message = prerequisite.Message,
                 Root = prerequisite.RootOccurrence,
                 RootIdentity = DependencyEvidenceRootIdentityJson.Create(
@@ -828,9 +834,9 @@ internal sealed record DependsPruningFailureJson
                 AffectedRoots = [prerequisite.RootOccurrence],
                 AffectedDeclarations = 0,
             },
-            DependsPruningFailure.Candidate candidate => new()
+            DependencyInspectionPruningFailure.Candidate candidate => new()
             {
-                Kind = nameof(DependsPruningFailure.Candidate),
+                Kind = nameof(DependencyInspectionPruningFailure.Candidate),
                 Root = candidate.RootOccurrence,
                 RootIdentity = DependencyEvidenceRootIdentityJson.Create(
                     candidate.RootIdentity),
@@ -878,7 +884,7 @@ internal sealed record DependsTraversalFailureJson
     public int? Projection { get; init; }
 
     public DependencyEvidenceDeclarationIdentityJson? DeclarationIdentity
-        { get; init; }
+    { get; init; }
 
     public string? PackageId { get; init; }
 
@@ -899,7 +905,7 @@ internal sealed record DependsTraversalFailureJson
     public required int[] AffectedRoots { get; init; }
 
     internal static DependsTraversalFailureJson Create(
-        DependsTraversalFailureRow row,
+        DependencyInspectionTraversalFailure row,
         DependencyEvidenceSourceTokens tokens) =>
         new()
         {
@@ -938,10 +944,10 @@ internal sealed record DependsAssemblyBindingFailureJson
     public required AssemblyBindingMissDisposition Disposition { get; init; }
 
     public required DependencyGraphJsonLibraryIdentity RequestedAssembly
-        { get; init; }
+    { get; init; }
 
     internal static DependsAssemblyBindingFailureJson? CreateOptional(
-        DependsAssemblyBindingFailure? failure) =>
+        DependencyInspectionAssemblyBindingFailure? failure) =>
         failure is null
             ? null
             : new DependsAssemblyBindingFailureJson
@@ -966,11 +972,11 @@ internal sealed record DependsRestoredTraversalFailureJson
     public int? Occurrences { get; init; }
 
     internal static DependsRestoredTraversalFailureJson? CreateOptional(
-        DependsRestoredTraversalFailure? failure) =>
+        DependencyInspectionRestoredTraversalFailure? failure) =>
         failure switch
         {
             null => null,
-            DependsRestoredTraversalFailure.Outcome
+            DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
                     RestoredProjectDependencyTraversalFailure.Document
@@ -982,12 +988,12 @@ internal sealed record DependsRestoredTraversalFailureJson
                         RestoredProjectDependencyTraversalFailure.Document),
                     DocumentReason = document.Failure.Reason,
                 },
-            DependsRestoredTraversalFailure.Outcome
+            DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
                     RestoredProjectDependencyTraversalFailure.Graph graph,
             } => CreateGraph(graph.Failure),
-            DependsRestoredTraversalFailure.Graph graph =>
+            DependencyInspectionRestoredTraversalFailure.Graph graph =>
                 CreateGraph(graph.Value),
             _ => throw new InvalidOperationException(
                 "Unknown restored traversal failure."),
@@ -1015,7 +1021,7 @@ internal sealed record DependsPackageCandidateOutcomeJson
     public int? CandidateObservations { get; init; }
 
     public required DependsPackageAuthorityFailureJson[] SourceFailures
-        { get; init; }
+    { get; init; }
 
     internal static DependsPackageCandidateOutcomeJson? CreateOptional(
         PackageDependencyTraversalCandidateResult? result,
@@ -1177,7 +1183,7 @@ internal sealed record DependsPackageManifestFailureJson
     public int? BudgetLimit { get; init; }
 
     public required DependsPackageAuthorityFailureJson[] SourceFailures
-        { get; init; }
+    { get; init; }
 
     internal static DependsPackageManifestFailureJson? CreateOptional(
         PackageDependencyTraversalManifestFailureDetail? detail,
@@ -1260,13 +1266,13 @@ internal sealed record DependsPackageDeclarationFailureJson
     public int? Occurrences { get; init; }
 
     public RestoredProjectDeclarationFailureReason? RestoredReason
-        { get; init; }
+    { get; init; }
 
     public AuthoredProjectDependencyLimitationReason? AuthoredReason
-        { get; init; }
+    { get; init; }
 
     public AuthoredProjectUnresolvedDependencySyntaxKind? SyntaxKind
-        { get; init; }
+    { get; init; }
 
     public string? SyntaxIdentity { get; init; }
 
@@ -1378,7 +1384,7 @@ internal sealed record DependsPackageAuthorityFailureJson
 internal static class DependsPackageEvidenceJson
 {
     internal static IEnumerable<PackageSourceResultIdentity?> Sources(
-        DependsTraversalFailureRow row)
+        DependencyInspectionTraversalFailure row)
     {
         foreach (PackageAuthorityFailure failure in CandidateFailures(
                      row.CandidateOutcome))
