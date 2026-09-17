@@ -623,9 +623,10 @@ Implementation proceeds in focused slices:
    command cardinality, and typed inventory boundaries.
 2. **Complete packet projection.** Implement schema version 3 and packet format
    3 for Package membership and every portable registration arm, with canonical
-   .NET/TypeScript round trips, registration-only restoration, and visible
-   unsupported-version behavior. A scanner-bearing Ecosystem requires the
-   separately owned portable scanner contract before it becomes projectable.
+   managed-codec round trips, Browser JS-export/TypeScript transport
+   conformance, registration-only restoration, and visible unsupported-version
+   behavior. A scanner-bearing Ecosystem requires the separately owned portable
+   scanner contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
    realization when no transformation needs it.
@@ -2258,13 +2259,29 @@ record receives the exact `r` vector and an empty context array when `g` is
 empty. Record-to-packet projection validates the complete version-3 composition
 before writing the fixed property order and exact tuples above.
 
-The .NET and TypeScript codec gates use the canonical JSON above plus fixed
-vectors for Package- and Platform-origin Exact Libraries, a scanner-free
-Ecosystem containing all three population arms, mixed contexts and
-registrations, `x: null` registration-only state, non-null `x` with contexts,
-all malformed tuple cases, scanner-bearing non-projectability, and every outer
-limit. Each accepted vector must satisfy byte-identical
-packet -> records -> packet output in both implementations.
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer` in
+`DotnetInspector.Queries.Definitions` are the single product implementation of
+packet syntax, canonical writing, parsing, validation, and record
+transposition. Format 3 extends those managed types; it does not add a
+TypeScript packet parser, writer, or transposer.
+
+The managed codec gates use the canonical JSON above plus fixed vectors for
+Package- and Platform-origin Exact Libraries, a scanner-free Ecosystem
+containing all three population arms, mixed contexts and registrations,
+`x: null` registration-only state, non-null `x` with contexts, all malformed
+tuple cases, scanner-bearing non-projectability, and every outer limit. Each
+accepted vector must satisfy byte-identical packet -> records -> packet output
+through that one implementation.
+
+Inspect Web invokes the same managed codec and transposer through the
+`CatalogExports` JS-export adapter in
+`inspect-web/DotnetInspect.Web.Interop.Catalog/WorkspaceShareExports.cs`.
+Generated TypeScript bindings and TypeScript tests gate Browser transport and
+state integration across that adapter; TypeScript never interprets or emits
+the compact `f`, `t`, `g`, `r`, `a`, `x`, `q`, or `v` packet grammar itself.
+The managed and Browser/TypeScript gates share the fixed-vector corpus to prove
+one implementation behaves identically through both hosts, not to certify two
+codec implementations.
 
 #### Version admission
 
