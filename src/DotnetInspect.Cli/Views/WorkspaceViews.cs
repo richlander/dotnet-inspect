@@ -2,43 +2,49 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
-[MarkoutSerializable(
-    TitleProperty = nameof(Title),
-    DescriptionProperty = nameof(Description))]
-public sealed class WorkspacePackageOccurrenceView
+[
+    MarkoutSerializable(
+        TitleProperty = nameof(Title),
+        DescriptionProperty = nameof(Description))
+]
+public sealed class WorkspaceTopLevelInventoryView
 {
+    string? _description;
+
     [MarkoutIgnore]
     public string Title => "Workspace";
 
     [MarkoutIgnore]
-    public string? Description =>
-        Packages.Count == 0
-            ? "No package occurrences."
-            : null;
+    public string? Description
+    {
+        get => _description;
+        init => _description = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSection(Headless = true)]
-    public List<WorkspacePackageOccurrenceRow> Packages { get; init; } = [];
+    public List<WorkspaceTopLevelInventoryRow> Entries { get; init; } = [];
 }
 
 [MarkoutSerializable]
-public sealed record WorkspacePackageOccurrenceRow
+public sealed record WorkspaceTopLevelInventoryRow
 {
-    public WorkspacePackageOccurrenceRow(
-        string package,
-        string version,
-        string framework)
+    public WorkspaceTopLevelInventoryRow(
+        string kind,
+        string location,
+        string state)
     {
-        Package = LibraryViewText.Contain(package) ?? "";
-        Version = LibraryViewText.Contain(version) ?? "";
-        Framework = LibraryViewText.Contain(framework) ?? "";
+        Kind = LibraryViewText.Contain(kind) ?? "";
+        Location = LibraryViewText.Contain(location) ?? "";
+        State = LibraryViewText.Contain(state) ?? "";
     }
 
-    public string Package { get; }
+    public string Kind { get; }
 
-    public string Version { get; }
+    public string Location { get; }
 
-    public string Framework { get; }
+    public string State { get; }
 }
 
-[MarkoutContext(typeof(WorkspacePackageOccurrenceView))]
+[MarkoutContext(typeof(WorkspaceTopLevelInventoryView))]
+[MarkoutContext(typeof(WorkspaceTopLevelInventoryRow))]
 public partial class WorkspaceViewContext : MarkoutSerializerContext;
