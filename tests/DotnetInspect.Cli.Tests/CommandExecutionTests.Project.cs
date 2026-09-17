@@ -1206,17 +1206,54 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Project_Discover_ListsSupportedDocumentSections()
     {
-        var (exit, output, error) = await RunAppAsync("project", "-D");
-        var all = await RunAppAsync("project", "-S", "@All");
+        var (exit, output, error) = await RunAppAsync(
+            "project", "-D", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Skills", output);
-        Assert.Contains("Package README file", output);
+        Assert.Equal(
+            """
+            @Project             category
+            Package README file  section
+            Skills               section
+
+            """.ReplaceLineEndings(),
+            output);
         Assert.DoesNotContain("@All", output);
-        Assert.Equal(1, all.Exit);
-        Assert.Empty(all.Output);
-        Assert.Contains("Select value '@All' not found", all.Error);
+        Assert.DoesNotContain("@Default", output);
+        Assert.DoesNotContain("@Hidden", output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_ProjectCategoryListsOwnedSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "-D", "@Project", "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            Package README file  section
+            Skills               section
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("@Default")]
+    [InlineData("@Hidden")]
+    public async Task Project_ComputedCategoryPolesAreRejected(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project", "-S", selector, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Select value '{selector}' not found", error);
+        Assert.DoesNotContain("project.assets.json", error);
     }
 
     [Fact]
@@ -1566,12 +1603,17 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Skills,Package README file",
+                "-S", "@Project",
                 "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                ["package_readme_file", "skills"],
+                document.RootElement
+                    .EnumerateObject()
+                    .Select(property => property.Name));
             Assert.Single(
                 document.RootElement.GetProperty("skills").EnumerateArray());
             Assert.Single(

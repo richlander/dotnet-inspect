@@ -20,7 +20,11 @@ import type {
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.d.ts";
-import type { BrowserPackageSurface } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserPackageLoadResult,
+  BrowserPackageSurface,
+  BrowserPackageVersionSettlementInspection,
+} from "../src/facades/inspect-web-package.d.ts";
 import {
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
@@ -184,6 +188,40 @@ function packageSurface(
     accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
     totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,
   };
+}
+
+function packageLoadResult(
+  surface = packageSurface(),
+): BrowserPackageLoadResult {
+  const versionSettlement = {
+    content: {
+      kind: "Settled",
+      result: {
+        request: {
+          packageId: surface.package.toLowerCase(),
+          version: surface.version,
+        },
+        coordinate: {
+          packageId: surface.package.toLowerCase(),
+          version: surface.version,
+        },
+        includePrerelease: false,
+        freshness: null,
+        listings: [],
+        sourceListings: [],
+      },
+      failure: null,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-version-settlement/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  } satisfies BrowserPackageVersionSettlementInspection;
+  return { versionSettlement, surface };
 }
 
 function sharedState(): BrowserWorkspaceShareState {
@@ -350,7 +388,8 @@ function harness() {
       | ((state: WorkspaceUrlState, base?: string) => Promise<URL>)
       | null,
     acquisition: async (_id: string): Promise<boolean> => true,
-    queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
+    queryPackage: async (_id: string, _version: string, _framework: string) =>
+      packageLoadResult(),
     selection: async (): Promise<void> => {},
     demo: async (): Promise<void> => {},
     savedFocusAvailable: true,
@@ -1552,14 +1591,14 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   });
   h.context.spotlightCache = { old: true };
   h.context.spotlightMemberCache = { old: true };
-  const query = deferred<BrowserPackageSurface>();
+  const query = deferred<BrowserPackageLoadResult>();
   h.controls.queryPackage = () => query.promise;
   const operation = h.add();
   assert.equal(h.state.loading, true);
   assertSourceHistory(h, href, entryState);
   assert.equal(h.retained.length, 0);
   assert.deepEqual(h.invalidations, []);
-  query.resolve(packageSurface());
+  query.resolve(packageLoadResult());
   await operation;
 
   assert.deepEqual(h.queries, [["Added.Package", "latest", ""]]);
@@ -1837,9 +1876,10 @@ test("Add whose last slot fills during query refuses before retention and preser
   const selection = inspectionSelection(h);
   const href = h.location.href;
   const entryState = h.history.state;
-  const query = deferred<BrowserPackageSurface>();
+  const query = deferred<BrowserPackageLoadResult>();
   h.controls.queryPackage = id => id === "Added.Package"
-    ? query.promise : Promise.resolve(packageSurface(id, "8.9.0", "net9.0"));
+    ? query.promise
+    : Promise.resolve(packageLoadResult(packageSurface(id, "8.9.0", "net9.0")));
   const operation = h.add();
   const independent: unknown = runInNewContext(
     'packageAcquisition.loadPackage({ packageId: "Arrived", version: "8.9.0", framework: "net9.0" })',
@@ -1849,7 +1889,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   assert.equal(admitted.length, 12);
   assert.equal(admitted[11], arrived);
   const dependencies = structuredClone(h.state.workspaceDependencies);
-  query.resolve(packageSurface());
+  query.resolve(packageLoadResult());
   await operation;
   assert.deepEqual(h.queries, [
     ["Added.Package", "latest", ""], ["Arrived", "8.9.0", "net9.0"],
@@ -1900,7 +1940,7 @@ for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep
     assert.deepEqual(h.focus, [{ kind: "add-package" }]);
 
     const failedSequence = h.navigationSequence.current();
-    h.controls.queryPackage = async () => packageSurface();
+    h.controls.queryPackage = async () => packageLoadResult();
     h.state.queryNoticeRetryAction();
     await h.settle();
     assert.ok(h.navigationSequence.current() > failedSequence);
@@ -1924,15 +1964,15 @@ for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep
 for (const rejected of [false, true]) {
   test(`superseded Add ${rejected ? "failure" : "success"} cannot retain, overwrite, cancel, or focus over the next Add`, async () => {
     const h = harness();
-    const first = deferred<BrowserPackageSurface>();
-    const second = deferred<BrowserPackageSurface>();
+    const first = deferred<BrowserPackageLoadResult>();
+    const second = deferred<BrowserPackageLoadResult>();
     h.controls.queryPackage = id => id === "Added.Package" ? first.promise : second.promise;
     const stale = h.add();
     const successor = h.add({ kind: "pkg-nuget", hit: { id: "Successor" }, ranges: [] });
     const pending = h.context.pendingDemoNavigation;
     const successorState = structuredClone(h.state);
     if (rejected) first.reject(new Error("Stale query failed"));
-    else first.resolve(packageSurface());
+    else first.resolve(packageLoadResult());
     await stale;
     assert.equal(h.context.pendingDemoNavigation, pending);
     assert.deepEqual(h.state, successorState);
@@ -1942,7 +1982,7 @@ for (const rejected of [false, true]) {
     assert.equal(h.writes.length, 0);
     h.flushFocus();
     assert.deepEqual(h.focus, []);
-    second.resolve(packageSurface("Successor", "7.8.9", "net9.0"));
+    second.resolve(packageLoadResult(packageSurface("Successor", "7.8.9", "net9.0")));
     await successor;
     assert.deepEqual(h.state.packages.map(pkg => pkg.id), ["Source", "Successor"]);
     assert.equal(h.retained.length, 1);
@@ -1958,7 +1998,7 @@ for (const rejected of [false, true]) {
 for (const rejected of [false, true]) {
   test(`Add ${rejected ? "failure" : "success"} arriving after saved Open cannot overwrite its navigation or steal focus`, async () => {
     const h = harness();
-    const query = deferred<BrowserPackageSurface>();
+    const query = deferred<BrowserPackageLoadResult>();
     h.controls.queryPackage = () => query.promise;
     const stale = h.add();
     h.open();
@@ -1970,7 +2010,7 @@ for (const rejected of [false, true]) {
     const entryState = h.history.state;
     const focus = structuredClone(h.focus);
     if (rejected) query.reject(new Error("Stale query failed"));
-    else query.resolve(packageSurface());
+    else query.resolve(packageLoadResult());
     await stale;
     // Saved Open installs VM-created collections; compare both snapshots in this realm.
     assert.deepEqual(structuredClone(h.state), successorState);
