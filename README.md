@@ -693,6 +693,11 @@ Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
 Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
+Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
+Diff` views. `Finding Transitions` remains an exact-name section because its
+focused endpoint-confirmation semantics do not compose with those comparison
+views.
+
 ### Structural matching
 
 Use the `Clone Candidates` section for a globally ranked search from an exact
