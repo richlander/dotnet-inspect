@@ -156,6 +156,20 @@ Each row contains these fields:
   attribution without a quality change, so treating any one raw count as
   monotonic would be unsound.
 
+  **v4** starts the native ReturnToSender source-outcome lineage. Rebuilds use
+  frozen references from the owner-selected closure, and a decompiled body must
+  carry the product's `Full` fidelity grade before source correspondence is
+  judged. Lower-fidelity bodies remain visible as `notFull`; they are not
+  silently admitted to `valid` or `correct`.
+
+  The frozen/native compilation context and Full-fidelity admission redefine
+  the top-level `valid`, `correct`, and raw `invalid` populations. They also
+  redefine invalid fault-isolation evidence, so v4 begins new source-outcome
+  and invalid-attribution lineages. The ratchet does not compare either lineage
+  to v1-v3, and it refuses a vacuous green result when no metric shares a
+  lineage. The first exact-main v4 run must therefore be admitted as a new
+  baseline before later v4 runs can produce quality verdicts.
+
 ## Append procedure
 
 1. Build the harness at the commit under test. **This must be a commit on
@@ -709,11 +723,12 @@ word. Runs that predate PR #3096 have no `invalidBreakdown`, so their
 product/harness columns render as `—` and the product-defect pivot cell is
 absent (`-`) with no fabricated step, keeping the missing signal honest.
 
-The Runs table's `Method` column reports each run's `methodologyVersion`
-(`v1`/`v2`). Both versions are lower bounds, but v2's tighter rule counts
-strictly more rows, so the counts are not comparable. When the movement window
-straddles a version boundary the product-defect metric is split into
-`Product defects (v1 substitution lower bound)` and
-`Product defects (v2 span-measured lower bound)` rows, each populated only for
-its own version's columns. Markout therefore never charts a step across the
-boundary; a window of uniform version keeps the single `Product defects` row.
+The Runs table's `Method` column reports each run's `methodologyVersion`.
+Movement follows the methodology's per-metric lineages rather than assuming
+that every version redefines every number. When a window straddles an
+invalid-attribution boundary, the product-defect metric is split into one row
+per lineage. When it straddles the v4 source-outcome boundary, `Valid %`,
+`Correct`, and `Invalid (raw)` are likewise split into legacy and native-RTS
+rows. Each row is populated only for its own lineage, so Markout never charts
+an incomparable step; a uniform-lineage window keeps the ordinary unsuffixed
+metric names.
