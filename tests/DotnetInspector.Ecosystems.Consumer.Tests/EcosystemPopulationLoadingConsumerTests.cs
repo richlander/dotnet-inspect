@@ -41,13 +41,30 @@ public sealed class EcosystemPopulationLoadingConsumerTests
                         EcosystemPopulationDemand
                             .WholePopulation.Instance));
         var inputs = new ConsumerInputs();
+        EcosystemPopulationLoadRequest<ConsumerInputs> request =
+            known.CreateRequest(
+                inputs,
+                TestContext.Current.CancellationToken);
+        EcosystemPopulationLoadRequest<ConsumerInputs> second =
+            known.CreateRequest(
+                new ConsumerInputs(),
+                TestContext.Current.CancellationToken);
+        EcosystemPopulationChildRequestIdentity childRequest =
+            request.ChildRequest("consumer.child.request");
+        EcosystemPopulationChildReceiptIdentity childReceipt =
+            request.ChildReceipt(
+                childRequest,
+                "consumer.child.receipt");
+
+        Assert.Throws<ArgumentException>(
+            () => second.ChildIncomplete(
+                childRequest,
+                childReceipt));
 
         var outcome =
             Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
                 await EcosystemPopulationLoadOperation.InvokeAsync(
-                    known.CreateRequest(
-                        inputs,
-                        TestContext.Current.CancellationToken)));
+                    request));
 
         Assert.Equal(1, inputs.InvocationCount);
         Assert.Same(declaration, outcome.Receipt.Request.Registration);

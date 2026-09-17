@@ -64,6 +64,24 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
     public TInputs Inputs { get; }
     public CancellationToken CancellationToken { get; }
 
+    public EcosystemPopulationChildRequestIdentity ChildRequest(
+        string name) =>
+        new(_identity, name);
+
+    public EcosystemPopulationChildReceiptIdentity ChildReceipt(
+        EcosystemPopulationChildRequestIdentity request,
+        string name)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!ReferenceEquals(request.ParentRequest, _identity))
+        {
+            throw new ArgumentException(
+                "The child request must be issued by this exact loader request.",
+                nameof(request));
+        }
+        return new(request, name);
+    }
+
     public EcosystemPopulationCompletionWitness Completion(
         EcosystemPopulationCompletionIdentity identity,
         EcosystemPopulationCompletionKind kind) =>

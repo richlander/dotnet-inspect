@@ -25,13 +25,17 @@ public enum EcosystemPopulationChildCompletionKind
 /// </summary>
 public sealed class EcosystemPopulationChildRequestIdentity
 {
-    EcosystemPopulationChildRequestIdentity(string name) => Name = name;
+    internal EcosystemPopulationChildRequestIdentity(
+        EcosystemPopulationLoadRequestIdentity parentRequest,
+        string name)
+    {
+        ParentRequest = parentRequest;
+        Name = EcosystemPopulationIdentityName.Validate(name);
+    }
 
     public string Name { get; }
 
-    public static EcosystemPopulationChildRequestIdentity Create(
-        string name) =>
-        new(EcosystemPopulationIdentityName.Validate(name));
+    internal EcosystemPopulationLoadRequestIdentity ParentRequest { get; }
 
     public override string ToString() => Name;
 }
@@ -41,26 +45,16 @@ public sealed class EcosystemPopulationChildRequestIdentity
 /// </summary>
 public sealed class EcosystemPopulationChildReceiptIdentity
 {
-    EcosystemPopulationChildReceiptIdentity(
+    internal EcosystemPopulationChildReceiptIdentity(
         EcosystemPopulationChildRequestIdentity request,
         string name)
     {
         Request = request;
-        Name = name;
+        Name = EcosystemPopulationIdentityName.Validate(name);
     }
 
     public EcosystemPopulationChildRequestIdentity Request { get; }
     public string Name { get; }
-
-    public static EcosystemPopulationChildReceiptIdentity Create(
-        EcosystemPopulationChildRequestIdentity request,
-        string name)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        return new(
-            request,
-            EcosystemPopulationIdentityName.Validate(name));
-    }
 
     public override string ToString() => Name;
 }
@@ -80,6 +74,12 @@ public sealed class EcosystemPopulationChildSettlement
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(childRequest);
         ArgumentNullException.ThrowIfNull(childReceipt);
+        if (!ReferenceEquals(childRequest.ParentRequest, request))
+        {
+            throw new ArgumentException(
+                "The child request must be issued by the exact parent loader request.",
+                nameof(childRequest));
+        }
         if (!ReferenceEquals(childReceipt.Request, childRequest))
         {
             throw new ArgumentException(

@@ -364,7 +364,7 @@ public sealed class EcosystemPopulationLoadingTests
             workspace.Request(
                 new(LoadMode.CompletedNoMembers),
                 TestContext.Current.CancellationToken);
-        ChildEvidence child = Child("child");
+        ChildEvidence child = Child(request, "child");
         EcosystemPopulationChildSettlement incomplete =
             request.ChildIncomplete(
                 child.Request,
@@ -398,7 +398,7 @@ public sealed class EcosystemPopulationLoadingTests
         var ownership = new EcosystemPopulationLibraryOwnership(
             owner,
             EcosystemPopulationLibraryRole.Focus);
-        ChildEvidence evidence = Child("child");
+        ChildEvidence evidence = Child(request, "child");
         EcosystemPopulationChildSettlement child =
             request.ChildCompleted(
                 evidence.Request,
@@ -426,7 +426,7 @@ public sealed class EcosystemPopulationLoadingTests
             workspace.Request(
                 new(LoadMode.CompletedNoMembers),
                 TestContext.Current.CancellationToken);
-        ChildEvidence evidence = Child("child");
+        ChildEvidence evidence = Child(request, "child");
         EcosystemPopulationChildSettlement completed =
             request.ChildCompleted(
                 evidence.Request,
@@ -583,7 +583,7 @@ public sealed class EcosystemPopulationLoadingTests
         Assert.Throws<ArgumentException>(
             () => first.Completed(foreign, []));
 
-        ChildEvidence evidence = Child("foreign");
+        ChildEvidence evidence = Child(second, "foreign");
         EcosystemPopulationChildSettlement foreignChild =
             second.ChildCompleted(
                 evidence.Request,
@@ -684,20 +684,30 @@ public sealed class EcosystemPopulationLoadingTests
             workspace.Request(
                 new(LoadMode.CompletedNoMembers),
                 TestContext.Current.CancellationToken);
+        EcosystemPopulationLoadRequest<TestInputs> foreign =
+            workspace.Request(
+                new(LoadMode.CompletedNoMembers),
+                TestContext.Current.CancellationToken);
         EcosystemPopulationChildRequestIdentity childRequest =
-            EcosystemPopulationChildRequestIdentity.Create(
-                "child.request");
+            request.ChildRequest("child.request");
         EcosystemPopulationChildRequestIdentity foreignRequest =
-            EcosystemPopulationChildRequestIdentity.Create(
-                "foreign.request");
+            foreign.ChildRequest("foreign.request");
         EcosystemPopulationChildReceiptIdentity foreignReceipt =
-            EcosystemPopulationChildReceiptIdentity.Create(
+            foreign.ChildReceipt(
                 foreignRequest,
                 "foreign.receipt");
 
         Assert.Throws<ArgumentException>(
             () => request.ChildIncomplete(
                 childRequest,
+                foreignReceipt));
+        Assert.Throws<ArgumentException>(
+            () => request.ChildReceipt(
+                foreignRequest,
+                "cross-request.receipt"));
+        Assert.Throws<ArgumentException>(
+            () => request.ChildIncomplete(
+                foreignRequest,
                 foreignReceipt));
 
         Type[] evidenceTypes =
@@ -777,7 +787,7 @@ public sealed class EcosystemPopulationLoadingTests
     {
         EcosystemPopulationCompletedChild completed =
             CompletedChild(request, request.Inputs.Owner!);
-        ChildEvidence evidence = Child("second");
+        ChildEvidence evidence = Child(request, "second");
         EcosystemPopulationChildSettlement incomplete =
             request.ChildIncomplete(
                 evidence.Request,
@@ -792,7 +802,7 @@ public sealed class EcosystemPopulationLoadingTests
         EcosystemPopulationLoadRequest<TestInputs> request,
         LibraryContentOwner owner)
     {
-        ChildEvidence evidence = Child("child");
+        ChildEvidence evidence = Child(request, "child");
         EcosystemPopulationChildSettlement settlement =
             request.ChildCompleted(
                 evidence.Request,
@@ -820,14 +830,15 @@ public sealed class EcosystemPopulationLoadingTests
     static EcosystemPopulationLoadDiagnostic Diagnostic(string code) =>
         new(code, "Test diagnostic.");
 
-    static ChildEvidence Child(string name)
+    static ChildEvidence Child(
+        EcosystemPopulationLoadRequest<TestInputs> parent,
+        string name)
     {
         EcosystemPopulationChildRequestIdentity request =
-            EcosystemPopulationChildRequestIdentity.Create(
-                $"{name}.request");
+            parent.ChildRequest($"{name}.request");
         return new(
             request,
-            EcosystemPopulationChildReceiptIdentity.Create(
+            parent.ChildReceipt(
                 request,
                 $"{name}.receipt"));
     }

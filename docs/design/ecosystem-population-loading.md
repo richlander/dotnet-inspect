@@ -317,6 +317,8 @@ its executable form is typed over one loader-specific input composition. That
 input exposes only resource-free operation-policy, capability-plan, and work
 identities to the request receipt. The binding never recovers typed inputs
 through reflection, `dynamic`, object lookup, or service location.
+The exact parent load request issues each adjacent-owner request and receipt
+identity, and settlement rejects identities issued for another parent request.
 
 ## Invocation and result
 
