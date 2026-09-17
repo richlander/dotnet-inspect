@@ -1219,64 +1219,6 @@ public class CfgSampleClass
         finally { LastValue = x; }
     }
 
-    public static int PrefixedRegionExitWithExternalEntry(int a)
-    {
-        int value = 0;
-        try
-        {
-            if (a != 0)
-            {
-                try
-                {
-                    if (a == 2)
-                        goto failure;
-                }
-                finally
-                {
-                    LastValue++;
-                }
-
-                if (a == 1)
-                    goto success;
-            failure:
-                value = 7;
-                goto done;
-            }
-        success:
-            value = 1;
-        }
-        finally
-        {
-            value++;
-        }
-    done:
-        return value;
-    }
-
-    public static int PrefixedRegionExitBeforeSibling(int a)
-    {
-        int value = 0;
-        try
-        {
-            if (a != 0)
-            {
-                LastValue++;
-                if (a != 1)
-                {
-                    value = 7;
-                    goto done;
-                }
-            }
-            value = 1;
-        }
-        finally
-        {
-            value++;
-        }
-    done:
-        return value;
-    }
-
     public static int TryFinallyRetryLoop(int x)
     {
         while (true)
@@ -5532,6 +5474,67 @@ public class CfgSampleClass
     {
         public Branchy? Inner { get; set; }
         public int Tag { get; set; }
+    }
+}
+
+public static class StructuringRegionExitSamples
+{
+    public static int PrefixedRegionExitWithExternalEntry(int a)
+    {
+        int value = 0;
+        try
+        {
+            if (a != 0)
+            {
+                try
+                {
+                    if (a == 2)
+                        goto failure;
+                }
+                finally
+                {
+                    CfgSampleClass.LastValue++;
+                }
+
+                if (a == 1)
+                    goto success;
+            failure:
+                value = 7;
+                goto done;
+            }
+        success:
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+
+    public static int PrefixedRegionExitBeforeSibling(int a)
+    {
+        int value = 0;
+        try
+        {
+            if (a != 0)
+            {
+                CfgSampleClass.LastValue++;
+                if (a != 1)
+                {
+                    value = 7;
+                    goto done;
+                }
+            }
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
     }
 }
 

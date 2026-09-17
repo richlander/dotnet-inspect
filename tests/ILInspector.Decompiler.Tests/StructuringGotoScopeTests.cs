@@ -433,7 +433,7 @@ public class StructuringGotoScopeTests
     public void PrefixedRegionExitWithExternalEntry_StaysFlatAndCompiles()
     {
         var before = ImportFixtureBeforeStructuring(
-            nameof(CfgSampleClass.PrefixedRegionExitWithExternalEntry));
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitWithExternalEntry));
         var tryBody = Assert.Single(
             before.Descendants.OfType<TryFinally>(),
             tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody)).TryBody;
@@ -447,7 +447,7 @@ public class StructuringGotoScopeTests
                 && !ReferenceEquals(leave.Parent, externallyEnteredBlock));
 
         string output = PrintFixture(
-            nameof(CfgSampleClass.PrefixedRegionExitWithExternalEntry));
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitWithExternalEntry));
 
         Assert.Contains("goto", output);
         AssertCompiles(output);
@@ -457,20 +457,20 @@ public class StructuringGotoScopeTests
     public void PrefixedRegionExitBeforeSibling_StaysFlatAndPreservesOutcome()
     {
         var before = ImportFixtureBeforeStructuring(
-            nameof(CfgSampleClass.PrefixedRegionExitBeforeSibling));
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling));
         Assert.Contains(
             before.Descendants.OfType<TryFinally>(),
             tryFinally => HasPrefixedFalseArmRegionExit(tryFinally.TryBody));
 
         string output = PrintFixture(
-            nameof(CfgSampleClass.PrefixedRegionExitBeforeSibling));
+            nameof(StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling));
         var reconstructed = Compile(output);
 
         Assert.Contains("goto", output);
         foreach (int input in (int[])[0, 1, 2])
         {
             Assert.Equal(
-                CfgSampleClass.PrefixedRegionExitBeforeSibling(input),
+                StructuringRegionExitSamples.PrefixedRegionExitBeforeSibling(input),
                 reconstructed(input));
         }
     }
@@ -710,10 +710,10 @@ public class StructuringGotoScopeTests
 
     static IrFunction ImportFixtureBeforeStructuring(string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(StructuringRegionExitSamples).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(CfgSampleClass).FullName!,
+            typeof(StructuringRegionExitSamples).FullName!,
             methodName);
         Assert.NotNull(function);
         foreach (var pass in IrPasses.Default)
@@ -728,10 +728,10 @@ public class StructuringGotoScopeTests
 
     static string PrintFixture(string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(StructuringRegionExitSamples).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(CfgSampleClass).FullName!,
+            typeof(StructuringRegionExitSamples).FullName!,
             methodName);
         Assert.NotNull(function);
         IrPasses.Run(function);
