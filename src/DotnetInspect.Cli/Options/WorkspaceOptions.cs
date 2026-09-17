@@ -27,8 +27,6 @@ public sealed record WorkspaceOptions
     public string? Library { get; init; }
 
     /// <summary>Use the aggregate Library subject as the descendant source.</summary>
-    public bool AllLibraries { get; init; }
-
     /// <summary>An exact returned metadata Type full name.</summary>
     public string? Type { get; init; }
 

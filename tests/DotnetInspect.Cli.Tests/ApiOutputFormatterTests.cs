@@ -3369,10 +3369,10 @@ public class ApiOutputFormatterTests
             line => line.StartsWith('{'));
         AssertJsonlSchema(
             summaryJsonlRecord,
-            ["kind", "type", "members", "description"]);
+            ["kind", "type", "members", "description", "library"]);
         AssertJsonlSchema(
             surfaceJsonl,
-            ["kind", "type", "members", "description"]);
+            ["kind", "type", "members", "description", "library"]);
     }
 
     private static string RenderApiTable<T>(

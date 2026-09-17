@@ -1686,7 +1686,9 @@ public partial class CommandExecutionTests
         Directory.CreateDirectory(libDir);
         File.Copy(TestAssemblyPath, Path.Combine(libDir, "Test.Primary.dll"));
 
-        var packagePath = Path.Combine(tempDir, "Test.Primary.1.0.0.nupkg");
+        var packagePath = Path.Combine(
+            tempDir,
+            "DotnetInspect.Cli.Tests.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }
@@ -2085,7 +2087,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// Asserts the block-separation invariant over one rendered aggregate Library document:
     /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
     /// line, and it carries no trailing whitespace.
     /// </summary>

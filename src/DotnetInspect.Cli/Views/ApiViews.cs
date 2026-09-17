@@ -787,7 +787,8 @@ public record TypeSummaryRow(
     InertString KindText,
     InertString TypeText,
     InertString MembersText,
-    string? Description)
+    string? Description,
+    InertString? LibraryText = null)
 {
     public TypeSummaryRow(
         string kind,
@@ -798,7 +799,8 @@ public record TypeSummaryRow(
             ApiViewText.Field(kind),
             MarkoutInline.CodeText(ApiViewText.Field(type)),
             ApiViewText.Field(members),
-            description)
+            description,
+            LibraryText: null)
     {
     }
 
@@ -819,6 +821,13 @@ public record TypeSummaryRow(
 
     [MarkoutSkipNull]
     public string? Description { get; init; } = Description;
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? LibraryText { get; init; } = LibraryText;
+
+    [MarkoutSkipNull]
+    public string? Library => LibraryText?.ToString();
+
 }
 
 [MarkoutSerializable]
@@ -1153,7 +1162,8 @@ public record ApiSurfaceTableRow(
     InertString KindText,
     InertString TypeText,
     InertString MembersText,
-    string? Description)
+    string? Description,
+    InertString? LibraryText = null)
 {
     public ApiSurfaceTableRow(
         string kind,
@@ -1164,7 +1174,8 @@ public record ApiSurfaceTableRow(
             ApiViewText.Field(kind),
             MarkoutInline.CodeText(ApiViewText.Field(type)),
             ApiViewText.Field(members),
-            description)
+            description,
+            LibraryText: null)
     {
     }
 
@@ -1185,6 +1196,13 @@ public record ApiSurfaceTableRow(
 
     [MarkoutSkipNull]
     public string? Description { get; init; } = Description;
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? LibraryText { get; init; } = LibraryText;
+
+    [MarkoutSkipNull]
+    public string? Library => LibraryText?.ToString();
+
 }
 
 [MarkoutSerializable]

@@ -542,6 +542,59 @@ public sealed class NavigationWorkspaceSnapshotTests
     }
 
     [Fact]
+    public async Task AggregateTypeSelector_RejectsDuplicateProducerIdentities()
+    {
+        await using InspectionWorkspace workspace =
+            new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.BindingWithAssemblyImages(
+                "Navigation.Ambiguous",
+                "net11.0",
+                ("Navigation.First", File.ReadAllBytes(
+                    typeof(NavigationWorkspaceSnapshotTests)
+                        .Assembly.Location)),
+                ("Navigation.Second", File.ReadAllBytes(
+                    typeof(ApiType).Assembly.Location)));
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(
+                workspace,
+                binding);
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.First",
+                    NavigationSnapshotTestData.Type("Widget")),
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Second",
+                    NavigationSnapshotTestData.Type("Widget")));
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                },
+                registry,
+                NavigationSnapshotTestData.AllAvailable(registry));
+        var libraries =
+            Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
+                snapshot.ActiveSubject);
+
+        NavigationSnapshotSelectorResolution.Ambiguous result =
+            Assert.IsType<NavigationSnapshotSelectorResolution.Ambiguous>(
+                NavigationSnapshotSelector.ResolveType(
+                    snapshot,
+                    libraries,
+                    "Sample.Widget"));
+
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Equal("Sample.Widget", result.Selector);
+    }
+
+    [Fact]
     public async Task SelectorMiss_RetainsIncompleteScopedInventoryEvidence()
     {
         await using InspectionWorkspace workspace =
@@ -577,15 +630,15 @@ public sealed class NavigationWorkspaceSnapshotTests
                 },
                 registry,
                 NavigationSnapshotTestData.AllAvailable(registry));
-        var library =
-            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+        var libraries =
+            Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
                 snapshot.ActiveSubject);
 
         NavigationSnapshotSelectorResolution.Incomplete result =
             Assert.IsType<NavigationSnapshotSelectorResolution.Incomplete>(
                 NavigationSnapshotSelector.ResolveType(
                     snapshot,
-                    library,
+                    libraries,
                     "Sample.Missing"));
 
         Assert.Same(snapshot, result.Snapshot);
@@ -636,15 +689,15 @@ public sealed class NavigationWorkspaceSnapshotTests
                 },
                 registry,
                 NavigationSnapshotTestData.AllAvailable(registry));
-        var library =
-            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+        var libraries =
+            Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
                 snapshot.ActiveSubject);
 
         NavigationSnapshotSelectorResolution.Selected selected =
             Assert.IsType<NavigationSnapshotSelectorResolution.Selected>(
                 NavigationSnapshotSelector.ResolveType(
                     snapshot,
-                    library,
+                    libraries,
                     fullName));
 
         Assert.Same(Assert.Single(snapshot.Types).Row.Subject, selected.Subject);

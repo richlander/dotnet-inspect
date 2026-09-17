@@ -60,7 +60,6 @@ internal static class FindSourceCollector
             PlatformAssemblyFrameworkHint = options.PlatformFrameworks.Length > 0
                 ? options.PlatformFrameworks[0]
                 : null,
-            IncludePackageRuntimeAssemblies = true,
             SourceOrder =
             [
                 AssemblySetSourceKind.Package,

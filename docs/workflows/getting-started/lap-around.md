@@ -81,7 +81,10 @@ The platform copy is typically a ref assembly (smaller, public surface only). Th
 
 ## 2. Multi-library packages
 
-Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two libraries in a single package. The tool defaults to the primary library but lets you pick.
+Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two
+libraries in a single package. API questions default to the selected-TFM
+aggregate and retain each result's defining library. Use
+`--namesake-library` or `--library <dll>` to narrow.
 
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --path --tfm net8.0
@@ -93,25 +96,44 @@ Microsoft.Azure.SignalR.Common.dll
 ```
 
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q
+dotnet-inspect library Microsoft.Azure.SignalR@1.33.1 \
+  -S "Library Info" --table --fields Name
 ```
 
 ```expect
-Microsoft.Azure.SignalR.dll
+Microsoft.Azure.SignalR
+Microsoft.Azure.SignalR.Common
 ```
 
-Switch to the other library:
+Narrow to the namesake library:
 
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q --library Microsoft.Azure.SignalR.Common.dll
+dotnet-inspect library Microsoft.Azure.SignalR@1.33.1 \
+  --namesake-library -S "Library Info" --table --fields Name
 ```
 
 ```expect
-Microsoft.Azure.SignalR.Common.dll
+Microsoft.Azure.SignalR
 ```
 
 ```expect-not
-Microsoft.Azure.SignalR.dll |
+Microsoft.Azure.SignalR.Common |
+```
+
+Select the companion library exactly:
+
+```bash
+dotnet-inspect library Microsoft.Azure.SignalR@1.33.1 \
+  --library Microsoft.Azure.SignalR.Common.dll \
+  -S "Library Info" --table --fields Name
+```
+
+```expect
+Microsoft.Azure.SignalR.Common
+```
+
+```expect-not
+Microsoft.Azure.SignalR |
 ```
 
 ## 3. Type forwarders

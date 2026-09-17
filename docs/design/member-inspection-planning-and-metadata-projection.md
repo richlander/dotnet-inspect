@@ -416,14 +416,14 @@ these alternatives.
 Commandless static schema is a structural route query over every view the
 hidden router can choose, not only over command names or the four type/member
 catalogs. A destination command is not a catalog identity: the package command
-can render its package view, one embedded library, or an all-libraries
-aggregation. The CLI therefore owns a closed structural-view registry:
+can render its Package view or delegate Library-only demand to the normal
+package-backed Library pipeline. The CLI therefore owns a closed
+structural-view registry:
 
 | Structural view | Destination command | Static schema source |
 | --- | --- | --- |
 | Package inspection | Package | Package-view projection over `PackageSectionDescriptors` |
-| Package single-library | Package, then library adapter | Package-library projection over `LibrarySections` |
-| Package all-libraries | Package aggregation | All-libraries aggregate projection over `LibrarySections` |
+| Package-backed Library or Libraries | Library, including Package delegation | Library projection over `LibrarySections` |
 | Direct library | Library | Direct-library projection over `LibrarySections` |
 | Type list or exact type | Type | View projection over `ApiTypeSectionDescriptors` or `ApiMemberSectionDescriptors` |
 | Member type view | Member | Member-route projection over `ApiMemberSectionDescriptors` |
@@ -435,28 +435,23 @@ projection intersects the command-owned catalog with sections, fields,
 columns, coordinates, and output shapes the route's parser and renderer can
 actually reach. It never executes a section predicate or producer.
 
-Package single-library is not the direct-library schema merely because both
-use `LibrarySections`. Reachability is declared per section and shape, not
-inferred from the presence or absence of an option family. Sections that work
-with default query inputs, including ordinary `Performance:*` sections, remain
-advertised. A section is excluded only when its own declaration requires a
-coordinate, filter, or shape that the package route cannot supply. Package
-all-libraries has its own aggregate schema. Its Markdown section set and its
-row-capable section allow list are explicit, and row shapes include the
-package/version/library/TFM identity columns added by the aggregate renderer.
-Static schema selects the shape for the parsed output mode; it cannot advertise
-a direct-library field or shape that the package route later rejects.
+Package-backed and direct-Library routes share the normal Library schema
+because they use the same multi-Library pipeline. Reachability is declared per
+section and shape, not inferred from the presence or absence of an option
+family. Sections that work with default query inputs, including ordinary
+`Performance:*` sections, remain advertised. A section is excluded only when
+its own declaration requires a coordinate, filter, or shape that the route
+cannot supply. Static schema selects the shape for the parsed output mode; it
+cannot advertise a direct-Library field or shape that the route later rejects.
 
 The declarations are shared by
 `ArgumentPreprocessor`, `RouterTokenRewriter`, and the destination command's
 post-parse structural classifier; a command rewrite cannot silently change the
 view. Declaration order preserves the realized precedence for file forms,
-explicit member selectors, package-scoped `--library`, package-plus-type
-forms, and package-version forms. Slice 2 intentionally inserts
-`--all-libraries` after package-scoped `--library` and before
-package-plus-type/version routing. Both package-scoped markers select package
-library view modes even though their static schema derives from
-`LibrarySections`.
+explicit member selectors, package-scoped `--library` or
+`--namesake-library`, package-plus-type forms, and package-version forms.
+Aggregate selected-TFM Library inspection is the unmarked package-backed
+Library default; exact and namesake gestures narrow that same route.
 
 Syntax-only precedence selects one structural view when a marker proves it.
 This includes explicit package-library gestures and direct `.nupkg --library`
@@ -1376,8 +1371,8 @@ Depends on: none.
 
 - Add a single matrix test that records discovery mode, active catalog,
   producer demand, and capability authorization.
-- Enumerate every realized package, package single-library, package
-  all-libraries, direct-library, assembly-type-list, type/member-list,
+- Enumerate every realized package, package-backed aggregate or narrowed
+  Library, direct-library, assembly-type-list, type/member-list,
   member type-view, overload-inventory, exact-member-detail, and hidden-router
   route in that matrix.
 - Add parity fixtures that run the same declarations through full, summary,
@@ -1400,9 +1395,9 @@ Depends on: slice 1.
 - Compose package, package-library, direct-library, and type/member
   command-owned static catalogs through the structural-view registry; return
   labeled alternatives when syntax alone cannot select one.
-- Make explicit package `--library`/`--all-libraries`, commandless equivalents,
-  and direct `.nupkg --library` preprocessing return their route-specific
-  projections over `LibrarySections` before package resolution or extraction.
+- Make explicit package `--library`/`--namesake-library`, commandless
+  equivalents, and direct `.nupkg --library` preprocessing return the normal
+  Library projection before package resolution or extraction.
 - Derive each projection's sections, fields, columns, coordinates, and output
   shapes from per-section input requirements and the route's parser and
   renderer declarations; do not infer reachability from option-family names.
@@ -1427,20 +1422,18 @@ Depends on: slice 1.
   authorize a catalog-dependent cardinality check.
 - Preserve current address precedence and all other diagnostics for non-static
   execution through a compatibility adapter except for the declared ambiguity
-  and `--all-libraries` corrections.
+  corrections.
 - Intentionally replace commandless static-schema resolution notes and
   target-chosen catalogs with deterministic syntax-only catalogs or labeled
   alternatives; update command help and compatibility tests in this slice.
-- Intentionally add target-free static schema for package single-library and
-  all-libraries views that currently defer or reject discovery; preserve their
-  render behavior and document the new structural query.
+- Intentionally add target-free static schema for package-backed aggregate and
+  narrowed Library views that currently defer or reject discovery; preserve
+  their render behavior and document the new structural query.
 - Resolve static selectors against each route's selectable sections. This makes
   invalid direct-library selectors visible instead of ignored and continues to
   reject contextual schema sections that are not legal direct selectors.
-- Intentionally make commandless `<target> --all-libraries` route to package
-  all-libraries before any lookup in static and non-static modes. The option
-  exists only on the package command; this replaces the current lookup-driven
-  library/type misroute and is covered as a compatibility change.
+- Intentionally make commandless package-backed Library demand route to the
+  normal Library pipeline before lookup in static and non-static modes.
 - Keep an adapter to current command execution while all other behavior remains
   byte-for-byte stable.
 
@@ -1677,7 +1670,7 @@ test method name, but the PR must map each test to its gate ID.
 
 | Gate | Property | Required evidence |
 | --- | --- | --- |
-| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, per-section input requirements, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; package-library projections retain defaultable sections such as `Performance: Boxing` and omit only sections or shapes whose declared input is unavailable on that route; all-libraries row schemas expose only supported sections and include package/version/library/TFM identity columns; explicit and commandless package `--library`, package `--all-libraries`, and direct `.nupkg --library` cases return their view-specific projections before resolution/extraction; commandless `--all-libraries` routes to package before lookup in static and non-static cases; explicit package/library/type/member gestures prove their deterministic command-owned schemas, including explicit `member` with no member gesture; explicit-member dotted-tail ambiguity and other syntax-only ambiguous forms retain labeled per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
+| `MIP001` | Static schema chooses only syntax-proven structural views and runs no target or producer work | Declaration-derived mapping equality between every preprocessor/rewrite/parsed view route and its structural-view registry entry, including precedence, destination command, view mode, catalog identity, parser capabilities, per-section input requirements, and schema projection; every advertised section/field/column/coordinate/shape has a corresponding accepted parser gesture and renderer mapping, and every reachable shape is advertised; package-backed Library projections retain defaultable sections such as `Performance: Boxing` and omit only sections or shapes whose declared input is unavailable on that route; aggregate and narrowed package-backed Library cases expose the normal Library schema; explicit and commandless package `--library` or `--namesake-library`, aggregate Library demand, and direct `.nupkg --library` cases return the Library projection before resolution/extraction; explicit package/library/type/member gestures prove their deterministic command-owned schemas, including explicit `member` with no member gesture; explicit-member dotted-tail ambiguity and other syntax-only ambiguous forms retain labeled per-alternative selector results; a close-negative fails if platform resolution, facade classification, package existence, all-framework search, acquisition, type/member lookup, or any section producer begins, and asserts that no resolution note is emitted |
 | `MIP002` | Named/category type/member source discovery cannot read/acquire PDB/source content or confuse unknown with empty | Overload-qualified `-D "Source Locations"`, `-D "Original Source"`, `-D "Source Diff"`, and source-category cases proving no `LocalPdbRead`, `PdbAcquire`, or `SourceContent`; paired genuinely-empty and PDB-required fixtures produce distinct `ValidEmpty` and `Unknown(CapabilityNotRequested)`, while plain library discovery retains its bounded `LocalPdbRead` positive and close-negative gates |
 | `MIP003` | Demand classification, provisional catalogs, and static alternatives cannot satisfy final shape validation | Close-negative tests for exact type, implied member, mixed filters, aliases, globs, categories, `@All`, commandless structural alternatives, and explicit-member dotted-tail alternatives; declaration-derived set equality requires one canonical target requirement for every stable identity registered in multiple catalogs and rejects conflicting declarations |
 | `MIP004` | Closed producer paths equal preflighted authorization | Declaration-derived gesture-provenance/query-requirement/host-policy matrix; unconditional prerequisite closure; conditional local-PDB hit, unrequested/denied miss, and authorized acquisition paths; transitive cost, execution-mode, and probe-policy closure; a probe-capable producer with a render-only prerequisite mapping to per-section `Unknown`; explicit-render denial; preflight-before-execution assertions; artifact-owner lease revalidation; same-target effective discovery under granting and denying hosts in both execution orders; two freshly minted same-host, same-target, same-request operations in which one receives an injected producer failure and the other succeeds after recovery, repeated in both operation orders; explicit attempts to present the first operation's plan to the second operation and to execute it after disposing the first context, both rejected before cache or producer access; and architecture closure proving the planned type/member executor never reads or writes the library-only `effective-v*` catalog. Together these prove completed outcomes are scoped to one operation-bound preflighted plan while persistent producer evidence is independently reauthorized |

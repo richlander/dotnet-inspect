@@ -48,11 +48,6 @@ public static class WorkspaceCommandDefinitions
             Description =
                 "Exact Library asset id from Navigation output",
         };
-        var allLibrariesOption = new Option<bool>("--all-libraries")
-        {
-            Description =
-                "Use the aggregate Library subject as a Type destination source",
-        };
         var typeOption = new Option<string?>("--type")
         {
             Description =
@@ -75,7 +70,6 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(rootRequestOption);
         command.Options.Add(activePackageOption);
         command.Options.Add(libraryOption);
-        command.Options.Add(allLibrariesOption);
         command.Options.Add(typeOption);
         command.Options.Add(memberOption);
         command.Options.Add(lensOption);
@@ -96,8 +90,6 @@ public static class WorkspaceCommandDefinitions
             int? activePackage =
                 parseResult.GetValue(activePackageOption);
             string? library = parseResult.GetValue(libraryOption);
-            bool allLibraries =
-                parseResult.GetValue(allLibrariesOption);
             string? type = parseResult.GetValue(typeOption);
             string? member = parseResult.GetValue(memberOption);
             string? lens = parseResult.GetValue(lensOption);
@@ -129,7 +121,6 @@ public static class WorkspaceCommandDefinitions
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
                     Library = library,
-                    AllLibraries = allLibraries,
                     Type = type,
                     Member = member,
                     Lens = lens,

@@ -2717,7 +2717,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_LibraryModesAreRejected()
+    public async Task Package_MultiplePackages_ExactLibraryModeIsRejected()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.MultiLibraryMode",
@@ -2732,23 +2732,11 @@ public partial class CommandExecutionTests
                 "--library",
                 "Test.Package.MultiLibraryMode.dll",
                 "--tsv");
-            var allLibraries = await RunAppAsync(
-                "package",
-                packagePath,
-                packagePath,
-                "--all-libraries",
-                "--tsv");
-
             Assert.Equal(1, library.Exit);
-            Assert.Equal(1, allLibraries.Exit);
             Assert.Empty(library.Output);
-            Assert.Empty(allLibraries.Output);
             Assert.Contains(
                 "Multiple package inspection cannot be combined with --library.",
                 library.Error);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with --all-libraries.",
-                allLibraries.Error);
         }
         finally
         {

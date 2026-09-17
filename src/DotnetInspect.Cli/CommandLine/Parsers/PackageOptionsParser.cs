@@ -27,7 +27,7 @@ public static class PackageOptionsParser
         Option<bool> LibOption,
         Option<bool> ToolsOption,
         Option<string?> LibraryOption,
-        Option<bool> AllLibrariesOption,
+        Option<bool> NamesakeLibraryOption,
         Option<bool> VersionsOption,
         Option<bool> VersionsWithFeedOption,
         Option<bool> PrereleaseOption,
@@ -87,8 +87,14 @@ public static class PackageOptionsParser
             Tree = result.GetValue(opts.Tree),
             Discover = opts.ParseDiscover(result),
             Count = result.GetValue(opts.Count),
-            PackageLibrary = result.GetResult(args.LibraryOption) is { Implicit: false } ? "" : null,
-            AllLibraries = result.GetValue(args.AllLibrariesOption)
+            PackageLibrary =
+                result.GetValue(args.NamesakeLibraryOption)
+                    ? ""
+                    : result.GetValue(args.LibraryOption),
+            AggregateLibraries =
+                PackageCommand.RequestsAggregateLibraryInspection(
+                    opts.ParseSelect(result),
+                    opts.ParseDiscover(result))
         };
         return PackageCommand.GetMultiPackageConflicts(mode).Count > 0
             ? 1
@@ -113,9 +119,9 @@ public static class PackageOptionsParser
         var explicitVersion = parseResult.GetValue(args.VersionOption);
         bool showLatestVersion = parseResult.GetValue(args.LatestVersionOption);
         var libraryValue = parseResult.GetValue(args.LibraryOption);
-        var packageLibrary = parseResult.GetResult(args.LibraryOption) is { Implicit: false }
-            ? libraryValue ?? ""
-            : null;
+        var packageLibrary = parseResult.GetValue(args.NamesakeLibraryOption)
+            ? ""
+            : libraryValue;
 
         bool hasExplicitVersionSelector =
             parseResult.GetResult(args.VersionOption) is { Implicit: false };
@@ -199,7 +205,6 @@ public static class PackageOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             TypeFilter = typeFilter,
             PackageLibrary = packageLibrary,
-            AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
             ListLayout = parseResult.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(parseResult),
             ListLayoutExplicitlySet =
                 parseResult.GetValue(args.LayoutOption),
@@ -268,6 +273,13 @@ public static class PackageOptionsParser
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
+        if (packageLibrary is null
+            && PackageCommand.RequestsAggregateLibraryInspection(
+                options.Select,
+                options.Discover))
+        {
+            options = options with { AggregateLibraries = true };
+        }
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

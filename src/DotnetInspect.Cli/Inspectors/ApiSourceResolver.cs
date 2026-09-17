@@ -204,43 +204,101 @@ internal static class ApiSourceResolver
                 packageExtractPath = extracted.ExtractPath;
                 apiSource = SourceKind.NuGet;
                 apiVersion = packageVersion;
+                bool deferLibrarySelection =
+                    string.Equals(
+                        options.Tfm,
+                        "all",
+                        StringComparison.OrdinalIgnoreCase)
+                    && (!string.IsNullOrEmpty(options.AssemblyPath)
+                        || options.NamesakeLibrary);
 
-                if (!string.IsNullOrEmpty(options.AssemblyPath))
+                if (!deferLibrarySelection
+                    && !string.IsNullOrEmpty(options.AssemblyPath))
                 {
-                    var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
-                    if (matchedAssembly == null)
+                    var exactLibrary = TfmSelector.SelectPackageLibrary(
+                        searchPath,
+                        packageName
+                            ?? extracted.PackageName
+                            ?? requestedPackageName,
+                        options.AssemblyPath,
+                        options.Tfm);
+                    if (!exactLibrary.IsSelected)
                     {
                         CommandError.Write($"Library '{options.AssemblyPath}' not found in package.");
+                        WritePackageLibraryCandidates(
+                            searchPath,
+                            exactLibrary.CandidatePaths);
                         return (null!, 1);
                     }
-                    searchPath = matchedAssembly;
-                    selectedTfm = matchedTfm;
+                    searchPath = exactLibrary.Paths[0];
+                    selectedTfm = exactLibrary.Tfm;
                     if (selectedTfm != null)
                     {
                         logger.Log($"Using TFM: {selectedTfm}");
                     }
                 }
-                else if (!string.IsNullOrEmpty(typeName))
+                else if (!deferLibrarySelection
+                    && options.NamesakeLibrary)
                 {
-                    var (typeAssembly, matchedTfm) = TfmSelector.FindAssemblyContainingType(searchPath, typeName, options.Tfm);
-                    if (typeAssembly != null)
+                    var namesake = TfmSelector.SelectPackageLibrary(
+                        searchPath,
+                        packageName
+                            ?? extracted.PackageName
+                            ?? requestedPackageName,
+                        requestedLibrary: null,
+                        options.Tfm);
+                    if (!namesake.IsSelected)
                     {
-                        searchPath = typeAssembly;
-                        selectedTfm = matchedTfm;
-                        logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
-                    }
-                }
-                else if (!string.IsNullOrEmpty(options.Tfm))
-                {
-                    var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
-                    if (tfmAssembly == null)
-                    {
-                        CommandError.Write($"No library found for TFM '{options.Tfm}'.");
+                        string resolvedName =
+                            packageName
+                            ?? extracted.PackageName
+                            ?? requestedPackageName;
+                        if (namesake.Status
+                            == TfmSelector.PackageLibraryResolutionStatus
+                                .NamesakeIdentityUnavailable)
+                        {
+                            CommandError.Write(
+                                $"Package '{resolvedName}' has libraries whose assembly identity could not be read.");
+                        }
+                        else
+                        {
+                            CommandError.Write(
+                                $"Package '{resolvedName}' does not have one unique namesake library.");
+                        }
+                        WritePackageLibraryCandidates(
+                            searchPath,
+                            namesake.Status
+                                == TfmSelector.PackageLibraryResolutionStatus
+                                    .NamesakeIdentityUnavailable
+                                    ? namesake.IdentityFailurePaths ?? []
+                                    : namesake.CandidatePaths);
                         return (null!, 1);
                     }
-                    searchPath = tfmAssembly;
-                    selectedTfm = options.Tfm;
-                    logger.Log($"Using TFM: {options.Tfm}");
+                    searchPath = namesake.Paths[0];
+                    selectedTfm = namesake.Tfm;
+                    logger.Log(
+                        $"Using namesake library: {Path.GetFileName(searchPath)}");
+                }
+
+                else
+                {
+                    var aggregate = TfmSelector.SelectPackageLibraries(
+                        searchPath,
+                        options.Tfm);
+                    if (!aggregate.IsSelected)
+                    {
+                        CommandError.Write(
+                            string.IsNullOrWhiteSpace(options.Tfm)
+                                ? "No compatible libraries found in package."
+                                : $"No library found for TFM '{options.Tfm}'.");
+                        return (null!, 1);
+                    }
+                    selectedTfm = aggregate.Tfm;
+                    if (selectedTfm != null)
+                        logger.Log($"Using TFM: {selectedTfm}");
+                    logger.Log(
+                        $"Selected {aggregate.Paths.Count} compatible "
+                        + (aggregate.Paths.Count == 1 ? "library" : "libraries"));
                 }
             }
             else if (!string.IsNullOrEmpty(options.AssemblyPath))
@@ -374,6 +432,7 @@ internal static class ApiSourceResolver
                             }
                         }
                     }
+
                     else
                     {
                         CommandError.Write($"{error}");
@@ -423,7 +482,8 @@ internal static class ApiSourceResolver
                 }
             }
 
-            if (Directory.Exists(searchPath))
+            if (Directory.Exists(searchPath)
+                && packageExtractPath is null)
             {
                 var dlls = TfmSelector.GetPackageAssemblies(searchPath);
                 if (dlls.Count > 0)
@@ -454,6 +514,21 @@ internal static class ApiSourceResolver
         finally
         {
             PackageExtractor.Cleanup(tempDir);
+        }
+    }
+
+    private static void WritePackageLibraryCandidates(
+        string extractPath,
+        IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+            return;
+
+        CommandError.WriteLine("Available libraries:");
+        foreach (string path in paths)
+        {
+            CommandError.WriteLine(
+                $"  {Path.GetRelativePath(extractPath, path).Replace('\\', '/')}");
         }
     }
 }

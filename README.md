@@ -84,11 +84,12 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 or `--library` when you need a specific source.
 
 Use `-D --schema` to inspect the syntax-selected structural view without
-acquiring or loading the target. Package `--library` and `--all-libraries`
-queries expose their route-specific schemas before package resolution, while
-ambiguous commandless or dotted-member targets return separately labeled
-alternatives rather than a lookup-chosen union. A commandless
-`<target> --all-libraries` gesture always selects the package aggregate view.
+acquiring or loading the target. Exact package `--library` queries expose their
+route-specific schema before package resolution, while ambiguous commandless
+or dotted-member targets return separately labeled alternatives rather than a
+lookup-chosen union. Selected-TFM package API and Library inspection uses the
+all-libraries aggregate by default; `--namesake-library` and
+`--library <asset>` narrow it.
 
 ## Demo: query rendered C# body shapes
 
@@ -555,11 +556,10 @@ dotnet-inspect workspace \
 ```
 
 Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
-destination. `--all-libraries` uses the aggregate Library as the source while
-`--library` still names the destination Type's exact defining Library. A
-source-only `--all-libraries` request omits `--library`; supplying both without
-a Type destination is rejected. Root-only and explicit-empty Packages have no
-All-libraries subject and return a typed non-success snapshot instead of
+destination. The selected-TFM aggregate Library is the default Type source;
+`--library` narrows it to one exact defining Library. Root-only and
+explicit-empty Packages have no all-libraries subject and return a typed
+non-success snapshot instead of
 throwing.
 
 Selector misses retain the evaluated snapshot and diagnostics. The command
@@ -622,9 +622,10 @@ API correspondence, so a moved overload ordinal is not independently replayed.
 Matching is declaration-only: an ordinal selecting a singleton Property/Event
 accessor is refused; omit the accessor ordinal to match that declaration.
 Ordinals selecting among overloaded indexer declarations remain supported.
-Use `--tfm` to select one API surface and optional `--library` to narrow the
-source Library. `--all` widens source selection to the existing IncludeAll API
-scope; destination declaration matching remains strict and does not apply a
+Use `--tfm` to select one package aggregate. Add `--namesake-library` or an
+exact `--library <asset>` to narrow the source Library. `--all` widens source
+selection to the existing IncludeAll API scope; destination declaration
+matching remains strict and does not apply a
 second accessibility filter. Plain text and Markdown render the typed result;
 `--json` emits complete Content, and `--envelope` adds Share and diagnostics.
 This is separate from root `match`, which compares implementation structure.

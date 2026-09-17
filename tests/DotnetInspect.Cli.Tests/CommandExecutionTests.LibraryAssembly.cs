@@ -3488,7 +3488,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -3501,7 +3501,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "Integration: ASP.NET Core", "--rows", "20");
+            "library", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "-S", "Integration: ASP.NET Core", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration: ASP.NET Core", output);
@@ -4439,13 +4439,6 @@ public partial class CommandExecutionTests
                 {
                     IncludeSections = [SectionNames.LibraryInfo],
                 },
-                LibrarySections.CreatePipeline(),
-                FailedResourceTriageInspection()));
-        Assert.Equal(
-            1,
-            PackageCommand.AllLibrariesCompletionExitCode(
-                incomplete: false,
-                options,
                 LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
     }

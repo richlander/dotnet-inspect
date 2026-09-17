@@ -32,6 +32,8 @@ public class MemberOptionsParserTests
         var packageOption = new Option<string?>("--package");
         var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
+        var namesakeLibraryOption =
+            new Option<bool>("--namesake-library");
         var platformOption = new Option<string?>("--platform");
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
@@ -62,6 +64,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(packageOption);
         memberCommand.Options.Add(atOption);
         memberCommand.Options.Add(assemblyOption);
+        memberCommand.Options.Add(namesakeLibraryOption);
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
         memberCommand.Options.Add(tfmOption);
@@ -95,13 +98,24 @@ public class MemberOptionsParserTests
 
         var root = new RootCommand { memberCommand };
         var args = new MemberOptionsParser.MemberCommandArgs(
-            argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
+            argsArg, packageOption, assemblyOption, namesakeLibraryOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             shapeOption, routerDeferredTargetOption);
 
         return (root, opts, args);
+    }
+
+    [Fact]
+    public async Task NamesakeLibrary_PopulatesNarrowingGesture()
+    {
+        MemberOptions options = await ParseSuccessAsync(
+            "member", "Package.Name", "Some.Type",
+            "--namesake-library");
+
+        Assert.True(options.NamesakeLibrary);
+        Assert.Null(options.AssemblyPath);
     }
 
     private static async Task<MemberOptions> ParseSuccessAsync(params string[] args)

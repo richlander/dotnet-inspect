@@ -2752,10 +2752,10 @@ Admission adoption adds no host retention, cache, eviction, or presentation
 behavior and leaves group snapshot acquisition and query revalidation on the
 existing compatibility path.
 
-The CLI adoption is the remote `package --all-libraries` grouped
-Integrations path when the command resolves one default or explicit target framework and
-the binding's frozen surface role exactly covers the command's visible library
-selection.
+The CLI adoption is the remote package-backed grouped Integrations path when
+the command resolves one default or explicit target framework and the
+binding's frozen surface role exactly covers the command's visible aggregate
+or explicitly narrowed Library selection.
 After the existing desktop extraction resolves the exact package and version,
 the CLI consumes its retained acquisition-issued payload when available.
 Authority-backed pinned extraction carries that admitted payload through

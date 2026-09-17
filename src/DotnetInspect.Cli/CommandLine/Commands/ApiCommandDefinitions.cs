@@ -35,6 +35,10 @@ public static class ApiCommandDefinitions
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
         var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description = "Narrow package inspection to the unique library whose name matches the package"
+        };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
@@ -70,6 +74,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -100,9 +105,19 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
+        typeCommand.Validators.Add(result =>
+        {
+            if (result.GetValue(namesakeLibraryOption)
+                && result.GetResult(assemblyOption)
+                    is { Implicit: false })
+            {
+                result.AddError(
+                    "--namesake-library and --library cannot be combined.");
+            }
+        });
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
-            argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
+            argsArg, packageOption, assemblyOption, namesakeLibraryOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
         structuralArgs = commandArgs;
@@ -233,6 +248,10 @@ public static class ApiCommandDefinitions
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
         var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description = "Narrow package inspection to the unique library whose name matches the package"
+        };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
@@ -296,6 +315,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(packageOption);
         memberCommand.Options.Add(atOption);
         memberCommand.Options.Add(assemblyOption);
+        memberCommand.Options.Add(namesakeLibraryOption);
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
         memberCommand.Options.Add(tfmOption);
@@ -334,9 +354,19 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Focus);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
+        memberCommand.Validators.Add(result =>
+        {
+            if (result.GetValue(namesakeLibraryOption)
+                && result.GetResult(assemblyOption)
+                    is { Implicit: false })
+            {
+                result.AddError(
+                    "--namesake-library and --library cannot be combined.");
+            }
+        });
 
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
-            argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
+            argsArg, packageOption, assemblyOption, namesakeLibraryOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,

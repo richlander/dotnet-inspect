@@ -930,13 +930,22 @@ public class LibraryCommand
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath, options.PackagePath, options.Tfm,
-                    options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
+                    options.NamesakeLibrary,
+                    options.SourceOptions, options.IncludePrerelease, logger,
+                    context);
                 if (extractResult == null)
                 {
                     return 1;
                 }
 
-                var (assemblyPaths, extractPath, extractTempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion) = extractResult.Value;
+                var (
+                    assemblyPaths,
+                    extractPath,
+                    extractTempDir,
+                    nupkgPath,
+                    resolvedPackageName,
+                    resolvedPackageVersion,
+                    extraction) = extractResult.Value;
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
@@ -967,19 +976,68 @@ public class LibraryCommand
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
-                AssemblyContextIntegrationsBatch? integrations =
-                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
+                bool requiresPackageIntegrations =
+                    RequiresPackageIntegrations(
                         queries,
-                        groupQueryCatalog,
-                        inspectionPaths.Select(path =>
-                            new AssemblyContextIntegrationsInput(
-                                path,
-                                PackageIntegrationProvenance(
+                        out bool includeIntegrationOpportunities);
+                PackageIntegrationsWorkspace? createdPackageIntegrations = null;
+                AssemblyContextIntegrationsBatch? integrations = null;
+                if (requiresPackageIntegrations)
+                {
+                    PackageInspectionInput? packageInput =
+                        CreatePackageInspectionInput(
+                            extraction,
+                            options.PackagePath!);
+                    if (packageInput is null)
+                    {
+                        CommandError.Write(
+                            "The selected package authority did not retain its acquired payload.");
+                        return 1;
+                    }
+
+                    createdPackageIntegrations =
+                        await PackageIntegrationsWorkspace.CreateSelectedAsync(
+                            inspectionPaths.Select(path =>
+                            {
+                                string relativePath = Path.GetRelativePath(
+                                        extractPath,
+                                        path)
+                                    .Replace('\\', '/');
+                                return new PackageIntegrationAssembly(
                                     path,
-                                    extractPath,
-                                    packageName,
-                                    packageVersion))),
-                        trace);
+                                    TfmResolver.ExtractFrameworkFolderFromPath(
+                                        relativePath),
+                                    TfmResolver.ExtractAssetDirectoryFromPath(
+                                        relativePath));
+                            }),
+                            extractPath,
+                            packageInput,
+                            includeIntegrationOpportunities:
+                                includeIntegrationOpportunities);
+                    if (createdPackageIntegrations.ContextGroupCount > 0)
+                    {
+                        logger.Log(
+                            "Using artifact-backed selected-entry package Integrations.");
+                    }
+                }
+                else
+                {
+                    integrations =
+                        await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
+                            queries,
+                            groupQueryCatalog,
+                            inspectionPaths.Select(path =>
+                                new AssemblyContextIntegrationsInput(
+                                    path,
+                                    PackageIntegrationProvenance(
+                                        path,
+                                        extractPath,
+                                        packageName,
+                                        packageVersion))),
+                            trace);
+                }
+                await using PackageIntegrationsWorkspace? packageIntegrations =
+                    createdPackageIntegrations;
                 List<LibraryInspectionSubjectSelection> subjectSelections =
                     inspectionPaths.Select(path =>
                         LibraryInspectionSubject.Select(
@@ -1065,7 +1123,7 @@ public class LibraryCommand
                     await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult,
-                    queryPlan, integrations,
+                    queryPlan, integrations, packageIntegrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
                     subjectSelections);
                 List<LibraryInspection> inspections =
@@ -1093,8 +1151,11 @@ public class LibraryCommand
                 bool identifierAuditIncomplete =
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
-                int identifierAuditExitCode =
-                    identifierAuditIncomplete ? 1 : 0;
+                bool integrationsIncomplete =
+                    WritePackageIntegrationFailures(
+                        collection.IntegrationFailures);
+                int evidenceExitCode =
+                    identifierAuditIncomplete || integrationsIncomplete ? 1 : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0],
@@ -1109,7 +1170,7 @@ public class LibraryCommand
                 if (discoveryInspection)
                     return Math.Max(
                         Math.Max(
-                            identifierAuditExitCode,
+                            evidenceExitCode,
                             descriptorSelectionExitCode),
                         WriteEffectiveSections(
                             collection.Subjects[0].Path,
@@ -1127,7 +1188,7 @@ public class LibraryCommand
                     return IntegrityExitCode(
                         Math.Max(
                             Math.Max(
-                                identifierAuditExitCode,
+                                evidenceExitCode,
                                 descriptorSelectionExitCode),
                             await WriteLibraryPrintProjectionAsync(
                                 inspections[0],
@@ -1138,7 +1199,7 @@ public class LibraryCommand
                     return IntegrityExitCode(
                         Math.Max(
                             Math.Max(
-                                identifierAuditExitCode,
+                                evidenceExitCode,
                                 descriptorSelectionExitCode),
                             WriteLibraryShapeProjection(
                                 inspections[0],
@@ -1168,7 +1229,7 @@ public class LibraryCommand
                 return Math.Max(
                     IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            evidenceExitCode,
                             descriptorSelectionExitCode),
                         !identifierAuditIncomplete,
                         [.. inspections]),
@@ -1887,12 +1948,8 @@ public class LibraryCommand
     /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
-    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
-    /// direct-library rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries
-    /// provenance is gated by
-    /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
+    /// do not expose image-relative row identities. The rejection and count allowance are gated
+    /// by <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
         IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
@@ -3318,6 +3375,7 @@ public class LibraryCommand
     private readonly record struct PackageInspectionCollection(
         List<LibraryInspection> Inspections,
         List<LibraryInspectionSubject> Subjects,
+        List<(string FileName, string Reason)> IntegrationFailures,
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
@@ -3333,12 +3391,14 @@ public class LibraryCommand
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         AssemblyContextIntegrationsBatch? integrations = null,
+        PackageIntegrationsWorkspace? packageIntegrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         IReadOnlyList<LibraryInspectionSubjectSelection>?
             subjectSelections = null)
     {
         List<LibraryInspection> inspections = [];
         List<LibraryInspectionSubject> subjects = [];
+        List<(string FileName, string Reason)> integrationFailures = [];
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
@@ -3355,35 +3415,48 @@ public class LibraryCommand
                     extractPath,
                     targetPath)
                 .Replace('\\', '/');
-            LibraryInspectionSubjectSelection subjectSelection =
-                subjectSelections is not null
-                    ? subjectSelections[index]
-                    : LibraryInspectionSubject.Select(
-                        targetPath,
-                        PackageIntegrationProvenance(
-                            targetPath,
-                            extractPath,
-                            packageName,
-                            version),
-                        integrations?.AssemblyForInspection(targetPath));
-            if (subjectSelection
-                is LibraryInspectionSubjectSelection.Rejected rejected)
+            switch (TfmSelector.ClassifyPackageLibraryImage(targetPath))
             {
-                descriptorSelectionFailures.Add(
-                    (relativePath, rejected.Failure));
-                CommandError.WriteWarning(
-                    $"Could not select library descriptor for "
-                    + $"'{targetPath}': {rejected.Failure.Detail}");
-                continue;
+                case TfmSelector.PackageLibraryImageKind.NonAssembly:
+                    continue;
+                case TfmSelector.PackageLibraryImageKind.Unreadable:
+                    logger.LogWarning(
+                        $"Could not read library: {Path.GetFileName(targetPath)}");
+                    continue;
             }
-            LibraryInspectionSubject subject =
-                ((LibraryInspectionSubjectSelection.Ready)subjectSelection)
-                    .Subject;
 
-            LibraryInspection? inspection;
-            try
+            async Task<(LibraryInspection? Inspection, LibraryInspectionSubject? Subject)>
+                InspectAsync(
+                    ResolvedAssemblyReference? assemblyReference,
+                    AssemblyIntegrationsEntry? integrationsEntry,
+                    AssemblyIntegrationOpportunitiesEntry? opportunitiesEntry)
             {
-                inspection = await LibraryMetadataService.InspectAsync(
+                LibraryInspectionSubjectSelection subjectSelection =
+                    subjectSelections is not null
+                        ? subjectSelections[index]
+                        : LibraryInspectionSubject.Select(
+                            targetPath,
+                            PackageIntegrationProvenance(
+                                targetPath,
+                                extractPath,
+                                packageName,
+                                version),
+                            assemblyReference);
+                if (subjectSelection
+                    is LibraryInspectionSubjectSelection.Rejected rejected)
+                {
+                    descriptorSelectionFailures.Add(
+                        (relativePath, rejected.Failure));
+                    CommandError.WriteWarning(
+                        $"Could not select library descriptor for "
+                        + $"'{targetPath}': {rejected.Failure.Detail}");
+                    return (null, null);
+                }
+                LibraryInspectionSubject selectedSubject =
+                    ((LibraryInspectionSubjectSelection.Ready)subjectSelection)
+                        .Subject;
+                LibraryInspection? selectedInspection =
+                    await LibraryMetadataService.InspectAsync(
                     targetPath,
                     options,
                     logger,
@@ -3391,13 +3464,80 @@ public class LibraryCommand
                     version,
                     httpClient,
                     queryPlan: queryPlan,
-                    assemblyReference: subject.AssemblyReference,
-                    integrationsEntry:
-                        integrations?.EntryFor(targetPath),
-                    integrationOpportunitiesEntry:
-                        integrations?.OpportunitiesEntryFor(targetPath),
+                    assemblyReference: selectedSubject.AssemblyReference,
+                    integrationsEntry: integrationsEntry,
+                    integrationOpportunitiesEntry: opportunitiesEntry,
                     discoveryOnly: discoveryOnly,
                     trace: trace);
+                return (selectedInspection, selectedSubject);
+            }
+
+            (LibraryInspection? inspection, LibraryInspectionSubject? subject) =
+                (null, null);
+            try
+            {
+                if (packageIntegrations is null)
+                {
+                    (inspection, subject) = await InspectAsync(
+                        integrations?.AssemblyForInspection(targetPath),
+                        integrations?.EntryFor(targetPath),
+                        integrations?.OpportunitiesEntryFor(targetPath));
+                }
+                else if (packageIntegrations.HasNoAssembly(targetPath))
+                {
+                    (inspection, subject) =
+                        await InspectAsync(null, null, null);
+                }
+                else if (packageIntegrations.TryGetPreflightFailure(
+                             targetPath,
+                             out string preflightFailure))
+                {
+                    integrationFailures.Add(
+                        (relativePath, preflightFailure));
+                    continue;
+                }
+                else
+                {
+                    (inspection, subject) =
+                        await packageIntegrations.UseAssemblyAsync(
+                            targetPath,
+                            async (
+                                retainedAssembly,
+                                integrationsEntry,
+                                opportunitiesEntry) =>
+                            {
+                                switch (integrationsEntry)
+                                {
+                                    case AssemblyIntegrationsEntry.Rejected rejected:
+                                        integrationFailures.Add(
+                                            (relativePath, rejected.Failure.Detail));
+                                        if (retainedAssembly is null)
+                                            return (null, null);
+                                        break;
+                                    case AssemblyIntegrationsEntry.Failed failed:
+                                        integrationFailures.Add(
+                                            (relativePath, failed.Error.Message));
+                                        break;
+                                }
+
+                                switch (opportunitiesEntry)
+                                {
+                                    case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
+                                        integrationFailures.Add(
+                                            (relativePath, rejected.Failure.Detail));
+                                        break;
+                                    case AssemblyIntegrationOpportunitiesEntry.Failed failed:
+                                        integrationFailures.Add(
+                                            (relativePath, failed.Error.Message));
+                                        break;
+                                }
+
+                                return await InspectAsync(
+                                    retainedAssembly,
+                                    integrationsEntry,
+                                    opportunitiesEntry);
+                            });
+                }
             }
             catch (
                 LibraryMetadataService
@@ -3407,12 +3547,13 @@ public class LibraryCommand
                     (relativePath, ex.FailureKind));
                 continue;
             }
-            if (inspection == null)
+            if (inspection is null || subject is null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
             }
-            if (options.CollectIdentifierConfusionReferenceTree
+            if ((options.CollectIdentifierConfusionReferenceTree
+                    || assemblyPaths.Count > 1)
                 && inspection.IdentifierConfusionFailure is { } failure)
             {
                 identifierAuditFailures.Add(
@@ -3420,6 +3561,7 @@ public class LibraryCommand
             }
 
             // Populate TFM from path for multi-TFM display
+            inspection.FileName = relativePath;
             inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
 
             if (signatureResult != null)
@@ -3437,6 +3579,7 @@ public class LibraryCommand
         return new PackageInspectionCollection(
             inspections,
             subjects,
+            integrationFailures,
             identifierAuditFailures,
             descriptorSelectionFailures);
     }
@@ -3464,17 +3607,106 @@ public class LibraryCommand
             rid: null);
     }
 
-    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(
+    private static PackageInspectionInput? CreatePackageInspectionInput(
+        PackageExtractionResult extraction,
+        string packageSource)
+    {
+        if (extraction.AcquiredPayload is { } acquired)
+            return PackageInspectionInput.CreateFromPayload(acquired);
+
+        if (extraction.Authority is not null)
+            return null;
+
+        return PackageInspectionInput.CreateLocal(
+            new FileSystemPackageContent(
+                extraction.ExtractPath,
+                extraction.NupkgPath,
+                extraction.FromCache,
+                extraction.ProducerKey ?? "local-package"),
+            extraction.PackageName,
+            extraction.Version);
+    }
+
+    private static bool RequiresPackageIntegrations(
+        HashSet<InspectionQueryDefinition> queries,
+        out bool includeIntegrationOpportunities)
+    {
+        includeIntegrationOpportunities = queries.Remove(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition);
+        return queries.Remove(
+                   AssemblyContextIntegrationsQuery.Definition)
+               || includeIntegrationOpportunities;
+    }
+
+    private static bool WritePackageIntegrationFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion, PackageExtractionResult extraction)?> ExtractFromPackageAsync(
         string? assemblyName,
         string packageSource,
         string? tfm,
+        bool namesakeLibrary,
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
         VerboseLogger logger,
-        HttpClient httpClient)
+        CommandContext context)
     {
-        var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
+        var target =
+            PackageExtractor.ParsePackageTarget(packageSource);
+        PackageExtractionOutcome outcome;
+        if (!target.IsLocalFile
+            && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+        {
+            outcome =
+                PackageExtractor.TryNormalizePackageVersion(
+                    target.Version,
+                    out string pinnedVersion)
+                    ? await PackageExtractor.ExtractPinnedPackageAsync(
+                        context.HttpClient,
+                        target.PackageName,
+                        pinnedVersion,
+                        logger.Log,
+                        sourceOptions: sourceOptions,
+                        createComposition:
+                            context.CreatePackageSourceComposition)
+                    : await PackageExtractor.ExtractSelectedPackageAsync(
+                        context.HttpClient,
+                        target.PackageName,
+                        string.IsNullOrWhiteSpace(target.Version)
+                            ? null
+                            : target.Version,
+                        logger.Log,
+                        sourceOptions: sourceOptions,
+                        includePrerelease: includePrerelease,
+                        createComposition:
+                            context.CreatePackageSourceComposition);
+        }
+        else
+        {
+            outcome = await PackageExtractor.ExtractPackageAsync(
+                context.HttpClient,
+                target.IsLocalFile
+                    ? target.OriginalArgument
+                    : target.PackageName,
+                logger.Log,
+                sourceOptions: sourceOptions,
+                version: target.IsLocalFile
+                    ? null
+                    : target.Version,
+                includePrerelease: includePrerelease);
+        }
         if (!outcome.IsSuccess)
         {
             CommandError.Write($"{outcome.ErrorMessage}");
@@ -3493,7 +3725,8 @@ public class LibraryCommand
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
-                resolution, packageSource, sourceOptions, logger, httpClient).ConfigureAwait(false);
+                resolution, packageSource, sourceOptions, logger,
+                context.HttpClient).ConfigureAwait(false);
 
             if (payload.Error != null)
             {
@@ -3515,75 +3748,96 @@ public class LibraryCommand
             }
         }
 
-        // --tfm all: return all assemblies from every TFM
-        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
-            if (candidates.Count == 0)
-            {
-                CommandError.Write("No DLLs found in package.");
-                DeleteTempDir(tempDir);
-                return null;
-            }
-            return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-        }
+        TfmSelector.PackageLibraryResolution libraryResolution =
+            namesakeLibrary
+                ? TfmSelector.SelectPackageLibrary(
+                    extractPath,
+                    resolution.PackageName ?? packageSource,
+                    requestedLibrary: null,
+                    tfm)
+                : string.IsNullOrWhiteSpace(assemblyName)
+                    ? TfmSelector.SelectPackageLibraries(extractPath, tfm)
+                    : TfmSelector.SelectPackageLibrary(
+                        extractPath,
+                        resolution.PackageName ?? packageSource,
+                        assemblyName,
+                        tfm);
 
-        // --tfm <specific>: find assembly by TFM
-        if (!string.IsNullOrEmpty(tfm))
+        if (!libraryResolution.IsSelected)
         {
-            var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
-            if (tfmAssembly == null)
+            if (libraryResolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus.Ambiguous)
+            {
+                CommandError.Write(
+                    $"Package '{resolution.PackageName ?? packageSource}' does not have one unique namesake library.");
+                WritePackageLibraryCandidates(
+                    extractPath,
+                    libraryResolution.CandidatePaths);
+            }
+            else if (libraryResolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeIdentityUnavailable)
+            {
+                CommandError.Write(
+                    $"Package '{resolution.PackageName ?? packageSource}' has libraries whose assembly identity could not be read.");
+                WritePackageLibraryCandidates(
+                    extractPath,
+                    libraryResolution.IdentityFailurePaths ?? []);
+            }
+            else if (libraryResolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound)
+            {
+                CommandError.Write(
+                    $"Library '{assemblyName}' not found in package.");
+            }
+            else if (!string.IsNullOrWhiteSpace(tfm))
             {
                 CommandError.Write($"No library found for TFM '{tfm}'.");
                 CommandError.WriteLine("Available TFMs:");
-                var tfms = TfmSelector.GetPackageTfms(allDlls, extractPath);
-                foreach (var t in tfms)
+                foreach (var availableTfm in
+                    TfmSelector.GetPackageTfms(allDlls, extractPath))
                 {
-                    CommandError.WriteLine($"  {t}");
+                    CommandError.WriteLine($"  {availableTfm}");
                 }
-                DeleteTempDir(tempDir);
-                return null;
             }
-            logger.Log($"Using TFM: {tfm}");
-            return ([tfmAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-        }
-
-        // No --tfm and no assembly name: select the highest-priority TFM (default)
-        if (string.IsNullOrEmpty(assemblyName))
-        {
-            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
-            if (candidates.Count == 0)
+            else
             {
                 CommandError.Write("No DLLs found in package.");
-                DeleteTempDir(tempDir);
-                return null;
             }
 
-            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath, resolution.PackageName);
-            if (selectedPath == null)
-            {
-                // No TFM structure found, fall back to first DLL
-                return ([candidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-            }
-
-            logger.Log($"Using TFM: {selectedTfm}");
-            return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-        }
-
-        var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
-        if (matchedAssembly == null)
-        {
-            CommandError.Write($"Library '{assemblyName}' not found in package.");
-            CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
             DeleteTempDir(tempDir);
             return null;
         }
 
-        if (matchedTfm != null)
-            logger.Log($"Using TFM: {matchedTfm}");
+        if (libraryResolution.Tfm != null)
+            logger.Log($"Using TFM: {libraryResolution.Tfm}");
 
-        logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
-        return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        foreach (string path in libraryResolution.Paths)
+            logger.Log($"Found: {Path.GetRelativePath(extractPath, path)}");
+
+        return (
+            [.. libraryResolution.Paths],
+            extractPath,
+            tempDir,
+            nupkgPath,
+            resolvedPackageName,
+            resolvedPackageVersion,
+            resolution);
+    }
+
+    private static void WritePackageLibraryCandidates(
+        string extractPath,
+        IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+            return;
+
+        CommandError.WriteLine("Available libraries:");
+        foreach (string path in paths)
+        {
+            CommandError.WriteLine(
+                $"  {Path.GetRelativePath(extractPath, path).Replace('\\', '/')}");
+        }
     }
 
     private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);

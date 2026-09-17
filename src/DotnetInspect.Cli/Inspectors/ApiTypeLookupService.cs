@@ -4,9 +4,15 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
 
-internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, ApiType? Type, string? ImpliedMember = null)
+internal sealed record ApiTypeLookupResult(
+    string Query,
+    LookupResult Lookup,
+    ApiType? Type,
+    string? ImpliedMember = null,
+    IReadOnlyList<ApiType>? AmbiguousTypes = null)
 {
     public bool Found => Type != null;
+    public bool IsAmbiguous => AmbiguousTypes is { Count: > 1 };
     public string? Match => Lookup.Match;
     public IReadOnlyList<string> Suggestions => Lookup.Suggestions;
 
@@ -24,7 +30,29 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     /// continuation indent all in one place.
     /// </remarks>
     public void WriteNotFoundError()
-        => CommandError.Write($"Type '{Query}' not found.", [.. SuggestionDetails(Suggestions)]);
+    {
+        if (IsAmbiguous)
+        {
+            CommandError.Write(
+                $"Type '{Query}' is ambiguous across the selected libraries.",
+                [
+                    "",
+                    .. AmbiguousTypes!
+                        .Select(type => type.SourceAssemblyPath)
+                        .Where(static path => path is not null)
+                        .Select(static path =>
+                            $"  {Path.GetFileName(path)}")
+                        .Distinct(StringComparer.OrdinalIgnoreCase),
+                    "",
+                    "Narrow with --namesake-library or --library <asset>.",
+                ]);
+            return;
+        }
+
+        CommandError.Write(
+            $"Type '{Query}' not found.",
+            [.. SuggestionDetails(Suggestions)]);
+    }
 
     internal static IEnumerable<string> SuggestionDetails(IReadOnlyList<string> suggestions)
     {
@@ -82,7 +110,7 @@ internal static class ApiTypeLookupService
         var typeNames = api.Types.Select(t => t.FullName).ToArray();
         var lookup = TypeMatcher.Lookup(typeNames, typeName);
         if (lookup.Match != null)
-            return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
+            return Match(typeName, lookup, api.Types);
 
         if (TypeMatcher.IsTypeGlobPattern(typeName)
             && lookup.Suggestions.Count > 0)
@@ -128,16 +156,41 @@ internal static class ApiTypeLookupService
                 typeNames,
                 typeCandidate);
             if (prefixLookup.Match != null)
-                return new ApiTypeLookupResult(
+                return Match(
                     typeName,
                     prefixLookup,
-                    api.Types.First(t => t.FullName == prefixLookup.Match),
+                    api.Types,
                     member);
 
             searchEnd = dot;
         }
 
         return new ApiTypeLookupResult(typeName, lookup, null);
+    }
+
+    private static ApiTypeLookupResult Match(
+        string query,
+        LookupResult lookup,
+        IReadOnlyList<ApiType> types,
+        string? impliedMember = null)
+    {
+        ApiType[] matches =
+        [
+            .. types.Where(type =>
+                type.FullName == lookup.Match),
+        ];
+        return matches.Length == 1
+            ? new ApiTypeLookupResult(
+                query,
+                lookup,
+                matches[0],
+                impliedMember)
+            : new ApiTypeLookupResult(
+                query,
+                lookup,
+                Type: null,
+                impliedMember,
+                matches);
     }
 
     public static MemberFilterValidationResult ValidateMemberFilters(

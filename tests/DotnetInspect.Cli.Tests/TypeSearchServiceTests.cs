@@ -466,7 +466,7 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
-    public async Task CollectTypesAsync_PackageFallbackKeepsRuntimeAssembliesForFind()
+    public async Task CollectTypesAsync_PackageFallbackExcludesRuntimeAssembliesForFind()
     {
         var packageDir = Directory.CreateTempSubdirectory("type-search-runtime-package-test").FullName;
         var packagePath = Path.Combine(packageDir, "RuntimeOnly.1.0.0.nupkg");
@@ -491,7 +491,7 @@ public class TypeSearchServiceTests
                 new VerboseLogger(enabled: false),
                 httpClient);
 
-            Assert.Contains(results, r => r.FullName == typeof(TypeSearchServiceTests).FullName);
+            Assert.Empty(results);
         }
         finally
         {

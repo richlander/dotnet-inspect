@@ -258,8 +258,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         }
 
         var (exit, output, error) = await RunCommandAsync(
-            ["package", $"{id}@{Version}", "--source", source,
-                "--all-libraries", "--tfm", "net11.0",
+            ["library", $"{id}@{Version}", "--source", source,
+                "--tfm", "net11.0",
                 "-S", "Integration: Opportunities", "--markdown", "--verbose", "--tips", "q"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");

@@ -152,6 +152,9 @@ public sealed partial class NavigationSessionTests
     public async Task EarlierGenerationAction_RemainsStaleAfterReturningToSameSubject()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Session.ExecuteAsync(
+            fixture.Session.Snapshot.Libraries[1].Navigation.Action!,
+            TestContext.Current.CancellationToken);
         NavigationAction old = fixture.Session.Snapshot.Types[0].Navigation.Action!;
         string initialSubject = fixture.Session.Snapshot.ActiveSubject.Id;
         await fixture.Session.ExecuteAsync(fixture.Session.Snapshot.Types[1].Navigation.Action!, TestContext.Current.CancellationToken);
@@ -190,11 +193,16 @@ public sealed partial class NavigationSessionTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
-        await session.ExecuteAsync(session.Snapshot.Libraries[0].Navigation.Action!, TestContext.Current.CancellationToken);
+        await session.ExecuteAsync(session.Snapshot.Libraries[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.True(session.Snapshot.Libraries[0].IsAggregate);
-        Assert.Equal(session.Snapshot.Types[0].Navigation.Subject!.Label,
-            session.Snapshot.Types[1].Navigation.Subject!.Label);
-        NavigationConsumerTypeDescriptor row = session.Snapshot.Types[1];
+        NavigationConsumerTypeDescriptor row = session.Snapshot.Types.First(
+            item => item.DescendantLenses.Any(
+                lens => lens.Facet.Id == "type.compare"));
+        Assert.Contains(
+            session.Snapshot.Types,
+            item => item.Navigation.Subject!.Id != row.Navigation.Subject!.Id
+                    && item.Navigation.Subject.Label
+                    == row.Navigation.Subject.Label);
         NavigationConsumerLensDescriptor lens = row.DescendantLenses.First(item => item.Facet.Id == "type.compare");
         NavigationConsumerResult type = await session.ExecuteAsync(lens.Action!, TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Applied, type.Outcome.Kind);
@@ -202,7 +210,10 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(row.Library, type.Snapshot.TypeInventoryLibraryContext!.Id);
         Assert.Equal(lens.Target, type.Snapshot.LensOutcome.EffectiveLens);
         Assert.Equal(type.Outcome.Request!.Lens, type.Snapshot.LensOutcome.EffectiveLens);
-        NavigationConsumerMemberDescriptor member = type.Snapshot.Members[1];
+        NavigationConsumerMemberDescriptor member =
+            type.Snapshot.Members.First(
+                item => item.DescendantLenses.Any(
+                    descendant => descendant.Facet.Id == "member.compare"));
         NavigationConsumerResult result = await session.ExecuteAsync(
             member.DescendantLenses.First(item => item.Facet.Id == "member.compare").Action!, TestContext.Current.CancellationToken);
         Assert.Equal(member.Navigation.Subject!.Id, result.Snapshot.ActiveSubject.Id);
@@ -241,6 +252,9 @@ public sealed partial class NavigationSessionTests
     public async Task NonDescendantRows_HaveNoPairActions()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Session.ExecuteAsync(
+            fixture.Session.Snapshot.Libraries[1].Navigation.Action!,
+            TestContext.Current.CancellationToken);
         Assert.NotEmpty(fixture.Session.Snapshot.Types[0].DescendantLenses);
         Assert.Empty(fixture.Session.Snapshot.Types[1].DescendantLenses);
         Assert.All(fixture.Session.Snapshot.Members, row => Assert.Empty(row.DescendantLenses));

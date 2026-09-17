@@ -24,9 +24,10 @@ implemented by
 `Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
 retained evaluation bases, and pure lens recommendation are implemented by
 `NavigationLensRecommendation` and gated at their claims below. Pure initial
-subject ranking over available Library candidates and their retained Type
-inventory is implemented by `NavigationInitialSubjectRecommendation` and gated
-at its claim below for one already selected Package occurrence.
+aggregate-or-Package subject selection over available Library evidence and its
+retained Type inventory is implemented by
+`NavigationInitialSubjectRecommendation` and gated at its claim below for one
+already selected Package occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
 `NavigationSubjectInventoryClassification` and gated at its claim below. Pure
@@ -1026,36 +1027,34 @@ another participant failed; every participant failure remains visible. If no
 producer can vouch for a candidate, Type availability is failed rather than
 delegated to the consumer.
 
-### Initial Library and Package
+### Initial aggregate and Package
 
-Library recommendation selects:
+Package entry selects:
 
-1. The available primary Library.
-2. The first available one-Library descriptor in declaration order.
-3. `All libraries`, only when no one-Library descriptor is available.
+1. `All libraries` when aggregate Library evidence is available.
+2. The exact Package when no aggregate is available.
 
-Unavailable or failed aggregate evidence remains visible when a one-Library
-subject is selected.
+The aggregate is a set of exact Library subjects, not a synthetic merged
+assembly. Every projected declaration retains its defining Library identity
+and Package provenance. Exact Type or Member selection succeeds directly when
+one selected Library supplies the identity and returns explicit ambiguity when
+several selected Libraries supply it. Listing and search retain one
+Library-qualified result per producer.
 
-When no Library is available, the exact Package is selected. This allows
-Package-only occurrences, including the tools-v2 pointer-package case
-implemented by #4829.
+Primary and namesake roles do not choose the initial subject. A namesake
+Library is the unique selected compile asset whose assembly name matches the
+Package ID ignoring case; it is available only through an explicit narrowing
+gesture and never falls back to the first Library. Exact Library selection is
+the other narrowing gesture. Primary-role and declaration-order evidence
+remain available for inventory presentation and explicit selection.
 
-For package entry, "best Library" means this product-owned preference, not the
-largest public surface or the first displayed row. Package compile selection
-supplies the primary asset: a file name matching the package ID, ignoring case,
-then the selector's case-insensitive asset-path order with an ordinal
-tie-breaker. Surface projection retains that exact default when available and
-otherwise supplies its available fallback. Consumers use the returned identity,
-not a second ranking implementation.
-
-The browser adoption in #6098 uses the existing `defaultAssemblyId` projection
-for fresh package entry, including opening retained packages through Search.
-Explicit Package, Library, Type, Member and inspector destinations, and
-restored workspace/history state, take precedence. Package remains explicitly
-reachable and retains its full Library inventory. The existing Library Overview
-is the browser's entry inspector; this slice does not adopt the separate
-Registry-backed lens-recommendation protocol below.
+The Browser/Wasm consumer opens the aggregate for fresh Package entry,
+including retained packages opened through Search and Package or framework
+replacement. Explicit Package, namesake Library, exact Library, Type, Member,
+inspector destinations, and restored Workspace/history state take precedence.
+Package remains explicitly reachable and retains its full Library inventory.
+The existing Library Overview is the aggregate entry inspector; this slice
+does not adopt the separate Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
@@ -1136,9 +1135,9 @@ This classification is gated by
 `InventoryJoin_RequiresExactParticipantRegistration`, and
 `Inventories_PreserveExactPackageAncestryAndSequenceEquality`.
 
-The pure ranking over available Library candidates is gated by
-`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`,
-`LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`, and
+The pure aggregate-or-Package selection is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersAggregateThenPackage`,
+`InitialRecommendation_IgnoresPrimaryAndProducerOrder`, and
 `InitialRecommendation_NeverChoosesTypeOrMember`. Candidate coordinate, Library,
 Type, primary-role, and accessibility consistency is gated by
 `CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
@@ -2488,10 +2487,10 @@ must preserve the same typed outcomes and fresh destination content.
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
 | Exact non-success while its subject disappears without correspondence | Result retains the exact request evidence; installed snapshot uses the fallback subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
-| Multi-library package | Primary one-Library subject, then first declaration-order one-Library subject; aggregate only when no one-Library subject is available |
+| Multi-library package | Aggregate Library subject; namesake and exact one-Library subjects remain explicit narrowing destinations |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
-| Primary Library has no default-accessibility Type | Library remains the recommendation |
+| Primary Library has no default-accessibility Type | Aggregate remains the recommendation |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained and other Types available | Defining Library, never another Type; missing lower context is truncated and its diagnostic retained |

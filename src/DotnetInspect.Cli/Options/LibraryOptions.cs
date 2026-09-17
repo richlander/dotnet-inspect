@@ -55,6 +55,11 @@ public record LibraryOptions : IProjectionOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Narrow package inspection to its uniquely named Library.
+    /// </summary>
+    public bool NamesakeLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }

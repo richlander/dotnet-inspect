@@ -205,9 +205,8 @@ public static class OutputFormatter
     /// markout windows rows as it emits them, so the window is applied to table rows the writer
     /// knows about rather than re-derived by parsing rendered Markdown back into tables. That
     /// removes the need to tell a table row from a prose line or a fenced code line after the
-    /// fact. The two remaining rendered-text windowing sites are the ones whose content the
-    /// writer never sees: the <c>@Metadata</c> lens (#3619) and the package all-libraries
-    /// aggregates (#3624).
+    /// fact. The remaining rendered-text windowing site is the <c>@Metadata</c> lens (#3619),
+    /// whose content the writer never sees.
     /// </remarks>
     public static void WriteWindowedMarkdown(
         TextWriter output,
@@ -789,7 +788,7 @@ public static class OutputFormatter
         }
     }
 
-    private static string RenderMarkdownHeading(int level, string title)
+    internal static string RenderMarkdownHeading(int level, string title)
     {
         var output = new StringWriter { NewLine = "\n" };
         var writer = MarkoutWriter.Create(output, new MarkdownFormatter());

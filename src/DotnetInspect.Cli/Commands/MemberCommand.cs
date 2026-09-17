@@ -177,6 +177,57 @@ public static class MemberCommand
 
         try
         {
+            if (PackageApiAggregateExecution.TryGetFrameworks(
+                    options,
+                    source,
+                    out IReadOnlyList<string> frameworks))
+            {
+                if (!PackageApiAggregateExecution.ValidateOutput(options))
+                    return 1;
+                if (frameworks.Count == 0)
+                {
+                    CommandError.Write(
+                        "No compatible package Library target frameworks were found.");
+                    return 1;
+                }
+
+                int exitCode = 0;
+                bool wroteHeading = false;
+                for (int index = 0; index < frameworks.Count; index++)
+                {
+                    string framework = frameworks[index];
+                    ApiSourceResult? frameworkSource =
+                        PackageApiAggregateExecution
+                            .ResolveFrameworkSource(
+                                options,
+                                source,
+                                framework);
+                    if (frameworkSource is null)
+                    {
+                        exitCode = 1;
+                        continue;
+                    }
+                    PackageApiAggregateExecution.WriteFrameworkHeading(
+                        source,
+                        framework,
+                        first: !wroteHeading);
+                    wroteHeading = true;
+                    exitCode = Math.Max(
+                        exitCode,
+                        await ExecuteCoreAsync(
+                            options with
+                            {
+                                Tfm = framework,
+                                TipLevel = TipLevel.Quiet,
+                            },
+                            executionPlan,
+                            frameworkSource,
+                            loadedSurface: null));
+                }
+
+                return exitCode;
+            }
+
             var loaded = loadedSurface
                 ?? (options.RouterDeferredTypeOrMember
                     ? ApiServices.LoadTypeApi(source, options)
@@ -419,7 +470,9 @@ public static class MemberCommand
             }
 
             var acquisition = new ApiCommand.TypeAcquisitionContext(
-                loaded.GetLibraryAssetPath(source.PackageExtractPath),
+                loaded.GetLibraryAssetPath(
+                    source.PackageExtractPath,
+                    apiType),
                 packageName, packageVersion ?? source.ApiVersion, apiSource,
                 selectedTfm,
                 MemberCodeSourceAssembly: sourceAssembly);

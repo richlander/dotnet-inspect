@@ -1107,7 +1107,7 @@ Count-form `--rows 6` and `--rows 6 --tail` retire in favor of `-n 6` and
 `-n 6 --tail`. A range may intersect an `-n` or `--top` result without
 renumbering stable row addresses.
 
-In `package --all-libraries`, singular sections retain one table per library
+In selected-TFM aggregate Library inspection, singular sections retain one table per library
 for windowing even when a row format flattens them with provenance; aggregate
 sections window the rolled-up table once. The paired
 `PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and

@@ -69,6 +69,7 @@ public static class TypeCommand
             TypeName = options.TypeName, PackagePath = options.PackagePath,
             PackageRangeAddress = options.PackageRangeAddress,
             AssemblyPath = options.AssemblyPath,
+            NamesakeLibrary = options.NamesakeLibrary,
             PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
             ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
             SourceRepositories = options.SourceRepositories,
@@ -232,6 +233,58 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (PackageApiAggregateExecution.TryGetFrameworks(
+                    options,
+                    source,
+                    out IReadOnlyList<string> frameworks))
+            {
+                if (!PackageApiAggregateExecution.ValidateOutput(options))
+                    return 1;
+                if (frameworks.Count == 0)
+                {
+                    CommandError.Write(
+                        "No compatible package Library target frameworks were found.");
+                    return 1;
+                }
+
+                int exitCode = 0;
+                bool wroteHeading = false;
+                for (int index = 0; index < frameworks.Count; index++)
+                {
+                    string framework = frameworks[index];
+                    ApiSourceResult? frameworkSource =
+                        PackageApiAggregateExecution
+                            .ResolveFrameworkSource(
+                                options,
+                                source,
+                                framework);
+                    if (frameworkSource is null)
+                    {
+                        exitCode = 1;
+                        continue;
+                    }
+                    PackageApiAggregateExecution.WriteFrameworkHeading(
+                        source,
+                        framework,
+                        first: !wroteHeading);
+                    wroteHeading = true;
+                    exitCode = Math.Max(
+                        exitCode,
+                        await ExecuteCoreAsync(
+                            options with
+                            {
+                                Tfm = framework,
+                                TipLevel = TipLevel.Quiet,
+                            },
+                            plan,
+                            frameworkSource,
+                            loadedSurface: null,
+                            exactTypeCapabilities));
+                }
+
+                return exitCode;
+            }
+
             if (string.IsNullOrEmpty(typeName)
                 || new TypeGestureIntent(
                         options.TypeFilter)
@@ -352,7 +405,9 @@ public static class TypeCommand
                     ResolvedAssemblyReference? sourceAssembly =
                         loaded.TryGetSourceAssembly(apiType);
                     var acquisition = new ApiCommand.TypeAcquisitionContext(
-                        loaded.GetLibraryAssetPath(source.PackageExtractPath),
+                        loaded.GetLibraryAssetPath(
+                            source.PackageExtractPath,
+                            apiType),
                         packageName, packageVersion ?? apiVersion, apiSource, selectedTfm,
                         sourceAssembly);
 
@@ -680,6 +735,7 @@ public static class TypeCommand
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.PackageRangeAddress is not null
             || options.AssemblyPath is not null
+            || options.NamesakeLibrary
             || options.PlatformAssembly is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null

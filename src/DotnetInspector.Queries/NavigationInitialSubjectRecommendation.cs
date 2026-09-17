@@ -220,11 +220,7 @@ public static class NavigationInitialSubjectRecommendation
             allLibraries,
             libraries);
         StructuralSubjectIdentity subject =
-            (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
-                library => library.IsPrimary)?.Subject
-            ?? (StructuralSubjectIdentity?)basis.Libraries
-                .FirstOrDefault()?.Subject
-            ?? (StructuralSubjectIdentity?)basis.AllLibraries
+            (StructuralSubjectIdentity?)basis.AllLibraries
             ?? basis.Package;
         return new NavigationInitialSubjectOutcome(basis, subject);
     }

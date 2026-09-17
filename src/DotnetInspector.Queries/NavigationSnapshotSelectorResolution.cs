@@ -162,23 +162,34 @@ public static class NavigationSnapshotSelector
 
     public static NavigationSnapshotSelectorResolution ResolveType(
         NavigationWorkspaceSnapshot snapshot,
-        StructuralSubjectIdentity.LibrarySubject library,
+        StructuralSubjectIdentity library,
         string fullName)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(library);
         ArgumentException.ThrowIfNullOrEmpty(fullName);
-        NavigationLibraryInventory inventory = LibraryInventory(
-            snapshot,
-            library);
+        NavigationTypeInventoryOutcome inventory = library switch
+        {
+            StructuralSubjectIdentity.LibrarySubject exact =>
+                LibraryInventory(snapshot, exact).Types,
+            StructuralSubjectIdentity.AllLibrariesSubject aggregate
+                when snapshot.Inventory?.Package
+                    == aggregate.Package
+                    && snapshot.Libraries.Any(candidate =>
+                        candidate.Subject == aggregate) =>
+                snapshot.Inventory.Types,
+            _ => throw new ArgumentException(
+                "The selected Library subject must belong to the evaluated snapshot.",
+                nameof(library)),
+        };
         NavigationTypeInventoryRow[] matches =
         [
-            .. inventory.Types.Rows.Where(row =>
+            .. inventory.Rows.Where(row =>
                 row.Subject.Identity.Type.ToEscapedFullName().Equals(
                     fullName,
                     StringComparison.Ordinal)),
         ];
-        return Resolve(snapshot, fullName, inventory.Types, matches.Select(
+        return Resolve(snapshot, fullName, inventory, matches.Select(
             static row => (StructuralSubjectIdentity)row.Subject));
     }
 

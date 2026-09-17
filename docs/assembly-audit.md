@@ -289,7 +289,7 @@ gates the content-free Markdown and JSONL shapes, and
 `LibraryAudit_InspectsAssemblyAndReferenceNames` gate the typed identifier
 scopes. `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
 gates the explicit library producer demand;
-`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+`PackageLibraryAggregateIdentifierConfusionAudit_CollectsTransitiveReferences`
 gates the survey-mode producer demand;
 `LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
 gates full-effective discovery;
@@ -313,14 +313,14 @@ That test also gates preservation of healthy `@Audit` sections when the
 identifier-confusion member fails.
 `LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
 same content-free hard failure for an exact package-backed library selection.
-`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+`PackageLibraryAggregateIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
 `LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
 per-source outcome contract across target frameworks.
 `LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 and
-`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+`PackageLibraryAggregateIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 gate visible root AssemblyRef decode failure without a false `None` result.
 `LibraryReferenceTree_ReadFailureDiagnosticIsContentFree` gates the same
 content-free failure category on the public reference-tree projection.

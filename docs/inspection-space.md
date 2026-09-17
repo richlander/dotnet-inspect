@@ -31,13 +31,12 @@ the optional persistent-cache port, and detached terminal results. The detailed
 Workspace sections below remain authoritative for current behavior until their
 focused adoptions land; their retained-realization and in-place mutation contracts
 are scheduled migration conflicts rather than implementations of the target.
-The library CLI and package
-`--all-libraries` now use an ephemeral workspace for focused Integrations
+Selected-TFM aggregate Library inspection uses an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group per binding universe
 scans selected participants sequentially, preserves per-assembly identity,
 provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
-`--all-libraries` partitions binding universes by package asset directory,
+aggregate inspection partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
 participant before advancing. For a remote package whose default selection
 resolves one target framework, that grouped path now consumes the shared
@@ -765,7 +764,7 @@ and
 gate prerequisite composition, existing-integration suppression, and snapshot
 reuse.
 
-Package `--all-libraries` constructs one
+Package aggregate Library inspection constructs one
 `SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
 and passes that shared policy snapshot to every participant in that group.
 `--tfm all` therefore creates separate groups for distinct framework, asset-kind,

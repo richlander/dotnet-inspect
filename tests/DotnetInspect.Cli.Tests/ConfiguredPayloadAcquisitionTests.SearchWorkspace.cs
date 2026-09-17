@@ -477,7 +477,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal("", result.Error);
         using System.Text.Json.JsonDocument document =
             System.Text.Json.JsonDocument.Parse(result.Output);
-        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.Single(document.RootElement.EnumerateArray());
     }
 
     [Fact]

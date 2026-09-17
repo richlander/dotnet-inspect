@@ -48,9 +48,9 @@ public record InspectionOptions : IProjectionOptions
     public string? PackageLibrary { get; init; }
 
     /// <summary>
-    /// Inspect all compatible libraries in the package instead of selecting one.
+    /// Route package Library-section demand through the normal aggregate Library pipeline.
     /// </summary>
-    public bool AllLibraries { get; init; }
+    public bool AggregateLibraries { get; init; }
 
     /// <summary>
     /// Show the package file tree (lib/tools structure).
@@ -320,7 +320,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null;
 
     /// <summary>
     /// All inspection features enabled.

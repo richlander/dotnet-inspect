@@ -27,7 +27,7 @@ Implementation comparison inspection, plus group-scoped
 PDB-mapped-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
 and Implementation Diff sections consume producer-owned comparison results
 over host-resolved surfaces, body indexes, and retained assembly content.
-The library CLI, package `--all-libraries`, `extensions`, `implements`, and
+The library CLI's package aggregate, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
 Integrations and extension reachability retain compatible participants for

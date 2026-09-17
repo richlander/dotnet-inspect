@@ -250,7 +250,7 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-The library CLI and package `--all-libraries` host execute this query when a
+The library CLI's selected-TFM package aggregate executes this query when a
 focused detected-integration section is selected. `Integration: Opportunities`
 binds to `AssemblyContextIntegrationOpportunitiesQuery`, which declares the
 Integrations query as a typed prerequisite. The dependent query composes the
@@ -273,7 +273,7 @@ group, which lets Inspect Web keep its exact package workspace alive across
 exports. The streaming execution form lends the retained image to one callback,
 then returns the same detached envelope after release, which lets the CLI keep
 participant-at-a-time package retention. The first bounded consumers are
-Inspect Web package Opportunities and CLI package `--all-libraries`
+Inspect Web package Opportunities and CLI package aggregate
 `Integration: Opportunities`; their package workspaces are acquired through
 the PackageHouse/package-realization paths. Direct local-library CLI queries
 and Inspect Web platform Opportunities remain neighboring query consumers and
@@ -356,7 +356,7 @@ acquisition-identity case.
 `Execute_ExplicitInducedSetRetainsUnavailableSelectedBinding` gate the explicit
 failure-boundary rule.
 
-Package `--all-libraries` creates one binding-consistent group per package asset
+Package aggregate Library inspection creates one binding-consistent group per package asset
 directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
 never combines different binding universes. Every root receives its own
 `AssemblyDependencyResolver`, and

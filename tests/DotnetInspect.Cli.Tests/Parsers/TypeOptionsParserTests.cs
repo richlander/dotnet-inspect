@@ -19,6 +19,8 @@ public class TypeOptionsParserTests
         var packageOption = new Option<string?>("--package");
         var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
+        var namesakeLibraryOption =
+            new Option<bool>("--namesake-library");
         var platformOption = new Option<string?>("--platform");
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
@@ -36,6 +38,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -60,11 +63,22 @@ public class TypeOptionsParserTests
 
         var root = new RootCommand { typeCommand };
         var args = new TypeOptionsParser.TypeCommandArgs(
-            argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
+            argsArg, packageOption, assemblyOption, namesakeLibraryOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
             shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
 
         return (root, opts, args);
+    }
+
+    [Fact]
+    public async Task NamesakeLibrary_PopulatesNarrowingGesture()
+    {
+        var options = await ParseSuccessAsync(
+            "type", "Package.Name", "Some.Type",
+            "--namesake-library");
+
+        Assert.True(options.NamesakeLibrary);
+        Assert.Null(options.AssemblyPath);
     }
 
     [Fact]

@@ -69,6 +69,6 @@ Heap addresses are decimal unless prefixed with `0x`. String and blob listings
 contain distinct values referenced by projected table rows, not a claim of
 complete heap enumeration; each listing reports its coverage.
 
-Selecting `@Metadata` for a package that resolves to several assemblies is
-ambiguous and fails. Choose one DLL with `library`, or use
-`package Foo --library` only when the package has one unambiguous library.
+Selecting `@Metadata` for a package inspects every compatible selected-TFM
+library independently. Add `--namesake-library` for the unique package-name
+match or `--library <asset>` for one exact DLL.

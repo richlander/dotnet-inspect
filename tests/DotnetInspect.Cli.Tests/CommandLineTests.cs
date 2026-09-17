@@ -819,8 +819,6 @@ public class CommandLineTests
     [Theory]
     [InlineData("--path", "-n1")]
     [InlineData("--path", "-1")]
-    [InlineData("--library", "-n1")]
-    [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
     [InlineData("--version", "-1")]
     public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(

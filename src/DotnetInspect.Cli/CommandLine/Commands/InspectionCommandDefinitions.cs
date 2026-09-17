@@ -365,6 +365,10 @@ public static class InspectionCommandDefinitions
         var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description = "Narrow package inspection to the unique library whose name matches the package"
+        };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
@@ -389,6 +393,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(referenceDepthOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmPackageOption);
+        assemblyCommand.Options.Add(namesakeLibraryOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
@@ -467,7 +472,14 @@ public static class InspectionCommandDefinitions
             }
             else if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
-                if (File.Exists(source))
+                if (File.Exists(source)
+                    && source.EndsWith(
+                        ".nupkg",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    packagePath = source;
+                }
+                else if (File.Exists(source))
                     assemblyPath = source;
                 else if (source.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
                     || source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
@@ -503,6 +515,21 @@ public static class InspectionCommandDefinitions
             else if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(explicitPackage))
             {
                 assemblyPath = source;
+            }
+
+            if (parseResult.GetValue(namesakeLibraryOption)
+                && packagePath is null)
+            {
+                CommandError.Write(
+                    "--namesake-library requires a package source.");
+                return 1;
+            }
+            if (parseResult.GetValue(namesakeLibraryOption)
+                && assemblyPath is not null)
+            {
+                CommandError.Write(
+                    "--namesake-library cannot be combined with an exact library.");
+                return 1;
             }
 
             bool showReferences = parseResult.GetValue(referencesOption);
@@ -614,6 +641,7 @@ public static class InspectionCommandDefinitions
                 IncludeDependencies = showDependencies,
                 ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
                 PackagePath = packagePath,
+                NamesakeLibrary = parseResult.GetValue(namesakeLibraryOption),
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
                 PlatformAssembly = platformAssembly,
                 PlatformFramework = requestedFramework,

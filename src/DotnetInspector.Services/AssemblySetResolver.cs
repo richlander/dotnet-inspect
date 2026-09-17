@@ -468,13 +468,22 @@ public static class AssemblySetResolver
         }
         else
         {
-            var selection = TfmSelector.SelectHighestAssembliesFromPackage(extracted.ExtractPath, tfm);
-            selectedTfm = selection.tfm;
-            dlls = selection.paths;
-            if (!includeRuntimeAssemblies)
+            if (includeRuntimeAssemblies)
             {
-                dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
-                    && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
+                var selection = TfmSelector.SelectHighestAssembliesFromPackage(
+                    extracted.ExtractPath,
+                    tfm);
+                selectedTfm = selection.tfm;
+                dlls = selection.paths;
+            }
+            else
+            {
+                TfmSelector.PackageLibraryResolution selection =
+                    TfmSelector.SelectPackageLibraries(
+                        extracted.ExtractPath,
+                        tfm);
+                selectedTfm = selection.Tfm;
+                dlls = selection.Paths;
             }
             dlls = dlls.OrderBy(static p => p, StringComparer.Ordinal);
         }

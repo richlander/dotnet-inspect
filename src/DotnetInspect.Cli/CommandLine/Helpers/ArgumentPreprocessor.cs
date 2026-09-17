@@ -105,6 +105,16 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static string? GetRemovedPackageOptionError(string option)
     {
+        if (option.Equals("--all-libraries", StringComparison.Ordinal)
+            || option.StartsWith(
+                "--all-libraries=",
+                StringComparison.Ordinal))
+        {
+            return "'--all-libraries' is no longer valid. Selected-TFM package "
+                + "Library inspection now includes all compatible libraries by "
+                + "default; use '--namesake-library' or '--library <asset>' to narrow.";
+        }
+
         // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
         // named the removed flag and both deserve the replacement.
         if (!option.Equals("--readme", StringComparison.Ordinal)

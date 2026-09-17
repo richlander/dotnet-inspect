@@ -30,11 +30,21 @@ internal static class ApiServices
             ApiType,
             SelectedTypeBindingContext>? BindingContexts = null)
     {
-        internal string GetLibraryAssetPath(string? packageExtractPath) =>
+        internal string GetLibraryAssetPath(
+            string? packageExtractPath,
+            ApiType? type = null)
+        {
+            string path =
+                type is not null
+                && TryGetSourceAssembly(type)?.Path is { } sourcePath
+                    ? sourcePath
+                    : ApiDllPath;
+            return
             packageExtractPath is null
-                ? Path.GetFullPath(ApiDllPath)
-                : Path.GetRelativePath(packageExtractPath, ApiDllPath)
+                ? Path.GetFullPath(path)
+                : Path.GetRelativePath(packageExtractPath, path)
                     .Replace(Path.DirectorySeparatorChar, '/');
+        }
 
         internal ResolvedAssemblyReference GetSourceAssembly(
             ApiType type)
@@ -111,6 +121,26 @@ internal static class ApiServices
         bool useTypedSelection = false,
         string? platformFramework = null)
     {
+        if (packageExtractPath is not null
+            && Directory.Exists(searchPath)
+            && string.IsNullOrWhiteSpace(options.AssemblyPath)
+            && !options.NamesakeLibrary)
+        {
+            return LoadPackageAggregateApi(
+                searchPath,
+                packagePath,
+                packageName,
+                apiSource,
+                apiVersion,
+                selectedTfm,
+                logger,
+                options,
+                packageExtractPath,
+                usePackageSourcePolicy,
+                useTypedSelection,
+                platformFramework);
+        }
+
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
             return null;
@@ -220,6 +250,117 @@ internal static class ApiServices
             sourceAssemblies,
             RootBindingContext: rootBindingContext,
             BindingContexts: bindingContexts);
+    }
+
+    private static LoadedApiSurface? LoadPackageAggregateApi(
+        string extractPath,
+        string? packagePath,
+        string? packageName,
+        string? apiSource,
+        string? apiVersion,
+        string? selectedTfm,
+        VerboseLogger logger,
+        ApiOptions options,
+        string packageExtractPath,
+        bool usePackageSourcePolicy,
+        bool useTypedSelection,
+        string? platformFramework)
+    {
+        TfmSelector.PackageLibraryResolution selection =
+            TfmSelector.SelectPackageLibraries(
+                extractPath,
+                options.Tfm ?? selectedTfm);
+        if (!selection.IsSelected)
+            return null;
+
+        var loadedLibraries = new List<LoadedApiSurface>();
+        foreach (string path in selection.Paths)
+        {
+            LoadedApiSurface? loaded = LoadFullApi(
+                path,
+                runtimeAssemblyPath: null,
+                packagePath,
+                packageName,
+                apiSource,
+                apiVersion,
+                selection.Tfm,
+                logger,
+                options,
+                packageExtractPath,
+                usePackageSourcePolicy,
+                useTypedSelection,
+                platformFramework);
+            if (loaded is null)
+                return null;
+            loadedLibraries.Add(loaded);
+        }
+
+        LoadedApiSurface first = loadedLibraries[0];
+        var api = new ApiSurface
+        {
+            Name = packageName ?? first.Api.Name,
+            Version = apiVersion ?? first.Api.Version,
+            Source = apiSource,
+            Tfm = selection.Tfm,
+            Types = [.. loadedLibraries.SelectMany(
+                static loaded => loaded.Api.Types)],
+            FilteredRuntimeJsExportFacts =
+            [
+                .. loadedLibraries.SelectMany(
+                    static loaded =>
+                        loaded.Api.FilteredRuntimeJsExportFacts),
+            ],
+            InspectionFailures =
+            [
+                .. loadedLibraries.SelectMany(
+                    static loaded => loaded.Api.InspectionFailures),
+            ],
+            TypeForwarders =
+            [
+                .. loadedLibraries.SelectMany(
+                    static loaded => loaded.Api.TypeForwarders),
+            ],
+            PublicTypeCount = loadedLibraries.Sum(
+                static loaded => loaded.Api.PublicTypeCount),
+            PublicMethodCount = loadedLibraries.Sum(
+                static loaded => loaded.Api.PublicMethodCount),
+            PublicPropertyCount = loadedLibraries.Sum(
+                static loaded => loaded.Api.PublicPropertyCount),
+            PublicEventCount = loadedLibraries.Sum(
+                static loaded => loaded.Api.PublicEventCount),
+            PublicFieldCount = loadedLibraries.Sum(
+                static loaded => loaded.Api.PublicFieldCount),
+        };
+
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        var bindingContexts =
+            new Dictionary<ApiType, SelectedTypeBindingContext>(
+                ReferenceEqualityComparer.Instance);
+        foreach (LoadedApiSurface loaded in loadedLibraries)
+        {
+            foreach (ApiType type in loaded.Api.Types)
+            {
+                if (loaded.TryGetSourceAssembly(type) is { } sourceAssembly)
+                {
+                    sourceAssemblies.Add(type, sourceAssembly);
+                    type.SourceAssemblyPath ??= sourceAssembly.Path;
+                }
+                if (loaded.TryGetBindingContext(type) is { } bindingContext)
+                    bindingContexts.Add(type, bindingContext);
+            }
+        }
+
+        return new LoadedApiSurface(
+            api,
+            first.ApiDllPath,
+            first.PdbLookupPath,
+            sourceAssemblies,
+            BindingContexts:
+                bindingContexts.Count == 0
+                    ? null
+                    : bindingContexts);
     }
 
     static ResolvedAssemblyReference? SelectRootAssembly(

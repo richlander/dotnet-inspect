@@ -149,12 +149,20 @@ public sealed class NavigationDetachmentTests
                 var facts = new NavigationEvaluationFacts(scope, package, (_, _) => availability);
                 var evaluations = ImmutableArray.CreateBuilder<NavigationEvaluationResult>();
                 NavigationOperationInitialization initialized = NavigationTransitions.Initialize(workspace.Identity, facts, registry);
-                StructuralSubjectIdentity.LibrarySubject library = Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                    initialized.State.InstalledSnapshot.ActiveSubject);
+                NavigationAction libraryAction =
+                    initialized.Result.Consumer.Snapshot.Libraries
+                        .Single(item => !item.IsAggregate).Navigation.Action!;
+                NavigationTransition librarySelection =
+                    Complete(NavigationTransitions.Begin(
+                        initialized.State,
+                        libraryAction));
+                StructuralSubjectIdentity.LibrarySubject library =
+                    Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+                        librarySelection.State.InstalledSnapshot.ActiveSubject);
                 Assert.Equal(library, StructuralSubjectIdentity.ForLibrary(library.Package, libraries[0].Library));
                 Assert.Same(library.Identity.Registration,
                     NavigationRegistrationIdentity.From(registration));
-                NavigationTransition libraryBegin = NavigationTransitions.BeginLens(initialized.State,
+                NavigationTransition libraryBegin = NavigationTransitions.BeginLens(librarySelection.State,
                     new(library, new ViewFacetId("library.metadata")));
                 NavigationTransition libraryResult = Complete(libraryBegin);
                 NavigationAction typeAction = libraryResult.State.Snapshot.Types

@@ -206,13 +206,13 @@ dnx dotnet-inspect -y -- graph integrations \
   --relationship integration.observed
 ```
 
-`-S @Integrations` on `library` or `package --library` rolls up the ecosystem
+`-S @Integrations` on `library` rolls up the ecosystem
 frameworks a library plugs into — DI, hosting, ASP.NET Core, AI, OpenTelemetry,
 configuration, logging, and more — plus `Integration Opportunities` and
 language/runtime integration signals like C# union types.
 
 ```bash
-dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
+dnx dotnet-inspect -y -- library Microsoft.Extensions.AI -S @Integrations
 dnx dotnet-inspect -y -- library MyLibrary.dll -S "Union Types" --tsv
 dnx dotnet-inspect -y -- library --platform System.Text.Json -S "Union Types" --tsv
 ```

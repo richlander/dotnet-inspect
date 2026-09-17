@@ -498,7 +498,6 @@ public static class WorkspaceCommand
         NavigationFacetAvailabilityProvider availability)
     {
         if (options.Library is null
-            && !options.AllLibraries
             && options.Type is null)
         {
             return new(
@@ -509,18 +508,7 @@ public static class WorkspaceCommand
 
         NavigationSnapshotSelectorResolution? sourceSelection = null;
         StructuralSubjectIdentity sourceLibrary;
-        if (options.AllLibraries)
-        {
-            sourceSelection =
-                NavigationSnapshotSelector.ResolveAllLibraries(initial);
-            if (sourceSelection
-                is not NavigationSnapshotSelectorResolution.Selected all)
-            {
-                return FailedSelection(sourceSelection);
-            }
-            sourceLibrary = all.Subject;
-        }
-        else if (options.Library is not null)
+        if (options.Library is not null)
         {
             sourceSelection = NavigationSnapshotSelector.ResolveLibrary(
                 initial,
@@ -536,7 +524,9 @@ public static class WorkspaceCommand
         else
         {
             sourceLibrary = initial.ActiveSubject;
-            if (sourceLibrary is not StructuralSubjectIdentity.LibrarySubject)
+            if (sourceLibrary is not (
+                    StructuralSubjectIdentity.LibrarySubject
+                    or StructuralSubjectIdentity.AllLibrariesSubject))
             {
                 NavigationSnapshotSelectorResolution unavailable =
                     NavigationSnapshotSelector.ResolveAllLibraries(initial);
@@ -562,26 +552,30 @@ public static class WorkspaceCommand
                 sourceSelection);
         }
 
-        NavigationSnapshotSelectorResolution librarySelection =
-            NavigationSnapshotSelector.ResolveLibrary(
-                source,
-                WorkspaceNavigationPortableSelector.Decode(
-                    options.Library
-                        ?? throw new InvalidOperationException(
-                            "An exact Type destination requires a defining Library selector.")));
-        if (librarySelection
-            is not NavigationSnapshotSelectorResolution.Selected
-            {
-                Subject:
-                    StructuralSubjectIdentity.LibrarySubject definingLibrary,
-            })
+        StructuralSubjectIdentity definingScope = sourceLibrary;
+        if (options.Library is not null)
         {
-            return FailedSelection(librarySelection);
+            NavigationSnapshotSelectorResolution librarySelection =
+                NavigationSnapshotSelector.ResolveLibrary(
+                    source,
+                    WorkspaceNavigationPortableSelector.Decode(
+                        options.Library));
+            if (librarySelection
+                is not NavigationSnapshotSelectorResolution.Selected
+                {
+                    Subject:
+                        StructuralSubjectIdentity.LibrarySubject
+                            definingLibrary,
+                })
+            {
+                return FailedSelection(librarySelection);
+            }
+            definingScope = definingLibrary;
         }
         NavigationSnapshotSelectorResolution typeSelection =
             NavigationSnapshotSelector.ResolveType(
                 source,
-                definingLibrary,
+                definingScope,
                 WorkspaceNavigationPortableSelector.Decode(options.Type));
         if (typeSelection
             is not NavigationSnapshotSelectorResolution.Selected
@@ -837,19 +831,13 @@ public static class WorkspaceCommand
         }
         bool hasNavigationSelector =
             options.Library is not null
-            || options.AllLibraries
             || options.Type is not null
             || options.Member is not null
             || options.Lens is not null;
         if (hasNavigationSelector && options.ActivePackage is null)
         {
-            return "--library, --all-libraries, --type, --member, and --lens "
+            return "--library, --type, --member, and --lens "
                 + "require --active-package.";
-        }
-        if (options.Type is not null && options.Library is null)
-        {
-            return "--type requires --library so the exact defining Library "
-                + "remains explicit.";
         }
         if (options.Member is not null && options.Type is null)
             return "--member requires --type.";
@@ -863,18 +851,6 @@ public static class WorkspaceCommand
         {
             return "--lens currently applies to an exact --type or --member "
                 + "destination.";
-        }
-        if (options.AllLibraries && options.Member is not null)
-        {
-            return "--all-libraries applies only to a Library-to-Type "
-                + "destination.";
-        }
-        if (options.AllLibraries
-            && options.Library is not null
-            && options.Type is null)
-        {
-            return "--library names the exact defining Library only when "
-                + "--all-libraries supplies a Library-to-Type source.";
         }
         return null;
     }

@@ -446,7 +446,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(firstLens, second.Snapshot.Types[0].DescendantLenses.Single(row => row.Facet.Id == "type.compare"));
         Assert.NotEqual(first.Authority.Revision, second.Authority!.Revision);
         NavigationDescendantLensDescriptor retained = session.InstalledSnapshot.DescendantLenses
-            .Single(row => row.Request.Destination.Facet.Value == "type.compare");
+            .First(row => row.Request.Destination.Facet.Value == "type.compare");
         Assert.Same(secondEvidence, Assert.IsType<ViewFacetAvailability.Failed>(retained.Option.Availability).Evidence);
         fixture.Acknowledge(second);
         NavigationConsumerResult same = await session.RefreshAsync(TestContext.Current.CancellationToken);
@@ -666,7 +666,7 @@ public sealed partial class NavigationSessionTests
             : session.Snapshot.Types[0].DescendantLenses).Single(row => row.Facet.Id == facet);
         NavigationAction action = lens.Action!;
         DescendantSubjectLensRequest expected = installed.DescendantLenses
-            .Single(row => row.Request.Destination.Facet.Value == facet).Request;
+            .First(row => row.Request.Destination.Facet.Value == facet).Request;
         var evidence = new VariantDiagnostic(42);
         var reason = ViewFacetUnavailableReason.CapabilityAbsent("exact destination unavailable");
         fixture.Override = id => id.Value == facet
@@ -726,8 +726,12 @@ public sealed partial class NavigationSessionTests
         await using Fixture fixture = await Fixture.CreateAsync(registry: new([first, second], [first.Binding, second.Binding]));
         NavigationTestHost session = fixture.Session;
         NavigationWorkspaceSnapshot installed = session.InstalledSnapshot;
-        NavigationAction action = session.Snapshot.Types[0].DescendantLenses.Single().Action!;
-        DescendantSubjectLensRequest expected = installed.DescendantLenses.Single().Request;
+        NavigationConsumerLensDescriptor lens =
+            session.Snapshot.Types[0].DescendantLenses.Single();
+        NavigationAction action = lens.Action!;
+        DescendantSubjectLensRequest expected = installed.DescendantLenses
+            .First(row => row.Request.Destination.Facet.Value == "type.compare")
+            .Request;
         applicable = false;
         NavigationOperationResult operation = await session.ExecuteOperationAsync(action, TestContext.Current.CancellationToken);
         NavigationConsumerResult result = operation.Consumer;

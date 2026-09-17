@@ -1,5 +1,7 @@
 using DotnetInspector.Packages;
 using NuGetFetch;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Services;
 
@@ -8,6 +10,13 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class TfmSelector
 {
+    public enum PackageLibraryImageKind
+    {
+        ManagedAssembly,
+        NonAssembly,
+        Unreadable,
+    }
+
     private static List<string> FilterResourceAssemblies(IEnumerable<string> dlls)
         => dlls.Where(d => !IsSatelliteResourceAssembly(d)).ToList();
 
@@ -17,14 +26,16 @@ public static class TfmSelector
         NoAssemblies,
         NoMatchingTargetFramework,
         RequestedLibraryNotFound,
-        Ambiguous
+        Ambiguous,
+        NamesakeIdentityUnavailable
     }
 
     public sealed record PackageLibraryResolution(
         IReadOnlyList<string> Paths,
         string? Tfm,
         PackageLibraryResolutionStatus Status,
-        IReadOnlyList<string> CandidatePaths)
+        IReadOnlyList<string> CandidatePaths,
+        IReadOnlyList<string>? IdentityFailurePaths = null)
     {
         public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
     }
@@ -406,57 +417,170 @@ public static class TfmSelector
     {
         if (!string.IsNullOrWhiteSpace(requestedLibrary))
         {
-            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(extractPath, requestedLibrary, tfm);
+            PackageLibraryResolution candidates =
+                SelectPackageLibraries(extractPath, tfm);
+            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
+                candidates.Paths,
+                extractPath,
+                requestedLibrary,
+                candidates.Tfm);
             return matchedAssembly != null
                 ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
-                : new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.RequestedLibraryNotFound, GetCandidateLibraries(extractPath, tfm));
+                : new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.RequestedLibraryNotFound, candidates.CandidatePaths);
         }
 
         var resolution = SelectPackageLibraries(extractPath, tfm);
         if (!resolution.IsSelected)
             return resolution;
 
-        if (resolution.Paths.Count == 1)
-            return new PackageLibraryResolution([resolution.Paths[0]], resolution.Tfm, PackageLibraryResolutionStatus.Selected, resolution.CandidatePaths);
-
+        var identityFailures = new List<string>();
         var packageNameMatches = resolution.Paths
-            .Where(path => Path.GetFileNameWithoutExtension(path).Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            .Where(path =>
+            {
+                string? assemblyName =
+                    TryReadAssemblySimpleName(path);
+                if (assemblyName is null)
+                {
+                    identityFailures.Add(path);
+                    return false;
+                }
+
+                return assemblyName.Equals(
+                    packageId,
+                    StringComparison.OrdinalIgnoreCase);
+            })
             .ToList();
+        if (identityFailures.Count > 0)
+        {
+            return new PackageLibraryResolution(
+                [],
+                resolution.Tfm,
+                PackageLibraryResolutionStatus
+                    .NamesakeIdentityUnavailable,
+                resolution.Paths,
+                identityFailures);
+        }
+
         return packageNameMatches.Count == 1
             ? new PackageLibraryResolution([packageNameMatches[0]], resolution.Tfm, PackageLibraryResolutionStatus.Selected, resolution.CandidatePaths)
             : new PackageLibraryResolution([], resolution.Tfm, PackageLibraryResolutionStatus.Ambiguous, resolution.Paths);
     }
 
+    private static string? TryReadAssemblySimpleName(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return null;
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            return reader.IsAssembly
+                ? reader.GetString(
+                    reader.GetAssemblyDefinition().Name)
+                : null;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
     public static PackageLibraryResolution SelectPackageLibraries(string extractPath, string? tfm = null)
     {
-        List<string> selected;
-        string? selectedTfm;
-        if (string.IsNullOrWhiteSpace(tfm))
-        {
-            var candidates = GetPackageAssemblies(extractPath);
-            if (candidates.Count == 0)
-                return new PackageLibraryResolution([], null, PackageLibraryResolutionStatus.NoAssemblies, []);
+        List<string> candidates =
+            GetPackageLibraryAssemblies(extractPath);
+        if (candidates.Count == 0)
+            return new PackageLibraryResolution([], null, PackageLibraryResolutionStatus.NoAssemblies, []);
 
-            (selected, selectedTfm) = SelectHighestAssemblies(candidates, extractPath);
-        }
-        else
-        {
-            (selected, selectedTfm) = SelectHighestAssembliesFromPackage(extractPath, tfm);
-        }
+        var (selected, selectedTfm) =
+            SelectHighestAssemblies(candidates, extractPath, tfm);
 
         if (selected.Count == 0)
             return new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.NoMatchingTargetFramework, GetCandidateLibraries(extractPath, tfm));
 
-        var ordered = selected
+        var compileLibraries = selected
+            .GroupBy(path => GetTfm(extractPath, path),
+                StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group =>
+            {
+                string[] referenceAssemblies =
+                [
+                    .. group.Where(path =>
+                        Path.GetRelativePath(extractPath, path)
+                            .Replace('\\', '/')
+                            .StartsWith(
+                                "ref/",
+                                StringComparison.OrdinalIgnoreCase)),
+                ];
+                return referenceAssemblies.Length > 0
+                    ? referenceAssemblies
+                    : group.ToArray();
+            });
+        var ordered = compileLibraries
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
         return new PackageLibraryResolution(ordered, selectedTfm, PackageLibraryResolutionStatus.Selected, ordered);
     }
 
+    public static PackageLibraryImageKind ClassifyPackageLibraryImage(
+        string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return PackageLibraryImageKind.NonAssembly;
+
+            MetadataReader metadata = peReader.GetMetadataReader();
+            return metadata.IsAssembly
+                ? PackageLibraryImageKind.ManagedAssembly
+                : PackageLibraryImageKind.NonAssembly;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            return PackageLibraryImageKind.Unreadable;
+        }
+    }
+
     private static List<string> GetCandidateLibraries(string extractPath, string? tfm)
-        => string.IsNullOrWhiteSpace(tfm)
-            ? GetPackageAssemblies(extractPath)
-            : SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
+        => SelectHighestAssemblies(
+            GetPackageLibraryAssemblies(extractPath),
+            extractPath,
+            tfm).paths;
+
+    public static List<string> GetPackageLibraryTfms(string extractPath)
+        => GetPackageTfms(
+            GetPackageLibraryAssemblies(extractPath),
+            extractPath);
+
+    private static List<string> GetPackageLibraryAssemblies(
+        string extractPath)
+    {
+        IEnumerable<string> FilesUnder(string directory)
+        {
+            string path = Path.Combine(extractPath, directory);
+            return Directory.Exists(path)
+                ? Directory.GetFiles(
+                    path,
+                    "*.dll",
+                    SearchOption.AllDirectories)
+                : [];
+        }
+
+        return FilterResourceAssemblies(
+                [.. FilesUnder("ref"), .. FilesUnder("lib")])
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
     {

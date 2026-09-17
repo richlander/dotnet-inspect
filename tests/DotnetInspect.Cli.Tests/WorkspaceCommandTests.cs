@@ -245,6 +245,53 @@ public sealed class WorkspaceCommandTests
                 .GetProperty("lens").GetString());
     }
 
+    [Fact]
+    public async Task TypeWithoutLibraryResolvesAgainstAggregateSubject()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(WorkspaceCommandTests).Assembly.Location,
+                    TestContext.Current.CancellationToken)),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(PdbContext).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        using var client = new HttpClient(new FailingHandler());
+        string portable =
+            WorkspaceNavigationPortableSelector.Encode(
+                typeof(PdbContext).FullName!);
+
+        var selected = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    Type = portable,
+                    Lens = "type.compare",
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, selected.ExitCode);
+        Assert.Empty(selected.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(selected.Output);
+        Assert.True(
+            document.RootElement.GetProperty("types")
+                .EnumerateArray()
+                .Single(row =>
+                    row.GetProperty("type").GetString()
+                        == portable)
+                .GetProperty("active").GetBoolean());
+    }
+
     [Theory]
     [InlineData("\t")]
     [InlineData("\u2028")]
@@ -1155,67 +1202,6 @@ public sealed class WorkspaceCommandTests
                 document.RootElement.GetProperty("diagnostics")
                     .EnumerateArray())
                 .GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task RootOnlyAllLibraries_RendersTypedUnavailableSnapshot()
-    {
-        var store = new InMemoryPackageStore();
-        await AddPackageAsync(store, PackageId, ("readme.txt", []));
-        using var client = new HttpClient(new FailingHandler());
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
-                new WorkspaceOptions
-                {
-                    Packages = [$"{PackageId}@{Version}"],
-                    Tfm = Framework,
-                    ActivePackage = 1,
-                    AllLibraries = true,
-                    Format = OutputFormat.Json,
-                },
-                LoadOptions(client, store),
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Error);
-        using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Equal(
-            "Package",
-            document.RootElement.GetProperty("navigation")[0]
-                .GetProperty("active_kind").GetString());
-        Assert.Equal(
-            "selector-unavailable",
-            Assert.Single(
-                document.RootElement.GetProperty("diagnostics")
-                    .EnumerateArray())
-                .GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination()
-    {
-        string[] arguments =
-        [
-            "workspace",
-            "--active-package",
-            "1",
-            "--all-libraries",
-            "--library",
-            "compile:lib/net10.0/Example.dll",
-            "--json",
-        ];
-
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(arguments)
-                .InvokeAsync());
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.Contains(
-            "--library names the exact defining Library",
-            captured.Error);
     }
 
     static string RenderNavigation(

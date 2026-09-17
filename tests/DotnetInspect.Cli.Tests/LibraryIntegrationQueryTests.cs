@@ -371,14 +371,14 @@ public class LibraryIntegrationQueryTests
                     """);
             }
             var result = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integration: Aspire", "--where", AspirePredicate, "--json", "--offline");
+                "-S", "Integration: Aspire", "--where", AspirePredicate, "--json");
             Assert.True(result.ExitCode == 0, result.Error);
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal(2, json.RootElement.GetArrayLength());
             Assert.All(json.RootElement.EnumerateArray(), library =>
                 Assert.Equal(2, library.GetProperty("aspire").GetArrayLength()));
             var jsonl = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integration: Aspire", "--where", AspirePredicate, "--jsonl", "--offline");
+                "-S", "Integration: Aspire", "--where", AspirePredicate, "--jsonl");
             Assert.Equal(1, jsonl.ExitCode);
             Assert.Contains("requires exactly one table shape", jsonl.Error);
             Assert.Empty(jsonl.Output);

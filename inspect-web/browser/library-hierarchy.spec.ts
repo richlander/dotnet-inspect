@@ -2767,7 +2767,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   ).click();
   await page.locator("#spotlight-input").fill("Example.Package");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
-  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
+  await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
@@ -2874,6 +2874,7 @@ test("Sequential same-named Platform Libraries replace the prior family and reta
   const netCoreLibraryLocation = page.url();
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".platform-library-row")).toHaveCount(4);
   const platformLocation = page.url();
   await page.getByRole("button", { name: /System.Text.Json Implementation aspnetcore.app/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
@@ -2942,7 +2943,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await expect(page.locator("[data-workspace-platform]")).toContainText(platformVersion);
   await page.locator("[data-workspace-activate]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
+  await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.locator('[data-application-scope="workspace"]').click();
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
@@ -3256,14 +3257,24 @@ async function currentWorkspaceHistoryState(page: Page): Promise<{
 
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
-    test(`implicit package entry selects product-default ${preferred.name} at ${width}px`, async ({ page }) => {
+    test(`implicit package entry selects all libraries regardless of product-default ${preferred.name} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installFacades(page, { ...surface, defaultAssemblyId: preferred.id });
       await page.goto(root.replace("#pkg", ""));
       await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      const overview = page.locator(".library-overview-surface");
+      await expect(overview.getByRole("heading", { level: 1 })).toHaveText("All libraries");
+      await expect(overview.locator(".overview-subject-label")).toHaveText("Libraries");
+      await expect(overview.locator(".section-title")).toContainText("3 admitted");
+      await expect(overview.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+      await expect(overview.locator('[data-lib-scope="asset:core"]')).toContainText(core.name);
+      await expect(overview.locator('[data-lib-scope="asset:other"]')).toContainText(other.name);
+      await expect(overview.locator('[data-lib-scope="asset:empty"]')).toContainText(empty.name);
       await page.reload();
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
+      await expect(page.locator(
+        ".library-overview-surface .library-list [data-lib-scope]",
+      )).toHaveCount(3);
       if (width === 480) {
         await page.getByRole("button", { name: "Types", exact: true }).click();
       }
@@ -3299,7 +3310,6 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
 for (const incomingPackage of [surface.package, "Second.Package"]) {
   for (const destination of ["default", "Package", "Metadata"]) {
     test(`legacy history restores ${destination} in ${incomingPackage}`, async ({ page }) => {
-      const preferred = incomingPackage === surface.package ? other : empty;
       await installFacades(page, { ...surface, defaultAssemblyId: other.id }, [
         { ...surface, package: "Second.Package", defaultAssemblyId: empty.id },
       ]);
@@ -3319,11 +3329,12 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
       if (destination === "Package") {
         await expect(page.locator(".package-overview-surface h1")).toHaveText(incomingPackage);
       } else if (destination === "Metadata") {
-        await expect(inspectorTab(page, "data-library-lens", "metadata"))
-          .toHaveAttribute("aria-selected", "true");
-        await expect(page.locator("html")).toHaveAttribute("data-metadata-request", preferred.id);
+        await expect(page.locator(".library-overview-surface h1"))
+          .toHaveText("All libraries");
+        await expect(page.locator(".query-notice-text"))
+          .toContainText("Choose an exact Library before opening metadata.");
       } else {
-        await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+        await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
       }
       await page.goBack();
       await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
@@ -4680,7 +4691,7 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".library-overview-surface h1")).toHaveText("Example.Core");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
@@ -4716,7 +4727,7 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");

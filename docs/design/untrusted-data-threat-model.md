@@ -1835,7 +1835,7 @@ prefix,
 code-point rendering when one substitution occurs more than once,
 `LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames`
 gates the direct library producer demand,
-`PackageAllLibrariesIdentifierConfusionAudit_CollectsTransitiveReferences`
+`PackageLibraryAggregateIdentifierConfusionAudit_CollectsTransitiveReferences`
 gates survey-mode demand,
 `LibraryIdentifierConfusionAudit_FullEffectiveDiscoveryIncludesTransitiveOnlyConcern`
 gates full-effective discovery,
@@ -1856,14 +1856,14 @@ gates visible traversal failure for absolute and bare relative library paths,
 including preservation of the other selected `@Audit` sections,
 `LibraryPackageIdentifierConfusionAudit_FailsWithoutPartialDocument` gates the
 same content-free hard failure for an exact package-backed library selection,
-`PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
+`PackageLibraryAggregateIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure,
 `LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
 per-source outcome contract across target frameworks, and
 `LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 plus
-`PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
+`PackageLibraryAggregateIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 gate visible root AssemblyRef decode failure without a success-shaped clean
 result. Traversal diagnostics retain caller-known command context, while survey
 warnings identify the package-relative library and a bounded failure category;

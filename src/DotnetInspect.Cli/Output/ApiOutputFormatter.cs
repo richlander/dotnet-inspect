@@ -193,7 +193,12 @@ public static class ApiOutputFormatter
                     ApiViewText.Field(group.Key),
                     MarkoutInline.CodeText(ApiViewText.Field(fullName)),
                     ApiViewText.Field(members),
-                    desc);
+                    desc,
+                    ApiViewText.OptionalField(
+                        t.SourceAssemblyPath is null
+                            ? null
+                            : Path.GetFileName(
+                                t.SourceAssemblyPath)));
             }).ToList();
 
             switch (group.Key)
@@ -3461,7 +3466,12 @@ public static class ApiOutputFormatter
                         ApiViewText.Field(
                             FormatGenericFullNameText(t))),
                     ApiViewText.Field(t.Members.Count.ToString()),
-                    desc);
+                    desc,
+                    ApiViewText.OptionalField(
+                        t.SourceAssemblyPath is null
+                            ? null
+                            : Path.GetFileName(
+                                t.SourceAssemblyPath)));
             })
             .ToList();
 

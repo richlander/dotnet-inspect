@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking:** Makes all compatible libraries in the selected package TFM the
+  default Library/API subject across Navigation, CLI, and Inspect Web. Use
+  `--namesake-library` or exact `--library <asset>` to narrow. Removes
+  `--all-libraries`; bare `package` inspection remains Package-scoped (#7318).
 - Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
   and Workspace with Spotlight as the responsive alternate entry, and retires
   the `/query` Packages/Activity peer mode while preserving report state,

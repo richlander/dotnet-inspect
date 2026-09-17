@@ -192,10 +192,19 @@ public class TfmSelectorTests : IDisposable
     [Fact]
     public void SelectPackageLibrary_BareRequest_PrefersPackageNameMatch()
     {
-        WriteDll("lib/net8.0/Companion.dll");
-        var primary = WriteDll("lib/net8.0/MyPackage.dll");
+        WriteAssembly(
+            "lib/net8.0/Companion.dll",
+            typeof(TfmSelector).Assembly.Location);
+        var primary = WriteAssembly(
+            "lib/net8.0/Renamed.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
 
-        var result = TfmSelector.SelectPackageLibrary(_tempDir, "MyPackage", requestedLibrary: "");
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            packageId,
+            requestedLibrary: "");
 
         Assert.True(result.IsSelected);
         Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.Selected, result.Status);
@@ -206,8 +215,12 @@ public class TfmSelectorTests : IDisposable
     [Fact]
     public void SelectPackageLibrary_BareRequest_AmbiguousWhenNoPackageNameMatch()
     {
-        var first = WriteDll("lib/net8.0/First.dll");
-        var second = WriteDll("lib/net8.0/Second.dll");
+        var first = WriteAssembly(
+            "lib/net8.0/First.dll",
+            typeof(TfmSelector).Assembly.Location);
+        var second = WriteAssembly(
+            "lib/net8.0/Second.dll",
+            typeof(TfmSelector).Assembly.Location);
 
         var result = TfmSelector.SelectPackageLibrary(_tempDir, "MyPackage", requestedLibrary: "");
 
@@ -215,6 +228,24 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.Ambiguous, result.Status);
         Assert.Equal("net8.0", result.Tfm);
         Assert.Equal([first, second], result.CandidatePaths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_BareRequest_ReportsUnreadableIdentity()
+    {
+        var unreadable = WriteDll("lib/net8.0/Unreadable.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .NamesakeIdentityUnavailable,
+            result.Status);
+        Assert.Equal([unreadable], result.IdentityFailurePaths);
     }
 
     [Fact]
@@ -254,6 +285,34 @@ public class TfmSelectorTests : IDisposable
         Assert.False(result.IsSelected);
         Assert.Equal(TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework, result.Status);
         Assert.Equal("net6.0", result.Tfm);
+        Assert.Empty(result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_ExcludesRuntimeSpecificDuplicates()
+    {
+        var compile = WriteDll("lib/net8.0/MyLib.dll");
+        WriteDll("runtimes/linux-x64/lib/net8.0/MyLib.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(
+            _tempDir,
+            "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([compile], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_RuntimeOnlyPackageHasNoCompileLibraries()
+    {
+        WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
+            result.Status);
         Assert.Empty(result.Paths);
     }
 
@@ -403,6 +462,20 @@ public class TfmSelectorTests : IDisposable
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, []);
+        return path;
+    }
+
+    private string WriteAssembly(
+        string relativePath,
+        string sourcePath)
+    {
+        string path = Path.Combine(
+            _tempDir,
+            relativePath.Replace(
+                '/',
+                Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.Copy(sourcePath, path);
         return path;
     }
 }
