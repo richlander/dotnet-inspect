@@ -1432,10 +1432,11 @@ their Registry evidence; the coordinator does not choose another facet.
 When `facet` is absent, Navigation owns recommendation and its complete
 evidence.
 
-Every query reference resolves one version-2 query record. Its public
-vocabulary descriptor declares the exact structural inputs and facet IDs it
-accepts, whether it consumes state-level Library scope, and how canonical
-intent binds to typed execution. Malformed portable payload, unknown
+Every query reference resolves one query record matching the containing
+composition's schema version. Its public vocabulary descriptor declares the
+exact structural inputs and facet IDs it accepts, whether it consumes
+state-level Library scope, and how canonical intent binds to typed execution.
+Malformed portable payload, unknown
 vocabulary, duplicate query purposes, missing required selectors, a query
 incompatible with the exact subject or facet, and `libraries` consumed by no
 referenced query all fail closed through their owning typed results.
