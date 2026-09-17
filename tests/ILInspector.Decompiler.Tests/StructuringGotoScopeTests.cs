@@ -386,6 +386,21 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void PrefixedFalseArmBeforeEmptyContainerTail_StillStructures()
+    {
+        var function = RegionExitDiamondBeforeEmptyTail();
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var conditional = Assert.Single(
+            tryFinally.TryBody.Descendants.OfType<IfStatement>(),
+            statement => statement.HasElse);
+        Assert.Contains(
+            conditional.Else!.Descendants.OfType<StoreLocal>(),
+            store => Equals(Assert.IsType<Constant>(store.Value).Value, 7));
+        Assert.Empty(conditional.Descendants.OfType<Leave>());
+    }
+
+    [Fact]
     public void RoslynAggregateOrDefault_PreservesEmptySequenceExit()
     {
         using var source = MetadataSource.Open(typeof(Compilation).Assembly.Location);
@@ -617,6 +632,43 @@ public class StructuringGotoScopeTests
 
         var finallyBody = new BlockContainer();
         finallyBody.Add(Block(0x30));
+
+        var root = new BlockContainer();
+        root.Add(Block(0x00, new TryFinally(tryBody, finallyBody)));
+        root.Add(Block(0x40, new Return(new LoadLocal(0, Int32))));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [new Parameter("a", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            root);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static IrFunction RegionExitDiamondBeforeEmptyTail()
+    {
+        var tryBody = new BlockContainer();
+        tryBody.Add(Block(0x00, new ConditionalBranch(Cond(), 0x30)));
+        tryBody.Add(Block(0x10, new ConditionalBranch(Cond(), 0x28)));
+        tryBody.Add(Block(
+            0x20,
+            new StoreLocal(0, Int32, new Constant(7, Int32)),
+            new Leave(0x40)));
+        tryBody.Add(Block(
+            0x28,
+            new StoreLocal(0, Int32, new Constant(1, Int32)),
+            new Leave(0x40)));
+        tryBody.Add(Block(0x30));
+
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(Block(0x38));
 
         var root = new BlockContainer();
         root.Add(Block(0x00, new TryFinally(tryBody, finallyBody)));

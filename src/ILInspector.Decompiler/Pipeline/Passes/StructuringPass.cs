@@ -2085,9 +2085,23 @@ public sealed class StructuringPass : IIrPass
             && ctx.Blocks[blockIndex].Children.Count == 1;
 
     static bool CanDissolvePrefixedRegionExit(Ctx ctx, int falseStart, int target, int stop) =>
-        stop == ctx.Blocks.Count
-        && target < stop
+        target < stop
+        && ReachesProtectedRegionEnd(ctx, stop)
         && !RegionExternallyEntered(ctx, falseStart, target);
+
+    static bool ReachesProtectedRegionEnd(Ctx ctx, int start)
+    {
+        for (int i = start; i < ctx.Blocks.Count; i++)
+        {
+            if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
+                continue;
+            if (i != ctx.Blocks.Count - 1
+                || ctx.Blocks[i].Children.Count != 1
+                || !IsRegionExitTerminator(ctx, i))
+                return false;
+        }
+        return true;
+    }
 
     static bool RegionExitBlockPredecessorsAreConsumed(
         Ctx ctx,
@@ -2132,15 +2146,8 @@ public sealed class StructuringPass : IIrPass
             || loopExitIndex >= stop)
             return false;
 
-        for (int i = loopExitIndex; i < stop; i++)
-        {
-            if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
-                continue;
-            if (i != stop - 1
-                || ctx.Blocks[i].Children.Count != 1
-                || !IsRegionExitTerminator(ctx, i))
-                return false;
-        }
+        if (!ReachesProtectedRegionEnd(ctx, loopExitIndex))
+            return false;
 
         // Clone predecessors are collected from the pristine container and
         // include transfers nested inside already-structured nodes. Cfg.Build
