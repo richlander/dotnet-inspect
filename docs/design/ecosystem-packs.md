@@ -160,9 +160,9 @@ One pack registration may contain:
 - compact namespace hints and ordered registered core-package roots;
 - explicit tool-package references;
 - one optional package-set identity;
-- zero or more ordered package-prefix discovery entries; and
+- zero or more ordered package-prefix discovery entries;
 - one optional Integration-owned static scanner binding;
-- one optional Ecosystem-Population-Loading-owned static loader binding; and
+- one optional Ecosystem Population Loading-owned static loader binding; and
 - zero or more ordered Workspace-Definitions-owned product-demo source
   bindings with application-owned display metadata.
 
