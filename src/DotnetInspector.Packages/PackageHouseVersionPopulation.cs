@@ -127,6 +127,8 @@ public sealed class PackageHouseVersionPopulationCell
 
     public PackageVersionAddress Address { get; }
 
+    public string NormalizedVersion => Candidate.Coordinate.Version;
+
     public PackageHouseRequestAssociation Association { get; }
 
     internal PackageAcquisitionCandidate Candidate { get; }

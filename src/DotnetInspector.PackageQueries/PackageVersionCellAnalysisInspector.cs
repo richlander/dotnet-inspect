@@ -226,7 +226,7 @@ public static class PackageVersionCellAnalysisInspector
         PackageVersionCellMemberSelector selector = request.Selector;
         var selectionRequest = new ApiCoordinateSourceSelectionRequest(
             source.Endpoint.Cell.Population.Request.Range.PackageId,
-            source.Endpoint.Cell.Address.Version.ToNormalizedString(),
+            source.Endpoint.Cell.NormalizedVersion,
             selector.Type,
             selector.Member,
             selector.Library,

@@ -111,7 +111,7 @@ public sealed class DiffHistoryMemberSourceReceipt
                 cell.Population.Request.Range.PackageId,
                 StringComparison.OrdinalIgnoreCase)
             || !declaration.Library.Package.PackageVersion.Equals(
-                cell.Address.Version.ToNormalizedString(),
+                cell.NormalizedVersion,
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
