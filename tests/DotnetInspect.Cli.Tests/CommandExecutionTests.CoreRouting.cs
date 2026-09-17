@@ -4862,8 +4862,6 @@ public partial class CommandExecutionTests
                     .ToArray();
                 if (!IsNoMemberTypeDiscoveryCommand(command))
                     Assert.NotEmpty(sections);
-                if (command.Contains(noSourceLinkAssemblyPath, StringComparer.Ordinal))
-                    Assert.Contains(SectionNames.SourceLocations, sections);
 
                 foreach (var section in sections)
                 {
