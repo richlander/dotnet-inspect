@@ -55,13 +55,14 @@ internal sealed class MethodDefinitionMap
 
     public int Resolve(DirectCall call)
     {
+        MethodIdentity scope = call.EvidenceMethod;
         if (!TryGetDeclaringTypeParameterCount(
-                call.Caller.DeclaringType,
+                scope.DeclaringType,
                 out int callerTypeParameterCount)
             || SignatureTypeFacts.IsMalformed(
                 call.Callee.DeclaringType,
                 callerTypeParameterCount,
-                call.Caller.GenericArity))
+                scope.GenericArity))
         {
             return 0;
         }

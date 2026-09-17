@@ -217,14 +217,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 or HandleKind.MethodDefinition => true,
             HandleKind.TypeSpecification => true,
             HandleKind.TypeReference =>
-                CanCanonicalizeCurrentModuleReference(
-                    new TypeRefDecoder(
-                        workBudget
-                            .ReserveCorrespondenceBytes)
-                        .GetTypeFromReference(
-                            _reader,
-                            (TypeReferenceHandle)parent,
-                            0)),
+                MayResolveSameImageTypeReference(
+                    (TypeReferenceHandle)parent,
+                    workBudget),
             HandleKind.ModuleReference =>
                 ReadPresenceString(
                     _reader.GetModuleReference(
@@ -958,7 +953,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             int methodParameterCount =
                 methodDefinition.GetGenericParameters()
                     .Count;
-            if (SignatureTypeFacts.IsMalformed(
+            if (signature.GenericParameterCount
+                    != methodParameterCount
+                || SignatureTypeFacts.IsMalformed(
                     signature.ReturnType,
                     typeParameterCount,
                     methodParameterCount)
@@ -1003,6 +1000,97 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         }
 
         return resolved;
+    }
+
+    bool MayResolveSameImageTypeReference(
+        TypeReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        TypeRef type = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes)
+            .GetTypeFromReference(
+                _reader,
+                handle,
+                0);
+        if (type.Kind != TypeRefKind.Unsupported)
+            return CanCanonicalizeCurrentModuleReference(type);
+        if (!RawTypeReferenceMayResolveToCurrentModule(
+                handle,
+                workBudget))
+        {
+            return false;
+        }
+        throw new BadImageFormatException(
+            "A same-image declaring type contains unsupported "
+                + "or malformed metadata.");
+    }
+
+    bool RawTypeReferenceMayResolveToCurrentModule(
+        TypeReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        var visited =
+            new HashSet<TypeReferenceHandle>();
+        EntityHandle current = handle;
+        while (current.Kind == HandleKind.TypeReference)
+        {
+            TypeReferenceHandle currentHandle =
+                (TypeReferenceHandle)current;
+            if (!visited.Add(currentHandle))
+            {
+                throw new BadImageFormatException(
+                    "A type reference scope contains a cycle.");
+            }
+            workBudget.ReserveCorrespondenceRow();
+            current = _reader
+                .GetTypeReference(currentHandle)
+                .ResolutionScope;
+        }
+
+        return current.Kind switch
+        {
+            HandleKind.ModuleDefinition => true,
+            HandleKind.ModuleReference =>
+                ReadPresenceString(
+                    _reader.GetModuleReference(
+                        (ModuleReferenceHandle)current).Name,
+                    workBudget)
+                    .Equals(
+                        _moduleName,
+                        StringComparison.OrdinalIgnoreCase),
+            HandleKind.AssemblyReference =>
+                IsCurrentAssemblyReference(
+                    (AssemblyReferenceHandle)current,
+                    workBudget),
+            _ => false,
+        };
+    }
+
+    bool IsCurrentAssemblyReference(
+        AssemblyReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceRow();
+        System.Reflection.Metadata.AssemblyReference reference =
+            _reader.GetAssemblyReference(handle);
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(reference.Name).Length);
+        if (!reference.Culture.IsNil)
+        {
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    reference.Culture).Length);
+        }
+        if (!reference.PublicKeyOrToken.IsNil)
+        {
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    reference.PublicKeyOrToken).Length);
+        }
+        return _assemblyIdentity is not null
+            && AssemblyReferenceIdentity
+                .From(_reader, handle)
+                .IsEquivalentTo(_assemblyIdentity);
     }
 
     bool FieldMatchesMemberReference(
