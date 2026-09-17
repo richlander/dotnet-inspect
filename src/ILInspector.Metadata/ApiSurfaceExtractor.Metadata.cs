@@ -675,13 +675,11 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// The set of methods on <paramref name="typeDef"/> whose explicit
-    /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
-    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
-    /// declaration (not the method's own name/slot/signature) is what lets the
-    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
-    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
-    /// interface implementation.
+    /// The set of destructor-shaped methods on <paramref name="typeDef"/> whose
+    /// explicit <c>.override</c> MethodImpl targets
+    /// <c>System.Object::Finalize</c>. Both the declaration identity and the
+    /// MethodDef body shape must match before the C# writer may spell
+    /// <c>~Type()</c>.
     /// </summary>
     private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
         MetadataReader reader,
@@ -694,11 +692,19 @@ public static partial class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
                 continue;
+            var bodyHandle =
+                (MethodDefinitionHandle)implementation.MethodBody;
             if (ReferencesObjectFinalize(
                     reader,
                     implementation.MethodDeclaration,
+                    beforeDecodeWork)
+                && IsFinalizerDeclarationShape(
+                    reader,
+                    reader.GetMethodDefinition(bodyHandle),
                     beforeDecodeWork))
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+            {
+                handles.Add(bodyHandle);
+            }
         }
 
         return handles;
@@ -721,45 +727,132 @@ public static partial class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork = null)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(
-                DecodeString(
-                    reader,
-                    method.Name,
-                    beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!IsFinalizerDeclarationShape(
+                reader,
+                method,
+                beforeDecodeWork))
+        {
             return false;
-        if (method.GetGenericParameters().Count != 0)
-            return false;
+        }
 
         var typeHandle = method.GetDeclaringType();
         var typeDef = reader.GetTypeDefinition(typeHandle);
+        bool hasExplicitImplementation = HasMethodImplementationBody(
+            reader,
+            typeDef,
+            methodHandle,
+            method,
+            beforeDecodeWork);
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
-                && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(
-                    reader,
-                    implementation.MethodDeclaration,
-                    beforeDecodeWork))
+                && (MethodDefinitionHandle)implementation.MethodBody
+                    == methodHandle)
             {
-                return true;
+                if (ReferencesObjectFinalize(
+                        reader,
+                        implementation.MethodDeclaration,
+                        beforeDecodeWork))
+                {
+                    return true;
+                }
             }
         }
 
         // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
-        return IsImplicitObjectFinalizeOverride(
+        return !hasExplicitImplementation
+            && IsImplicitObjectFinalizeOverride(
             reader,
             typeHandle,
             method,
             beforeDecodeWork);
     }
 
+    private static bool HasMethodImplementationBody(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
+    {
+        foreach (MethodImplementationHandle implementationHandle
+            in typeDef.GetMethodImplementations())
+        {
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
+            {
+                if ((MethodDefinitionHandle)implementation.MethodBody
+                    == methodHandle)
+                {
+                    return true;
+                }
+                continue;
+            }
+
+            if (implementation.MethodBody.Kind != HandleKind.MemberReference)
+                continue;
+
+            MemberReference memberReference = reader.GetMemberReference(
+                (MemberReferenceHandle)implementation.MethodBody);
+            if (string.Equals(
+                    DecodeString(
+                        reader,
+                        memberReference.Name,
+                        beforeDecodeWork),
+                    DecodeString(reader, method.Name, beforeDecodeWork),
+                    StringComparison.Ordinal)
+                && reader.GetBlobBytes(memberReference.Signature)
+                    .AsSpan()
+                    .SequenceEqual(
+                        reader.GetBlobBytes(method.Signature)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
     // below stops in-assembly cycles, and this cap stops an unbounded walk through a long legitimate
     // (or degenerate) hierarchy. Real finalizer-bearing hierarchies are far shallower than this.
     private const int MaxBaseChainDepth = 256;
+
+    /// <summary>
+    /// True when a MethodDef has the exact declaration shape emitted for a C#
+    /// destructor or VB finalizer: protected, virtual, reuse-slot, non-final,
+    /// non-abstract, non-generic <c>instance void Finalize()</c>.
+    /// </summary>
+    private static bool IsFinalizerDeclarationShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
+    {
+        if (!string.Equals(
+                DecodeString(reader, method.Name, beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        MethodAttributes attributes = method.Attributes;
+        if ((attributes & MethodAttributes.MemberAccessMask)
+                != MethodAttributes.Family
+            || (attributes & MethodAttributes.Virtual) == 0
+            || (attributes & MethodAttributes.NewSlot) != 0
+            || (attributes & MethodAttributes.Static) != 0
+            || (attributes & MethodAttributes.Abstract) != 0
+            || (attributes & MethodAttributes.Final) != 0
+            || method.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+
+        return HasVoidNullaryInstanceSignature(reader, method);
+    }
 
     /// <summary>
     /// True when <paramref name="method"/> on <paramref name="typeDefHandle"/> implicitly overrides
@@ -784,25 +877,13 @@ public static partial class ApiSurfaceExtractor
         MethodDefinition method,
         Action<int>? beforeDecodeWork = null)
     {
-        if (!string.Equals(
-                DecodeString(reader, method.Name, beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!IsFinalizerDeclarationShape(
+                reader,
+                method,
+                beforeDecodeWork))
+        {
             return false;
-
-        var attributes = method.Attributes;
-        // A finalizer reuses the inherited object.Finalize slot: Virtual and NOT NewSlot. An explicit
-        // interface implementation is NewSlot (and name-mangled), so it is excluded here too. Static
-        // and abstract methods are never finalizers.
-        if ((attributes & MethodAttributes.Virtual) == 0
-            || (attributes & MethodAttributes.NewSlot) != 0
-            || (attributes & MethodAttributes.Static) != 0
-            || (attributes & MethodAttributes.Abstract) != 0)
-            return false;
-        if (method.GetGenericParameters().Count != 0)
-            return false;
-        if (!HasVoidNullaryInstanceSignature(reader, method))
-            return false;
+        }
 
         // Walk the base-type chain. The slot roots at whichever ancestor first declares a
         // `new virtual void Finalize()`; for a genuine finalizer that ancestor is System.Object,
@@ -896,10 +977,15 @@ public static partial class ApiSurfaceExtractor
     /// as a non-match (returns false) rather than throwing.
     /// </summary>
     private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, MethodDefinition method)
+        => HasVoidNullaryInstanceSignature(reader, method.Signature);
+
+    private static bool HasVoidNullaryInstanceSignature(
+        MetadataReader reader,
+        BlobHandle signature)
     {
         try
         {
-            var blob = reader.GetBlobReader(method.Signature);
+            var blob = reader.GetBlobReader(signature);
             var header = blob.ReadSignatureHeader();
             // object.Finalize is `instance void ()` with the default managed calling convention.
             // Reject anything else: field/property sigs, vararg/unmanaged conventions, generic
@@ -908,13 +994,15 @@ public static partial class ApiSurfaceExtractor
                 || header.CallingConvention != SignatureCallingConvention.Default
                 || header.IsGeneric
                 || !header.IsInstance
-                || header.HasExplicitThis)
+                || header.HasExplicitThis
+                || (header.RawValue & ReservedSignatureFlag) != 0)
                 return false;
             if (blob.ReadCompressedInteger() != 0) // parameter count
                 return false;
             // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
             // read here instead of Void and correctly rejects.
-            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
+            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void
+                && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
         {
@@ -969,7 +1057,10 @@ public static partial class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
-                        beforeDecodeWork);
+                        beforeDecodeWork)
+                    && HasVoidNullaryInstanceSignature(
+                        reader,
+                        memberRef.Signature);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
                 return string.Equals(
@@ -979,7 +1070,9 @@ public static partial class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),
-                        beforeDecodeWork);
+                        beforeDecodeWork)
+                    && methodDef.GetGenericParameters().Count == 0
+                    && HasVoidNullaryInstanceSignature(reader, methodDef);
             default:
                 return false;
         }
@@ -1102,10 +1195,23 @@ public static partial class ApiSurfaceExtractor
 
     internal static bool ResolvesThroughCoreLibrary(
         AssemblyReferenceIdentity reference)
+        => ResolvesThroughCoreLibrary(
+            reference.Name,
+            reference.PublicKeyToken);
+
+    internal static bool ResolvesThroughCoreLibrary(
+        ApiAssemblyIdentity reference)
+        => ResolvesThroughCoreLibrary(
+            reference.Name,
+            reference.PublicKeyToken);
+
+    static bool ResolvesThroughCoreLibrary(
+        string name,
+        string? publicKeyToken)
     {
-        if (reference.PublicKeyToken is not { } token
+        if (publicKeyToken is not { } token
             || !CoreLibraryPublicKeyTokens.TryGetValue(
-                reference.Name,
+                name,
                 out byte[][]? expectedTokens))
         {
             return false;

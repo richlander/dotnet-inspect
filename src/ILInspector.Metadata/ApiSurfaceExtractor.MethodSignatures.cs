@@ -38,6 +38,10 @@ public static partial class ApiSurfaceExtractor
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
+        MetadataTypeDefinitionName? declaringType = null,
+        ApiAssemblyIdentity? declaringAssembly = null,
+        int declaringTypeParameterCount = -1,
+        bool? declaringTypeIsReferenceType = null,
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -191,6 +195,17 @@ public static partial class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                CustomModifiersAreRepresentable =
+                    CustomModifiersAreRepresentable(
+                        paramTypes[i],
+                        requireReadOnlyByRefModifier: false),
+                MatchesDeclaringType =
+                    DeclaringTypeMatches(
+                        paramTypes[i],
+                        declaringType,
+                        declaringAssembly,
+                        declaringTypeParameterCount,
+                        declaringTypeIsReferenceType),
                 TypeReferences =
                     [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -260,13 +275,31 @@ public static partial class ApiSurfaceExtractor
             XmlDocumentationIsVararg =
                 treeSignature.Header.CallingConvention
                     == SignatureCallingConvention.VarArgs,
+            MethodDeclarationHeaderIsRepresentable =
+                MethodDeclarationHeaderIsRepresentable(
+                    method,
+                    treeSignature,
+                    name),
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeCustomModifiersAreRepresentable =
+                CustomModifiersAreRepresentable(
+                    treeSignature.ReturnType,
+                    requireReadOnlyByRefModifier: returnType.StartsWith(
+                        "ref readonly ",
+                        StringComparison.Ordinal)),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeMatchesDeclaringType =
+                DeclaringTypeMatches(
+                    treeSignature.ReturnType,
+                    declaringType,
+                    declaringAssembly,
+                    declaringTypeParameterCount,
+                    declaringTypeIsReferenceType),
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
             ReturnTypeShape =
@@ -279,6 +312,120 @@ public static partial class ApiSurfaceExtractor
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
+
+    static bool MethodDeclarationHeaderIsRepresentable(
+        MethodDefinition method,
+        MethodSignature<TypeNode> signature,
+        string methodName)
+    {
+        int genericParameterCount = method.GetGenericParameters().Count;
+        bool constructorFlagsAreRepresentable =
+            ConstructorFlagsAreRepresentable(methodName, method.Attributes);
+        bool operatorFlagsAreRepresentable =
+            !IsOperatorMethodName(methodName)
+            || (method.Attributes & MethodAttributes.SpecialName) != 0;
+        return constructorFlagsAreRepresentable
+            && operatorFlagsAreRepresentable
+            && signature.Header.Kind == SignatureKind.Method
+            && signature.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && !signature.Header.HasExplicitThis
+            && (signature.Header.RawValue & ReservedSignatureFlag) == 0
+            && signature.Header.IsInstance
+                == ((method.Attributes & MethodAttributes.Static) == 0)
+            && signature.Header.IsGeneric == (genericParameterCount > 0)
+            && signature.GenericParameterCount == genericParameterCount
+            && signature.RequiredParameterCount
+                == signature.ParameterTypes.Length;
+    }
+
+    static bool ConstructorFlagsAreRepresentable(
+        string methodName,
+        MethodAttributes attributes)
+    {
+        MethodAttributes nonAccess =
+            attributes & ~MethodAttributes.MemberAccessMask;
+        return methodName switch
+        {
+            ".ctor" =>
+                nonAccess
+                    == (MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName),
+            ".cctor" =>
+                (attributes & MethodAttributes.MemberAccessMask)
+                    == MethodAttributes.Private
+                && nonAccess
+                    == (MethodAttributes.Static
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName),
+            _ => true,
+        };
+    }
+
+    static bool? DeclaringTypeMatches(
+        TypeNode type,
+        MetadataTypeDefinitionName? declaringType,
+        ApiAssemblyIdentity? declaringAssembly,
+        int declaringTypeParameterCount,
+        bool? declaringTypeIsReferenceType)
+    {
+        if (declaringType is null
+            || declaringAssembly is null
+            || declaringTypeParameterCount < 0
+            || declaringTypeIsReferenceType is null)
+        {
+            return null;
+        }
+
+        if (declaringTypeParameterCount == 0)
+        {
+            return type is NamedTypeNode named
+                && named.IsReferenceType
+                    == declaringTypeIsReferenceType
+                && declaringAssembly.Equals(named.AssemblyIdentity)
+                && DefinitionMatches(
+                    named.MetadataName,
+                    declaringType);
+        }
+
+        if (type is not GenericTypeNode generic
+            || generic.IsReferenceType
+                != declaringTypeIsReferenceType
+            || !declaringAssembly.Equals(
+                generic.DefinitionAssemblyIdentity)
+            || !DefinitionMatches(
+                generic.MetadataName,
+                declaringType)
+            || generic.Arguments.Length
+                != declaringTypeParameterCount)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < generic.Arguments.Length; index++)
+        {
+            if (generic.Arguments[index] is not GenericParameterNode
+                {
+                    IsMethodParameter: false,
+                    Index: var parameterIndex,
+                }
+                || parameterIndex != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool DefinitionMatches(
+        MetadataTypeNameParts? actual,
+        MetadataTypeDefinitionName expected) =>
+        actual is not null
+            && actual.Namespace == expected.Namespace
+            && actual.Segments.SequenceEqual(expected.Segments);
 
     static IReadOnlyList<string>? TryGetXmlDocumentationNames(
         ImmutableArray<TypeNode> types,

@@ -789,6 +789,60 @@ public static partial class ApiSurfaceExtractor
         return type is PrimitiveTypeNode { Name: "void" };
     }
 
+    static bool CustomModifiersAreRepresentable(
+        TypeNode type,
+        bool requireReadOnlyByRefModifier)
+    {
+        if (!ContainsCustomModifier(type))
+            return !requireReadOnlyByRefModifier;
+        return requireReadOnlyByRefModifier
+            && type is ModifiedTypeNode
+            {
+                IsRequired: true,
+                Modifier: { } modifier,
+                Inner: ByRefTypeNode byRef,
+            }
+            && IsReadOnlyByRefModifier(modifier)
+            && !ContainsCustomModifier(byRef.ElementType);
+    }
+
+    static bool ContainsCustomModifier(TypeNode type) => type switch
+    {
+        ModifiedTypeNode => true,
+        GenericTypeNode generic =>
+            generic.Arguments.Any(ContainsCustomModifier),
+        SZArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        MDArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        PointerTypeNode pointer =>
+            ContainsCustomModifier(pointer.ElementType),
+        ByRefTypeNode byRef =>
+            ContainsCustomModifier(byRef.ElementType),
+        FunctionPointerTypeNode functionPointer =>
+            functionPointer.ChildTypes.Any(ContainsCustomModifier),
+        PassthroughTypeNode passthrough =>
+            ContainsCustomModifier(passthrough.Inner),
+        _ => false,
+    };
+
+    static bool IsReadOnlyByRefModifier(TypeNode modifier)
+    {
+        ApiTypeReferenceIdentity? reference =
+            modifier.DefinitionReference();
+        if (reference?.DefinitionName is not { } definitionName
+            || definitionName.Segments.Length != 1
+            || !ResolvesThroughCoreLibrary(reference.Assembly))
+        {
+            return false;
+        }
+
+        string name = definitionName.Segments[0];
+        return definitionName.Namespace
+                == "System.Runtime.InteropServices"
+            && name == "InAttribute";
+    }
+
     /// <summary>
     /// Formats a property accessor with its access level prefix when it differs from the property's overall level.
     /// </summary>
