@@ -117,6 +117,7 @@ evidence unless a category is named.
 | `type` listing | `@Surface` | none |
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 | `diff` | `@Diff` | none |
+| `project` | `@Project` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -129,8 +130,9 @@ member name, or signature and local implementation evidence for one selected
 overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
-by exact name. `Switches` is a section. There are no user-facing
-`@All`, `@Default`, or `@Hidden` categories.
+by exact name. Project `@Project` composes restored dependency `Skills` and
+`Package README file` inventories. `Switches` is a section. There are no
+user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
