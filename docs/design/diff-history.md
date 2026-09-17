@@ -376,7 +376,8 @@ remain population-minus-evaluations and do not receive a fabricated
 Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
 History does not make a later destination the source for the next edge, replay
 the source display ordinal in each Version, infer identity from adjacent array
-positions, or infer continuity from Finding keys. The bounded consumer in #7248
+positions, or infer continuity from Finding keys. The bounded consumer in
+[Package version-cell pair Analysis](package-version-cell-pair-analysis.md)
 receives this owner-issued source receipt and returns the detached evaluation
 contract above. It does not choose or reinterpret the seed.
 
