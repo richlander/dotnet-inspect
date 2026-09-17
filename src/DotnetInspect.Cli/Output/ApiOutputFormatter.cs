@@ -268,13 +268,9 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
-        && options.IncludeSections is { Count: > 0 }
+        && !options.SelectDefault
         && !SelectResolver.IsActiveAllSelector(
             options.Select,
-            options.IncludeSections,
-            options is MemberOptions { MemberSectionsPreResolved: true })
-        && !SelectResolver.IsActiveInfoSelector(
-            options.SelectDefault,
             options.IncludeSections,
             options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count

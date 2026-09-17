@@ -353,6 +353,14 @@ public record MemberOptions : ApiOptions
     /// control later member-pipeline transitions.
     /// </summary>
     internal bool MemberSectionsPreResolved { get; init; }
+
+    /// <summary>
+    /// Sections implied by non-selector command options. These may require a narrower target but
+    /// do not make category- or glob-expanded sections exact.
+    /// </summary>
+    internal HashSet<string> ImplicitIncludeSections { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     internal int? SelectedBodyMethodToken { get; init; }
 
     public bool CtorOnly { get; init; }

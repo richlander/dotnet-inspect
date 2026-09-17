@@ -107,6 +107,30 @@ those existing Artifact instances:
 - `cancellationResponses[i]` distinguishes accepted control, stale
   `ObservedNoEffect`, and return of the original mutation settlement.
 
+`WorkspaceScopeOperationHandoff.tla` now owns that already locked
+request/result/control boundary as a reusable Scope module. The existing
+`WorkspaceScopeRevisionsModel.tla` harness binds it through the named
+`ScopeHandoff` instance and invokes its issue, abandon, submit, settlement-set,
+and cancellation-control actions. It rechecks the imported assumptions, safety,
+and behavior projection together with the unchanged Artifact instances.
+Validation, Busy/supersession policy, mutation admission, physical publication,
+snapshot construction, and result-outcome choice remain in this Scope harness;
+the extracted module adds no product behavior.
+
+The focused `OperationHandoffSafety` graph remains exactly 17,747 generated and
+4,808 distinct states after extraction. That equality is fresh evidence that
+the new owner module did not prune or add a handoff behavior in the existing
+finite profile; it is not a transferred proof for another instance. The
+[Navigation protected-consumption composition](../navigation-scope-operation-consumption/)
+instantiates the same owner boundary independently.
+
+A fresh constrained run after extraction matched all 71 registered Scope
+configuration outcomes with zero unverified configurations under the unchanged
+120-second per-configuration budget. `LivenessPhysicalRace` and
+`LivenessReadd`, the largest profiles affected by the added owner-instance
+projection, completed in 91 and 79 seconds with 195,755 / 68,074 and
+212,104 / 45,674 generated / distinct states, respectively.
+
 Issuance and abandonment are separate inert actions. Their temporal property
 checks that they do not change Artifact state, current membership, revision or
 publication pointers, Preparing/admission state, physical epoch, plans, or

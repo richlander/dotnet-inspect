@@ -39,7 +39,7 @@ internal sealed class TestHive : IDisposable
     }
 
     internal string CreateImplementationFramework(
-        string? assemblyPath = null)
+        params string[] assemblyPaths)
     {
         const string family = "Microsoft.NETCore.App";
         const string version = "11.0.0";
@@ -49,10 +49,14 @@ internal sealed class TestHive : IDisposable
             family,
             version);
         Directory.CreateDirectory(directory);
-        string assemblyName = Path.GetFileName(
-            assemblyPath
-            ?? typeof(InstalledPlatformHouseAdapterTests)
-                .Assembly.Location);
+        string[] selectedAssemblyPaths = assemblyPaths.Length == 0
+            ? [typeof(InstalledPlatformHouseAdapterTests).Assembly.Location]
+            : assemblyPaths;
+        Dictionary<string, object> runtimeAssets =
+            selectedAssemblyPaths.ToDictionary(
+                static path => Path.GetFileName(path),
+                static _ => (object)new { },
+                StringComparer.Ordinal);
         File.WriteAllText(
             Path.Combine(directory, family + ".deps.json"),
             JsonSerializer.Serialize(
@@ -65,11 +69,7 @@ internal sealed class TestHive : IDisposable
                         {
                             [family + ".Runtime/" + version] = new
                             {
-                                runtime =
-                                    new Dictionary<string, object>
-                                    {
-                                        [assemblyName] = new { },
-                                    },
+                                runtime = runtimeAssets,
                             },
                         },
                     },

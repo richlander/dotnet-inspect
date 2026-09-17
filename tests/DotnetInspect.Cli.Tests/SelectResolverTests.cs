@@ -50,6 +50,73 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void NormalizeExactOnlySection_SingleMatchGlobRemovesOnlyThatSection()
+    {
+        string[] sections = ["Clone Candidates", "Methods"];
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Member"] = ["Methods"],
+        };
+        var selected = SelectResolver.ResolveSelectAsSections(
+            ["Clone*", "@Member"],
+            sections,
+            categories: categories);
+
+        var normalized = SelectResolver.NormalizeExactOnlySection(
+            ["Clone*", "@Member"],
+            selected.Sections,
+            selected.ExactSections,
+            sections,
+            "Clone Candidates");
+
+        Assert.Null(normalized.Error);
+        Assert.Equal(["Methods"], normalized.Sections);
+    }
+
+    [Fact]
+    public void NormalizeExactOnlySection_DirectExactSelectionRetainsSection()
+    {
+        string[] sections = ["Clone Candidates", "Methods"];
+        var selected = SelectResolver.ResolveSelectAsSections(
+            ["Clone Candidates"],
+            sections);
+
+        var normalized = SelectResolver.NormalizeExactOnlySection(
+            ["Clone Candidates"],
+            selected.Sections,
+            selected.ExactSections,
+            sections,
+            "Clone Candidates");
+
+        Assert.Null(normalized.Error);
+        Assert.Equal(["Clone Candidates"], normalized.Sections);
+    }
+
+    [Fact]
+    public void ResolveSelect_ExactOnlySectionsAreExcludedOnlyFromExpansion()
+    {
+        string[] sections = ["Clone Candidates", "Methods"];
+        IReadOnlySet<string> exactOnly =
+            new HashSet<string>(
+                ["Clone Candidates"],
+                StringComparer.OrdinalIgnoreCase);
+
+        SelectResult wildcard = SelectResolver.ResolveSelectAsSections(
+            ["Clone*"],
+            sections,
+            exactOnlySections: exactOnly);
+        SelectResult direct = SelectResolver.ResolveSelectAsSections(
+            ["Clone Candidates"],
+            sections,
+            exactOnlySections: exactOnly);
+
+        Assert.Null(wildcard.Sections);
+        Assert.Empty(wildcard.ExactSections);
+        Assert.Equal(["Clone Candidates"], direct.Sections);
+        Assert.Equal(["Clone Candidates"], direct.ExactSections);
+    }
+
+    [Fact]
     public void ResolveSelect_LegacyAlias_ResolvesToRenamedSection()
     {
         // The "Optimization Opportunities" section was renamed to "Performance Triage";
