@@ -12,6 +12,291 @@ public sealed class PackagePlatformLibraryMaterializerTests
 {
     [Fact]
     public async Task
+        PackagePairedPopulation_TransfersLosslessUnionAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using PackagePlatformTestEnvironment environment =
+            PopulationEnvironment();
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            PopulationRequest(adapter, cancellationToken);
+
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+
+        var completed = Assert.IsType<
+            PackagePlatformPopulationMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationPopulationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        Consumed(
+                            reference.Value,
+                            implementation.Value)));
+
+        Assert.Equal(
+            [
+                "System.Runtime",
+                "System.Text.Json",
+                "System.Net.Http",
+            ],
+            completed.Population.Value.Libraries.Select(
+                static library =>
+                    library.ApiAssembly.AssemblyIdentity!.Identity.Name));
+        Assert.Equal(3, completed.Population.Owners.Count);
+        Assert.Equal(
+            [reference.Contribution, implementation.Contribution],
+            completed.Population.Receipt.HouseReceipt.SourceSettlements
+                .Select(static settlement => settlement.Contribution));
+
+        LibraryReference referenceOnly =
+            completed.Population.Value.Libraries[0];
+        Assert.Null(referenceOnly.ImplementationAssembly);
+        Assert.Single(referenceOnly.Contents);
+        var referenceProvenance =
+            Assert.IsType<PackageReferenceArtifactProvenance>(
+                Assert.IsType<PlatformLibraryArtifactProvenance>(
+                        referenceOnly.ApiAssembly.ArtifactReference.Provenance)
+                    .SourceProvenance);
+        Assert.Same(
+            reference.Value.Candidate,
+            referenceProvenance.Candidate);
+        Assert.Same(
+            reference.Value.Authority,
+            referenceProvenance.Authority);
+        Assert.Same(
+            reference.Value.ContentGeneration,
+            referenceProvenance.ContentGeneration);
+
+        LibraryReference paired =
+            completed.Population.Value.Libraries[1];
+        Assert.Equal(2, paired.Contents.Count);
+        Assert.NotSame(
+            paired.ApiAssembly,
+            paired.ImplementationAssembly);
+
+        LibraryReference implementationOnly =
+            completed.Population.Value.Libraries[2];
+        Assert.Same(
+            implementationOnly.ApiAssembly,
+            implementationOnly.ImplementationAssembly);
+        Assert.Equal(2, implementationOnly.ApiAssembly.Roles.Count);
+        PackageImplementationLibrary sourceImplementation =
+            Assert.Single(
+                implementation.Value.Libraries,
+                static library =>
+                    library.Identity.Name == "System.Net.Http");
+        var implementationProvenance =
+            Assert.IsType<PackageImplementationArtifactProvenance>(
+                Assert.IsType<PlatformLibraryArtifactProvenance>(
+                        implementationOnly.ApiAssembly.ArtifactReference
+                            .Provenance)
+                    .SourceProvenance);
+        Assert.Same(
+            sourceImplementation.Framework.Candidate,
+            implementationProvenance.Candidate);
+        Assert.Same(
+            sourceImplementation.Framework.Authority,
+            implementationProvenance.Authority);
+        Assert.Same(
+            sourceImplementation.Framework.ContentGeneration,
+            implementationProvenance.ContentGeneration);
+        Assert.Equal(
+            sourceImplementation.ContentDigest,
+            implementationProvenance.ContentDigest);
+
+        await environment.AssertSettledAsync();
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        for (int index = 0;
+            index < completed.Population.Owners.Count;
+            index++)
+        {
+            Assert.Same(
+                completed.Population.Value.Libraries[index],
+                completed.Population.Owners[index].Reference);
+            await completed.Population.Owners[index].DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        PackagePairedPopulation_RejectsForeignImplementation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using PackagePlatformTestEnvironment environment =
+            PopulationEnvironment();
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            PopulationRequest(adapter, cancellationToken);
+        PlatformHouseRequest foreign =
+            PopulationRequest(adapter, cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        foreign,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                foreign.Work.MaxDuration)));
+
+        var terminal = Assert.IsType<
+            PackagePlatformPopulationMaterializationResult.Terminal>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationPopulationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        Consumed(
+                            reference.Value,
+                            implementation.Value)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.TerminalRealization.Outcome);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        PackagePairedPopulation_IncompleteWorkTransfersNoAuthority()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using PackagePlatformTestEnvironment environment =
+            PopulationEnvironment();
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            PopulationRequest(adapter, cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        PlatformHouseConsumedWork consumed =
+            Consumed(reference.Value, implementation.Value);
+
+        var terminal = Assert.IsType<
+            PackagePlatformPopulationMaterializationResult.Terminal>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationPopulationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        new PlatformHouseConsumedWork(
+                            consumed.SourceOperations,
+                            consumed.TargetCandidates,
+                            request.Work.MaxAssemblies + 1,
+                            consumed.XmlDocuments,
+                            consumed.PortablePdbs,
+                            consumed.SourceDocuments,
+                            consumed.Bytes,
+                            consumed.ForwardingHops,
+                            consumed.TargetComparisons,
+                            consumed.Elapsed)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Incomplete>(
+                    terminal.TerminalRealization.Outcome);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        PackagePairedPopulation_CancellationTransfersNoAuthority()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await using PackagePlatformTestEnvironment environment =
+            PopulationEnvironment();
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request =
+            PopulationRequest(adapter, cancellation.Token);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellation.Token,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            cancellation.Token,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            async () =>
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationPopulationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        Consumed(
+                            reference.Value,
+                            implementation.Value)));
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         PackageSystemTextJson_TransfersLibraryAndArtifactAuthorities()
     {
         CancellationToken cancellationToken =
@@ -368,6 +653,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
             typeof(PackageReferenceArtifactProvenance),
             typeof(PackageImplementationArtifactProvenance),
             typeof(PackagePlatformLibraryMaterializationResult.Terminal),
+            typeof(PackagePlatformPopulationMaterializationResult.Terminal),
         ];
 
         foreach (Type type in types)
@@ -455,6 +741,43 @@ public sealed class PackagePlatformLibraryMaterializerTests
             [TestSourceBehavior.CreatePackages([.. packages])]);
     }
 
+    static PackagePlatformTestEnvironment PopulationEnvironment()
+    {
+        byte[] json =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        byte[] runtime =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] http =
+            PackagePlatformTestData.Assembly("System.Net.Http");
+        return PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net11.0/System.Runtime.dll",
+                                runtime),
+                            PackagePlatformTestData.Entry(
+                                "ref/net11.0/System.Text.Json.dll",
+                                json),
+                        ]),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.NETCore.App",
+                            PackagePlatformTestData.RuntimeConfiguration(),
+                            PackagePlatformTestData.DependencyManifest(
+                                "System.Text.Json.dll",
+                                "System.Net.Http.dll"),
+                            ("System.Text.Json.dll", json),
+                            ("System.Net.Http.dll", http)))),
+            ]);
+    }
+
     static PackagePlatformHouseAdapter Adapter(
         PackagePlatformTestEnvironment environment) =>
         new(environment.CreateSource(), "package-materializer");
@@ -507,6 +830,34 @@ public sealed class PackagePlatformLibraryMaterializerTests
             Work(),
             cancellationToken);
     }
+
+    static PlatformHouseRequest PopulationRequest(
+        PackagePlatformHouseAdapter adapter,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create("package-population"),
+            new PlatformTargetDemand.Exact(Target()),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create("test")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.ReferenceAndImplementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("package-population-plan"),
+                PlatformSourcePolicyGeneration.Create(
+                    "package-population-policy"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]),
+            Work(),
+            cancellationToken);
 
     static IReadOnlyList<PlatformSourceCapabilityIdentity> Capabilities(
         PlatformSourceCapabilityIdentity package,
