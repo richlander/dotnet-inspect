@@ -8,6 +8,7 @@
     <IsTestProject>true</IsTestProject>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <IsAotCompatible>false</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
     <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>

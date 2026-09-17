@@ -263,6 +263,22 @@ public class ExtensionsCommandTests
             document.RootElement[0].GetProperty("method").GetString());
     }
 
+    [Fact]
+    public async Task CommandLine_NumericTypeFilterPointsToSemanticLimit()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "-t",
+            "1");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "-t selects a type filter; use -n N to select extension rows.",
+            result.Error);
+    }
+
     [Theory]
     [InlineData("-n1")]
     [InlineData("-1")]

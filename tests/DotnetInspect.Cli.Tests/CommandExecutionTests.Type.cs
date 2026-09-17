@@ -44,7 +44,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Member Index",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1604,7 +1604,7 @@ public partial class CommandExecutionTests
         // --columns is the same surface and was the case the first fix missed: it does not filter
         // document fields at all, so the title vanished while the projected table rendered fine.
         var (columnsExit, columnsOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "1", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "3", "--lines", "--tips", "q");
 
         Assert.Equal(0, columnsExit);
         Assert.Contains("# System.Text.Json", columnsOutput, StringComparison.Ordinal);
@@ -2687,7 +2687,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3438,7 +3438,7 @@ public partial class CommandExecutionTests
     public async Task Type_StaticClass_RendersStaticClassModifierOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Math", "--shape", "--tips", "q", "-n", "1");
+            "type", "System.Math", "--shape", "--tips", "q", "-n", "1", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

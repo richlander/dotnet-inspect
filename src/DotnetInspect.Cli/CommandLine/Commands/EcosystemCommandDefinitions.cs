@@ -4,7 +4,6 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Services;
-using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -25,19 +24,19 @@ public static class EcosystemCommandDefinitions
         command.Arguments.Add(ecosystemArgument);
         opts.AddJsonOptionTo(command);
         opts.AddTableOptionsTo(command);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: static _ => false);
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
-        // The lowering bindings require identities for unsupported line modes;
-        // leaving these options unattached keeps them outside the public command.
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
 
         command.SetAction(parseResult =>
         {
-            if (!TryGetRows(parseResult, out RowWindow? rows))
+            if (!TryGetRowSelection(
+                    parseResult,
+                    out RowSelectionIntent<string>? rowSelection))
                 return 1;
 
             return EcosystemCommand.Execute(new EcosystemOptions
@@ -51,7 +50,7 @@ public static class EcosystemCommandDefinitions
                 Schema = opts.ParseSchema(parseResult),
                 Tree = opts.ParseTree(parseResult),
                 Count = parseResult.GetValue(opts.Count),
-                Rows = rows,
+                RowSelection = rowSelection,
                 Format = opts.ResolveFormat(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
             });
@@ -66,53 +65,34 @@ public static class EcosystemCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return command;
     }
 
-    private static bool TryGetRows(
+    private static bool TryGetRowSelection(
         ParseResult parseResult,
-        out RowWindow? rows)
+        out RowSelectionIntent<string>? rowSelection)
     {
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 "Ecosystem",
-                out RowSelectionIntent<string>? intent,
+                out rowSelection,
                 out string? error))
         {
             CommandError.Write(error!);
-            rows = null;
             return false;
         }
 
-        if (intent is null || intent.Operations.Count == 0)
-        {
-            rows = null;
-            return true;
-        }
-
-        if (intent.Operations.Count != 1)
-        {
-            throw new InvalidOperationException(
-                "Ecosystem row selection must lower to exactly one operation.");
-        }
-
-        RowSelectionIntentOperation<string> operation =
-            intent.Operations[0];
-        rows = operation.Kind switch
-        {
-            RowSelectionStageKind.Head => RowWindow.Head(operation.Count),
-            RowSelectionStageKind.Tail => RowWindow.Tail(operation.Count),
-            RowSelectionStageKind.Window when operation.Start is int start =>
-                RowWindow.Range(start, operation.End),
-            _ => throw new InvalidOperationException(
-                $"Unsupported ecosystem row-selection operation '{operation.Kind}'."),
-        };
         return true;
     }
 }
