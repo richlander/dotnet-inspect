@@ -33,7 +33,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
     internal bool IsContentJson =>
         JsonOutput
-        && RowSelection is null
+        && (RowSelection is null || RowSelection.Operations.Count == 0)
         && !Count
         && Columns is null
         && Fields is null

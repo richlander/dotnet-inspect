@@ -832,6 +832,88 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CliPackageQueryContentAndEnvelopeAreIdentical()
+    {
+        var json = await Run(
+            "package",
+            "query",
+            "System.Text.Json",
+            "--json",
+            "--compact");
+        var envelope = await Run(
+            "package",
+            "query",
+            "System.Text.Json",
+            "--envelope",
+            "--compact");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                envelopeDocument.RootElement.GetProperty("content")));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CliAssemblySemanticContentAndEnvelopeAreIdentical()
+    {
+        string[] arguments =
+        [
+            "package",
+            "query",
+            "Newtonsoft.Json",
+            "--library-literal",
+            "Unexpected end when reading JSON",
+            "--tfm",
+            "net6.0",
+        ];
+        var json = await Run([.. arguments, "--json", "--compact"]);
+        var envelope =
+            await Run([.. arguments, "--envelope", "--compact"]);
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                envelopeDocument.RootElement.GetProperty("content")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Speed", "Slow")]
+    public async Task CliSelectedJsonRetainsPresentationContract(
+        bool bareSelect)
+    {
+        string[] selection = bareSelect
+            ? ["-S"]
+            : ["-S", "Packages"];
+        var result = await Run(
+            [
+                "package",
+                "query",
+                "Contoso.Package.That.Does.Not.Exist.7357",
+                .. selection,
+                "--json",
+                "--compact",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("{}", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task EnvelopeRetainsFailedPackageQueryContent()
     {
         using var source = Source(out var fixture);
