@@ -59,6 +59,8 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataPublicMethodRoots =
+        "metadata.public-method-roots";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
     public const string MetadataTypeDependencyReference =
@@ -207,6 +209,14 @@ public static class FixtureCatalog
             "ILInspector.Metadata.ApiDeclarationCorrespondence.dll",
             Boundaries(FixtureBoundary.VersionPair),
             "metadata", "api-correspondence", "version-pair");
+
+    public static readonly FixtureDefinition MetadataPublicMethodRoots =
+        Fixture(
+            FixtureIds.MetadataPublicMethodRoots,
+            "ILInspector.Metadata.PublicMethodRootFixtures",
+            "ILInspector.Metadata.PublicMethodRootFixtures.dll",
+            Boundaries(FixtureBoundary.AssemblyIdentity),
+            "metadata", "public-method-roots");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -954,6 +964,7 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataPublicMethodRoots,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
@@ -1360,6 +1371,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.PublicMethodRootFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
             "ILInspector.Metadata.TypeDependencyReference" =>

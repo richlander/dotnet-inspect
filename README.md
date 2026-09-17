@@ -180,7 +180,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
+| `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -308,7 +308,8 @@ diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### ReadyToRun and raw metadata
@@ -416,28 +417,31 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
-Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
-one matched package per row and product-authored evidence. The initial CLI
-facet set identifies .NET tool packages and their CLI v1/v2 format. Discover
-the admitted IDs before constructing a query:
+Add `--where "key=value"` to select product-owned Package Query terms, with one
+matched package per row and product-authored evidence. The initial CLI
+vocabulary covers package metadata, dependencies, downloads, README presence,
+.NET tools and their CLI v1/v2 format, and skill packages. Discover the
+admitted keys and values before constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages
 dotnet-inspect package query Azure.Mcp \
-  --where "facet=package.query.dotnet-tool"
-dotnet-inspect package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5 --jsonl
+  --where "tool=true"
+dotnet-inspect package query 'Azure.Mcp*' \
+  --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
-Repeat `--where` to combine facets; the engine rejects incompatible selections.
-The broad tool facet reports CLI v1, CLI v2, or unrecognized settings from
-`DotnetToolSettings.xml`; tool v1 and v2 are compatible filtering alternatives.
-Selecting a content facet authorizes the required archive acquisition and
-defaults to at most 20 candidates. Use `--nuspec-only` to reject a query that
-would require package content. Without explicit `--take`, a simple `-n N`
-query pushes that semantic head into execution; explicit `--take` instead
-fixes the candidate population before row selection. Reached candidate limits
-and partial failures are reported explicitly. `--count` counts selected
+Repeat `--where` to combine terms; the engine rejects incompatible selections.
+The broad `tool=true` term identifies the .NET tool package type from manifest
+evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
+classification; the two specific formats are compatible filtering
+alternatives. Selecting a package-content term authorizes the required archive
+acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
+reject a query that would require package content. Without explicit `--take`, a
+simple `-n N` query pushes that semantic head into execution; explicit
+`--take` instead fixes the candidate population before row selection. Reached
+candidate limits and partial failures are reported explicitly. `--count`
+counts selected
 matching package rows only when completion or the semantic selection proves
 the count exact.
 
@@ -635,7 +639,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### Compatibility and change tracking
@@ -918,14 +923,30 @@ dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
   --where "Cluster=3"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --where "Cluster=3" \
+  -S "Public Root Paths"
 ```
 
 The drill-down names every source member, source token, target member, target
 token, call kind, evidence method, evidence token, and IL offset in that
 cluster. Use source and target identities for ordinary `member` inspection.
-Use the evidence token with the IL offset for `library --il-offset`, because a
+Use the evidence token with the IL offset for `library coordinate`, because a
 compiler-generated physical body can differ from the attributed source member.
 The cluster remains structural evidence rather than a source-inlining verdict.
+
+`Public Root Paths` traces the selected cluster's exact consumer methods back
+to exhaustive public MethodDef roots in the consumer library. Each row reports
+one deterministic shortest local static path, its public root and destination
+tokens, and physical IL receipts for every logical step. The section must be
+named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
+from defaults, bare `-S`, and wildcard section selection. A complete empty
+section means no public root has a local static path to the selected use sites.
+If pair, public-root, or path analysis is incomplete, retained positive paths
+are still rendered and the command exits nonzero instead of asserting absence.
 
 ```bash
 dotnet-inspect member "<SourceType>" \
@@ -938,8 +959,8 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library ./Consumer.dll \
-  --il-offset "<EvidenceToken>+<ILOffset>"
+dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+  --library ./Consumer.dll
 ```
 
 ### Workspace sharing and built-in guidance

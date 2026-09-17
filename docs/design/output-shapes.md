@@ -828,12 +828,20 @@ owned by the `extensions` adoption tracked in
 retired only when a compatible Markout typed-JSON lowering is available.
 
 The current `CountProjectionFormatter` establishes cardinality by intercepting
-structured Markout rows without writing them. Under the target
+structured Markout rows without writing them. The product contract is that
+section selection and row windows determine cardinality before count
+formatting. Its Release gates are
+`OutputFormatterTests.CountProjection_CapturesTableRowsBySection`,
+`OutputFormatterTests.CountProjection_AppliesRowWindowBeforeReduction`,
+`OutputFormatterTests.CountProjection_DoesNotCountNonTableContent`, and
+`OutputFormatterTests.CountProjection_SectionRowsRenderThroughEveryCompatibleFormat`.
+No separate source-shape gate constrains which formatter implementation may
+satisfy that contract. Under the target
 [section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
 formatters instead consume typed L2 Row-outcomes, Count, or failure results and
-do not establish cardinality. Rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose the same declared
-logical rows to L2 that their renderers consume.
+do not establish cardinality. Producers outside Markout, such as metadata
+tables, expose the same declared logical rows to L2 that their renderers
+consume.
 
 ### Approved `vocabulary --json` compatibility boundary
 
