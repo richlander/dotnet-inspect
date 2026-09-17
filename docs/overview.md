@@ -778,6 +778,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
+- [Coordinate child command](design/coordinate-child-command.md): when a
+  required subordinate point or bounded coordinate population earns a child
+  request under an already selected subject, initially `library coordinate`.
 - [Row query and ordering](design/row-query-order.md): typed predicate and
   order resolution, baseline ordering, and per-`Top` ranking identities.
 - [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
