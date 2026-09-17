@@ -22,6 +22,7 @@ public static class DecompilerFidelityDiscriminators
     public const string LocalFunctionMethodName = "local-function-method-name";
     public const string InvalidCalleeMemorySafetyRules = "invalid-callee-memory-safety-rules";
     public const string PinnedLocal = "pinned-local";
+    public const string ScopedLocalNameUnavailable = "scoped-local-name-unavailable";
     public const string PrivateImplementationDetailsType = "private-implementation-details-type";
     public const string StateMachineTypeName = "state-machine-type-name";
     public const string UnsupportedTypeShape = "unsupported-type-shape";
@@ -155,4 +156,14 @@ public sealed record DecompilerFidelityCause
     /// policy consumers must use <see cref="Discriminator"/>.
     /// </summary>
     public string? InventoryBucket { get; }
+
+    internal DecompilerFidelityCause WithLocation(DecompilerFidelityLocation location)
+        => new(
+            Code,
+            location,
+            NodeKind,
+            Node,
+            Reason,
+            Discriminator,
+            InventoryBucket);
 }

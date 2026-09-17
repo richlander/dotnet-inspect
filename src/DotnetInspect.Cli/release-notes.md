@@ -2,11 +2,12 @@
 
 ## Unreleased
 
-- Adds focus-first `library coordinate <MethodDef+offset>` for exact IL
-  coordinate inspection with named `--library`, `--package`, and `--platform`
-  source context. It reuses the existing coordinate sections, projections,
-  discovery, acquisition, and typed failures; the legacy exact option remains
-  available until heap and file modes complete the command transition (#7307).
+- Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
+  heap inspection with named `--library`, `--package`, and `--platform` source
+  context. Heap coordinates remain bound to the selected `--metadata-root`. The
+  command reuses the existing coordinate sections, projections, discovery,
+  acquisition, and typed failures; legacy exact options remain available until
+  file mode and retirement slices complete the command transition (#7307).
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
   discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
   member discovery remains case-insensitive and one-to-many across overloads,

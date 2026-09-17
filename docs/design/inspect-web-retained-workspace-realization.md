@@ -2,17 +2,20 @@
 
 ## Status
 
-Accepted; implementation is in progress.
+Accepted; production adoption is in progress.
 
-The Browser realization host seam is implemented. Production replacement of
-retained application snapshots is blocked until Workspace Definitions supplies
-its complete resource-free restoration path under
-[#7027](https://github.com/richlander/dotnet-inspect/issues/7027). The retained
-activation consumer is
-[#7028](https://github.com/richlander/dotnet-inspect/issues/7028). The current Browser URL
-projection is intentionally partial and is not a complete retained-definition
-recipe. [Adoption and retirement](#adoption-and-retirement) records the exact
-entry condition and prerequisite implementation issues.
+The Browser realization host seam and retained activation transaction are
+implemented. Workspace Definitions now supplies complete resource-free
+restoration under
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027), and
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes its
+format-2 and format-3 packet paths through the production Browser facade. The
+format-1 Browser URL projection remains intentionally partial and cannot enter
+this transaction. Producer migration and retirement of the compatibility
+snapshot collection remain
+[#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
+[Adoption and retirement](#adoption-and-retirement) records the remaining
+production boundaries.
 
 This document is the normative owner for how Inspect Web retains selectable
 Workspace definitions, selects one definition, realizes it, and composes that
@@ -200,6 +203,12 @@ The active selection associates:
 The association is explicit. Display labels, package coordinates, canonical
 URLs, definition equality, and result text cannot be used to infer it.
 
+Each successful cutover also issues a page-session publication ordinal.
+TypeScript uses that ordinal only to order asynchronously delivered
+installation results; it does not parse realization identities or use the
+ordinal for operation admission. A lower ordinal cannot replace presentation
+already installed from a higher ordinal.
+
 ### Activation intent
 
 Every asynchronous selection request has host-owned intent identity. A
@@ -221,6 +230,9 @@ Workspaces.
 - A predecessor contains only already admitted work and drains through the
   coordinator.
 - A settlement record is detached evidence of successful or failed retirement.
+- A page observation carries the settlement identity and the exact retained
+  definition and realization installation that issued it through both success
+  and failure callbacks.
 
 Only the coordinator decides when these states may begin, publish, drain, and
 settle. Inspect Web may render their progress and failure but does not create a
@@ -462,7 +474,10 @@ Deleting the active definition follows one of two paths:
   successful selection commit. Failure preserves the old active definition and
   realization.
 - Without a successor, Inspect Web removes the definition, closes the active
-  coordinator realization, and enters the explicit no-Workspace state.
+  coordinator realization, and enters the explicit no-Workspace state. A
+  terminal cleanup failure keeps its failed settlement charged and visible but
+  cannot preserve active presentation or selection after managed authority has
+  been removed. A rejection before deactivation begins preserves the incumbent.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.
@@ -536,12 +551,15 @@ tracks the end-to-end architecture retirement.
    `WorkspaceRealizationCoordinator`, with exact candidate construction,
    cutover, operation admission, predecessor settlement, the four-realization
    aggregate admission bound, and visible failure.
-2. **Retained definitions and activation transaction.** Replace TypeScript
-   full-application snapshot exchange by consuming the owner-issued complete
-   restoration path for resource-free retained records, asynchronous
-   selection, rollback presentation, and exact history composition. This slice
-   does not create a Browser-private restoration recipe or treat a currently
-   projectable version-1 URL as a complete record. Tracked by
+2. **Retained definitions and activation transaction.** Supply the TypeScript
+   resource-free definition controller and consume the owner-issued complete
+   restoration path for asynchronous selection, rollback presentation, exact
+   managed realization association, and detached Navigation installation
+   evidence. The transaction does not create a Browser-private restoration
+   recipe or treat a currently projectable version-1 URL as a complete record.
+   Existing producers remain on their compatibility snapshot path until slice
+   3 migrates them; no migrated path may exchange a live application snapshot.
+   Tracked by
    [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
    packages, package-query handoff, demos, shared links, and initial/history
@@ -571,15 +589,15 @@ current production behavior for paths not yet migrated and refuses mixed
 authority within migrated paths. Final #6757 completion requires all seven
 slices.
 
-Slice 2 begins only after Workspace Definitions can restore the complete
-retained view into an unpublished fresh Workspace and return one typed
-installation result. That owner-issued path must include the exact Navigation
-participant and retained result producer. Scope supplies complete membership
-through its ordinary fresh-Workspace operations; it does not require a
-restoration-only participant. Until then, the Browser must retain the existing
-snapshot path; it may not replace it with a stale-location fallback, a partial
-definition, or a parallel Browser restoration coordinator. This is an external
-entry condition, not an additional #6757 implementation slice.
+Slice 2 entered after Workspace Definitions gained complete restoration in
+issue #7027. Its production facade accepts complete supported packet formats 2
+and 3, constructs through `BrowserWorkspaceRealizationHost`, and returns
+detached Navigation plus canonical projection and predecessor-settlement
+evidence.
+Scope supplies complete membership through its ordinary fresh-Workspace
+operations; it does not require a restoration-only participant. The existing
+snapshot path remains only as explicit compatibility state for the unmigrated
+slice-3 producers; it is not an input or fallback for retained activation.
 
 ### Required retirement inventory
 
@@ -681,10 +699,26 @@ The first-slice Release gates are:
 - `FailedCandidateSupersession_DoesNotOverAdmitReplacement`; and
 - `Close_SettlesCandidateBarrierWaitBeforeConstructionDrain`.
 
-These gates exercise `BrowserWorkspaceRealizationHost` directly. Existing
-package, Platform, Navigation, and analysis entry points remain on their
-current paths until their counted adoption slices; the host seam alone does not
-claim whole-product one-realization enforcement.
+The second-slice Release gates add
+`BrowserRetainedWorkspaceActivationTests` and
+`retained-workspace-activation.test.ts`. They demonstrate A/B/A fresh
+realization identity, active-selection no-effect, latest-intent supersession,
+incumbent preservation, lower-ordinal response settlement observation,
+strict format-1 rejection before candidate charge, predecessor drainage and
+detached exactly-once settlement observation, a per-definition deletion
+barrier that survives displacement and overlapping activation, visible
+displaced cleanup failure, a sole-active deletion barrier that prevents
+replacement admission before successful drainage, generation-bound active
+deletion that cannot commit over newer selection, retention of resource-free
+definitions added during sole-active drainage, deterministic active deletion,
+and bounded resource-free retained definitions.
+Generated-facade and ordinary Worker inventory gates keep the transaction
+callable through the production Browser/Wasm boundary.
+
+Existing package, Platform, Navigation, and analysis entry points remain on
+their current paths until their counted adoption slices. The retained
+activation transaction alone does not claim whole-product one-realization
+enforcement.
 
 Cross-platform support remains inherited from the coordinator and Browser
 hosts. No new platform exception is introduced by this design.
