@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Host-neutral Ecosystem population loading contracts and Library ownership handoff</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
+    <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -27,6 +27,21 @@ experiences. They use the same host-neutral loader operation. Host composition
 supplies different authorized PlatformHouse source plans where needed; the
 loader contract does not create a desktop-only path.
 
+The stage-2 contract substrate is implemented in
+`DotnetInspector.EcosystemLoading`. It includes canonical loader identity,
+typed static binding, exact registration correspondence and selection,
+single-use requests, closed replies and outcomes, resource-free receipts,
+request-bound adjacent-owner request and receipt identities, completed-child
+ownership tokens, and one-shot Library owner transfer or retirement.
+`DotnetInspector.EcosystemLoading.Tests` owns the focused Release gates, while
+`DotnetInspector.Ecosystems.Consumer.Tests` exercises the public surface
+without friend access. Catalog registration, PlatformHouse adapters, Workspace
+admission, host envelopes, and host adoption remain later stages.
+The shared substrate binds completion evidence to the exact request and
+structurally permits owners only from completed child tokens. The stage-5
+PlatformHouse adapters remain responsible for issuing completion evidence only
+after their owner-specific expected-child and settled-child sets agree.
+
 ## Authority and exact claim
 
 **Ecosystem Population Loading** owns:
@@ -297,6 +312,12 @@ Each capability retains its own request, authorization, work, outcome, and
 lifetime contract. Extending the plan for a new source owner requires a
 focused adoption rather than an untyped escape hatch.
 
+The shared implementation keeps the catalog-visible binding non-generic while
+its executable form is typed over one loader-specific input composition. That
+input exposes only resource-free operation-policy, capability-plan, and work
+identities to the request receipt. The binding never recovers typed inputs
+through reflection, `dynamic`, object lookup, or service location.
+
 ## Invocation and result
 
 Orchestration validates the bound request before invocation. One accepted
@@ -326,7 +347,8 @@ Every bound invocation outcome retains:
 - exact loader binding identity;
 - population demand;
 - applied operation policy and authorized capability-plan identity;
-- every selected adjacent-owner request and terminal receipt; and
+- every selected adjacent-owner request and terminal receipt through exact
+  resource-free owner-issued identities; and
 - completion, omission, or failure diagnostics.
 
 `Completed` means the demand was completely satisfied according to the loader
@@ -593,7 +615,7 @@ where present, must not erase Platform and Package source distinction.
 This shared capability has eight focused stages:
 
 1. Lock this Ecosystem Population Loading contract.
-2. Implement the host-neutral binding, request, outcome, receipt, and
+2. **Implemented:** host-neutral binding, request, outcome, receipt, and
    owner-transfer contract with a public consumer canary.
 3. Have Static Ecosystem Packs define `ecosystem.dotnet` and
    `ecosystem.aspnetcore`, their package prefixes, and their independent loader
