@@ -88,7 +88,8 @@ public sealed class LibraryBodyIndex
         string path,
         LibraryBodyModuleIdentity moduleIdentity,
         LibraryBodyAnalysisResult analysis,
-        LibraryBodyAnalysisFeatures features)
+        LibraryBodyAnalysisFeatures features,
+        bool hasFullMethodEvidenceScope)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
@@ -139,6 +140,9 @@ public sealed class LibraryBodyIndex
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
+        HasFullMethodEvidenceScope =
+            (features & LibraryBodyAnalysisFeatures.MethodEvidence) != 0
+            && hasFullMethodEvidenceScope;
         _leakTriage = analysis.Resources.LeakTriage;
         ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
         _declaredSources = analysis.Methods.DeclaredSources;
@@ -225,6 +229,12 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
     public LibraryBodyAnalysisFeatures Features { get; }
+    /// <summary>
+    /// True when method evidence covers the full module rather than a
+    /// caller-supplied method or type scope. Recoverable body diagnostics are
+    /// reported separately through <see cref="Diagnostics"/>.
+    /// </summary>
+    public bool HasFullMethodEvidenceScope { get; }
 
     /// <summary>
     /// Compact per-method ArrayPool ownership summaries produced during the
@@ -262,6 +272,7 @@ public sealed class LibraryBodyIndex
     MethodDefinitionMap? _methodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
+    LibraryBodyLocalCallGraph? _rootPathGraph;
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
     /// definition map, distinct-caller counts and edges, and direct-call
@@ -286,6 +297,7 @@ public sealed class LibraryBodyIndex
         _methodMap = null;
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
+        _rootPathGraph = null;
         _directCallsByCaller = null;
         _directCallsByEvidenceMethod = null;
         _overloadRelationships = default;
@@ -1053,6 +1065,10 @@ public sealed class LibraryBodyIndex
     /// </summary>
     MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
 
+    internal LibraryBodyLocalCallGraph RootPathGraph()
+        => _rootPathGraph ??=
+            LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
+
     readonly record struct LocalCalleeKey(
         int DefinitionToken,
         GraphNodeIdentity? StructuralIdentity);
@@ -1259,7 +1275,8 @@ public sealed class LibraryBodyIndex
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
-                    : LibraryBodyAnalysisFeatures.Allocations));
+                    : LibraryBodyAnalysisFeatures.Allocations),
+            hasFullMethodEvidenceScope: true);
     }
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
@@ -1451,7 +1468,8 @@ public sealed class LibraryBodyIndex
             path,
             moduleIdentity,
             analysis,
-            plan.Features);
+            plan.Features,
+            hasFullMethodEvidenceScope: !plan.IsScoped);
     }
 
     static void ValidateSyntheticEvidenceIdentity(

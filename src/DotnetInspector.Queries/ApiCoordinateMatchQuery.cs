@@ -38,7 +38,7 @@ public sealed class ApiCoordinateMatchQueryResult
     public CoordinatePackageObservation? Before { get; internal init; }
     public CoordinatePackageObservation? After { get; internal init; }
     public ApiCoordinateSourceSelectionResult? SourceSelection { get; internal init; }
-    public ApiCoordinateCorrespondenceResult? Correspondence { get; internal init; }
+    public ApiCoordinateCorrespondenceEvidence? Correspondence { get; internal init; }
 }
 
 /// <summary>
@@ -154,10 +154,7 @@ public static class ApiCoordinateMatchQuery
         };
         return new(request, ApiCoordinateMatchQueryStage.Correspondence)
         {
-            Before = before,
-            After = after,
-            SourceSelection = selected,
-            Correspondence = correspondence,
+            Correspondence = correspondence.Detach(),
         };
 
         ApiCoordinateMatchQueryResult AcquisitionFailed(
