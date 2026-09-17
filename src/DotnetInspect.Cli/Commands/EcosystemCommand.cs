@@ -91,7 +91,8 @@ public static class EcosystemCommand
                 sectionCategories: catalog.SelectionCategoryMap,
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                expandCategoryAliases: false);
         }
 
         if (options.Tree)
@@ -111,7 +112,7 @@ public static class EcosystemCommand
             catalog.SelectionCategoryMap,
             selectDefault: options.SelectDefault,
             expandCategoryAliases: false);
-        if (SelectOutput.WriteUnresolved(selection))
+        if (SelectOutput.WriteErrors(selection.Unresolved))
             return 1;
 
         HashSet<string> selectedNames = selection.Sections

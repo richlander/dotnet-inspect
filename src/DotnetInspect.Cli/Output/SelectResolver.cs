@@ -210,7 +210,8 @@ public static class SelectResolver
         IReadOnlyDictionary<string, string[]>? categories,
         IReadOnlyCollection<string> knownSections,
         out string category,
-        out string[] sections)
+        out string[] sections,
+        bool expandCategoryAliases = true)
     {
         category = "";
         sections = [];
@@ -230,7 +231,8 @@ public static class SelectResolver
                 section.Equals(value, StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        if (!CategoryAliases.TryGetValue(value, out var alias))
+        if (!expandCategoryAliases
+            || !CategoryAliases.TryGetValue(value, out var alias))
             return false;
 
         var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>

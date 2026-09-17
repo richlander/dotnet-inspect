@@ -629,6 +629,11 @@ public sealed class EcosystemCommandTests
             Ecosystem = "aspire",
             Select = [EcosystemSections.KnownIntegrationsSection],
         });
+        var discovery = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Discover = ["Integrations"],
+        });
 
         Assert.Equal(1, removed.ExitCode);
         Assert.Empty(removed.Output);
@@ -639,6 +644,12 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, exact.ExitCode);
         Assert.Empty(exact.Error);
         Assert.Contains("## Known Integrations", exact.Output);
+
+        Assert.Equal(1, discovery.ExitCode);
+        Assert.Empty(discovery.Output);
+        Assert.Contains(
+            "Section 'Integrations' not found.",
+            discovery.Error);
     }
 
     [Fact]
@@ -809,7 +820,7 @@ public sealed class EcosystemCommandTests
     [InlineData("@All")]
     [InlineData("@Default")]
     [InlineData("@Hidden")]
-    public async Task ComputedCategoryPolesFailBeforePruneRowsAreRead(
+    public async Task ComputedCategoryPolesFailBeforePruneRowsAreReadWhenAnotherSelectorMatches(
         string selector)
     {
         int reads = 0;
@@ -823,7 +834,7 @@ public sealed class EcosystemCommandTests
             new EcosystemOptions
             {
                 Ecosystem = "platform",
-                Select = [selector],
+                Select = [SectionCategoryNames.Ecosystem, selector],
             },
             Prune);
 
