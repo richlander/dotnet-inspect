@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -27,11 +28,15 @@ public static class DependencyResolutionService
     /// <summary>
     /// Resolves the full transitive dependency tree for a set of direct dependencies.
     /// </summary>
-    public static async Task<List<DependencyNode>> ResolveDependencyTreeAsync(
+    public static async Task<DependencyResolutionResult<List<DependencyNode>>>
+        ResolveDependencyTreeAsync(
         HttpClient client, List<PackageDependency> dependencies, string tfm,
         HashSet<string> globalSeen, Action<string>? log,
         NuGetSourceOptions? sourceOptions = null)
-        => await ResolveDependencyTreeCoreAsync(
+    {
+        var diagnostics =
+            ImmutableArray.CreateBuilder<DependencyResolutionDiagnostic>();
+        List<DependencyNode> tree = await ResolveDependencyTreeCoreAsync(
             client,
             dependencies,
             tfm,
@@ -42,7 +47,10 @@ public static class DependencyResolutionService
             graph: null,
             expandedGraphCoordinates: null,
             externallySeenPackageIds: null,
-            includeTreeBranch: true).ConfigureAwait(false);
+            includeTreeBranch: true,
+            diagnostics).ConfigureAwait(false);
+        return new(tree, diagnostics.ToImmutable());
+    }
 
     /// <summary>
     /// Resolves package dependencies while retaining every direct relationship
@@ -50,7 +58,8 @@ public static class DependencyResolutionService
     /// target-framework context stops recursive work but never deletes the
     /// edge that reached it.
     /// </summary>
-    public static async Task<PackageDependencyGraph> ResolveDependencyGraphAsync(
+    public static async Task<DependencyResolutionResult<PackageDependencyGraph>>
+        ResolveDependencyGraphAsync(
         HttpClient client,
         PackageDependencyIdentity root,
         string? rootAuthor,
@@ -69,6 +78,8 @@ public static class DependencyResolutionService
         graph.SetNodeResolution(
             root,
             PackageDependencyResolutionState.Resolved);
+        var diagnostics =
+            ImmutableArray.CreateBuilder<DependencyResolutionDiagnostic>();
         globalSeen.Add(root.PackageId);
         var expandedGraphCoordinates =
             new HashSet<PackageDependencyExpansionKey>(
@@ -87,8 +98,9 @@ public static class DependencyResolutionService
             graph,
             expandedGraphCoordinates,
             externallySeenPackageIds,
-            includeTreeBranch: true).ConfigureAwait(false);
-        return graph.Build(tree);
+            includeTreeBranch: true,
+            diagnostics).ConfigureAwait(false);
+        return new(graph.Build(tree), diagnostics.ToImmutable());
     }
 
     private static async Task<List<DependencyNode>>
@@ -104,7 +116,8 @@ public static class DependencyResolutionService
         HashSet<PackageDependencyExpansionKey>?
             expandedGraphCoordinates,
         HashSet<string>? externallySeenPackageIds,
-        bool includeTreeBranch)
+        bool includeTreeBranch,
+        ImmutableArray<DependencyResolutionDiagnostic>.Builder diagnostics)
     {
         List<DependencyNode> nodes = [];
 
@@ -150,7 +163,8 @@ public static class DependencyResolutionService
                 expandGraph ? graph : null,
                 expandGraph ? expandedGraphCoordinates : null,
                 expandGraph ? externallySeenPackageIds : null,
-                includeTreeNode).ConfigureAwait(false);
+                includeTreeNode,
+                diagnostics).ConfigureAwait(false);
 
             if (expandGraph)
             {
@@ -283,93 +297,84 @@ public static class DependencyResolutionService
         HttpClient client, string packageId, string versionRange, string tfm,
         HashSet<string> globalSeen, Action<string>? log,
         NuGetSourceOptions? sourceOptions,
-        PackageDependencyIdentity? source = null,
-        PackageDependencyGraphBuilder? graph = null,
+        PackageDependencyIdentity source,
+        PackageDependencyGraphBuilder? graph,
         HashSet<PackageDependencyExpansionKey>?
-            expandedGraphCoordinates = null,
-        HashSet<string>? externallySeenPackageIds = null,
-        bool includeTreeBranch = true)
+            expandedGraphCoordinates,
+        HashSet<string>? externallySeenPackageIds,
+        bool includeTreeBranch,
+        ImmutableArray<DependencyResolutionDiagnostic>.Builder diagnostics)
     {
-        try
+        string? version = ResolveVersionFromRange(versionRange);
+        if (version == null)
         {
-            string? version = ResolveVersionFromRange(versionRange);
-            if (version == null)
-            {
-                return new PackageDependencyResolution(
-                    [],
-                    Author: null,
-                    PackageDependencyResolutionState.Declared);
-            }
-
-            // Resolving the tree only needs each package's dependency groups, so fetch just the
-            // nuspec (from cache or the flat-container endpoint) instead of downloading and
-            // extracting the whole .nupkg.
-            string? nuspecXml = await DotnetInspector.Packages.PackageExtractor.TryGetNuspecXmlAsync(
-                client,
-                packageId,
-                version,
-                log,
-                sourceOptions).ConfigureAwait(false);
-            if (nuspecXml == null)
-            {
-                return new PackageDependencyResolution(
-                    [],
-                    Author: null,
-                    PackageDependencyResolutionState.Unavailable);
-            }
-
-            var nuspec = NuspecParser.ParseContent(nuspecXml);
-
-            if (nuspec.DependencyGroups is not { Count: > 0 })
-            {
-                return new PackageDependencyResolution(
-                    [],
-                    nuspec.Authors,
-                    PackageDependencyResolutionState.Resolved);
-            }
-
-            var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
-            if (selection.Group?.Dependencies is not { Count: > 0 })
-            {
-                return new PackageDependencyResolution(
-                    [],
-                    nuspec.Authors,
-                    PackageDependencyResolutionState.Resolved);
-            }
-
-            var children = await ResolveDependencyTreeCoreAsync(
-                client,
-                selection.Group.Dependencies,
-                selection.TargetFramework ?? tfm,
-                globalSeen,
-                log,
-                sourceOptions,
+            diagnostics.Add(new(
                 source,
-                graph,
-                expandedGraphCoordinates,
-                externallySeenPackageIds,
-                includeTreeBranch).ConfigureAwait(false);
+                PackageDependencyResolutionState.Declared,
+                DependencyResolutionDiagnosticKind.InvalidVersionRange));
             return new PackageDependencyResolution(
-                children,
-                nuspec.Authors,
-                PackageDependencyResolutionState.Resolved);
+                [],
+                Author: null,
+                PackageDependencyResolutionState.Declared);
         }
-        catch (NuspecParseException)
+
+        // Resolving the tree only needs each package's dependency groups, so fetch just the
+        // nuspec (from cache or the flat-container endpoint) instead of downloading and
+        // extracting the whole .nupkg.
+        string? nuspecXml = await DotnetInspector.Packages.PackageExtractor.TryGetNuspecXmlAsync(
+            client,
+            packageId,
+            version,
+            log,
+            sourceOptions).ConfigureAwait(false);
+        if (nuspecXml == null)
         {
-            throw;
-        }
-        catch (PackageSourceMappingException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            log?.Invoke($"Error resolving dependencies: {ex.Message}");
+            diagnostics.Add(new(
+                source,
+                PackageDependencyResolutionState.Unavailable,
+                DependencyResolutionDiagnosticKind.ManifestUnavailable));
             return new PackageDependencyResolution(
                 [],
                 Author: null,
                 PackageDependencyResolutionState.Unavailable);
         }
+
+        var nuspec = NuspecParser.ParseContent(nuspecXml);
+
+        if (nuspec.DependencyGroups is not { Count: > 0 })
+        {
+            return new PackageDependencyResolution(
+                [],
+                nuspec.Authors,
+                PackageDependencyResolutionState.Resolved);
+        }
+
+        var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
+        if (selection.Group?.Dependencies is not { Count: > 0 })
+        {
+            return new PackageDependencyResolution(
+                [],
+                nuspec.Authors,
+                PackageDependencyResolutionState.Resolved);
+        }
+
+        var children = await ResolveDependencyTreeCoreAsync(
+            client,
+            selection.Group.Dependencies,
+            selection.TargetFramework ?? tfm,
+            globalSeen,
+            log,
+            sourceOptions,
+            source,
+            graph,
+            expandedGraphCoordinates,
+            externallySeenPackageIds,
+            includeTreeBranch,
+            diagnostics).ConfigureAwait(false);
+        return new PackageDependencyResolution(
+            children,
+            nuspec.Authors,
+            PackageDependencyResolutionState.Resolved);
     }
 
     public static string? ResolveVersionFromRange(string versionRange)

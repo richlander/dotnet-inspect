@@ -1,7 +1,7 @@
 # The package query CLI
 
 How `package query` exposes the CLI half of the grep.app-style wide query over
-nuget.org: where the facet-matching engine lives, how a per-package fact set
+nuget.org: where the term-matching engine lives, how a per-package fact set
 becomes a printable shape, and why the browser experience in
 [package-query-experience.md](package-query-experience.md) consumes the same
 host-neutral query contract rather than inventing its own.
@@ -16,11 +16,12 @@ inputs to this design; `package query` supersedes that command surface. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the retained implementation evidence.
 
-The current sources also implement the host-neutral L1 facet contract as
-`PackageQuery`: product-owned ordered descriptors, typed request planning,
-ANDed predicate evaluation over `PackageProfileQuery`, an explicit
-package-content provider for archive-derived facets, non-empty inert evidence,
-separate candidate and match bounds, visible failures, and typed completion.
+The current sources implement one host-neutral L1 Package Query vocabulary as
+`PackageQuery`: product-owned ordered term descriptors, complete Portable Query
+Intent planning, ANDed predicate evaluation with vocabulary-owned OR families,
+an explicit package-content provider for archive-derived terms, non-empty inert
+evidence, separate candidate and match bounds, retained Head/Tail/Window stages,
+visible failures, and typed completion.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -44,9 +45,13 @@ Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
 canary.
 
-The focused CLI adoption binds a deliberately smaller initial vocabulary:
-the broad .NET tool facet and its CLI v1/v2 alternatives. Other Browser facets
-are not automatically CLI surface. Assembly-semantic qualification is an explicit Package Query mode owned by
+CLI and Browser now consume the same first production vocabulary:
+`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
+`readme=true`, `tool=true`, `tool-format=v1|v2`, and `skill=true`.
+`package=<id>`, `prefix=<literal-prefix>`, and
+`prerelease=stable|include` are structural terms authored by the shared input
+planner rather than host-visible inspection controls. Assembly-semantic
+qualification is an explicit Package Query mode owned by
 [Package Query library-literal qualification](package-query-library-literal.md).
 Its Results have package grain; decoded literal occurrences remain typed
 evidence within each matched package Result. The one-candidate evaluator
@@ -55,39 +60,37 @@ remains owned by
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
 Without explicit `--take`, a single semantic Head is delegated to the shared
-query's optional match budget; direct package rows also use that Head as their
-candidate bound. Existing Browser requests retain their numeric match-stop
-budget.
+query's optional `matches` bound; direct package rows also use that Head as
+their candidate bound. Browser requests author the same Head stage and explicit
+match bound through the same planner.
 
-The first parameterized term adoption under
-[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) adds
-`depends=<package-id>` beside that existing facet surface. It is the first
-production consumer of the Package Query term descriptor and typed term plan;
-the existing parameterless facets remain active until their own term spellings
-land. Inspect Web consumes the same descriptor and planner through its active
-term editor, without defining a second vocabulary. This staged boundary does
-not define the portable intent codec.
+The adoption under
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) removes the
+parallel opaque-facet channel. CLI `--where`, Browser presets, and Browser free
+term editors all lower to `(key, operator, value)` triples in one intent.
+Portable Query Intent owns serialization and generic resolution; Package Query
+owns this vocabulary, binding, compatibility, bounds, acquisition tiers,
+execution, evidence, and plan construction.
 
 Related docs:
 
 - [Package Query inspection evidence](package-query-inspection-evidence.md)
   owns typed inspection counts and bounded previews, separate from query-wide
-  context. The future CLI facet projection consumes the same compact evidence
-  through Sections/Markout; CLI facet wiring remains pending.
+  context. CLI and Browser consume the same compact product-authored evidence.
 - [Package Query input selection](package-query-input-selection.md) owns the
   shared choice between exact-ID and explicit terminal-star prefix candidate
   inputs. `package query` consumes that spelling directly.
 - [The package query experience](package-query-experience.md) — the browser
   front end this document is the CLI counterpart to. Its own non-goals already
-  consumes the same product-issued facet descriptors while each host chooses
-  which descriptors to admit.
+  consume the same product-issued term descriptors while each host chooses how
+  to present them.
 - [Inspection layers](inspection-layers.md) — owns the L1/L2/L3 split this
   document places the new work into.
 - [Row query and ordering design](row-query-order.md) — owns the `--where`
   row-predicate model this document reuses rather than inventing a second
   query language.
 - [Output shapes](output-shapes.md) — owns the shape ladder (Document → Table
-  → Vector → Scalar) and the "declared row unit" discipline a facet-matched
+  → Vector → Scalar) and the "declared row unit" discipline a term-matched
   package row must follow.
 - [Package source model](package-source-model.md) and
   [browser package sources](browser-package-sources.md) — own the source
@@ -101,102 +104,88 @@ Related docs:
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
 
-## Parameterized term binding
+## Package Query term binding
 
-The Package Query owner publishes one initial parameterized term:
+Every Package Query condition is a
+`DotnetInspector.PortableQueries.PortableQueryTerm`. The shared planner authors
+one complete `PortableQueryIntent` containing:
 
-```text
-key: depends
-operator: eq
-value: <package-id>
-```
+- exactly one population term: `package=<id>` or
+  `prefix=<literal-prefix>`;
+- exactly one version-policy term: `prerelease=stable|include`;
+- the required `candidates` bound and optional `matches` bound;
+- retained Head, Tail, or Window stages; and
+- all user-selected inspection terms.
 
-The unresolved triple and canonical operator identity use
-`DotnetInspector.PortableQueries.PortableQueryTerm` and
-`PortableQueryOperator`; Package Query owns this vocabulary's descriptor,
-value binding, duplicate-after-binding rule, tier, execution, and evidence.
-This slice does not yet resolve a complete `PortableQueryIntent` or encode its
-payload.
+The production inspection vocabulary is:
 
-The CLI spells it through the existing predicate grammar:
+| Term | Value | Tier | Meaning |
+| --- | --- | --- | --- |
+| `dependencies` | `none` | nuspec | No declared dependencies in any group |
+| `depends` | NuGet package ID | nuspec | Direct dependency declared in any group |
+| `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
+| `readme` | `true` | nuspec | The manifest declares an embedded README |
+| `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
+| `tool-format` | `v1` or `v2` | package content | Tool settings use the selected format |
+| `skill` | `true` | package content | The archive contains an admitted skill document |
+
+All terms admit equality only. Independent terms AND. Repeated
+`tool-format` values OR within their combining family; `tool=true` is
+incompatible with either specific format. Equivalent normalized bindings
+collapse, including case variants of NuGet package IDs. Distinct values for
+the exclusive `downloads` and `prerelease` families are incompatible.
+
+The CLI spells inspection terms through the existing predicate grammar:
 
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \
-  --where "depends=Microsoft.Extensions.DependencyInjection"
+  --where "depends=Microsoft.Extensions.DependencyInjection" \
+  --where "downloads=1m"
+
+dotnet-inspect package query 'dotnet-*' \
+  --where "tool-format=v1" \
+  --where "tool-format=v2" \
+  --take 20 -n 5
 ```
 
-`depends` admits equality only. Its value must be one canonical NuGet package
-ID, and planning rejects an invalid value before source work. It matches a
-direct dependency declared in any nuspec dependency group using NuGet
-package-ID comparison semantics. It does not select a target-framework group,
-evaluate version-range satisfiability, or traverse transitively.
+The old `facet=<opaque-id>` spelling is rejected; it is not retained as an
+alias. `-Q Packages` and `Query: Packages` expose the product term keys,
+closed values, value kinds, and examples without acquisition. The CLI does not
+define a parallel vocabulary or infer terms from labels or evidence text.
 
-Repeated `depends` terms AND together. An exact duplicate input term is
-idempotent; two distinct spellings that resolve to the same case-insensitive
-package identity are rejected as one duplicated predicate. A matching
-package's evidence remains attributed to the exact term and names every
-distinct observed dependency spelling and declared range, subject to the
-existing bounded evidence preview.
+One request admits at most 22 authored inspection terms. Package Query reserves
+the other two slots in Portable Query's 24-term payload limit for its required
+population and prerelease terms. The count is charged before duplicate
+collapse, matching the canonical codec; both CLI and Browser receive the same
+typed planning rejection for a twenty-third inspection term.
 
-The term is nuspec-tier work. It uses dependency groups already acquired for a
-manifest candidate, performs no package download, and keeps the existing
-200-candidate default and 1,000-candidate maximum. A lone semantic Head may
-stop after its requested number of matching package witnesses; explicit
-`--take` fixes the candidate population, and `--count` requires that population
-or another accepted row selection to be complete under the existing Count
-rules.
+`depends` uses NuGet package-ID comparison semantics and matches a direct
+dependency declared in any nuspec dependency group. It does not select a
+target-framework group, evaluate version-range satisfiability, or traverse
+transitively. A matching package's evidence names every distinct observed
+dependency spelling and declared range, subject to the bounded evidence
+preview.
 
-`PackageQueryTests.TermDescriptors_ExposeTheInitialDependsVocabulary`,
-`PlanInput_RejectsInvalidTermsBeforeExecution`,
-`PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates`,
-`PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse`, and
-`ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges` gate the L1
-descriptor, planning, matching, evidence, and acquisition boundary.
-`PackageQueryCliTests.DependsTerm_LowersToTheProductPlan`,
-`DependsTerms_AndAcrossManifestDependenciesWithoutPackageContent`, and
-`DependsTerm_HeadStopsAfterItsWitnessAndCountEvaluatesThePopulation` gate the
-CLI spelling and its Head/Count behavior.
+Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
+Such a query defaults the candidate budget to 20 and cannot bypass the
+20-candidate ceiling. `--nuspec-only` rejects it before acquisition.
+`downloads` is evaluated from source search metadata and does not force a
+manifest request. Nuspec terms acquire manifests but no package archive;
+manifest predicates run before archive acquisition.
 
-## CLI facet binding
+`PackageQueryTests` gates vocabulary shape, complete intent retention,
+resolution, composition, evidence, candidate/match completion, and the
+search-metadata/no-manifest boundary. `PackageQueryCliTests` gates discovery,
+term spelling, Head/Count behavior, acquisition authorization, and output
+parity.
 
-This section owns the CLI adapter delivered by #6107 under the production
-tracker #6030. Its single claim is that CLI selections lower to the existing
-product-issued facet IDs and bounded `PackageQuery` plan, and render the
-returned evidence rather than recomputing it. The shared engine owns predicate
-meaning, compatible alternatives, acquisition tiers, and completion. The
-existing Browser consumer is the analogous implementation and already consumes
-these same metadata/content contracts.
+## CLI term binding
 
-The four adoption steps are CLI binding/discovery, production execution with
-the admitted-content provider, Sections/Markout rendering, and executable
-examples plus focused Release gates. The reconciliation requires one bounded
-extension to the existing shared request/plan/summary contract so absence of a
-match budget survives execution. It requires no Browser control or behavior
-change: Browser requests continue to carry their present budget and receive
-their numeric denominator and existing completion mapping. Assembly-pattern CLI adoption remains separate. The reconciled target spelling
-is:
-
-```sh
-package query -Q Packages
-package query Azure.Mcp -S Packages \
-  --where "facet=package.query.dotnet-tool"
-package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5
-```
-
-The `facet` selector reuses the existing equality grammar. Its values come from
-`PackageQuery.Facets`; repeated selections retain the product's compatibility
-and grouping rules. Neither arbitrary package-field predicates nor ranking
-are introduced. `-Q Packages` and `Query: Packages` describe this same binding,
-without acquisition.
-
-Selecting a package-content facet explicitly constructs a query that requires
-archive acquisition; that command construction is the user's approval. Such a
-query defaults the candidate budget to 20 and cannot bypass the product's
-20-candidate ceiling. `--nuspec-only` is a restrictive acquisition ceiling:
-planning fails before acquisition when any selected facet requires package
-content. It does not force unnecessary manifest acquisition for metadata-only
-queries. Manifest predicates still run before archive acquisition.
+The CLI adapter lowers every selection to the product-owned bounded
+`PackageQuery` plan and renders returned evidence rather than recomputing it.
+The shared engine owns predicate meaning, compatible alternatives, acquisition
+tiers, and completion. Browser is the second consumer of the same descriptors
+and planner. Assembly-pattern CLI adoption remains separate.
 
 The CLI provider consumes the package owner's configured-authority exact-pin
 acquisition and authority-scoped filesystem store. It acquires the selected
@@ -220,7 +209,7 @@ is not a matched-row count.
 `--take` is present and the row plan is one Head operation, the CLI pushes that
 head into execution. A direct metadata row path uses N as both the candidate
 and match bound, so `package query 'Foo*' -n 2` has the effective work shape
-`--take 2 -n 2`. A facet-filtered path retains its default candidate ceiling
+`--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
 remain visible; later candidates are outside the requested Head evaluation.
 Reaching this derived match bound is successful completion of the requested
@@ -288,8 +277,8 @@ backstop. This optional state is required rather than a sentinel: with
 exists under the owner's 1,000 match-budget maximum.
 
 The CLI binding is gated by `PackageQueryCliTests`:
-`DiscoveryValues_LowerToTheInitialToolFacetSet`,
-`ProductPlanner_OwnsCompatibilityAndDuplicateRejection`, and
+`DiscoveryValues_ExposeTheProductTermVocabulary`,
+`ProductPlanner_OwnsCompatibilityAndDuplicateCollapse`, and
 `InvalidCandidateBudgets_AreRejected` gate binding and admission;
 `SemanticHeadRunsAfterAllCandidatesAndKeepsOnePackagePerRow` and
 `OutputModes_UseTheSameWindowedMatches` gate semantic row shape;
@@ -306,7 +295,7 @@ retirement diagnostics, and the neighboring patterned Find contract.
 ## Thesis
 
 `package query` is the package-row CLI verb. It consumes the host-neutral L1
-facet engine to ask whether an exact package or packages under a literal prefix
+term engine to ask whether an exact package or packages under a literal prefix
 satisfy selected product-owned facts available from source metadata, exact
 manifests, or an explicitly supplied package archive. `find` remains the
 type/member/API verb; its package prefix option only scopes a patterned API
@@ -326,8 +315,8 @@ without falling back to related search results. Prefix input uses the supported
 V3 Search page stream, preserves source order and truncation, and can emit
 search metadata without forcing manifest or archive acquisition.
 
-Selecting an inspection facet authorizes its existing acquisition/evaluation
-tier; content facets retain their explicit provider requirement and
+Selecting an inspection term authorizes its acquisition/evaluation tier;
+package-content terms retain their explicit provider requirement and
 20-candidate ceiling. Match limits, candidate limits, source page limits,
 failures, and cancellation retain the visible query-event contract. The
 retired Gallery browse/order substrate is not a CLI adoption path.
@@ -336,16 +325,16 @@ retired Gallery browse/order substrate is not a CLI adoption path.
 
 Core. Concretely:
 
-- **L1 — `DotnetInspector.Queries`.** The facet-matching engine belongs here,
+- **L1 — `DotnetInspector.Queries`.** The term-matching engine belongs here,
   next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which
   #4551 places in this layer rather than in the CLI project. A typed
-  query that evaluates nuspec-tier facets over a streamed manifest and
-  package-content facets through an explicit host capability returns typed
+  query that evaluates nuspec-tier terms over a streamed manifest and
+  package-content terms through an explicit host capability returns typed
   results and chooses no renderer — the existing L1 contract.
   Assembly-semantic Find is a separate L1 composition owned by
   [Find assembly-semantic query](find-assembly-semantic-query.md); it does not
-  extend this facet engine.
-  This is what makes the facet engine reachable from a second consumer (the
+  extend this term engine.
+  This is what makes the term engine reachable from a second consumer (the
   browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
 - **L2 — `Sections` (currently `src/DotnetInspect.Cli/Sections`).** Row
@@ -361,7 +350,7 @@ Core. Concretely:
 - **L3 — `dotnet-inspect` (`package query`).** Argument parsing,
   exact/prefix input lowering, `--where`/capability wiring, row selection, and
   output-format selection only. L3 does not compute facts and does not decide
-  what a facet costs — the same rule that already governs every other command.
+  what a term costs — the same rule that already governs every other command.
 
 ## Is there a reason to start by changing `find`'s layering?
 
@@ -376,7 +365,7 @@ correctly to package rows a version early.
 ### Sections migration: already landed, ahead of this document's sequencing
 
 This document originally identified a real, narrower gap and recommended
-closing it as a preparatory slice before adding facet predicates: routing
+closing it as a preparatory slice before adding term predicates: routing
 `find --package-prefix`'s rendering path through the shared Sections registry
 the way `library`, `member`, and `package` already are (see
 [section-model.md](section-model.md), "first made coherent for the library
@@ -398,7 +387,7 @@ change" for this migration step was retiring `-t`-as-package-limit in favor of
 the historical #4677 `-n` proposal — but before #6489,
 `find --package-prefix`'s corpus limit remained `-t` (`FindOptions.Limit`,
 validated as "`-t` must be between 1 and..."). #6107 added `-S Packages` and
-the finite `--where` facet binding without replacing that ordinary profile
+the finite `--where` term binding without replacing that ordinary profile
 mode.
 
 Under that legacy spelling, numeric `-t` clamps the package candidates
@@ -547,34 +536,24 @@ for the resulting follow-up.
 
 ## Current Package Query tiers
 
-For existing facets, L1 owns the vocabulary and predicate semantics; front
-ends submit product-issued opaque facet IDs and do not reconstruct those
-predicates:
+L1 owns the finite term vocabulary and predicate semantics; front ends submit
+product-issued keys and values and do not reconstruct those predicates:
 
-- **`nuspec` tier.** Available over the bounded package profile produced from
-  source metadata and exact manifests. `PackageQuery.Facets` is the finite,
-  ordered vocabulary. `PackageQuery.Plan` validates selected IDs and
-  compatibility. `PackageQuery.ExecuteAsync` ANDs independent facets and ORs
-  selected combining members of one product-issued selection group before
-  applying the product match-stop budget when present. A facet's tier names the
-  production envelope in which it is available, not the narrowest individual
-  field its predicate reads; the common nuspec result row still carries exact
-  manifest facts.
-- **`package-content` tier.** Requires an explicit
-  `IPackageQueryContentProvider` and accepts at most 20 candidates.
-  `PackageQuery` still applies manifest predicates first, so a tool-format
-  facet does not acquire non-tool packages. The current archive-derived
-  facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
-  `skills/SKILL.md` or `skills/**/SKILL.md`. The exclusive any-tool facet
-  preserves the nuspec package-type prefilter, then reports CLI v1, CLI v2, or
-  explicitly unrecognized settings from the admitted archive. Tool v1 and v2
-  are combining members, so selecting both returns either recognized format
-  with evidence identifying the matched version.
+- **`search-metadata` tier.** `downloads` consumes the source's search result
+  metadata. A prefix request containing only this tier skips manifest
+  acquisition. Exact package selection retains authoritative exact-version
+  resolution while avoiding an unnecessary manifest request.
+- **`nuspec` tier.** `dependencies`, `depends`, `readme`, and `tool` consume
+  exact manifest facts. The broad `tool=true` predicate stops at the declared
+  package type; it does not open the archive merely to classify tool settings.
+- **`package-content` tier.** `tool-format` and `skill` require an explicit
+  `IPackageQueryContentProvider` and accept at most 20 candidates.
+  `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
+  combining members, so selecting both returns either recognized settings
+  format with evidence identifying the observed version.
 
-The CLI reuses `RowPredicateSyntaxParser` and repeated `--where` syntax for
-`facet=<ID>`. The IDs come from the product descriptor catalog; this is not an
-arbitrary section-field predicate engine. CLI and Browser invoke the same L1
-definitions. The CLI applies semantic row selection to
+CLI and Browser invoke the same L1 definitions. The CLI applies semantic row
+selection to
 `PackageQueryDocument.Results`, renders `PackageQueryDocument.Failures` as
 visible diagnostics, and uses `PackageQueryDocument.Summary` for exact-count
 and exit-status decisions. It does not reconstruct the Document from streamed
@@ -584,7 +563,7 @@ events.
 
 The current L1 planner rejects package-content requests above 20 candidates,
 and execution rejects a package-content plan unless its host supplies the
-explicit content-provider capability. Selecting a package-content facet is the
+explicit content-provider capability. Selecting a package-content term is the
 explicit cost gesture in both Browser and CLI. Each host lowers its candidate
 bound from 200 to 20 before dispatch; the CLI additionally offers
 `--nuspec-only` to reject such a plan before acquisition.
@@ -617,14 +596,14 @@ evaluation](package-query-assembly-evaluation.md).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 
-A facet-matched package is not naturally one flat row: it may match zero or
-more facets, each with its own evidence, and evaluating a capability-bearing
-facet may add fields a nuspec-only row never had. Before this can be a Table,
+A term-matched package is not naturally one flat row: it may match zero or
+more terms, each with its own evidence, and evaluating a capability-bearing
+term may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
 document proposes:
 
-- **Default grain: one row per package.** Multiple matched facets collapse
+- **Default grain: one row per package.** Multiple matched terms collapse
   into a single `Evidence` column, reusing the existing "evidence over
   checkmark" convention already established for Performance Triage and
   `package-opportunities.ts`, and already mirrored by the just-landed browser
@@ -632,8 +611,8 @@ document proposes:
   pass/fail). The CLI and the browser experience should render the *same*
   evidence strings for the same match — one fact, one wording, two renderers
   — not two independently authored explanations of why a package matched.
-- **Denormalization is a per-facet decision, not a generic mechanism.** A
-  facet whose answer is inherently per-sub-item (for example, "which of this
+- **Denormalization is a per-term decision, not a generic mechanism.** A
+  term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
   several) may choose to emit one row per package × sub-item, the same
   explicit choice #4551 already makes for package × dependency.
@@ -647,7 +626,7 @@ document proposes:
   logical-edge model, surfaced today by `graph integrations`. Extending that
   command's seed to a package-prefix scope is a separate, smaller piece of
   work than anything in this document, and it should not be reimplemented as
-  a flat facet-match row.
+  a flat term-match row.
 
 ## Completion and bound honesty parity with the browser
 
@@ -672,7 +651,7 @@ order:
   preserves bounded incompleteness.
 
 The implementation must preserve the orderings: candidate admission precedes
-facet evaluation, nuspec predicates precede semantic `-n`, the package-content
+term evaluation, nuspec predicates precede semantic `-n`, the package-content
 candidate cap applies before archive evaluation with manifest prefilters
 running before acquisition. Help text and rendered completion state must name
 the candidate bound, and each asserted ordering must name its enforcing gate.
@@ -727,17 +706,18 @@ storage does, so:
 
 This document does not fix that shape's exact fields; it only asserts that
 one shape should serve both surfaces, matching the precedent set by treating
-the CLI's named facets as canonical for the browser's facet rail.
+the product's named terms as canonical for both hosts.
 
 ## Non-goals (v1)
 
 - No new general expression grammar in the L1 contract. The finite
-  product-issued facet IDs are canonical; any future CLI grammar must lower
+  product-issued term keys and values are canonical; any future CLI grammar
+  must lower
   through product-owned bindings rather than defining another predicate set.
 - No relational query surface here. Package-to-capability or
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
-- No unbounded package-content evaluation. Package-content facets retain their
+- No unbounded package-content evaluation. Package-content terms retain their
   product-owned 20-candidate maximum.
 - No assembly-semantic Find gesture, population, occurrence, or result
   contract. Those belong to
@@ -756,17 +736,18 @@ the CLI's named facets as canonical for the browser's facet rail.
    `-t`-as-package-limit for the focused #4677 `-n` grammar, and
    `-S`/`--where` were not part of that slice. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-3. **Product-owned facet contract — implemented in the current sources.**
-   `PackageQuery` composes `PackageProfileQuery`, publishes stable ordered
-   facet descriptors, validates opaque selections, and streams matched package
-   rows with product-authored evidence and honest completion. Nuspec facets
-   need no package payload. Package-content facets require an explicit host
-   provider and at most 20 candidates. `PackageQueryTests` and
+3. **Product-owned query contract — implemented in the current sources.**
+   `PackageQuery` composes package acquisition, publishes stable ordered term
+   descriptors, resolves complete Portable Query Intents, and streams matched
+   package rows with product-authored evidence and honest completion.
+   Search-metadata terms skip manifests, nuspec terms need no package payload,
+   and package-content terms require an explicit host provider and at most 20
+   candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
 4. **CLI package-query command — implemented by #6768.** `package query`
-   consumes exact-ID or terminal-star prefix input, admits the tool facet
-   family, treats selecting a content facet as acquisition approval, offers
+   consumes exact-ID or terminal-star prefix input, admits the shared term
+   vocabulary, treats selecting a content term as acquisition approval, offers
    `--nuspec-only` as the restrictive override, and preserves the
    package-content 20-candidate maximum.
 5. **CLI limit reconciliation — implemented by #6768.** `--take` owns
@@ -780,15 +761,15 @@ the CLI's named facets as canonical for the browser's facet rail.
 7. **Assembly-semantic Find transferred to its focused owner.**
    [Find assembly-semantic query](find-assembly-semantic-query.md) owns the
    existing exact-package route and target bounded package-prefix population.
-   They are not Package Query facets or tiers.
+   They are not Package Query terms or acquisition tiers.
 8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
-9. **Adopt the first parameterized term.** `depends=<package-id>` lowers to one
-   typed nuspec term, repeated terms AND, evidence retains the observed
-   dependency and range, and the existing candidate and row-selection
-   contracts remain in force. Existing parameterless facets remain staged for
-   later conversion rather than being assigned speculative replacement keys.
+9. **Adopt one Package Query vocabulary — implemented by #6972.** Structural,
+   bound, selection, and inspection intent travel through one Portable Query
+   plan. The opaque facet channel is removed from CLI and Browser requests;
+   both hosts project the same descriptors and preserve the same execution,
+   evidence, and acquisition rules.
 
 Each step should name its own gating tests as it lands, per this project's
 "asserted properties name their gate" rule — this document is not itself a

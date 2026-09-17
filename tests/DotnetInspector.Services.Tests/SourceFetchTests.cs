@@ -16,14 +16,15 @@ public class SourceFetchTests
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store, new RejectingPolicy());
 
-        SourceFetchBytesResult result =
-            await fetch.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult result =
+            await fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 static _ => true,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(SourceFetchFailureKind.RequestNotAuthorized, result.Failure);
-        Assert.Null(result.Bytes);
+        Assert.Equal(
+            SourceError.RequestNotAuthorized,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, store.ReadCount);
         Assert.Equal(0, handler.RequestCount);
     }
@@ -36,14 +37,15 @@ public class SourceFetchTests
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store);
 
-        SourceFetchBytesResult result =
-            await fetch.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult result =
+            await fetch.FetchVerifiedSourceBytesAsync(
                 "file:///tmp/source.cs",
                 static _ => true,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(SourceFetchFailureKind.InvalidUrl, result.Failure);
-        Assert.Null(result.Bytes);
+        Assert.Equal(
+            SourceError.InvalidUrl,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, store.ReadCount);
         Assert.Equal(0, handler.RequestCount);
     }
@@ -55,19 +57,23 @@ public class SourceFetchTests
         var handler = new StubHandler(_ => Response(Expected));
         using var client = new HttpClient(handler);
 
-        SourceFetchBytesResult initial =
-            await new SourceFetch(client, store).FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult initial =
+            await new SourceFetch(client, store).FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 TestContext.Current.CancellationToken);
-        SourceFetchBytesResult repeated =
-            await new SourceFetch(client, store).FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult repeated =
+            await new SourceFetch(client, store).FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(Expected, initial.Bytes);
-        Assert.Equal(Expected, repeated.Bytes);
+        Assert.Equal(
+            Expected,
+            Assert.IsType<FetchSourceResult.Success>(initial).Content);
+        Assert.Equal(
+            Expected,
+            Assert.IsType<FetchSourceResult.Success>(repeated).Content);
         Assert.Equal(1, handler.RequestCount);
         Assert.Equal(2, store.ReadCount);
         Assert.Equal(1, store.WriteCount);
@@ -82,7 +88,7 @@ public class SourceFetchTests
         var handler = new StubHandler(_ => Response(Expected));
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store);
-        await fetch.FetchVerifiedSourceBytesResultAsync(
+        await fetch.FetchVerifiedSourceBytesAsync(
             Url,
             IsExpected,
             TestContext.Current.CancellationToken);
@@ -90,7 +96,7 @@ public class SourceFetchTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => fetch.FetchVerifiedSourceBytesResultAsync(
+            () => fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 cancellation.Token));
@@ -114,7 +120,7 @@ public class SourceFetchTests
         var fetch = new SourceFetch(client, store);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => fetch.FetchVerifiedSourceBytesResultAsync(
+            () => fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 _ =>
                 {
@@ -137,7 +143,7 @@ public class SourceFetchTests
         var fetch = new SourceFetch(client, store);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => fetch.FetchVerifiedSourceBytesResultAsync(
+            () => fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 _ =>
                 {
@@ -158,7 +164,7 @@ public class SourceFetchTests
         var fetch = new SourceFetch(client, store);
 
         await Assert.ThrowsAsync<HttpRequestException>(
-            () => fetch.FetchVerifiedSourceBytesResultAsync(
+            () => fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 static _ => throw new HttpRequestException("validator failed"),
                 TestContext.Current.CancellationToken));
@@ -175,7 +181,7 @@ public class SourceFetchTests
         var fetch = new SourceFetch(client, store);
 
         await Assert.ThrowsAsync<TaskCanceledException>(
-            () => fetch.FetchVerifiedSourceBytesResultAsync(
+            () => fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 static _ => throw new TaskCanceledException("validator failed"),
                 TestContext.Current.CancellationToken));
@@ -192,14 +198,15 @@ public class SourceFetchTests
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store);
 
-        SourceFetchBytesResult result =
-            await fetch.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult result =
+            await fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(SourceFetchFailureKind.NotFound, result.Failure);
-        Assert.Null(result.Bytes);
+        Assert.Equal(
+            SourceError.NotFound,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, store.WriteCount);
     }
 
@@ -211,14 +218,15 @@ public class SourceFetchTests
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store);
 
-        SourceFetchBytesResult result =
-            await fetch.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult result =
+            await fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(SourceFetchFailureKind.ValidationFailed, result.Failure);
-        Assert.Null(result.Bytes);
+        Assert.Equal(
+            SourceError.ValidationFailed,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, store.WriteCount);
     }
 
@@ -231,14 +239,15 @@ public class SourceFetchTests
         using var client = new HttpClient(handler);
         var fetch = new SourceFetch(client, store);
 
-        SourceFetchBytesResult result =
-            await fetch.FetchVerifiedSourceBytesResultAsync(
+        FetchSourceResult result =
+            await fetch.FetchVerifiedSourceBytesAsync(
                 Url,
                 IsExpected,
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(SourceFetchFailureKind.Unavailable, result.Failure);
-        Assert.Null(result.Bytes);
+        Assert.Equal(
+            SourceError.Unavailable,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, store.WriteCount);
     }
 

@@ -13,6 +13,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
@@ -94,23 +95,30 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
             PackageQuery.Plan(
                 new PackageQueryRequest(
-                    "Example.",
+                    "Example.*",
                     [
-                        PackageQuery.ToolFacetId,
-                        PackageQuery.NoDependenciesFacetId,
+                        new PortableQueryTerm(
+                            PackageQuery.ToolTermKey,
+                            PortableQueryOperator.Equal,
+                            "true"),
+                        new PortableQueryTerm(
+                            PackageQuery.DependenciesTermKey,
+                            PortableQueryOperator.Equal,
+                            "none"),
                     ],
-                    MaximumCandidates:
-                        PackageQuery.MaximumPackageContentCandidates))).Plan;
+                    MaximumCandidates: 20))).Plan;
 
-        Assert.Equal(
-            PackageQueryFacetTier.PackageContent,
-            plan.Facets[0].Tier);
+        Assert.All(
+            plan.BoundTerms,
+            term => Assert.Equal(
+                PackageQueryAcquisitionTier.Nuspec,
+                term.Descriptor.Tier));
         Assert.Equal(
             [
-                PackageQuery.ToolFacetId,
-                PackageQuery.NoDependenciesFacetId,
+                PackageQuery.DependenciesTermKey,
+                PackageQuery.ToolTermKey,
             ],
-            plan.Facets.Select(facet => facet.Id));
+            plan.Terms.Select(term => term.Key));
     }
 
     [Fact]

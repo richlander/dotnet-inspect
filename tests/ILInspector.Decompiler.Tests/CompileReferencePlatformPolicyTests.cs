@@ -486,7 +486,8 @@ public sealed class CompileReferencePlatformPolicyTests
                 IgnoreAssemblyVersion = ignoreVersion,
                 CorpusAssemblyPaths = designateSibling ? [SiblingPath] : null,
             });
-            Source = Resolver.AcquireTargetAssembly()!;
+            Source = Assert.IsType<AssemblyDependencyAcquisition.Acquired>(
+                Resolver.AcquireTargetAssembly()).Assembly;
         }
 
         public ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> TryPrepare(params AssemblyReferenceIdentity[] identities) =>

@@ -292,6 +292,7 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;

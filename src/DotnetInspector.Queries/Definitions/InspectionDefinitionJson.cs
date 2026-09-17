@@ -2,7 +2,11 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using NuGetFetch;
 using UntrustedDocuments;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -129,12 +133,60 @@ public static class InspectionDefinitionJson
     /// </summary>
     private static void EnsureWithinPortableLimits(InspectionDefinitionRecord record)
     {
+        EnsurePortableWorkspaceRegistrations(record);
         EnsureGroupLimits(record);
         var coordinateCount = CountCoordinates(record);
         if (coordinateCount > MaxCoordinatesPerRecord)
         {
             throw new InspectionDefinitionException(
                 $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
+        }
+    }
+
+    private static void EnsurePortableWorkspaceRegistrations(
+        InspectionDefinitionRecord record)
+    {
+        if (record is not WorkspaceDefinition workspace)
+            return;
+
+        for (int index = 0; index < workspace.Registrations.Count; index++)
+        {
+            WorkspaceRegistration registration = workspace.Registrations[index];
+            switch (registration)
+            {
+                case WorkspaceRegistration.ExactLibrary exact
+                    when exact.Coordinate is ExactLibrarySourceCoordinate.Package
+                        or ExactLibrarySourceCoordinate.Platform:
+                    _ = ToPortableLibraryIdentity(
+                        exact.Coordinate.LibraryIdentity);
+                    break;
+                case WorkspaceRegistration.ExactLibrary:
+                    throw new InspectionDefinitionException(
+                        $"Workspace registration {index} has no portable exact-Library source coordinate.");
+                case WorkspaceRegistration.PackagePrefix:
+                    break;
+                case WorkspaceRegistration.Ecosystem ecosystem:
+                    if (ecosystem.Declaration.IntegrationScanner is not null)
+                    {
+                        throw new InspectionDefinitionException(
+                            $"Workspace ecosystem registration '{ecosystem.Declaration.Id}' has a non-portable integration scanner.");
+                    }
+                    foreach (WorkspaceEcosystemPopulationDeclaration population
+                        in ecosystem.Declaration.Populations)
+                    {
+                        if (population
+                            is WorkspaceEcosystemPopulationDeclaration.ExactLibrary
+                                library)
+                        {
+                            _ = ToPortableLibraryIdentity(
+                                library.Coordinate.LibraryIdentity);
+                        }
+                    }
+                    break;
+                default:
+                    throw new InspectionDefinitionException(
+                        $"Workspace registration {index} has an unknown registration kind.");
+            }
         }
     }
 
@@ -195,6 +247,11 @@ public static class InspectionDefinitionJson
                 EnsureUtf16(workspace.Description, "description");
                 foreach (var context in workspace.Contexts)
                     EnsureContextUtf16(context);
+                foreach (WorkspaceRegistration registration
+                    in workspace.Registrations)
+                {
+                    EnsureRegistrationUtf16(registration);
+                }
                 EnsureGroupUtf16(workspace.Groups);
                 break;
             case QueryDefinition query:
@@ -274,6 +331,77 @@ public static class InspectionDefinitionJson
         EnsureUtf16(context.Subscribe, "context.subscribe");
         foreach (var member in context.Members)
             EnsureCoordinateUtf16(member);
+    }
+
+    private static void EnsureRegistrationUtf16(
+        WorkspaceRegistration registration)
+    {
+        switch (registration)
+        {
+            case WorkspaceRegistration.ExactLibrary exact:
+                EnsureExactLibraryUtf16(exact.Coordinate);
+                break;
+            case WorkspaceRegistration.PackagePrefix prefix:
+                EnsureUtf16(prefix.Prefix.Prefix, "registration.prefix");
+                break;
+            case WorkspaceRegistration.Ecosystem ecosystem:
+                WorkspaceEcosystemRegistrationDeclaration declaration =
+                    ecosystem.Declaration;
+                EnsureUtf16(declaration.Id.Value, "registration.declaration.id");
+                foreach (string root in declaration.NamespaceRoots)
+                {
+                    EnsureUtf16(
+                        root,
+                        "registration.declaration.namespaceRoots");
+                }
+                foreach (PackageCoordinate package in declaration.CorePackages)
+                {
+                    EnsureUtf16(
+                        package.PackageId,
+                        "registration.declaration.corePackages");
+                }
+                foreach (WorkspaceEcosystemPopulationDeclaration population
+                    in declaration.Populations)
+                {
+                    switch (population)
+                    {
+                        case WorkspaceEcosystemPopulationDeclaration.ExactLibrary
+                            library:
+                            EnsureExactLibraryUtf16(library.Coordinate);
+                            break;
+                        case WorkspaceEcosystemPopulationDeclaration.PackagePrefix
+                            prefixPopulation:
+                            EnsureUtf16(
+                                prefixPopulation.Prefix.Prefix,
+                                "registration.declaration.populations.prefix");
+                            break;
+                    }
+                }
+                break;
+        }
+    }
+
+    private static void EnsureExactLibraryUtf16(
+        ExactLibrarySourceCoordinate coordinate)
+    {
+        switch (coordinate)
+        {
+            case ExactLibrarySourceCoordinate.Package package:
+                EnsureUtf16(
+                    package.PackageCoordinate.PackageId,
+                    "registration.coordinate.id");
+                EnsureUtf16(
+                    package.PackageCoordinate.Version,
+                    "registration.coordinate.version");
+                break;
+        }
+
+        AssemblyReferenceIdentity identity = coordinate.LibraryIdentity.Identity;
+        EnsureUtf16(identity.Name, "registration.coordinate.library.name");
+        EnsureUtf16(identity.Culture, "registration.coordinate.library.culture");
+        EnsureUtf16(
+            identity.PublicKeyToken,
+            "registration.coordinate.library.publicKeyToken");
     }
 
     private static void EnsureTabUtf16(NavigationTabDefinition tab)
@@ -396,13 +524,35 @@ public static class InspectionDefinitionJson
             CatalogDefinition catalog => CountGroupCoordinates(catalog.Groups),
             WorkspaceDefinition workspace =>
                 CountGroupCoordinates(workspace.Groups)
-                + workspace.Contexts.Sum(context => context.Members.Count),
+                + workspace.Contexts.Sum(context => context.Members.Count)
+                + CountRegistrationCoordinates(workspace.Registrations),
             NavigationDefinition navigation =>
                 navigation.Tabs.Count(tab => tab.Coordinate is not null),
             CommittedNavigationDefinition navigation =>
                 navigation.Tabs.Count(tab => tab.Coordinate is not null),
             _ => 0,
         };
+
+    private static int CountRegistrationCoordinates(
+        IReadOnlyList<WorkspaceRegistration> registrations)
+    {
+        int count = 0;
+        foreach (WorkspaceRegistration registration in registrations)
+        {
+            count += registration switch
+            {
+                WorkspaceRegistration.ExactLibrary => 1,
+                WorkspaceRegistration.Ecosystem ecosystem =>
+                    ecosystem.Declaration.Populations.Count(population =>
+                        population
+                            is WorkspaceEcosystemPopulationDeclaration
+                                .ExactLibrary),
+                _ => 0,
+            };
+        }
+
+        return count;
+    }
 
     private static int CountGroupCoordinates(IReadOnlyList<CatalogGroupDefinition> groups)
     {
@@ -460,6 +610,11 @@ public static class InspectionDefinitionJson
         HashSet<string> allowed = (schemaVersion, kind) switch
         {
             (_, "catalog") => ["schemaVersion", "kind", "id", "groups"],
+            (InspectionDefinitionSchema.Version3, "workspace") =>
+            [
+                "schemaVersion", "kind", "id", "title", "description",
+                "contexts", "registrations", "groups",
+            ],
             (_, "workspace") =>
                 ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
             (InspectionDefinitionSchema.Version1, "query") =>
@@ -471,18 +626,21 @@ public static class InspectionDefinitionJson
             ],
             (InspectionDefinitionSchema.Version1, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
-            (InspectionDefinitionSchema.Version2, "view") =>
+            (InspectionDefinitionSchema.Version2
+                or InspectionDefinitionSchema.Version3, "view") =>
                 ["schemaVersion", "kind", "id", "states"],
-            (InspectionDefinitionSchema.Version2, "navigation") =>
+            (InspectionDefinitionSchema.Version2
+                or InspectionDefinitionSchema.Version3, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (_, "scenario") =>
             [
                 "schemaVersion", "kind", "id", "title", "description", "workspace", "context",
                 "input", "query", "view", "navigation",
             ],
-            (InspectionDefinitionSchema.Version2, "query") =>
+            (InspectionDefinitionSchema.Version2
+                or InspectionDefinitionSchema.Version3, "query") =>
                 throw new InspectionDefinitionException(
-                    "Schema-version-2 query records require query-owner codecs from #6971."),
+                    $"Schema-version-{schemaVersion} query records require query-owner codecs from #6971."),
             _ => throw new InspectionDefinitionException($"Unknown definition kind '{kind}'."),
         };
 
@@ -490,13 +648,39 @@ public static class InspectionDefinitionJson
 
         if (root.TryGetProperty("groups", out var groups))
             ValidateGroups(groups, "groups");
-        if (root.TryGetProperty("contexts", out var contexts))
+        if (kind == "workspace")
+        {
+            if (!root.TryGetProperty(
+                    "contexts",
+                    out JsonElement contexts)
+                || contexts.ValueKind != JsonValueKind.Array)
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace requires a contexts array.");
+            }
+
             ValidateContexts(contexts);
+        }
+        if (schemaVersion == InspectionDefinitionSchema.Version3
+            && kind == "workspace")
+        {
+            if (!root.TryGetProperty(
+                    "registrations",
+                    out JsonElement registrations)
+                || registrations.ValueKind != JsonValueKind.Array)
+            {
+                throw new InspectionDefinitionException(
+                    "Schema-version-3 Workspace requires a registrations array.");
+            }
+
+            ValidateRegistrations(registrations);
+        }
         if (root.TryGetProperty("tabs", out var tabs))
             ValidateTabs(tabs);
         if (root.TryGetProperty("states", out var states))
             ValidateCommittedStates(states);
-        if (schemaVersion == InspectionDefinitionSchema.Version2
+        if ((schemaVersion == InspectionDefinitionSchema.Version2
+                || schemaVersion == InspectionDefinitionSchema.Version3)
             && kind == "navigation")
         {
             if (!root.TryGetProperty("focus", out JsonElement focus)
@@ -504,8 +688,241 @@ public static class InspectionDefinitionJson
                     and not JsonValueKind.Null)
             {
                 throw new InspectionDefinitionException(
-                    "Schema-version-2 navigation requires string or null focus.");
+                    "Committed navigation requires string or null focus.");
             }
+        }
+    }
+
+    private static void ValidateRegistrations(JsonElement registrations)
+    {
+        foreach (JsonElement registration in registrations.EnumerateArray())
+        {
+            if (registration.ValueKind != JsonValueKind.Object)
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace registration entry must be an object.");
+            }
+            if (!TryGetExactString(registration, "kind", out string kind))
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace registration requires kind.");
+            }
+
+            switch (kind)
+            {
+                case "exactLibrary":
+                    RejectUnknownProperties(
+                        registration,
+                        ["kind", "coordinate"],
+                        "Exact Library registration");
+                    ValidateExactLibraryCoordinate(
+                        RequiredProperty(
+                            registration,
+                            "coordinate",
+                            "Exact Library registration"));
+                    break;
+                case "packagePrefix":
+                    RejectUnknownProperties(
+                        registration,
+                        ["kind", "prefix"],
+                        "Package Prefix registration");
+                    RequireStringProperty(
+                        registration,
+                        "prefix",
+                        "Package Prefix registration");
+                    break;
+                case "ecosystem":
+                    RejectUnknownProperties(
+                        registration,
+                        ["kind", "declaration"],
+                        "Ecosystem registration");
+                    ValidateEcosystemDeclaration(
+                        RequiredProperty(
+                            registration,
+                            "declaration",
+                            "Ecosystem registration"));
+                    break;
+                default:
+                    throw new InspectionDefinitionException(
+                        $"Unknown Workspace registration kind '{kind}'.");
+            }
+        }
+    }
+
+    private static void ValidateExactLibraryCoordinate(JsonElement coordinate)
+    {
+        if (coordinate.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Exact Library coordinate must be an object.");
+        }
+        if (!TryGetExactString(coordinate, "kind", out string kind))
+        {
+            throw new InspectionDefinitionException(
+                "Exact Library coordinate requires kind.");
+        }
+
+        switch (kind)
+        {
+            case "package":
+                RejectUnknownProperties(
+                    coordinate,
+                    ["kind", "id", "version", "library"],
+                    "Package exact Library coordinate");
+                RequireStringProperty(
+                    coordinate,
+                    "id",
+                    "Package exact Library coordinate");
+                RequireStringProperty(
+                    coordinate,
+                    "version",
+                    "Package exact Library coordinate");
+                break;
+            case "platform":
+                RejectUnknownProperties(
+                    coordinate,
+                    ["kind", "family", "library"],
+                    "Platform exact Library coordinate");
+                RequireStringProperty(
+                    coordinate,
+                    "family",
+                    "Platform exact Library coordinate");
+                break;
+            default:
+                throw new InspectionDefinitionException(
+                    $"Unknown exact Library coordinate kind '{kind}'.");
+        }
+
+        ValidateLibrary(
+            RequiredProperty(
+                coordinate,
+                "library",
+                "Exact Library coordinate"));
+    }
+
+    private static void ValidateEcosystemDeclaration(JsonElement declaration)
+    {
+        if (declaration.ValueKind != JsonValueKind.Object)
+        {
+            throw new InspectionDefinitionException(
+                "Workspace Ecosystem declaration must be an object.");
+        }
+        RejectUnknownProperties(
+            declaration,
+            ["id", "namespaceRoots", "corePackages", "populations"],
+            "Workspace Ecosystem declaration");
+        RequireStringProperty(
+            declaration,
+            "id",
+            "Workspace Ecosystem declaration");
+        ValidateStringArray(
+            RequiredProperty(
+                declaration,
+                "namespaceRoots",
+                "Workspace Ecosystem declaration"),
+            "Workspace Ecosystem namespaceRoots");
+        ValidateStringArray(
+            RequiredProperty(
+                declaration,
+                "corePackages",
+                "Workspace Ecosystem declaration"),
+            "Workspace Ecosystem corePackages");
+
+        JsonElement populations = RequiredProperty(
+            declaration,
+            "populations",
+            "Workspace Ecosystem declaration");
+        if (populations.ValueKind != JsonValueKind.Array)
+        {
+            throw new InspectionDefinitionException(
+                "Workspace Ecosystem populations must be an array.");
+        }
+        foreach (JsonElement population in populations.EnumerateArray())
+        {
+            if (population.ValueKind != JsonValueKind.Object
+                || !TryGetExactString(population, "kind", out string kind))
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace Ecosystem population requires an object with kind.");
+            }
+
+            switch (kind)
+            {
+                case "exactLibrary":
+                    RejectUnknownProperties(
+                        population,
+                        ["kind", "coordinate"],
+                        "Exact Library Ecosystem population");
+                    ValidateExactLibraryCoordinate(
+                        RequiredProperty(
+                            population,
+                            "coordinate",
+                            "Exact Library Ecosystem population"));
+                    break;
+                case "platform":
+                    RejectUnknownProperties(
+                        population,
+                        ["kind", "family"],
+                        "Platform Ecosystem population");
+                    RequireStringProperty(
+                        population,
+                        "family",
+                        "Platform Ecosystem population");
+                    break;
+                case "packagePrefix":
+                    RejectUnknownProperties(
+                        population,
+                        ["kind", "prefix"],
+                        "Package Prefix Ecosystem population");
+                    RequireStringProperty(
+                        population,
+                        "prefix",
+                        "Package Prefix Ecosystem population");
+                    break;
+                default:
+                    throw new InspectionDefinitionException(
+                        $"Unknown Workspace Ecosystem population kind '{kind}'.");
+            }
+        }
+    }
+
+    private static JsonElement RequiredProperty(
+        JsonElement owner,
+        string name,
+        string description)
+    {
+        if (!owner.TryGetProperty(name, out JsonElement property))
+        {
+            throw new InspectionDefinitionException(
+                $"{description} requires {name}.");
+        }
+
+        return property;
+    }
+
+    private static void RequireStringProperty(
+        JsonElement owner,
+        string name,
+        string description)
+    {
+        if (RequiredProperty(owner, name, description).ValueKind
+            != JsonValueKind.String)
+        {
+            throw new InspectionDefinitionException(
+                $"{description} {name} must be a string.");
+        }
+    }
+
+    private static void ValidateStringArray(
+        JsonElement values,
+        string description)
+    {
+        if (values.ValueKind != JsonValueKind.Array
+            || values.EnumerateArray().Any(
+                value => value.ValueKind != JsonValueKind.String))
+        {
+            throw new InspectionDefinitionException(
+                $"{description} must be an array of strings.");
         }
     }
 
@@ -839,9 +1256,11 @@ public static class InspectionDefinitionJson
                     CreateView(dto),
                 (InspectionDefinitionSchema.Version1, "navigation") =>
                     CreateNavigation(dto, ref coordinateCount),
-                (InspectionDefinitionSchema.Version2, "view") =>
+                (InspectionDefinitionSchema.Version2
+                    or InspectionDefinitionSchema.Version3, "view") =>
                     CreateCommittedView(dto),
-                (InspectionDefinitionSchema.Version2, "navigation") =>
+                (InspectionDefinitionSchema.Version2
+                    or InspectionDefinitionSchema.Version3, "navigation") =>
                     CreateCommittedNavigation(dto, ref coordinateCount),
                 (_, "scenario") => CreateScenario(dto),
                 _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
@@ -890,6 +1309,7 @@ public static class InspectionDefinitionJson
         RejectForeignRecordFields(
             dto,
             "workspace",
+            registrations: false,
             queryId: true,
             lens: true,
             type: true,
@@ -911,10 +1331,16 @@ public static class InspectionDefinitionJson
         return new WorkspaceDefinition(
             dto.SchemaVersion,
             dto.Id!,
-            MapContexts(dto.Contexts, ref coordinateCount),
+            MapContexts(
+                dto.Contexts,
+                dto.SchemaVersion,
+                ref coordinateCount),
             dto.Title,
             dto.Description,
-            MapGroups(dto.Groups, ref coordinateCount));
+            MapGroups(dto.Groups, ref coordinateCount),
+            MapRegistrations(
+                dto.Registrations,
+                dto.SchemaVersion));
     }
 
     private static QueryDefinition CreateQuery(InspectionDefinitionDto dto)
@@ -1012,7 +1438,10 @@ public static class InspectionDefinitionJson
         return new NavigationDefinition(
             dto.SchemaVersion,
             dto.Id!,
-            MapTabs(dto.Tabs, ref coordinateCount),
+            MapTabs(
+                dto.Tabs,
+                InspectionDefinitionSchema.Version1,
+                ref coordinateCount),
             dto.Focus ?? throw new InspectionDefinitionException("Navigation requires focus."));
     }
 
@@ -1078,7 +1507,10 @@ public static class InspectionDefinitionJson
         return new CommittedNavigationDefinition(
             dto.SchemaVersion,
             dto.Id!,
-            MapTabs(dto.Tabs, ref coordinateCount),
+            MapTabs(
+                dto.Tabs,
+                dto.SchemaVersion,
+                ref coordinateCount),
             dto.Focus);
     }
 
@@ -1139,7 +1571,8 @@ public static class InspectionDefinitionJson
         bool query = false,
         bool view = false,
         bool navigation = false,
-        bool states = false)
+        bool states = false,
+        bool registrations = true)
     {
         void Check(bool reject, string name, object? value)
         {
@@ -1172,6 +1605,7 @@ public static class InspectionDefinitionJson
         Check(view, "view", dto.View);
         Check(navigation, "navigation", dto.Navigation);
         Check(states, "states", dto.States);
+        Check(registrations, "registrations", dto.Registrations);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -1192,6 +1626,12 @@ public static class InspectionDefinitionJson
                 Title = workspace.Title,
                 Description = workspace.Description,
                 Contexts = workspace.Contexts.Select(ToContextDto).ToList(),
+                Registrations =
+                    workspace.SchemaVersion == InspectionDefinitionSchema.Version3
+                        ? workspace.Registrations
+                            .Select(ToRegistrationDto)
+                            .ToList()
+                        : null,
                 Groups = workspace.Groups.Count == 0 ? null : workspace.Groups.Select(ToGroupDto).ToList(),
             },
             QueryDefinition query => new InspectionDefinitionDto
@@ -1483,6 +1923,112 @@ public static class InspectionDefinitionJson
             PublicKeyToken = library.PublicKeyToken,
         };
 
+    private static WorkspaceRegistrationDto ToRegistrationDto(
+        WorkspaceRegistration registration) =>
+        registration switch
+        {
+            WorkspaceRegistration.ExactLibrary exact => new()
+            {
+                Kind = "exactLibrary",
+                Coordinate = ToExactLibraryCoordinateDto(exact.Coordinate),
+            },
+            WorkspaceRegistration.PackagePrefix prefix => new()
+            {
+                Kind = "packagePrefix",
+                Prefix = prefix.Prefix.Prefix,
+            },
+            WorkspaceRegistration.Ecosystem ecosystem => new()
+            {
+                Kind = "ecosystem",
+                Declaration = new WorkspaceEcosystemDeclarationDto
+                {
+                    Id = ecosystem.Declaration.Id.Value,
+                    NamespaceRoots =
+                        [.. ecosystem.Declaration.NamespaceRoots],
+                    CorePackages =
+                    [
+                        .. ecosystem.Declaration.CorePackages.Select(
+                            package => package.PackageId),
+                    ],
+                    Populations =
+                    [
+                        .. ecosystem.Declaration.Populations.Select(
+                            ToEcosystemPopulationDto),
+                    ],
+                },
+            },
+            _ => throw new InspectionDefinitionException(
+                $"Unsupported Workspace registration type {registration.GetType().Name}."),
+        };
+
+    private static ExactLibrarySourceCoordinateDto
+        ToExactLibraryCoordinateDto(
+            ExactLibrarySourceCoordinate coordinate)
+    {
+        PortableLibraryIdentityDto library = ToLibraryDto(
+            ToPortableLibraryIdentity(coordinate.LibraryIdentity));
+        return coordinate switch
+        {
+            ExactLibrarySourceCoordinate.Package package => new()
+            {
+                Kind = "package",
+                Id = package.PackageCoordinate.PackageId,
+                Version = package.PackageCoordinate.Version,
+                Library = library,
+            },
+            ExactLibrarySourceCoordinate.Platform platform => new()
+            {
+                Kind = "platform",
+                Family = platform.Population.Family.ToString(),
+                Library = library,
+            },
+            _ => throw new InspectionDefinitionException(
+                "Exact Library registration has no portable source coordinate."),
+        };
+    }
+
+    private static WorkspaceEcosystemPopulationDto
+        ToEcosystemPopulationDto(
+            WorkspaceEcosystemPopulationDeclaration population) =>
+        population switch
+        {
+            WorkspaceEcosystemPopulationDeclaration.ExactLibrary exact =>
+                new()
+                {
+                    Kind = "exactLibrary",
+                    Coordinate =
+                        ToExactLibraryCoordinateDto(exact.Coordinate),
+                },
+            WorkspaceEcosystemPopulationDeclaration.Platform platform =>
+                new()
+                {
+                    Kind = "platform",
+                    Family = platform.Population.Family.ToString(),
+                },
+            WorkspaceEcosystemPopulationDeclaration.PackagePrefix prefix =>
+                new()
+                {
+                    Kind = "packagePrefix",
+                    Prefix = prefix.Prefix.Prefix,
+                },
+            _ => throw new InspectionDefinitionException(
+                $"Unsupported Ecosystem population type {population.GetType().Name}."),
+        };
+
+    private static PortableLibraryIdentity ToPortableLibraryIdentity(
+        ManagedMetadataIdentity.Assembly library)
+    {
+        AssemblyReferenceIdentity identity = library.Identity;
+        Version version = identity.Version
+            ?? throw new InspectionDefinitionException(
+                "An exact Library registration requires an assembly version.");
+        return new PortableLibraryIdentity(
+            identity.Name,
+            version.ToString(4),
+            identity.Culture,
+            identity.PublicKeyToken);
+    }
+
     private static PortableTypeDefinitionNameDto ToTypeDto(
         MetadataTypeDefinitionName type) =>
         new()
@@ -1522,10 +2068,16 @@ public static class InspectionDefinitionJson
 
     private static List<WorkspaceContextDefinition> MapContexts(
         List<WorkspaceContextDto>? contexts,
+        int schemaVersion,
         ref int coordinateCount)
     {
-        if (contexts is null || contexts.Count == 0)
+        if (contexts is null)
+            throw new InspectionDefinitionException("Workspace requires contexts.");
+        if (contexts.Count == 0
+            && schemaVersion != InspectionDefinitionSchema.Version3)
+        {
             throw new InspectionDefinitionException("Workspace requires at least one context.");
+        }
 
         var mapped = new List<WorkspaceContextDefinition>(contexts.Count);
         foreach (var context in contexts)
@@ -1536,6 +2088,156 @@ public static class InspectionDefinitionJson
         }
 
         return mapped;
+    }
+
+    private static List<WorkspaceRegistration> MapRegistrations(
+        List<WorkspaceRegistrationDto>? registrations,
+        int schemaVersion)
+    {
+        if (schemaVersion != InspectionDefinitionSchema.Version3)
+            return [];
+        if (registrations is null)
+        {
+            throw new InspectionDefinitionException(
+                "Schema-version-3 Workspace requires registrations.");
+        }
+
+        var mapped = new List<WorkspaceRegistration>(registrations.Count);
+        foreach (WorkspaceRegistrationDto? registration in registrations)
+        {
+            if (registration is null)
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace registration entry must not be null.");
+            }
+
+            mapped.Add(registration.Kind switch
+            {
+                "exactLibrary" => new WorkspaceRegistration.ExactLibrary(
+                    MapExactLibraryCoordinate(registration.Coordinate)),
+                "packagePrefix" => new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration(
+                        registration.Prefix
+                            ?? throw new InspectionDefinitionException(
+                                "Package Prefix registration requires prefix."))),
+                "ecosystem" => new WorkspaceRegistration.Ecosystem(
+                    MapEcosystemDeclaration(registration.Declaration)),
+                _ => throw new InspectionDefinitionException(
+                    $"Unknown Workspace registration kind '{registration.Kind}'."),
+            });
+        }
+
+        return mapped;
+    }
+
+    private static ExactLibrarySourceCoordinate MapExactLibraryCoordinate(
+        ExactLibrarySourceCoordinateDto? coordinate)
+    {
+        if (coordinate is null)
+        {
+            throw new InspectionDefinitionException(
+                "Exact Library registration requires coordinate.");
+        }
+
+        PortableLibraryIdentity library =
+            MapRequiredLibrary(coordinate.Library);
+        var identity = new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                library.Name,
+                Version.Parse(library.Version),
+                library.Culture,
+                library.PublicKeyToken));
+        return coordinate.Kind switch
+        {
+            "package" => new ExactLibrarySourceCoordinate.Package(
+                PackageSourceCoordinate.Create(
+                    coordinate.Id
+                        ?? throw new InspectionDefinitionException(
+                            "Package exact Library coordinate requires id."),
+                    coordinate.Version
+                        ?? throw new InspectionDefinitionException(
+                            "Package exact Library coordinate requires version.")),
+                identity),
+            "platform" => new ExactLibrarySourceCoordinate.Platform(
+                new PlatformLibraryPopulationDeclaration(
+                    ParsePlatformFamily(coordinate.Family)),
+                identity),
+            _ => throw new InspectionDefinitionException(
+                $"Unknown exact Library coordinate kind '{coordinate.Kind}'."),
+        };
+    }
+
+    private static WorkspaceEcosystemRegistrationDeclaration
+        MapEcosystemDeclaration(
+            WorkspaceEcosystemDeclarationDto? declaration)
+    {
+        if (declaration is null)
+        {
+            throw new InspectionDefinitionException(
+                "Ecosystem registration requires declaration.");
+        }
+        if (declaration.NamespaceRoots is null
+            || declaration.CorePackages is null
+            || declaration.Populations is null)
+        {
+            throw new InspectionDefinitionException(
+                "Ecosystem declaration requires namespaceRoots, corePackages, and populations.");
+        }
+
+        return new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create(
+                declaration.Id
+                    ?? throw new InspectionDefinitionException(
+                        "Ecosystem declaration requires id.")),
+            declaration.NamespaceRoots,
+            declaration.CorePackages.Select(package => new PackageCoordinate(
+                package
+                    ?? throw new InspectionDefinitionException(
+                        "Ecosystem corePackages cannot contain null."))),
+            declaration.Populations.Select(MapEcosystemPopulation));
+    }
+
+    private static WorkspaceEcosystemPopulationDeclaration
+        MapEcosystemPopulation(
+            WorkspaceEcosystemPopulationDto? population)
+    {
+        if (population is null)
+        {
+            throw new InspectionDefinitionException(
+                "Ecosystem population entry must not be null.");
+        }
+
+        return population.Kind switch
+        {
+            "exactLibrary" =>
+                new WorkspaceEcosystemPopulationDeclaration.ExactLibrary(
+                    MapExactLibraryCoordinate(population.Coordinate)),
+            "platform" =>
+                new WorkspaceEcosystemPopulationDeclaration.Platform(
+                    new PlatformLibraryPopulationDeclaration(
+                        ParsePlatformFamily(population.Family))),
+            "packagePrefix" =>
+                new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                    new PackagePrefixDeclaration(
+                        population.Prefix
+                            ?? throw new InspectionDefinitionException(
+                                "Package Prefix population requires prefix."))),
+            _ => throw new InspectionDefinitionException(
+                $"Unknown Ecosystem population kind '{population.Kind}'."),
+        };
+    }
+
+    private static PlatformFamily ParsePlatformFamily(string? value)
+    {
+        if (value is null
+            || !Enum.TryParse(value, ignoreCase: false, out PlatformFamily family)
+            || !Enum.IsDefined(family))
+        {
+            throw new InspectionDefinitionException(
+                "Platform family must be 'DotNetRuntime' or 'AspNetCore'.");
+        }
+
+        return family;
     }
 
     private static WorkspaceContextDefinition MapContext(
@@ -1555,10 +2257,16 @@ public static class InspectionDefinitionJson
 
     private static List<NavigationTabDefinition> MapTabs(
         List<NavigationTabDto>? tabs,
+        int schemaVersion,
         ref int coordinateCount)
     {
-        if (tabs is null || tabs.Count == 0)
+        if (tabs is null)
+            throw new InspectionDefinitionException("Navigation requires tabs.");
+        if (tabs.Count == 0
+            && schemaVersion != InspectionDefinitionSchema.Version3)
+        {
             throw new InspectionDefinitionException("Navigation requires at least one tab.");
+        }
 
         var mapped = new List<NavigationTabDefinition>(tabs.Count);
         foreach (var tab in tabs)
@@ -1903,6 +2611,8 @@ internal sealed class InspectionDefinitionDto
 
     public List<WorkspaceContextDto>? Contexts { get; set; }
 
+    public List<WorkspaceRegistrationDto>? Registrations { get; set; }
+
     public string? QueryId { get; set; }
 
     public string? Lens { get; set; }
@@ -1938,6 +2648,52 @@ internal sealed class InspectionDefinitionDto
     public string? Navigation { get; set; }
 
     public List<CommittedViewStateDto>? States { get; set; }
+}
+
+internal sealed class WorkspaceRegistrationDto
+{
+    public string? Kind { get; set; }
+
+    public ExactLibrarySourceCoordinateDto? Coordinate { get; set; }
+
+    public string? Prefix { get; set; }
+
+    public WorkspaceEcosystemDeclarationDto? Declaration { get; set; }
+}
+
+internal sealed class ExactLibrarySourceCoordinateDto
+{
+    public string? Kind { get; set; }
+
+    public string? Id { get; set; }
+
+    public string? Version { get; set; }
+
+    public string? Family { get; set; }
+
+    public PortableLibraryIdentityDto? Library { get; set; }
+}
+
+internal sealed class WorkspaceEcosystemDeclarationDto
+{
+    public string? Id { get; set; }
+
+    public List<string>? NamespaceRoots { get; set; }
+
+    public List<string>? CorePackages { get; set; }
+
+    public List<WorkspaceEcosystemPopulationDto>? Populations { get; set; }
+}
+
+internal sealed class WorkspaceEcosystemPopulationDto
+{
+    public string? Kind { get; set; }
+
+    public ExactLibrarySourceCoordinateDto? Coordinate { get; set; }
+
+    public string? Family { get; set; }
+
+    public string? Prefix { get; set; }
 }
 
 internal sealed class CommittedNavigationDefinitionDto
