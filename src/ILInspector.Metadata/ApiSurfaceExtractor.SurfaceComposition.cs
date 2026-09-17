@@ -81,6 +81,8 @@ public static partial class ApiSurfaceExtractor
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
+                    AccessibilityIsRepresentable =
+                        extension.AccessibilityIsRepresentable,
                     MethodSemantics = extension.MethodSemantics,
                     MetadataToken = extension.MetadataToken,
                     GenericArity = extension.GenericArity,

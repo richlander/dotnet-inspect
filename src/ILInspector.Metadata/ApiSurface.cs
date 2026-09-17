@@ -616,6 +616,15 @@ public class ApiSignature
 
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
+
+    /// <summary>
+    /// Whether this property is an exact C# indexer declaration, authenticated
+    /// by the declaring type's DefaultMemberAttribute. Null means the fact was
+    /// not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? IsIndexerDeclaration { get; set; }
+
     public bool IsRequired { get; set; }
     public List<TypeParameter> TypeParameters { get; set; } = [];
     public List<ApiParameter> Parameters { get; set; } = [];
@@ -1146,6 +1155,13 @@ public class ApiMember
 
     [JsonIgnore]
     public ApiSignature? SignatureModel { get; set; }
+
+    /// <summary>
+    /// Whether this MethodDef's accessibility mask has an exact C#
+    /// representation. Null means the fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? AccessibilityIsRepresentable { get; set; }
 
     /// <summary>
     /// Number of index parameters on a property. Null means older or

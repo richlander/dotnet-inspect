@@ -20,6 +20,7 @@ public static class CSharpMemberArtifactEligibility
             || type.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || member.SignatureDecodeStatus is not null
             || !IsMemberNameRepresentable(member)
+            || !IsMemberAccessibilityRepresentable(member)
             || member.SignatureModel is not { } signature
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
@@ -105,6 +106,16 @@ public static class CSharpMemberArtifactEligibility
             && IsVoid(signature.ReturnTypeShape);
     }
 
+    static bool IsMemberAccessibilityRepresentable(ApiMember member) =>
+        member.Kind is not
+            ("method"
+                or "extension-method"
+                or "constructor"
+                or "operator"
+                or "finalizer"
+                or "explicit-interface-implementation")
+        || member.AccessibilityIsRepresentable == true;
+
     static bool IsPropertyDeclarationRepresentable(
         ApiMember member,
         ApiSignature signature)
@@ -118,13 +129,19 @@ public static class CSharpMemberArtifactEligibility
             return false;
         }
 
-        bool isIndexer = signature.MemberName == "this[]";
-        return isIndexer
-            ? signature.Parameters.Count > 0
+        return signature.IsIndexerDeclaration switch
+        {
+            true =>
+                signature.MemberName == "this[]"
+                && signature.Parameters.Count > 0
                 && signature.Parameters.All(
                     parameter => parameter.Modifier is not
-                        ("ref" or "out" or "in"))
-            : signature.Parameters.Count == 0;
+                        ("ref" or "out" or "in")),
+            false =>
+                signature.MemberName != "this[]"
+                && signature.Parameters.Count == 0,
+            null => false,
+        };
     }
 
     static bool IsOperatorDeclarationRepresentable(

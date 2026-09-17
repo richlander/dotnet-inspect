@@ -25,6 +25,8 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
 /// </summary>
 public static partial class AttributeReader
 {
+    private const string DefaultMemberAttributeName =
+        "System.Reflection.DefaultMemberAttribute";
     private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
@@ -481,6 +483,58 @@ public static partial class AttributeReader
                 return true;
         }
         return false;
+    }
+
+    internal static string? ReadDefaultMemberName(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+    {
+        string? name = null;
+        bool found = false;
+
+        try
+        {
+            foreach (CustomAttributeHandle handle in attributes)
+            {
+                CustomAttribute attribute =
+                    reader.GetCustomAttribute(handle);
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        DefaultMemberAttributeName,
+                        beforeMaterialize,
+                        out ApiAssemblyIdentity? identity)
+                    || !ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                        identity))
+                {
+                    continue;
+                }
+
+                if (found
+                    || !TryGetSingleStringFixedArgument(
+                        reader,
+                        attribute,
+                        out string? value,
+                        beforeMaterialize)
+                    || string.IsNullOrEmpty(value))
+                {
+                    return null;
+                }
+
+                found = true;
+                name = value;
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or ArgumentException)
+        {
+            return null;
+        }
+
+        return name;
     }
 
     internal static bool HasUnionAttribute(

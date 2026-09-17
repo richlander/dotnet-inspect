@@ -19,6 +19,7 @@ public static partial class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
+        string? defaultMemberName,
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
@@ -292,6 +293,12 @@ public static partial class ApiSurfaceExtractor
             TryGetXmlDocumentationNames(
                 treeSignature.ParameterTypes,
                 beforeRetainText);
+        bool isIndexerDeclaration =
+            parameterModels.Count > 0
+            && string.Equals(
+                name,
+                defaultMemberName,
+                StringComparison.Ordinal);
         var model = new ApiSignature
         {
             XmlDocumentationParameterTypes =
@@ -314,13 +321,14 @@ public static partial class ApiSurfaceExtractor
             ReturnTypeShape =
                 ApiTypeShapeFactory.FromTypeNode(
                     treeSignature.ReturnType),
-            MemberName = indexerParameters.Count > 0 ? "this[]" : name,
+            MemberName = isIndexerDeclaration ? "this[]" : name,
+            IsIndexerDeclaration = isIndexerDeclaration,
             IsRequired = isRequired,
             Parameters = parameterModels,
             Accessors = accessorModels
         };
 
-        if (indexerParameters.Count > 0)
+        if (isIndexerDeclaration)
             return (
                 $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}",
                 model,

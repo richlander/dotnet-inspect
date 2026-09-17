@@ -297,9 +297,33 @@ public class FidelityCheckGeneratedFilterTests
                 cap: int.MaxValue);
 
             Assert.Contains(selected, target => target.Method == "Good");
-            Assert.DoesNotContain(
+            Assert.Contains(
                 selected,
                 target => target.Method == "get_Item");
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method is
+                    "get_BadIndexer"
+                    or "get_Ordinary");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsPrivateScopeMembersBeforeSampling()
+    {
+        string assemblyPath = CreatePrivateScopeMemberFixture();
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+
+            Assert.Equal("Good", target.Method);
         }
         finally
         {
@@ -3095,24 +3119,116 @@ public class FidelityCheckGeneratedFilterTests
         TypeBuilder fixtureType = module.DefineType(
             "MalformedPropertyFixture",
             TypeAttributes.Public | TypeAttributes.Class);
+        fixtureType.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(DefaultMemberAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["Item"]));
 
         DefineConstantMethod(fixtureType, "Good", typeof(int));
-        MethodBuilder getter = fixtureType.DefineMethod(
+        MethodBuilder validIndexerGetter = fixtureType.DefineMethod(
             "get_Item",
             MethodAttributes.Public
                 | MethodAttributes.SpecialName
                 | MethodAttributes.HideBySig,
             typeof(int),
+            [typeof(int)]);
+        validIndexerGetter.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "index");
+        ILGenerator validIndexerGetterBody =
+            validIndexerGetter.GetILGenerator();
+        validIndexerGetterBody.Emit(OpCodes.Ldarg_1);
+        validIndexerGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder validIndexer = fixtureType.DefineProperty(
+            "Item",
+            PropertyAttributes.None,
+            typeof(int),
+            [typeof(int)]);
+        validIndexer.SetGetMethod(validIndexerGetter);
+
+        MethodBuilder malformedIndexerGetter = fixtureType.DefineMethod(
+            "get_BadIndexer",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
             Type.EmptyTypes);
-        ILGenerator getterBody = getter.GetILGenerator();
-        getterBody.Emit(OpCodes.Ldc_I4_1);
-        getterBody.Emit(OpCodes.Ret);
-        PropertyBuilder property = fixtureType.DefineProperty(
+        ILGenerator malformedIndexerGetterBody =
+            malformedIndexerGetter.GetILGenerator();
+        malformedIndexerGetterBody.Emit(OpCodes.Ldc_I4_1);
+        malformedIndexerGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder malformedIndexer = fixtureType.DefineProperty(
             "this[]",
             PropertyAttributes.None,
             typeof(int),
             Type.EmptyTypes);
-        property.SetGetMethod(getter);
+        malformedIndexer.SetGetMethod(malformedIndexerGetter);
+
+        MethodBuilder ordinaryGetter = fixtureType.DefineMethod(
+            "get_Ordinary",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            [typeof(int)]);
+        ordinaryGetter.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "index");
+        ILGenerator ordinaryGetterBody = ordinaryGetter.GetILGenerator();
+        ordinaryGetterBody.Emit(OpCodes.Ldarg_1);
+        ordinaryGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder ordinary = fixtureType.DefineProperty(
+            "Ordinary",
+            PropertyAttributes.None,
+            typeof(int),
+            [typeof(int)]);
+        ordinary.SetGetMethod(ordinaryGetter);
+
+        fixtureType.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static string CreatePrivateScopeMemberFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "PrivateScopeMembers.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("PrivateScopeMembers"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "PrivateScopeMembers");
+        TypeBuilder fixtureType = module.DefineType(
+            "PrivateScopeMemberFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+
+        DefineConstantMethod(fixtureType, "Good", typeof(int));
+        MethodBuilder hidden = fixtureType.DefineMethod(
+            "Hidden",
+            MethodAttributes.PrivateScope | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator hiddenBody = hidden.GetILGenerator();
+        hiddenBody.Emit(OpCodes.Ldc_I4_1);
+        hiddenBody.Emit(OpCodes.Ret);
+
+        ConstructorBuilder constructor = fixtureType.DefineConstructor(
+            MethodAttributes.PrivateScope,
+            CallingConventions.Standard,
+            Type.EmptyTypes);
+        ILGenerator constructorBody = constructor.GetILGenerator();
+        constructorBody.Emit(OpCodes.Ldarg_0);
+        constructorBody.Emit(
+            OpCodes.Call,
+            typeof(object).GetConstructor(Type.EmptyTypes)!);
+        constructorBody.Emit(OpCodes.Ret);
 
         fixtureType.CreateType();
         assembly.Save(path);

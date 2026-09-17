@@ -509,6 +509,30 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
+    public void SemanticEquality_DetectsStandaloneArtifactAdmissionFacts()
+    {
+        ApiMember first = NavigationSnapshotTestData.Member("Run");
+        ApiMember second = NavigationSnapshotTestData.Member("Run");
+        first.AccessibilityIsRepresentable = true;
+        second.AccessibilityIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.AccessibilityIsRepresentable = true;
+        second.AccessibilityIsRepresentable = true;
+        first.SignatureModel = new ApiSignature
+        {
+            IsIndexerDeclaration = true,
+        };
+        second.SignatureModel = new ApiSignature
+        {
+            IsIndexerDeclaration = false,
+        };
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+    }
+
+    [Fact]
     public async Task FilteredJsonPropertyNames_EquivalentPopulatedFactsDoNotAdvanceRevision()
     {
         await using Fixture fixture = await Fixture.CreateAsync();

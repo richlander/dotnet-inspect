@@ -158,7 +158,9 @@ internal static class NavigationWorkspaceSnapshotEquality
         && OptionalArray(a.AccessorImplementations, b.AccessorImplementations)
         && a.HasRuntimeJsExportWrapperCandidate == b.HasRuntimeJsExportWrapperCandidate
         && Sequence(a.RuntimeJsExportWrapperCandidates, b.RuntimeJsExportWrapperCandidates)
-        && a.Accessibility == b.Accessibility && a.IsExtension == b.IsExtension
+        && a.Accessibility == b.Accessibility
+        && a.AccessibilityIsRepresentable == b.AccessibilityIsRepresentable
+        && a.IsExtension == b.IsExtension
         && a.IsCompilerGenerated == b.IsCompilerGenerated && a.HasJsonInclude == b.HasJsonInclude
         && a.HasMalformedJsonInclude == b.HasMalformedJsonInclude
         && Sequence(a.JsonIgnoreConditions, b.JsonIgnoreConditions)
@@ -195,7 +197,9 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.ReturnTypeDefinitionReference == b.ReturnTypeDefinitionReference
         && object.Equals(a.ReturnTypeShape, b.ReturnTypeShape)
         && Sequence(a.ReturnAttributes, b.ReturnAttributes)
-        && a.MemberName == b.MemberName && a.IsRequired == b.IsRequired
+        && a.MemberName == b.MemberName
+        && a.IsIndexerDeclaration == b.IsIndexerDeclaration
+        && a.IsRequired == b.IsRequired
         && Sequence(a.TypeParameters, b.TypeParameters, TypeParameter)
         && Sequence(a.Parameters, b.Parameters, (x, y) =>
             Sequence(x.Attributes, y.Attributes) && x.Name == y.Name && x.Type == y.Type

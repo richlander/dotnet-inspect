@@ -1263,6 +1263,8 @@ public static partial class ApiSurfaceExtractor
                             observeDecodeWork),
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
+                    AccessibilityIsRepresentable =
+                        IsRepresentableMethodAccessibility(methodAccess),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1372,6 +1374,11 @@ public static partial class ApiSurfaceExtractor
                 reader, typeDef, typeContext, moduleVersionId,
                 autoPropertyBackingFields, fieldLikeEventBackingFieldNames,
                 observeText, observeDecodeWork);
+            string? defaultMemberName =
+                AttributeReader.ReadDefaultMemberName(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeAttributeMaterialize);
 
             // Properties
             foreach (var propHandle in typeDef.GetProperties())
@@ -1437,6 +1444,7 @@ public static partial class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
+                    defaultMemberName,
                     explicitImplementationBodies,
                     includeAll,
                     observeText,
