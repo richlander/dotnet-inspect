@@ -966,6 +966,108 @@ public static class NavigationWorkspaceSnapshotEvaluation
             source.Inventory);
     }
 
+    internal static NavigationWorkspaceSnapshot WithScopePreparationBoundary(
+        NavigationWorkspaceSnapshot source,
+        WorkspaceScopeSnapshot scope,
+        WorkspacePackageOccurrence? selectedOccurrence,
+        NavigationDescriptorState state,
+        ViewFacetRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(registry);
+        if (state is not NavigationDescriptorState.Unavailable
+            and not NavigationDescriptorState.Failed)
+        {
+            throw new ArgumentException(
+                "A Scope preparation boundary must be unavailable or failed.",
+                nameof(state));
+        }
+        if (scope.Revision.Workspace != source.Workspace.Identity)
+        {
+            throw new ArgumentException(
+                "A Scope preparation boundary requires the exact Workspace.",
+                nameof(scope));
+        }
+        WorkspacePackageOccurrenceDescriptor? selected =
+            selectedOccurrence is null
+                ? null
+                : scope.Packages.FirstOrDefault(
+                    candidate =>
+                        candidate.Occurrence == selectedOccurrence);
+        if (selectedOccurrence is not null && selected is null)
+        {
+            throw new ArgumentException(
+                "The selected occurrence must belong to the exact Scope snapshot.",
+                nameof(selectedOccurrence));
+        }
+
+        ViewFacetAvailabilitySnapshot unavailable =
+            new(
+                registry.Descriptors.Select(
+                    descriptor =>
+                        new ViewFacetAvailabilityFact(
+                            descriptor.Id,
+                            new ViewFacetAvailability.Unavailable(
+                                ViewFacetUnavailableReason.CapabilityAbsent(
+                                    "Navigation preparation did not produce current facet facts.")))));
+        NavigationWorkspaceSnapshot workspace =
+            Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    ActiveSubject = source.Workspace,
+                },
+                registry,
+                (_, _) => unavailable);
+        if (selected is null)
+            return workspace;
+
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectIdentity.ForPackage(
+                workspace.Workspace,
+                selected.Occurrence);
+        ImmutableArray<NavigationHierarchyDescriptor> hierarchy =
+        [
+            workspace.Hierarchy[0],
+            new(
+                StructuralSubjectKind.Package,
+                package,
+                state,
+                IsActive: false),
+            new(
+                StructuralSubjectKind.Library,
+                Subject: null,
+                state,
+                IsActive: false),
+            new(
+                StructuralSubjectKind.Type,
+                Subject: null,
+                state,
+                IsActive: false),
+            new(
+                StructuralSubjectKind.Member,
+                Subject: null,
+                state,
+                IsActive: false),
+        ];
+        return new NavigationWorkspaceSnapshot(
+            scope,
+            workspace.Workspace,
+            selected.Occurrence,
+            workspace.ActiveSubject,
+            new NavigationRetainedSubjectContext(package),
+            typeInventoryLibraryContext: null,
+            workspace.Packages,
+            hierarchy,
+            libraries: [],
+            types: [],
+            members: [],
+            workspace.Lenses,
+            workspace.LensOutcome,
+            inventory: null);
+    }
+
     static NavigationWorkspaceSnapshot WithContext(
         NavigationWorkspaceSnapshot source,
         StructuralSubjectIdentity active,
