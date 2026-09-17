@@ -94,6 +94,7 @@ namespace Shared
 
         static void AddChange()
         {
+            Target.RootPathApi.RootPathUse();
         }
 
         public static int Value
@@ -110,7 +111,11 @@ namespace Shared
 
         static void AccessorUse()
         {
+            Target.RootPathApi.AccessorPathUse();
         }
+
+        static void UnreachableUse() =>
+            Target.RootPathApi.UnreachablePathUse();
 
         public static void CycleRoot() => CycleA();
 
@@ -135,5 +140,11 @@ namespace Shared
         static void AsyncUse()
         {
         }
+    }
+
+    public static class PublicRootDirectUse
+    {
+        public static void Use() =>
+            Target.RootPathApi.PublicPathUse();
     }
 }

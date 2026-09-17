@@ -50,7 +50,12 @@ public static class CommandLineBuilder
                 && (HasParsedOption(result, "--versions")
                     || HasParsedOption(
                         result,
-                        "--versions-with-feed")));
+                        "--versions-with-feed")))
+            || (result.CommandResult.Command.Name
+                    == MemberCommand.Name
+                && HasParsedOption(result, "--json")
+                && (HasParsedOption(result, "--fields")
+                    || HasParsedOption(result, "--columns")));
     }
 
     /// <summary>

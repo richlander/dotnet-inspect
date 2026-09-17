@@ -22,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
   </ItemGroup>
 

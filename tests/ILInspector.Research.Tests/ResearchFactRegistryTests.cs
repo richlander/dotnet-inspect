@@ -1176,6 +1176,89 @@ public class ResearchFactRegistryTests
         Assert.Equal("unsafe", typed.Detail);
     }
 
+    [Fact]
+    public void FactRowsProjectInstructionEvidenceWithoutMovingCallerAnchor()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsStackallocCallee),
+            nameof(ResearchFixture.StackallocCallee));
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsStackallocCallee)),
+            candidate => candidate.Id == "safety.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(call.ILOffset, row.ILOffset);
+        Assert.Equal(
+            nameof(ResearchFixture.StackallocCallee),
+            evidence.Subject.Name);
+        Assert.Equal(
+            ResearchFindingEvidenceState.Instruction,
+            evidence.State);
+        Assert.NotEmpty(evidence.Locations);
+        Assert.All(
+            evidence.Locations,
+            location =>
+            {
+                Assert.Equal(evidence.Subject, location.Method);
+                Assert.NotNull(location.ILOffset);
+            });
+    }
+
+    [Fact]
+    public void FactRowsProjectMethodOnlyAggregateEvidence()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsAllocInLoopCallee)),
+            candidate => candidate.Id == "cost.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(
+            ResearchFindingEvidenceState.Method,
+            evidence.State);
+        ResearchEvidenceLocation location =
+            Assert.Single(evidence.Locations);
+        Assert.Equal(evidence.Subject, location.Method);
+        Assert.Null(location.ILOffset);
+    }
+
+    [Fact]
+    public void FactRowsProjectUnavailableInstructionEvidenceExplicitly()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsPointerDerefCallee)),
+            candidate => candidate.Id == "safety.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(
+            nameof(ResearchFixture.PointerDerefCallee),
+            evidence.Subject.Name);
+        Assert.Equal(
+            ResearchFindingEvidenceState.InstructionUnavailable,
+            evidence.State);
+        Assert.Empty(evidence.Locations);
+    }
+
     static DirectCall CallSite(
         string callerName,
         string calleeName)
