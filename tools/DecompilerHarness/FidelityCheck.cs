@@ -207,6 +207,80 @@ static class FidelityCheck
         return 0;
     }
 
+    public static Task<int> RunReturnToSender(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool timings = false,
+        int zeroSignalGuard = 0)
+        => RunReturnToSender(
+            assemblies,
+            cap,
+            maxExamples,
+            timings,
+            zeroSignalGuard,
+            static (assemblyPath, targets) => ReturnToSenderFidelityEvaluator.EvaluateAsync(
+                assemblyPath,
+                targets,
+                "product-artifact RTS; compile-back-floor=false",
+                CaptureMode.ProductArtifact));
+
+    internal static async Task<int> RunReturnToSender(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool timings,
+        int zeroSignalGuard,
+        Func<string, IReadOnlyList<CompileBackTarget>, Task<ReturnToSenderFidelityEvaluator.Evaluation>> evaluate)
+    {
+        var phaseTimings = timings ? new ReturnToSenderFidelityTimings() : null;
+        string? typeFilter = Environment.GetEnvironmentVariable("CB_TYPE");
+        IReadOnlyList<CompileBackTarget> selected = phaseTimings is null
+            ? SelectReturnToSenderTargets(assemblies, cap, typeFilter)
+            : phaseTimings.MeasureSelection(() => SelectReturnToSenderTargets(assemblies, cap, typeFilter));
+
+        var zeroSignal = zeroSignalGuard > 0
+            ? new ZeroSignalGuard(zeroSignalGuard, selected.Count)
+            : null;
+        int probeCount = zeroSignal is null
+            ? selected.Count
+            : Math.Min(zeroSignalGuard, selected.Count);
+        var results = new List<CompileBackResult>(selected.Count);
+        if (probeCount > 0)
+        {
+            var probe = selected.Take(probeCount).ToArray();
+            results.AddRange(phaseTimings is null
+                ? await EvaluateReturnToSenderTargets(probe, evaluate)
+                : await phaseTimings.MeasureEvaluation(
+                    () => EvaluateReturnToSenderTargets(probe, evaluate)));
+            Observe(zeroSignal, results);
+        }
+
+        if (zeroSignal?.ShouldRerunWithoutGuard == true && probeCount < selected.Count)
+        {
+            var remainder = selected.Skip(probeCount).ToArray();
+            results.AddRange(phaseTimings is null
+                ? await EvaluateReturnToSenderTargets(remainder, evaluate)
+                : await phaseTimings.MeasureEvaluation(
+                    () => EvaluateReturnToSenderTargets(remainder, evaluate)));
+        }
+
+        Console.WriteLine("Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)");
+        Console.WriteLine(
+            $"Standalone candidate population: {selected.Count} planned "
+            + $"(global cap {cap}; {results.Count} evaluated)");
+        if (Environment.GetEnvironmentVariable("CB_CLUSTER") is not null
+            || Environment.GetEnvironmentVariable("CB_DUMP") is not null)
+        {
+            Console.WriteLine(
+                "Legacy reconstruction controls CB_CLUSTER and CB_DUMP apply only to --lowered.");
+        }
+
+        ReportReturnToSender(results, maxExamples, zeroSignal);
+        phaseTimings?.Report();
+        return 0;
+    }
+
     internal static IReadOnlyList<CompileBackTarget> SelectReturnToSenderTargets(
         IReadOnlyList<string> assemblies,
         int cap,
@@ -288,6 +362,76 @@ static class FidelityCheck
             && CSharpMemberArtifactEligibility.IsRepresentable(
                 entry.Type,
                 entry.Member);
+    }
+
+    static async Task<IReadOnlyList<CompileBackResult>> EvaluateReturnToSenderTargets(
+        IReadOnlyList<CompileBackTarget> targets,
+        Func<string, IReadOnlyList<CompileBackTarget>, Task<ReturnToSenderFidelityEvaluator.Evaluation>> evaluate)
+    {
+        var results = new List<CompileBackResult>(targets.Count);
+        foreach (var assemblyTargets in targets.GroupBy(
+                     target => target.AssemblyPath,
+                     StringComparer.Ordinal))
+        {
+            var requested = assemblyTargets.ToArray();
+            var evaluation = await evaluate(assemblyTargets.Key, requested);
+            if (evaluation.CompileBackFloorAppliedMethods != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Raised standalone RTS applied the compile-back floor to "
+                    + $"{evaluation.CompileBackFloorAppliedMethods} methods.");
+            }
+            if (evaluation.Results.Count != requested.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Raised standalone RTS returned {evaluation.Results.Count} results "
+                    + $"for {requested.Length} selected methods.");
+            }
+
+            for (int index = 0; index < requested.Length; index++)
+            {
+                var target = requested[index];
+                var result = evaluation.Results[index];
+                if (!string.Equals(result.Type, target.Type, StringComparison.Ordinal)
+                    || !string.Equals(result.Method, target.Method, StringComparison.Ordinal)
+                    || result.Overload != target.Overload
+                    || !string.Equals(result.Signature, target.Signature, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Raised standalone RTS returned result {index + 1} out of target order.");
+                }
+            }
+
+            results.AddRange(evaluation.Results);
+        }
+
+        return results;
+    }
+
+    static void Observe(ZeroSignalGuard? zeroSignal, IReadOnlyList<CompileBackResult> results)
+    {
+        if (zeroSignal is null)
+            return;
+
+        int exact = results.Count(result => result.Status == CompileBackStatus.Exact);
+        int diffCount = results.Count(result =>
+            result.Status is CompileBackStatus.OpcodeDiff or CompileBackStatus.OperandDiff);
+        int recompileFail = results.Count(result => result.Status == CompileBackStatus.RecompileFail);
+        int contextFail = results.Count(result => result.Status == CompileBackStatus.ContextFail);
+        var recompileFailCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var result in results.Where(result => result.Status == CompileBackStatus.RecompileFail))
+        {
+            string code = DiagnosticCode(result.Detail);
+            recompileFailCodes[code] = recompileFailCodes.GetValueOrDefault(code) + 1;
+        }
+
+        zeroSignal.Observe(
+            results.Count,
+            exact,
+            diffCount,
+            recompileFail,
+            contextFail,
+            recompileFailCodes);
     }
 
     public static async Task<int> RunMethodDelta(
@@ -961,6 +1105,39 @@ static class FidelityCheck
             Console.WriteLine($"  compilation create         : {Ms(_compilationCreateTicks)}");
             Console.WriteLine($"  emit                       : {Ms(_emitTicks)}");
             Console.WriteLine($"  opcode compare             : {Ms(_opcodeCompareTicks)}");
+        }
+    }
+
+    sealed class ReturnToSenderFidelityTimings
+    {
+        long _selectionTicks;
+        long _evaluationTicks;
+
+        public T MeasureSelection<T>(Func<T> action)
+            => Measure(ref _selectionTicks, action);
+
+        public async Task<T> MeasureEvaluation<T>(Func<Task<T>> action)
+        {
+            long start = Stopwatch.GetTimestamp();
+            try { return await action(); }
+            finally { _evaluationTicks += Stopwatch.GetTimestamp() - start; }
+        }
+
+        static T Measure<T>(ref long ticks, Func<T> action)
+        {
+            long start = Stopwatch.GetTimestamp();
+            try { return action(); }
+            finally { ticks += Stopwatch.GetTimestamp() - start; }
+        }
+
+        public void Report()
+        {
+            static string Ms(long ticks) => $"{ticks * 1000.0 / Stopwatch.Frequency:F1} ms";
+
+            Console.WriteLine();
+            Console.WriteLine("RTS fidelity timings:");
+            Console.WriteLine($"  target selection : {Ms(_selectionTicks)}");
+            Console.WriteLine($"  RTS evaluation   : {Ms(_evaluationTicks)}");
         }
     }
 
@@ -3007,6 +3184,117 @@ static class FidelityCheck
             Console.WriteLine(ExampleHeading("Context-fail examples", contextFailExamples.Count, contextFail));
             foreach (var e in contextFailExamples)
                 Console.WriteLine($"  {e}");
+        }
+    }
+
+    static void ReportReturnToSender(
+        IReadOnlyList<CompileBackResult> results,
+        int maxExamples,
+        ZeroSignalGuard? zeroSignal)
+    {
+        string Pct(int count) => results.Count == 0
+            ? "0"
+            : $"{100.0 * count / results.Count:F2}%";
+
+        int exact = results.Count(result => result.Status == CompileBackStatus.Exact);
+        int opcodeDiff = results.Count(result => result.Status == CompileBackStatus.OpcodeDiff);
+        int operandDiff = results.Count(result => result.Status == CompileBackStatus.OperandDiff);
+        int fidelityUnavailable = results.Count(result =>
+            result.Status == CompileBackStatus.FidelityUnavailable);
+        int notFull = results.Count(result => result.Status == CompileBackStatus.NotFull);
+        int recompileFail = results.Count(result => result.Status == CompileBackStatus.RecompileFail);
+        int contextFail = results.Count(result => result.Status == CompileBackStatus.ContextFail);
+
+        Console.WriteLine($"RETURN-TO-SENDER over {results.Count} evaluated methods");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact)}) — EH-blind");
+        Console.WriteLine(
+            $"  opcode diff (Full) : {opcodeDiff} ({Pct(opcodeDiff)}) — recompiled to a different opcode stream");
+        Console.WriteLine(
+            $"  operand diff (Full): {operandDiff} ({Pct(operandDiff)}) — opcode names matched; operand or target differed");
+        Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} ({Pct(fidelityUnavailable)})");
+        Console.WriteLine($"  not Full           : {notFull} ({Pct(notFull)})");
+        Console.WriteLine($"  recompile fail     : {recompileFail} ({Pct(recompileFail)})");
+        Console.WriteLine($"  context fail       : {contextFail} ({Pct(contextFail)})");
+
+        var recompileFailCodes = results
+            .Where(result => result.Status == CompileBackStatus.RecompileFail)
+            .GroupBy(result => DiagnosticCode(result.Detail), StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (recompileFailCodes.Length != 0)
+        {
+            Console.WriteLine("  recompile-fail by code:");
+            foreach (var group in recompileFailCodes)
+                Console.WriteLine($"    {group.Key}: {group.Count()}");
+        }
+
+        zeroSignal?.Report();
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.OpcodeDiff,
+            "Opcode-diff examples (Full)",
+            maxExamples,
+            includeOpcodes: true);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.OperandDiff,
+            "Operand-diff examples (Full; EH-blind)",
+            maxExamples,
+            includeOpcodes: true);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.FidelityUnavailable,
+            "Fidelity-unavailable examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.NotFull,
+            "Not-Full examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.RecompileFail,
+            "Recompile-fail examples",
+            maxExamples,
+            includeOpcodes: false);
+        PrintReturnToSenderExamples(
+            results,
+            CompileBackStatus.ContextFail,
+            "Context-fail examples",
+            maxExamples,
+            includeOpcodes: false);
+    }
+
+    static void PrintReturnToSenderExamples(
+        IReadOnlyList<CompileBackResult> results,
+        CompileBackStatus status,
+        string heading,
+        int maxExamples,
+        bool includeOpcodes)
+    {
+        var matching = results.Where(result => result.Status == status).ToArray();
+        if (matching.Length == 0)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine(ExampleHeading(heading, Math.Min(maxExamples, matching.Length), matching.Length));
+        foreach (var result in matching.Take(maxExamples))
+        {
+            Console.WriteLine($"  {result.Type}::{result.Method}");
+            if (includeOpcodes)
+            {
+                Console.WriteLine($"    orig : {result.OriginalOpcodes}");
+                Console.WriteLine($"    recmp: {result.RecompiledOpcodes}");
+            }
+            else if (!string.IsNullOrWhiteSpace(result.Detail))
+            {
+                Console.WriteLine($"    {result.Detail}");
+            }
         }
     }
 

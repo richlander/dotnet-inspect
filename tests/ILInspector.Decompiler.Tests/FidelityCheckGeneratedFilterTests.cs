@@ -8,6 +8,7 @@ using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -678,6 +679,414 @@ public class FidelityCheckGeneratedFilterTests
         }
         finally
         {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void FidelityCheckCommand_DispatchesRaisedToNativeAndLoweredToLegacy()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneDispatchFixture
+            {
+                public static int Target(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            HarnessRun raised = RunHarness(
+                "--fidelity-check",
+                "--compile-cap",
+                "1",
+                assemblyPath);
+            Assert.True(
+                raised.ExitCode == 0,
+                $"Raised harness exit {raised.ExitCode}:{Environment.NewLine}{raised.Output}");
+            Assert.Contains(
+                "Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)",
+                raised.Output);
+            Assert.DoesNotContain("COMPILE-BACK over", raised.Output);
+
+            HarnessRun lowered = RunHarness(
+                "--fidelity-check",
+                "--lowered",
+                "--compile-cap",
+                "1",
+                assemblyPath);
+            Assert.True(
+                lowered.ExitCode == 0,
+                $"Lowered harness exit {lowered.ExitCode}:{Environment.NewLine}{lowered.Output}");
+            Assert.Contains("COMPILE-BACK over", lowered.Output);
+            Assert.DoesNotContain(
+                "Standalone fidelity engine: product-artifact RTS",
+                lowered.Output);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_RejectsCompileBackFloor()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneFloorFixture
+            {
+                public static int Target(int value) => value + 1;
+            }
+            """);
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                FidelityCheck.RunReturnToSender(
+                    [assemblyPath],
+                    cap: 1,
+                    maxExamples: 5,
+                    timings: false,
+                    zeroSignalGuard: 0,
+                    (_, targets) => Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select(target => NativeResult(target)).ToArray(),
+                            CompileBackFloorAppliedMethods: 1))));
+
+            Assert.Contains("applied the compile-back floor", error.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ReportsCompleteNativePopulationInSelectedOrder()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneNativeFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        string? originalCluster = Environment.GetEnvironmentVariable("CB_CLUSTER");
+        string? originalDump = Environment.GetEnvironmentVariable("CB_DUMP");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            Environment.SetEnvironmentVariable("CB_CLUSTER", "1");
+            Environment.SetEnvironmentVariable("CB_DUMP", null);
+            var expected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 4);
+            var requested = new List<FidelityCheck.CompileBackTarget>();
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: 4,
+                maxExamples: 5,
+                timings: true,
+                zeroSignalGuard: 0,
+                (path, targets) =>
+                {
+                    Assert.Equal(assemblyPath, path);
+                    requested.AddRange(targets);
+                    return Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select((target, index) => NativeResult(
+                                target,
+                                index == 0
+                                    ? FidelityCheck.CompileBackStatus.Exact
+                                    : FidelityCheck.CompileBackStatus.NotFull))
+                                .ToArray(),
+                            CompileBackFloorAppliedMethods: 0));
+                });
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(
+                expected.Select(TargetIdentity),
+                requested.Select(TargetIdentity));
+            Assert.All(requested, target => Assert.NotNull(target.Address));
+            string output = writer.ToString();
+            Assert.Contains(
+                "Standalone fidelity engine: product-artifact RTS (raised; compile-back-floor=false)",
+                output);
+            Assert.Contains(
+                "Standalone candidate population: 2 planned (global cap 4; 2 evaluated)",
+                output);
+            Assert.Contains($"exact (contract v{FidelityCheck.CurrentContractVersion}): 1", output);
+            Assert.Contains("not Full           : 1", output);
+            Assert.Contains(
+                "Legacy reconstruction controls CB_CLUSTER and CB_DUMP apply only to --lowered.",
+                output);
+            Assert.Contains("RTS fidelity timings:", output);
+            Assert.Contains("target selection :", output);
+            Assert.Contains("RTS evaluation   :", output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            Environment.SetEnvironmentVariable("CB_CLUSTER", originalCluster);
+            Environment.SetEnvironmentVariable("CB_DUMP", originalDump);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ZeroSignalGuardStopsAfterNativeProbe()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneZeroSignalFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+                public static int Gamma(int value) => value + 3;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            int evaluated = 0;
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: int.MaxValue,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 2,
+                (_, targets) =>
+                {
+                    evaluated += targets.Count;
+                    return Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select(target => NativeResult(
+                                target,
+                                FidelityCheck.CompileBackStatus.ContextFail,
+                                "native-context-failure"))
+                                .ToArray(),
+                            CompileBackFloorAppliedMethods: 0));
+                });
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(2, evaluated);
+            string output = writer.ToString();
+            Assert.Contains(
+                $"Standalone candidate population: 3 planned (global cap {int.MaxValue}; 2 evaluated)",
+                output);
+            Assert.Contains(
+                "zero-signal guard : stopped after 2 of requested 3",
+                output);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ZeroSignalGuardEvaluatesOnlyRemainderAfterUsefulProbe()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneRemainderFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+                public static int Gamma(int value) => value + 3;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+            var batches = new List<IReadOnlyList<FidelityCheck.CompileBackTarget>>();
+            using var writer = new StringWriter();
+            Console.SetOut(writer);
+
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: int.MaxValue,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 2,
+                (_, targets) =>
+                {
+                    batches.Add(targets.ToArray());
+                    return Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Select((target, index) => NativeResult(
+                                target,
+                                batches.Count == 1 && index == 0
+                                    ? FidelityCheck.CompileBackStatus.Exact
+                                    : FidelityCheck.CompileBackStatus.ContextFail,
+                                "mixed-probe"))
+                                .ToArray(),
+                            CompileBackFloorAppliedMethods: 0));
+                });
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal([2, 1], batches.Select(batch => batch.Count));
+            Assert.Equal(
+                selected.Select(TargetIdentity),
+                batches.SelectMany(batch => batch).Select(TargetIdentity));
+            Assert.Contains(
+                "zero-signal guard : probe 2 found useful or mixed signal; continued to requested cap",
+                writer.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_RejectsResultCardinalityMismatch()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneCardinalityFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """);
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                FidelityCheck.RunReturnToSender(
+                    [assemblyPath],
+                    cap: 2,
+                    maxExamples: 5,
+                    timings: false,
+                    zeroSignalGuard: 0,
+                    (_, targets) => Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            [NativeResult(targets[0])],
+                            CompileBackFloorAppliedMethods: 0))));
+
+            Assert.Contains("returned 1 results for 2 selected methods", error.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_RejectsResultOrderMismatch()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneOrderFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """);
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                FidelityCheck.RunReturnToSender(
+                    [assemblyPath],
+                    cap: 2,
+                    maxExamples: 5,
+                    timings: false,
+                    zeroSignalGuard: 0,
+                    (_, targets) => Task.FromResult(
+                        new ReturnToSenderFidelityEvaluator.Evaluation(
+                            targets.Reverse().Select(target => NativeResult(target)).ToArray(),
+                            CompileBackFloorAppliedMethods: 0))));
+
+            Assert.Contains("out of target order", error.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task RunReturnToSender_ReportsMissingOutputAndContextFailure()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class StandaloneContextFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """);
+        var originalOut = Console.Out;
+        string? originalType = Environment.GetEnvironmentVariable("CB_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("CB_TYPE", null);
+            using var missingWriter = new StringWriter();
+            Console.SetOut(missingWriter);
+            int exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: 2,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 0,
+                (path, targets) => ReturnToSenderFidelityEvaluator.EvaluateAsync(
+                    path,
+                    targets,
+                    "product-artifact RTS; compile-back-floor=false",
+                    FidelityCheck.CaptureMode.ProductArtifact,
+                    () => Task.FromResult<IReadOnlyList<ReturnToSender.Result>>([])));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("context fail       : 2 (100.00%)", missingWriter.ToString());
+            Assert.Contains("return-to-sender-target-unavailable", missingWriter.ToString());
+
+            using var contextWriter = new StringWriter();
+            Console.SetOut(contextWriter);
+            exitCode = await FidelityCheck.RunReturnToSender(
+                [assemblyPath],
+                cap: 2,
+                maxExamples: 5,
+                timings: false,
+                zeroSignalGuard: 0,
+                (path, targets) => ReturnToSenderFidelityEvaluator.EvaluateAsync(
+                    path,
+                    targets,
+                    "product-artifact RTS; compile-back-floor=false",
+                    FidelityCheck.CaptureMode.ProductArtifact,
+                    () => throw new InvalidOperationException(
+                        "Compilation reference preparation failed.")));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("context fail       : 2 (100.00%)", contextWriter.ToString());
+            Assert.Contains(
+                "return-to-sender-context-unavailable: Compilation reference preparation failed.",
+                contextWriter.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Environment.SetEnvironmentVariable("CB_TYPE", originalType);
             DeleteFixture(assemblyPath);
         }
     }
@@ -4468,6 +4877,82 @@ public class FidelityCheckGeneratedFilterTests
         body.Emit(OpCodes.Ldc_I4_1);
         body.Emit(OpCodes.Ret);
     }
+
+    static FidelityCheck.CompileBackResult NativeResult(
+        FidelityCheck.CompileBackTarget target,
+        FidelityCheck.CompileBackStatus status = FidelityCheck.CompileBackStatus.Exact,
+        string? detail = null)
+        => new(
+            target.Type,
+            target.Method,
+            target.Overload,
+            target.Signature,
+            status,
+            "ldarg.0 ret",
+            "ldarg.0 ret",
+            detail,
+            FidelityCheck.CaptureMode.ProductArtifact,
+            "product-artifact RTS; compile-back-floor=false");
+
+    static string TargetIdentity(FidelityCheck.CompileBackTarget target)
+        => $"{target.AssemblyPath}!{target.Type}::{target.Method}#{target.Overload}{target.Signature}";
+
+    static HarnessRun RunHarness(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo(DotnetHost())
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+        };
+        startInfo.ArgumentList.Add(HarnessBinary());
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        startInfo.Environment.Remove("CB_TYPE");
+        startInfo.Environment.Remove("CB_CLUSTER");
+        startInfo.Environment.Remove("CB_DUMP");
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start DecompilerHarness.");
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return new HarnessRun(
+            process.ExitCode,
+            output + error);
+    }
+
+    static string DotnetHost()
+    {
+        string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            string path = Path.Combine(
+                root,
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+            if (File.Exists(path))
+                return path;
+        }
+
+        return "dotnet";
+    }
+
+    static string HarnessBinary()
+    {
+        string path = Path.Combine(
+            AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+            "tools",
+            "DecompilerHarness",
+            "bin",
+            "Release",
+            "net11.0",
+            "decompiler-harness.dll");
+        Assert.True(File.Exists(path), $"The harness binary is missing: {path}.");
+        return path;
+    }
+
+    readonly record struct HarnessRun(int ExitCode, string Output);
 
     static void DeleteFixture(string assemblyPath)
     {
