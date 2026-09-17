@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using InertText;
-using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections;
@@ -87,9 +86,11 @@ public static class PackageVersionSettlementInspection
                     "Latest PackageHouse settlement did not retain its version receipt.");
             }
 
-            NuGetVersion selected = NuGetVersion.Parse(coordinate.Version);
             bool Matches(string version) =>
-                VersionComparer.VersionRelease.Equals(NuGetVersion.Parse(version), selected);
+                string.Equals(
+                    PackageSourceCoordinate.Create(request.PackageId, version).Version,
+                    coordinate.Version,
+                    StringComparison.OrdinalIgnoreCase);
             return new PackageVersionSettlementOutcome.Settled(
                 new(
                     request,
