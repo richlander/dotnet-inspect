@@ -142,11 +142,14 @@ summary from [Package Query inspection evidence](package-query-inspection-eviden
 
 Library-literal qualification is a separate request mode, not another package
 facet tier. Its collapsed **Library literal** section submits the literal
-operand unchanged and an exact target framework (`net10.0` initially). The
-ordinary package editor supplies either one exact package ID, resolved to its
-latest eligible listed version, or one terminal-star prefix admitting at most
-five candidates. Activating the literal operand clears facets and terms;
-clearing it restores ordinary Package Query defaults.
+operand as exact decoded UTF-16 text without trimming and an exact target
+framework (`net10.0` initially). Because HTML text controls normalize carriage
+returns, the Browser editor uses reversible spelling: `\r` means carriage
+return and `\\` means a literal backslash, while a line feed remains a line
+break. The ordinary package editor supplies either one exact package ID,
+resolved to its latest eligible listed version, or one terminal-star prefix
+admitting at most five candidates. Activating the literal operand clears facets
+and terms; clearing it restores ordinary Package Query defaults.
 
 The framework follows the existing selector's exact-group semantics: a package
 without that framework group is `NotApplicable`, not a semantic non-match. The

@@ -799,9 +799,35 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(packageInput).toBeVisible({ timeout: 120_000 });
     await packageInput.fill(literalCoordinate.packageId);
     await page.locator(".query-library-literal summary").click();
-    await page.locator("#package-query-library-literal")
-      .fill("shared-literal-use-marker");
-    await page.locator("#package-query-library-tfm").fill(fixtureFramework);
+    const literal = page.locator("#package-query-library-literal");
+    await literal.fill("tail");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.setSelectionRange(0, 0);
+    });
+    await page.keyboard.type("head");
+    await expect(literal).toHaveValue("headtail");
+    await literal.fill("first\nsecond");
+    await expect(literal).toHaveValue("first\nsecond");
+    await literal.fill("\n");
+    await expect(literal).toHaveValue("\n");
+    await literal.fill("\\r\n");
+    await expect(literal).toHaveValue("\\r\n");
+    await literal.fill("shared-literal-use-marker");
+
+    const targetFramework = page.locator("#package-query-library-tfm");
+    await targetFramework.fill("net10.0");
+    await targetFramework.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Library target-framework editor is missing.");
+      }
+      element.setSelectionRange(3, 5);
+    });
+    await page.keyboard.type("standard2");
+    await expect(targetFramework).toHaveValue("netstandard2.0");
+    await targetFramework.fill(fixtureFramework);
     await page.locator("#package-query-run").click();
 
     await expect(page.locator(".query-row h2"))

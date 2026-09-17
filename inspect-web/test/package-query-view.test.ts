@@ -5,6 +5,8 @@ import {
   bindPackageQueryView,
   capturePackageQueryFocus,
   capturePackageQueryScroll,
+  decodeLibraryLiteralEditorValue,
+  encodeLibraryLiteralEditorValue,
   packageQueryNeedsMoreMatches,
   patchPackageQueryStream,
   renderPackageQueryView,
@@ -207,7 +209,9 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
   });
 
   assert.match(html, /<summary>Library literal<\/summary>/);
-  assert.match(html, /value="shared-literal-use-marker"/);
+  assert.match(
+    html,
+    /data-query-library-literal-value="&quot;shared-literal-use-marker&quot;"/);
   assert.match(html, /value="net10\.0"/);
   assert.match(html, /Showing 3 of 5 occurrences/);
   assert.match(html, /1 matching package · 5 occurrences/);
@@ -235,13 +239,38 @@ test("whitespace-only library literals remain active and unchanged", () => {
   });
 
   assert.match(html, /<details class="query-library-literal" open>/);
-  assert.match(html, /id="package-query-library-literal"[\s\S]*value=" "/);
+  assert.match(
+    html,
+    /data-query-library-literal-value="&quot; &quot;"/);
   assert.match(
     html,
     /Facets are unavailable while Library literal qualification is active/);
   assert.match(
     html,
     /Terms are unavailable while Library literal qualification is active/);
+});
+
+test("library-literal editor spelling round-trips exact UTF-16 text", () => {
+  for (const value of [
+    "plain text",
+    "\n",
+    "\r",
+    "\r\n",
+    "\\",
+    String.raw`\r`,
+    "\0",
+    "\u2028",
+    "\ud800",
+    `prefix\r\n${String.raw`\r\\`}suffix`,
+  ]) {
+    assert.equal(
+      decodeLibraryLiteralEditorValue(
+        encodeLibraryLiteralEditorValue(value)),
+      value);
+  }
+  assert.equal(
+    decodeLibraryLiteralEditorValue(String.raw`\q`),
+    String.raw`\q`);
 });
 
 test("library-literal completion distinguishes exhausted and bounded populations", () => {
@@ -1326,13 +1355,41 @@ test("an unfocused query render does not move focus into the prefix", () => {
   assert.equal(prefix.focusCount, 0);
 });
 
-test("query prefix focus preserves its selection across a full render", () => {
-  const active = new FakeElement({}, "package-query-prefix");
-  active.selectionStart = 3;
-  active.selectionEnd = 8;
-  const replacement = new FakeElement({}, "package-query-prefix");
+test("query text controls preserve selection across a full render", () => {
+  for (const id of [
+    "package-query-prefix",
+    "package-query-library-literal",
+    "package-query-library-tfm",
+  ]) {
+    const active = new FakeElement({}, id);
+    active.selectionStart = 3;
+    active.selectionEnd = 8;
+    const replacement = new FakeElement({}, id);
+    const root = new FakeRoot(active);
+    root.add(`#${id}`, replacement);
+    // Test fake implements the Document and ParentNode subset consumed by the helpers.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const documentRoot = root as unknown as Document;
+
+    const snapshot = capturePackageQueryFocus(documentRoot);
+    restorePackageQueryFocus(documentRoot, snapshot);
+
+    assert.equal(replacement.focusCount, 1);
+    assert.deepEqual(replacement.selectionRange, [3, 8]);
+  }
+});
+
+test("library-literal editor spelling survives a full render", () => {
+  const active = new FakeElement({}, "package-query-library-literal");
+  active.value = String.raw`\r\\tail`;
+  active.selectionStart = 2;
+  active.selectionEnd = 4;
+  const replacement = new FakeElement(
+    {},
+    "package-query-library-literal");
+  replacement.value = "canonicalized";
   const root = new FakeRoot(active);
-  root.add("#package-query-prefix", replacement);
+  root.add("#package-query-library-literal", replacement);
   // Test fake implements the Document and ParentNode subset consumed by the helpers.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const documentRoot = root as unknown as Document;
@@ -1340,8 +1397,8 @@ test("query prefix focus preserves its selection across a full render", () => {
   const snapshot = capturePackageQueryFocus(documentRoot);
   restorePackageQueryFocus(documentRoot, snapshot);
 
-  assert.equal(replacement.focusCount, 1);
-  assert.deepEqual(replacement.selectionRange, [3, 8]);
+  assert.equal(replacement.value, String.raw`\r\\tail`);
+  assert.deepEqual(replacement.selectionRange, [2, 4]);
 });
 
 test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
@@ -1382,7 +1439,10 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
 
 test("bindPackageQueryView forwards library-literal and target-framework edits", () => {
   const root = new FakeRoot();
-  const literal = new FakeElement({}, "package-query-library-literal");
+  const literal = new FakeElement({
+    queryLibraryLiteralValue: JSON.stringify(
+      encodeLibraryLiteralEditorValue("first\r\n\\second")),
+  }, "package-query-library-literal");
   const targetFramework =
     new FakeElement({}, "package-query-library-tfm");
   root.add("#package-query-library-literal", literal);
@@ -1402,15 +1462,16 @@ test("bindPackageQueryView forwards library-literal and target-framework edits",
     onSourceChange: () => {},
   });
 
-  literal.value = "marker";
+  assert.equal(literal.value, String.raw`first\r` + "\n" + String.raw`\\second`);
+  literal.value = String.raw`marker\r\\tail`;
   targetFramework.value = "net9.0";
   literal.dispatch("input");
   targetFramework.value = "net10.0";
   targetFramework.dispatch("input");
 
   assert.deepEqual(calls, [
-    ["marker", "net9.0"],
-    ["marker", "net10.0"],
+    ["marker\r\\tail", "net9.0"],
+    ["marker\r\\tail", "net10.0"],
   ]);
 });
 

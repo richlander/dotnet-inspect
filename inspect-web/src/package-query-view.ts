@@ -59,17 +59,21 @@ export interface PackageQueryBindingActions {
 
 export type PackageQueryFocusSnapshot =
   | {
-      kind: "prefix";
+      kind: "prefix" | "library-tfm";
       selectionStart: number | null;
       selectionEnd: number | null;
+    }
+  | {
+      kind: "library-literal";
+      selectionStart: number | null;
+      selectionEnd: number | null;
+      editorValue: string;
     }
   | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "results" }
   | { kind: "prerelease" }
-  | { kind: "library-literal" }
-  | { kind: "library-tfm" }
   | { kind: "facet"; facetKey: string }
   | { kind: "term-add"; termKey: string }
   | {
@@ -89,6 +93,10 @@ interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
 }
 
+interface EditableQueryElement extends SelectableQueryElement {
+  value: string;
+}
+
 function isFocusableQueryElement(
   element: Element | null,
 ): element is HTMLElement {
@@ -103,6 +111,14 @@ function supportsSelectionRange(
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
+}
+
+function supportsEditableValue(
+  element: HTMLElement,
+): element is EditableQueryElement {
+  return supportsSelectionRange(element)
+    && "value" in element
+    && typeof element.value === "string";
 }
 
 function termControl(
@@ -139,9 +155,28 @@ export function capturePackageQueryFocus(
   const active = root.activeElement;
   if (!isFocusableQueryElement(active)) return null;
   if (active === root.body) return null;
-  if (active.id === "package-query-prefix") {
+  if (active.id === "package-query-library-literal") {
     return {
-      kind: "prefix",
+      kind: "library-literal",
+      selectionStart: "selectionStart" in active
+        && typeof active.selectionStart === "number"
+        ? active.selectionStart
+        : null,
+      selectionEnd: "selectionEnd" in active
+        && typeof active.selectionEnd === "number"
+        ? active.selectionEnd
+        : null,
+      editorValue: "value" in active && typeof active.value === "string"
+        ? active.value
+        : "",
+    };
+  }
+  if (active.id === "package-query-prefix"
+    || active.id === "package-query-library-tfm") {
+    return {
+      kind: active.id === "package-query-prefix"
+        ? "prefix"
+        : "library-tfm",
       selectionStart: "selectionStart" in active
         && typeof active.selectionStart === "number"
         ? active.selectionStart
@@ -157,12 +192,6 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
-  if (active.id === "package-query-library-literal") {
-    return { kind: "library-literal" };
-  }
-  if (active.id === "package-query-library-tfm") {
-    return { kind: "library-tfm" };
-  }
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
   }
@@ -287,7 +316,13 @@ export function restorePackageQueryFocus(
   if (!isFocusableQueryElement(target)) return "none";
   if (usedFallback
     && !focusRenderedElement(target, { preventScroll: true })) return "none";
-  if (snapshot.kind === "prefix"
+  if (snapshot.kind === "library-literal"
+    && supportsEditableValue(target)) {
+    target.value = snapshot.editorValue;
+  }
+  if ((snapshot.kind === "prefix"
+      || snapshot.kind === "library-literal"
+      || snapshot.kind === "library-tfm")
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
     && snapshot.selectionEnd !== null) {
@@ -336,12 +371,21 @@ export function bindPackageQueryView(
   prerelease?.addEventListener("change", () => actions.onSourceChange({
     includePrerelease: prerelease.checked,
   }, prefixInput()?.value ?? ""));
-  const literal = root.querySelector<HTMLInputElement>(
+  const literal = root.querySelector<HTMLTextAreaElement>(
     "#package-query-library-literal");
+  const serializedLiteral = literal?.dataset.queryLibraryLiteralValue;
+  if (literal && serializedLiteral !== undefined) {
+    const initialLiteral: unknown = JSON.parse(serializedLiteral);
+    if (typeof initialLiteral !== "string") {
+      throw new TypeError(
+        "The Library literal editor value was not serialized text.");
+    }
+    literal.value = initialLiteral;
+  }
   const targetFramework = root.querySelector<HTMLInputElement>(
     "#package-query-library-tfm");
   const updateLibraryLiteral = () => actions.onLibraryLiteralInput(
-    literal?.value ?? "",
+    decodeLibraryLiteralEditorValue(literal?.value ?? ""),
     targetFramework?.value ?? "");
   literal?.addEventListener("input", updateLibraryLiteral);
   targetFramework?.addEventListener("input", updateLibraryLiteral);
@@ -759,20 +803,24 @@ function renderLibraryLiteralControls(
   escapeHtml: (value: unknown) => string,
 ): string {
   const active = isLibraryLiteralQuery(request);
+  const editorLiteral =
+    encodeLibraryLiteralEditorValue(request.libraryLiteral.operand);
+  const serializedLiteral = escapeHtml(JSON.stringify(editorLiteral));
   return `
     <details class="query-library-literal"${active ? " open" : ""}>
       <summary>Library literal</summary>
       <p>Qualify the selected packages by decoded <code>ldstr</code> use in each package's primary implementation library.</p>
       <label for="package-query-library-literal">
         <span>Decoded literal contains</span>
-        <input
+        <textarea
           id="package-query-library-literal"
-          type="text"
-          value="${escapeHtml(request.libraryLiteral.operand)}"
+          data-query-library-literal-value="${serializedLiteral}"
+          rows="3"
           placeholder="Unexpected end when reading JSON"
           autocomplete="off"
-          spellcheck="false" />
+          spellcheck="false"></textarea>
       </label>
+      <p>Line feeds remain line breaks. Use <code>\\r</code> for a carriage return and <code>\\\\</code> for a literal backslash.</p>
       <label for="package-query-library-tfm">
         <span>Target framework</span>
         <input
@@ -785,6 +833,32 @@ function renderLibraryLiteralControls(
       </label>
       <p class="query-facet-disclosure">Literal qualification is exclusive with facets and terms and evaluates at most five prefix candidates.</p>
     </details>`;
+}
+
+export function encodeLibraryLiteralEditorValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("\r", "\\r");
+}
+
+export function decodeLibraryLiteralEditorValue(value: string): string {
+  let decoded = "";
+  for (let index = 0; index < value.length; index++) {
+    const current = value[index]!;
+    if (current !== "\\" || index + 1 >= value.length) {
+      decoded += current;
+      continue;
+    }
+    const next = value[index + 1]!;
+    if (next === "r") {
+      decoded += "\r";
+      index++;
+    } else if (next === "\\") {
+      decoded += "\\";
+      index++;
+    } else {
+      decoded += current;
+    }
+  }
+  return decoded;
 }
 
 function renderPackageOptions(request: QueryRequest): string {
