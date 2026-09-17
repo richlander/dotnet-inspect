@@ -407,12 +407,19 @@ dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
-Use `depends=<package-id>` to require a direct dependency declared in any
-package manifest group. Repeat the term to require every named dependency:
+Use `depends=<package-id>` to require a direct dependency. Package Query
+considers all package manifest groups by default; add
+`dependency-target=<TFM>` to select one applicable dependency group instead.
+`dependency-target=all` spells the default explicitly and remains distinct
+from a manifest's real `any` group. Repeat `depends` to require every named
+dependency under the same scope:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count

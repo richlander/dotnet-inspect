@@ -356,6 +356,12 @@ public class QueryDiscoveryTests
                 facet.GetProperty("name").GetString()
                     == PackageQuery.DependsTermKey)
                 .GetProperty("value_kind").GetString());
+        Assert.Equal(
+            "all or NuGet target framework",
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.DependencyTargetTermKey)
+                .GetProperty("value_kind").GetString());
     }
 
     [Fact]
