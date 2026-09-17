@@ -1,16 +1,15 @@
 ---
 id: line-and-result-limiting
 description: Control output size with line limits, table row limits, result limits, row counts, and shape projections
-commands: [-n, --rows, -t, -m, --versions, --count, --value, --urls, --paths, --json-array, --print, --row]
+commands: [-n, --lines, --tail-lines, --rows, -t, -m, --versions, --count, --value, --urls, --paths, --json-array, --print, --row]
 areas: [output, limiting, count, agents]
 ---
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`) on
-> commands that have not adopted semantic rows. With package `--versions` and
-> `--versions-with-feed`, `-n` selects complete version rows instead; add
-> `--lines` to request rendered-line clipping explicitly. `--rows N`
+> Control how much output is returned. `-n` selects semantic rows on commands
+> that declare them; other commands reject `-n` alone. Add `--lines` or
+> `--tail-lines` to request rendered-line clipping explicitly. `--rows N`
 > interprets a count as table data rows per rendered table, and `--rows N..M`
 > selects the rows those numbers name. `--value`, `--urls`, and `--paths`
 > project selected sections to scalar/URL/path payloads; `--json-array` makes
@@ -42,14 +41,14 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 
 > Goal: Truncate output to a fixed number of lines, regardless of content.
 
-### 1a. Using `-n`
+### 1a. Using `-n --lines`
 
 ```prompt
 Show me just the first 4 lines about System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect library System.Text.Json -n 4
+dotnet-inspect library System.Text.Json -n 4 --lines
 ```
 
 ```expect
@@ -69,10 +68,10 @@ wc -l | tr -d ' '
 4
 ```
 
-### 1b. Using `-N` shorthand
+### 1b. Using `-N --lines` shorthand
 
 ```bash
-dotnet-inspect System.Text.Json -6
+dotnet-inspect System.Text.Json -6 --lines
 ```
 
 ```expect
