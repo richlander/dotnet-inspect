@@ -94,6 +94,42 @@ public sealed class BrowserMemberFindingCensusTests
     }
 
     [Fact]
+    public void CalleeDocumentProjection_OrdersAdmissionByFirstFindingOccurrence()
+    {
+        AnnotatedSourceDocument document = CalleeDocument();
+        int documentCharacters =
+            BrowserAnnotatedSource.SerializeDocument(document)!.Value
+                .GetRawText()
+                .Length;
+        MethodIdentity first = Method(Guid.Parse(
+            "11111111-1111-1111-1111-111111111111"));
+        MethodIdentity second = Method(Guid.Parse(
+            "22222222-2222-2222-2222-222222222222"));
+        AssemblyMemberFindingEvidence firstUnavailable =
+            Evidence(0, first, document: null) with
+            {
+                UnavailableReason = "Instruction coordinates unavailable.",
+            };
+
+        BrowserCalleeEvidenceDocumentProjectionResult projected =
+            BrowserCalleeEvidenceDocumentProjection.Project(
+                [
+                    firstUnavailable,
+                    Evidence(1, second, document),
+                    Evidence(2, first, document),
+                ],
+                documentCharacters);
+
+        Assert.Single(projected.Documents);
+        Assert.Equal(0, projected.Admissions[first].DocumentId);
+        Assert.Null(projected.Admissions[second].DocumentId);
+        Assert.Null(
+            BrowserCalleeEvidenceDocumentProjection.Reference(
+                firstUnavailable,
+                projected).DocumentId);
+    }
+
+    [Fact]
     public void CalleeDocumentProjection_RejectsOneIdentityWithDifferentDocuments()
     {
         MethodIdentity member = Method(Guid.Parse(

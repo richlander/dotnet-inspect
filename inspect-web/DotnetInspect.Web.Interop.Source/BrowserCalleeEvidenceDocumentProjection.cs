@@ -35,6 +35,8 @@ internal static class BrowserCalleeEvidenceDocumentProjection
 
         var documents =
             new List<BrowserAnnotatedSourceFindingEvidenceDocument>();
+        var memberOrder = new List<MethodIdentity>();
+        var seenMembers = new HashSet<MethodIdentity>();
         var admissions =
             new Dictionary<
                 MethodIdentity,
@@ -47,6 +49,9 @@ internal static class BrowserCalleeEvidenceDocumentProjection
 
         foreach (AssemblyMemberFindingEvidence row in evidence)
         {
+            if (seenMembers.Add(row.Member))
+                memberOrder.Add(row.Member);
+
             if (row.SourceDocument is not { } sourceDocument)
                 continue;
 
@@ -73,12 +78,20 @@ internal static class BrowserCalleeEvidenceDocumentProjection
             serializedByMember.Add(
                 row.Member,
                 (sourceDocument, serialized));
+        }
+
+        foreach (MethodIdentity member in memberOrder)
+        {
+            if (!serializedByMember.TryGetValue(member, out var document))
+                continue;
+
+            JsonElement serialized = document.Serialized;
             int documentCharacters = serialized.GetRawText().Length;
             if (retainedCharacters + documentCharacters
                 > maximumDocumentJsonCharacters)
             {
                 admissions.Add(
-                    row.Member,
+                    member,
                     new BrowserCalleeEvidenceDocumentAdmission(
                         DocumentId: null,
                         $"Callee evidence document omitted because its "
@@ -94,7 +107,7 @@ internal static class BrowserCalleeEvidenceDocumentProjection
                     documentId,
                     serialized));
             admissions.Add(
-                row.Member,
+                member,
                 new BrowserCalleeEvidenceDocumentAdmission(
                     documentId,
                     UnavailableReason: null));
