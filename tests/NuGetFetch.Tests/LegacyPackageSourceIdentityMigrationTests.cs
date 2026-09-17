@@ -61,12 +61,17 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             new(
                 "#4805",
                 "inspect-web/DotnetInspect.Web.Core/BrowserPackageWorkspace.cs",
-                ExplicitReferences: 12,
+                ExplicitReferences: 13,
                 ImplicitReferences: 0),
             new(
                 "#4805",
                 "inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.PackageAcquisition.cs",
-                ExplicitReferences: 20,
+                ExplicitReferences: 19,
+                ImplicitReferences: 0),
+            new(
+                "#4805",
+                "inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.PackageVersionSettlement.cs",
+                ExplicitReferences: 3,
                 ImplicitReferences: 0),
         ];
 
