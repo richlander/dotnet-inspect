@@ -169,6 +169,7 @@ public sealed class StackAllocSpanPass : IIrPass
 
             var raised = new StackAllocArray(element, raisedCount, newObject.ResultType, elements);
             raised.InheritSourceOffset(newObject);
+            raised.RetainProvenance(source);
             newObject.ReplaceWith(raised);
             ownedStore?.Detach();
         }

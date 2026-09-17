@@ -23,10 +23,10 @@ implemented by
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
 `Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
 retained evaluation bases, and pure lens recommendation are implemented by
-`NavigationLensRecommendation` and gated at their claims below. Pure initial
-subject ranking over available Library candidates and their retained Type
-inventory is implemented by `NavigationInitialSubjectRecommendation` and gated
-at its claim below for one already selected Package occurrence.
+`NavigationLensRecommendation` and gated at their claims below. Pure pre-#7318
+initial subject ranking over available Library candidates and their retained
+Type inventory is implemented by `NavigationInitialSubjectRecommendation` and
+gated at its claim below for one already selected Package occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
 `NavigationSubjectInventoryClassification` and gated at its claim below. Pure
@@ -167,19 +167,32 @@ Browser adoption in #5511 retires these host-local preference mechanisms in
 favor of product-issued Navigation results.
 
 The ancestor Type fallback and coordinate inspector-request retention specified
-below are **target-only and unverified**, the focused policy step of
-[#7061](https://github.com/richlander/dotnet-inspect/issues/7061). Current
-ordinary `NavigationWorkspaceSnapshotEvaluation.Refresh` can still choose a
-sibling Type and does not implement occurrence-replacement correspondence.
-The new policy's Release gates below have not landed. This design step changes
-neither that implementation nor the shipped Browser preferences above.
+below are implemented for protected Package-coordinate replacement by
+`NavigationScopeOperations` under
+[#7061](https://github.com/richlander/dotnet-inspect/issues/7061), with the
+implemented cases identified in the focused protected-consumer design.
+Ordinary `NavigationWorkspaceSnapshotEvaluation.Refresh` can still choose a
+sibling Type; its ancestor-fallback adoption remains **unverified**. Browser
+adoption remains separate and the shipped Browser preferences above are
+unchanged.
 
 The [forwarded ancestry policy](#forwarded-api-ancestry) settles
 [#7169](https://github.com/richlander/dotnet-inspect/issues/7169) within that
 same adoption path. The shared correspondence producer and completed matching
-envelope landed in #7188/#7189; they do not implement Navigation replacement.
-Adoption of their actual defining-Library result, active-ancestor preservation,
-and forwarded fallback remains **target-only and unverified** under #5584.
+envelope landed in #7188/#7189. Protected Navigation now consumes their actual
+defining-Library result, preserves active ancestors, and applies forwarded
+fallback under #5584. CLI and Browser/Wasm adoption remain separately
+unverified.
+
+The aggregate-first Package policy below is likewise **target-only and
+unverified** under
+[#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Current
+`NavigationInitialSubjectRecommendation` still prefers one primary or
+declaration-order Library before `All libraries`. The #7318 slice instead
+recommends the existing Package-scoped aggregate and defines exact and
+namesake-Library narrowing as explicit gestures. It changes neither Package
+acquisition nor the shipped CLI and Browser consumers until their focused
+adoption slices land.
 
 ## Consumer and complexity record
 
@@ -233,6 +246,15 @@ capability, not separate host policies. The CLI does not acquire a retained
 terminal session, and Browser/Wasm does not reconstruct the exact pair from
 display state.
 
+Issue #7318 adds one policy step to the focused successor stack recorded on
+PR #7372. Its PackageHouse prerequisite is PR #7435; #7431 supplies the
+compile-selection evidence. The production consumers are #7430
+(Package/Library CLI), #7429 (API/Type/Member), #7432
+(Workspace/Navigation), and #7428 (Inspect Web). Find participant selection in
+issue #7433 consumes the same package evidence but does not make Find a
+Navigation subject. Command-local aggregate, TFM, primary-Library, and namesake
+preference retire only as those consumers adopt the shared result.
+
 The exact Workspace and retained-occurrence ancestry is necessary for
 correctness: without it, distinct logical occurrences inside one Workspace can
 alias, and display keys can target the wrong retained occurrence. A
@@ -246,8 +268,8 @@ scope-operation results are owned by
 protected Navigation consumption is implemented by the shared producer in
 [Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
 under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
-Source-retiring correspondence orchestration and CLI/Browser adoption remain
-unverified follow-on slices.
+Source-retiring correspondence orchestration is implemented there; CLI and
+Browser adoption remain unverified follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -475,6 +497,7 @@ Inspection Subject Navigation owns:
 - separation of exact subject identity from the route used to reach it;
 - subject applicability, availability, and failure classification;
 - initial subject recommendation and subject-scoped lens recommendation;
+- Package aggregate recommendation plus exact- and namesake-Library narrowing;
 - Workspace, Ecosystem, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
@@ -509,7 +532,8 @@ The owner consumes:
 - zero or one scope-result requested active/replacement occurrence plus typed
   effect and correspondence outcomes;
 - owner-issued retained-coordinate activation operations;
-- admitted Library identities, declaration order, and primary preference;
+- admitted Library identities, owner-issued managed assembly simple names,
+  declaration order, and primary preference;
 - bounded Type and Member inventories in producer-issued navigation order;
 - product accessibility descriptors;
 - exact type-definition identities and member anchors;
@@ -593,6 +617,18 @@ owner's `ArtifactRootCorrespondence`, plus a point-in-time
 `ArtifactRootScopeProjection` in the occurrence descriptor. Navigation
 consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
+
+[PackageHouse Composition](package-house.md) owns package-local compile
+selection policy and preserves the compile selector's available slices,
+selected projection, requested-versus-selected framework, roles, and
+correspondence. Artifact acquisition and package realization bind that receipt
+and its admitted Library outcomes to one exact Package occurrence in one
+`PackageLibraries` basis. Navigation consumes that composed value, not
+separately pairable occurrence and projection arguments. It neither reselects
+a TFM nor ranks package asset paths. The compile-selection owner resolves exact
+asset IDs within that projection. Library admission and Metadata supply the
+exact admitted Library identities and managed assembly facts used by
+narrowing.
 
 The `ArtifactRoot*` names in the adjacent Artifact owner describe one physical
 realization and publication unit and remain correct. Issue #6293 replaces
@@ -685,7 +721,9 @@ This owner does not define:
 - Type and Member inventory extraction;
 - lens contents, section execution, or rendering;
 - browser history, URL encoding, or complete restoration atomicity;
-- package-source selection, credentials, provenance, or caching; or
+- package-source selection, credentials, provenance, or caching;
+- target-framework compatibility, compile-slice selection, package asset roles,
+  managed-image classification, or Library admission; or
 - cross-Workspace inspection, aggregation, correspondence, or Spotlight
   composition.
 
@@ -739,9 +777,10 @@ occurrences. Registration therefore supplies relevance and route evidence, not
 fabricated membership.
 
 Package remains an exact occurrence, not an aggregate over all packages.
-The existing Package-scoped `All libraries` aggregate remains available where
-that Package supports it; it does not become ancestry for an exact Type and it
-does not create Workspace-wide or Ecosystem-wide aggregate subjects.
+The Package-scoped `All libraries` aggregate is the recommended Library/API
+subject where that Package supports it; it does not become ancestry for an
+exact Type and it does not create Workspace-wide or Ecosystem-wide aggregate
+subjects.
 Navigation may supply owner-issued Ecosystem, Package, and Library inventories
 without inventing `All ecosystems`, `All packages`, or `All libraries`
 structural identities.
@@ -1030,28 +1069,55 @@ another participant failed; every participant failure remains visible. If no
 producer can vouch for a candidate, Type availability is failed rather than
 delegated to the consumer.
 
-### Initial Library and Package
+### Initial aggregate and Package
 
-Library recommendation selects:
+Library/API recommendation selects:
 
-1. The available primary Library.
-2. The first available one-Library descriptor in declaration order.
-3. `All libraries`, only when no one-Library descriptor is available.
+1. The available Package-scoped `All libraries` aggregate.
+2. The exact Package when no aggregate is available.
 
-Unavailable or failed aggregate evidence remains visible when a one-Library
-subject is selected.
+The aggregate contains every admitted Library from one PackageHouse-selected
+compile projection in the exact `PackageLibraries` basis. Its cardinality may
+be one or many; cardinality never changes its identity into a one-Library
+subject. The former primary and declaration-order Library preferences do not
+participate in initial subject selection.
 
-When no Library is available, the exact Package is selected. This allows
+Participant rejection, decode failure, or inspection failure remains attached
+to the aggregate result. Healthy participant evidence may remain usable, but
+the snapshot and every projection identify the result as partial; Navigation
+never turns incomplete evidence into a complete successful aggregate.
 Package-only occurrences, including the tools-v2 pointer-package case
-implemented by #4829.
+implemented by #4829, select Package with the selection explanation visible.
 
-For package entry, "best Library" means this product-owned preference, not the
-largest public surface or the first displayed row. Package compile selection
-supplies the primary asset: a file name matching the package ID, ignoring case,
-then the selector's case-insensitive asset-path order with an ordinal
-tie-breaker. Surface projection retains that exact default when available and
-otherwise supplies its available fallback. Consumers use the returned identity,
-not a second ranking implementation.
+Explicit subject requests take precedence over this recommendation:
+
+- **Exact Library** consumes one owner-issued exact selected-asset resolution
+  against the Package's selected projection. An available admitted Library
+  identity activates that one-Library subject. A missing, foreign, unavailable,
+  or failed resolution returns its typed non-success without choosing the
+  aggregate or another Library.
+- **Namesake Library** compares the normalized Package ID with each admitted
+  Library's owner-issued assembly simple name, ignoring case. One available
+  match activates that exact one-Library subject only when identity evidence is
+  complete. Zero matches with complete evidence is unavailable; multiple
+  matches is ambiguous; an unresolved candidate identity is failed because it
+  could change either conclusion. Every non-applied outcome retains the
+  ordered candidates and participant evidence and never falls back to
+  declaration order, the aggregate, or Package.
+- **Package, Type, Member, and restored subject** requests keep their existing
+  exact precedence and do not run Library recommendation.
+
+Hosts own syntax such as `--library` and `--namesake-library`, but they submit
+the corresponding typed gesture and render the returned outcome. Exact token
+resolution remains a shared selected-asset operation; hosts do not turn token
+text into subject identity. They also do not repeat namesake matching.
+Navigation never derives a namesake from an asset path, file stem, display
+label, or package-relative text.
+
+One Navigation evaluation consumes one selected framework projection. A
+coordinator requesting multiple frameworks presents separately associated
+aggregates; it cannot merge their Library identities or API evidence into one
+`All libraries` subject.
 
 The browser adoption in #6098 uses the existing `defaultAssemblyId` projection
 for fresh package entry, including opening retained packages through Search.
@@ -1065,8 +1131,9 @@ their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
 `inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
 selection modeling is gated by `test/package-acquisition.test.ts` in that host.
-This is a default-entry adoption, not completion of #5510/#5511's broader
-snapshot and result-authority migration.
+This is the pre-#7318 default-entry adoption, not completion of #5510/#5511's
+broader snapshot and result-authority migration. The #7428 successor retires
+its primary-Library preference after consuming this aggregate recommendation.
 
 ### Bounded subject inventory classification
 
@@ -1076,7 +1143,10 @@ inventory basis before snapshot-relative descriptors are composed:
 ```text
 NavigationLibraryInventoryBasis
   = OneLibrary(exact Workspace-bound Library occurrence)
-  | PackageLibraries(exact Package occurrence, complete admitted Libraries)
+  | PackageLibraries(
+      exact Package occurrence and Artifact Root correspondence,
+      exact PackageHouse compile realization receipt,
+      ordered selected assets and admitted Library participant outcomes)
 ```
 
 The first arm serves direct and Ecosystem-routed Library subjects without
@@ -1084,12 +1154,16 @@ Package ancestry. The second preserves the existing one-Library and
 `All libraries` behavior inside one exact Package. This owner defines no
 Workspace-wide or Ecosystem-wide Type aggregate.
 
-Participant outcomes exact-join the admitted Library basis by owner-issued
-acquisition registration. A foreign Workspace, foreign basis, reordered,
-duplicated, or unexplained missing outcome is invalid input rather than
-evidence about subject availability. A Package-bound basis additionally
-requires its existing exact occurrence association; a direct Library basis
-does not manufacture one.
+The Package-bound basis is one owner-issued association. Its occurrence's
+Artifact Root correspondence, House acquisition generation and coordinate,
+realization request and requested/selected framework, selected asset IDs, and
+admitted Library package associations must all describe the same realization.
+Participant outcomes exact-join that admitted Library basis by owner-issued
+acquisition registration. A foreign Workspace, occurrence, settlement,
+generation, framework, asset, basis, reordered, duplicated, or unexplained
+missing outcome is invalid input before recommendation or narrowing rather
+than evidence about subject availability. A direct Library basis does not
+manufacture Package correspondence.
 
 The generation-free classification follows this table:
 
@@ -1115,11 +1189,13 @@ canonical declaring text as lookup identity. Returned exact rows remain
 trustworthy when another row or participant fails; failure does not erase
 positive evidence.
 
-Every admitted Library remains an available Library candidate for initial
-subject recommendation. Only exact returned Type rows become Type candidates.
-Classification does not commit the recommendation, choose an active subject,
-compose `Current` or `Selection required`, mint generation-scoped actions, or
-produce a navigation snapshot.
+Every admitted Library remains an ordered aggregate member and an eligible
+target for explicit exact or namesake narrowing. No individual Library is an
+implicit initial-recommendation candidate. Exact returned Type rows remain
+inventory candidates for retained-context ranking; they are not implicit
+subjects. Classification does not commit the recommendation, choose an active
+subject, compose `Current` or `Selection required`, mint generation-scoped
+actions, or produce a navigation snapshot.
 
 This classification is gated by
 `NavigationSubjectInventoryTests.EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`,
@@ -1140,16 +1216,31 @@ This classification is gated by
 `InventoryJoin_RequiresExactParticipantRegistration`, and
 `Inventories_PreserveExactPackageAncestryAndSequenceEquality`.
 
-The pure ranking over available Library candidates is gated by
-`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`,
-`LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`, and
-`InitialRecommendation_NeverChoosesTypeOrMember`. Candidate coordinate, Library,
-Type, primary-role, and accessibility consistency is gated by
+The current one-Library ranking is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`
+and `LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`.
+Those gates describe pre-#7318 behavior and retire with its implementation.
+The aggregate-first replacement remains **unverified** and requires
+`InitialRecommendation_PrefersAggregateThenPackage`,
+`InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`,
+`InitialRecommendation_ExcludesIndividualLibraryCandidates`,
+`PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`,
+`PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`,
+`ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`,
+`ExactLibraryNarrowing_NonSuccessDoesNotFallback`,
+`NamesakeLibraryNarrowing_UsesOwnerIssuedAssemblyIdentity`,
+`NamesakeLibraryNarrowing_ZeroOrMultipleMatchesDoNotFallback`,
+`NamesakeLibraryNarrowing_UnresolvedIdentityFailsClosed`,
+`NamesakeLibraryNarrowing_RetainsCandidatesAndParticipantEvidence`,
+`AggregateRecommendation_UsesOneSelectedFrameworkProjection`, and
+`SeparateFrameworkSelections_NeverMergeAggregateIdentity`.
+`InitialRecommendation_NeverChoosesTypeOrMember` remains a neighboring gate.
+Candidate coordinate, Library, Type, primary-role, and accessibility
+consistency remains gated by
 `CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
-classification above supplies the trustworthy Type candidates and retains
-availability and failure evidence. These gates establish ranking only after one
-Package occurrence is selected; they do not choose among Workspace
-inventory entries.
+classification above supplies exact Library and Type candidates and retains
+availability and failure evidence. These gates apply only after one Package
+occurrence is selected; they do not choose among Workspace inventory entries.
 
 ### Lens recommendation
 
@@ -1249,10 +1340,11 @@ Package or Library inventories to manufacture context.
 
 ### Aggregate and single-library capability
 
-`All libraries` is a real aggregate inspection mode, not a client-side
-concatenation of independently rendered library pages. Aggregate evaluation
-returns one owner-provided result that defines ordering, identity,
-deduplication, and partial-failure behavior across the admitted library set.
+`All libraries` is the ordinary Package-backed aggregate Library/API subject,
+not a client-side concatenation of independently rendered library pages.
+Aggregate evaluation returns one owner-provided result that defines ordering,
+identity, deduplication, and partial-failure behavior across the admitted
+library set.
 
 Each Library-scoped lens declares explicit aggregate and single-library
 capability, together with a visible rejection reason when the current subject
@@ -1795,7 +1887,9 @@ host operation authority against the then-current product state.
 
 This boundary consumes admission, execution, and authority from their existing
 owners; a ticket is correlation data, not permission to acquire or inspect.
-It neither introduces a new architecture owner nor implements #5584.
+`NavigationScopeOperations` composes that ticket with the existing scoped Root,
+Scope, correspondence, and restoration producers for #5584 without introducing
+a new architecture owner.
 
 The bounded ordering model is
 [`NavigationSession.tla`](models/inspection-subject-navigation/NavigationSession.tla).
@@ -2119,10 +2213,10 @@ opaque values there. The pure recommendation, mapping, identity-binding, and
 Workspace-containment rules above are enforced by the implementation gates
 below rather than claimed as model-checked behavior. Ancestor fallback and
 coordinate inspector-request retention are likewise pure policy over those
-values, not changes to the modeled ordering protocol; their new gates remain
-unverified. Forwarded ancestry is another pure structural policy, not a new
-concurrency transition; the models do not establish its ancestry or
-correspondence properties.
+values, not changes to the modeled ordering protocol; their protected
+replacement gates are implemented. Forwarded ancestry is another pure
+structural policy, not a new concurrency transition; its Release gates, not the
+models, establish the implemented ancestry and correspondence properties.
 
 The Workspace-rooted graph adds no second intent, publication, or
 acknowledgement protocol. Subject plus route remains one immutable semantic
@@ -2186,7 +2280,19 @@ The eventual subject-navigation implementation must include named gates for:
 - `SourceNativeSubjectCompare_IsInapplicableWithoutChangingSubject`
 - `PackageOriginDirectRouteCompare_UsesExactPackageAssociation`
 - `ExplicitDirectLibraryActivation_SelectsExactLibrary`
-- `InitialRecommendation_PrefersLibraryThenPackage`
+- `InitialRecommendation_PrefersAggregateThenPackage`
+- `InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`
+- `InitialRecommendation_ExcludesIndividualLibraryCandidates`
+- `PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`
+- `PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`
+- `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`
+- `ExactLibraryNarrowing_NonSuccessDoesNotFallback`
+- `NamesakeLibraryNarrowing_UsesOwnerIssuedAssemblyIdentity`
+- `NamesakeLibraryNarrowing_ZeroOrMultipleMatchesDoNotFallback`
+- `NamesakeLibraryNarrowing_UnresolvedIdentityFailsClosed`
+- `NamesakeLibraryNarrowing_RetainsCandidatesAndParticipantEvidence`
+- `AggregateRecommendation_UsesOneSelectedFrameworkProjection`
+- `SeparateFrameworkSelections_NeverMergeAggregateIdentity`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesTypeOrMember`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
@@ -2378,42 +2484,39 @@ These gates also use a throwing correspondence sentinel when that seam becomes
 injectable; until then, the direct evaluation path and exact outcome assertions
 gate the no-correspondence claim.
 
-The five ancestor-fallback and coordinate-inspector gates added for #7061 are
-also **unverified**. The missing-Type gate supplies another trustworthy Type
-in the same Library and requires Library fallback, for both ordinary refresh
-and replacement; active Package/Workspace cases retain that active ancestor
-while truncating the missing lower context. The rebind gate independently
-retains source and destination subject identities and the requested facet,
-then requires the destination-bound exact basis and fresh Registry result for
-Package, Library, Type, and Member. It includes a missing lower Member beneath
-a still-resolved active Package or Type, so lower-path loss cannot discard the
-active ancestor's request.
+The implemented protected ancestor-fallback and coordinate-inspector cases for
+issue #7061 are mapped to `NavigationCoordinateReplacementTests` in
+[the protected-consumer design](navigation-scope-operation-consumption.md#production-implementation-gates).
+They independently
+retain source and destination subject identities and the requested facet, then
+require the destination-bound exact basis and fresh Registry result for
+Workspace, Package, Library, Type, and Member. Member loss beneath an exact Type
+falls back to that Type without discarding an active ancestor's request.
 
-The non-success gate covers every non-available Registry arm, including
-retirement, and requires the resolved subject, complete request evidence, and
-absence of an effective fallback lens. The fallback gate covers missing and
-ambiguous correspondence and requires a recommendation bound to the fallback
-subject, not the old request. The recommendation-basis neighbor makes a formerly
-unavailable preferred facet available and requires ordinary recommendation to
-recover it rather than pinning the previous recommended fallback. Both the
-stateless CLI producer and retained Browser producer consume these same policy
-outcomes; their host adoption gates must also preserve fresh content and the
-existing Package/Library experience.
+The remaining planned #7061 gates above are **unverified** where they go beyond
+that mapped coverage: ordinary-refresh ancestor fallback, every non-available
+Registry arm (including retirement), ambiguous correspondence, and recovery of a
+formerly unavailable recommended facet. The implemented replacement Registry
+cases cover unavailable and failed exact requests, not those additional arms.
+CLI and Browser adoption must preserve the same policy outcomes, fresh content,
+and existing Package/Library experience.
 
-The four forwarded-ancestry gates are **unverified** until Navigation adoption
-lands. Reuse the pinned Avalonia pair and product correspondence producer, not
-hand-authored successful correspondence, for the exact Type/constructor and
-non-matching Member cases. Independently retain source and destination
-identities and assert the complete ancestry, active subject, Type-inventory
-context, inspector basis, and associated route/result evidence.
+The forwarded-ancestry gates use the pinned Avalonia pair and product
+correspondence producer, not hand-authored successful correspondence, for the
+exact Type/constructor and non-matching Member cases. They independently retain
+source and destination identities and assert the complete ancestry, active
+subject, Type-inventory context, inspector basis, and associated route/result
+evidence.
 
 The active-ancestor gate covers Workspace and Package retaining B'.T', and
 active A retaining A' while discarding that same exact lower match with a
 containment explanation. The Member non-success gate requires an independently
-exact Type result before falling back to B'.T'. The Type non-success gate
-covers a resolved route without strict Type correspondence and unresolved
-forwarding, unavailable destination evaluation despite an exact match, and an
-unrelated same-named Type that must not be substituted.
+exact Type result before falling back to B'.T'. The small strict-correspondence gate also covers a resolved Type whose generic
+constraints changed, with another available Type in its paired Library: it
+falls back to that Library, not a sibling Type, and does not retain a Member.
+The remaining Type non-success gates for unavailable destination evaluation
+despite an exact match and an unrelated same-named Type remain **unverified**
+unless mapped to an implemented Release gate.
 Use proportional producer-backed boundary fixtures where the real pair does
 not supply a case. Existing exact-inspector gates cover Registry non-success;
 the #5584 correlation and supersession gates cover replacement installation,
@@ -2473,7 +2576,13 @@ must preserve the same typed outcomes and fresh destination content.
 | Resolved coordinate subject has an unknown or inapplicable requested inspector | Rejected inspector request remains visible on the resolved subject, with no effective lens or substituted inspector |
 | Coordinate variation begins with a recommendation basis | Recommendation runs for the resolved subject; a previously recommended fallback is not explicit intent |
 | Coordinate correspondence falls back from Member to Type | Type receives its own recommendation, never the Member's inspector request |
-| Ordinary package | Best available one-Library subject with Library Overview; aggregate only when no one-Library subject is available, then Package |
+| Ordinary package | Package-scoped `All libraries` subject with the aggregate-capable recommended lens; exact Package remains explicitly reachable |
+| Single-Library package | Package-scoped `All libraries` subject containing one Library; cardinality does not implicitly narrow |
+| Package occurrence paired with another settlement, generation, or selected TFM | Invalid `PackageLibraries` basis rejected before recommendation, aggregate identity construction, or narrowing |
+| Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
+| Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
+| Missing, ambiguous, or indeterminate namesake | Typed unavailable, ambiguous, or failed result with ordered candidates and participant evidence; no declaration-order, aggregate, or Package fallback |
+| Multiple framework selection | One separately associated aggregate per selected framework; no cross-framework subject or API merge |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
 | No lens available and one evaluation failed | Failed lens outcome with all non-success evidence retained |
@@ -2494,10 +2603,10 @@ must preserve the same typed outcomes and fresh destination content.
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
 | Exact non-success while its subject disappears without correspondence | Result retains the exact request evidence; installed snapshot uses the fallback subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
-| Multi-library package | Primary one-Library subject, then first declaration-order one-Library subject; aggregate only when no one-Library subject is available |
-| Libraries with no Types | Library with References; Type is validly unavailable |
+| Multi-library package | Package-scoped `All libraries` subject containing every admitted Library in the selected compile projection |
+| Libraries with no Types | Package-scoped `All libraries` with its aggregate-capable References lens; Type is validly unavailable |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
-| Primary Library has no default-accessibility Type | Library remains the recommendation |
+| Primary Library has no default-accessibility Type | Package-scoped `All libraries` remains the recommendation; Type accessibility does not narrow the initial subject |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained and other Types available | Defining Library, never another Type; missing lower context is truncated and its diagnostic retained |

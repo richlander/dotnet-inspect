@@ -206,47 +206,25 @@ public static class CoordinateLibraryPairingQuery
         ArgumentNullException.ThrowIfNull(occurrence);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!ReferenceEquals(
-                workspace.Identity,
-                occurrence.Occurrence.Identity.WorkspaceIdentity))
-        {
-            return Unavailable(
-                CoordinateLibraryPairingFailureKind.ForeignWorkspace,
-                "The Package occurrence belongs to a different Workspace.");
-        }
-        if (occurrence.Occurrence.Correspondence
-                is not PackageArtifactRootCorrespondence correspondence
-            || !correspondence.Matches(PackageArtifactRootRequest.From(binding))
-            || !binding.ReferencesRetainedContent())
-        {
-            return Unavailable(
-                CoordinateLibraryPairingFailureKind.InvalidEndpointAssociation,
-                "The Package binding does not identify the observed occurrence and retained content.");
-        }
-        if (binding.SourceProducer is not { } producer)
-        {
-            return Unavailable(
-                CoordinateLibraryPairingFailureKind.MissingProducer,
-                "Library pairing requires the complete Package Source producer identity.");
-        }
-        if (occurrence.Realization.Status is not ArtifactRootRealizationStatus.Ready ready)
-        {
-            return new CoordinatePackageObservationResult.Unavailable(new(
-                CoordinateLibraryPairingFailureKind.RootUnavailable,
-                "The observed Package Root is not ready.",
-                occurrence.Realization.Status is ArtifactRootRealizationStatus.Failed failed
-                    ? failed.Failure
-                    : null));
-        }
+        CoordinateLibraryPairingFailure? invalid =
+            ValidateObservationEndpoint(
+                workspace,
+                binding,
+                occurrence,
+                out PackageArtifactRootCorrespondence? correspondence,
+                out PackageProducerIdentity? producer,
+                out ArtifactRootRealizationStatus.Ready? ready);
+        if (invalid is not null)
+            return new CoordinatePackageObservationResult.Unavailable(invalid);
 
         ArtifactRootResult<CoordinatePackageObservationResult> result =
             await workspace.ExecutePackageRootQueryAsync(
-                correspondence,
-                ready.Generation,
+                correspondence!,
+                ready!.Generation,
                 (realization, token) => ValueTask.FromResult(
                     Observe(
                         workspace.Identity, binding, occurrence.Occurrence,
-                        correspondence, ready.Generation, producer, realization, token)),
+                        correspondence!, ready.Generation, producer!, realization, token)),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         return result switch
         {
@@ -259,6 +237,40 @@ public static class CoordinateLibraryPairingQuery
                     rejected.Failure)),
             _ => throw new InvalidOperationException("Unknown Package Root query outcome."),
         };
+    }
+
+    internal static CoordinatePackageObservationResult ObserveAdmitted(
+        InspectionWorkspace workspace,
+        PackageRootBinding binding,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageAssemblyContextRealization realization,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(realization);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        CoordinateLibraryPairingFailure? invalid =
+            ValidateObservationEndpoint(
+                workspace,
+                binding,
+                occurrence,
+                out PackageArtifactRootCorrespondence? correspondence,
+                out PackageProducerIdentity? producer,
+                out ArtifactRootRealizationStatus.Ready? ready);
+        return invalid is not null
+            ? new CoordinatePackageObservationResult.Unavailable(invalid)
+            : Observe(
+                workspace.Identity,
+                binding,
+                occurrence.Occurrence,
+                correspondence!,
+                ready!.Generation,
+                producer!,
+                realization,
+                cancellationToken);
     }
 
     public static CoordinateLibraryPairingResult Execute(
@@ -430,6 +442,57 @@ public static class CoordinateLibraryPairingQuery
                 occurrence, correspondence, generation, producer,
                 binding.ContentGenerationIdentity, binding.SelectionIdentity,
                 policyVersion, values));
+    }
+
+    static CoordinateLibraryPairingFailure? ValidateObservationEndpoint(
+        InspectionWorkspace workspace,
+        PackageRootBinding binding,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        out PackageArtifactRootCorrespondence? correspondence,
+        out PackageProducerIdentity? producer,
+        out ArtifactRootRealizationStatus.Ready? ready)
+    {
+        correspondence = null;
+        producer = null;
+        ready = null;
+        if (!ReferenceEquals(
+                workspace.Identity,
+                occurrence.Occurrence.Identity.WorkspaceIdentity))
+        {
+            return new(
+                CoordinateLibraryPairingFailureKind.ForeignWorkspace,
+                "The Package occurrence belongs to a different Workspace.");
+        }
+        if (occurrence.Occurrence.Correspondence
+                is not PackageArtifactRootCorrespondence candidate
+            || !candidate.Matches(PackageArtifactRootRequest.From(binding))
+            || !binding.ReferencesRetainedContent())
+        {
+            return new(
+                CoordinateLibraryPairingFailureKind.InvalidEndpointAssociation,
+                "The Package binding does not identify the observed occurrence and retained content.");
+        }
+        correspondence = candidate;
+        if (binding.SourceProducer is not { } sourceProducer)
+        {
+            return new(
+                CoordinateLibraryPairingFailureKind.MissingProducer,
+                "Library pairing requires the complete Package Source producer identity.");
+        }
+        producer = sourceProducer;
+        if (occurrence.Realization.Status
+                is not ArtifactRootRealizationStatus.Ready readyStatus)
+        {
+            return new(
+                CoordinateLibraryPairingFailureKind.RootUnavailable,
+                "The observed Package Root is not ready.",
+                occurrence.Realization.Status
+                    is ArtifactRootRealizationStatus.Failed failed
+                        ? failed.Failure
+                        : null);
+        }
+        ready = readyStatus;
+        return null;
     }
 
     static bool SameLibraryProfile(

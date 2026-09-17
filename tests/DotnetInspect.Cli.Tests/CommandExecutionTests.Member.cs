@@ -125,7 +125,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,7 +145,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -163,7 +163,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Member Index",
-            "-n", "80");
+            "-n", "80", "--lines");
         Assert.Equal(0, index.Exit);
         var stable = index.Output
             .Split('\n')
@@ -178,7 +178,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -194,7 +194,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -237,7 +237,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2545,7 +2545,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("-n", "5")]
+    [InlineData("-n", "5", "--lines")]
     [InlineData("--rows", "1")]
     [InlineData("--fields", "Member")]
     [InlineData("--columns", "Member")]
@@ -3340,10 +3340,13 @@ public partial class CommandExecutionTests
     public async Task Member_OverloadInventory_TabularWindowsRetainRows(
         string format, string window, string value, int expectedRows)
     {
+        string[] lineSelection = window == "-n" ? ["--lines"] : [];
         var (exit, output, error) = await RunAppInDirectoryAsync(
             Environment.CurrentDirectory,
-            "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", format, window, value, "--tips", "q");
+            [
+                "member", "JsonSerializer", "--platform", "System.Text.Json",
+                "-m", "Serialize", format, window, value, .. lineSelection, "--tips", "q",
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3623,7 +3626,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3632,7 +3635,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3650,7 +3653,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

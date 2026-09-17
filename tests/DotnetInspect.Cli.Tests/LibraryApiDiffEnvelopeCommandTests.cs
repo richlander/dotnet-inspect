@@ -175,15 +175,28 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
 
     [Theory]
     [InlineData("--json", "--head")]
-    [InlineData("--json", "--tail")]
+    [InlineData("--json", "--tail-lines")]
     [InlineData("--envelope", "--head")]
     [InlineData("--envelope", "--tail")]
     public async Task ServiceJson_RejectsRenderedLineClipping(string format, string direction)
     {
-        var result = await Run(format, "-n", "2", direction);
+        string[] lineUnit =
+            format == "--json" && direction == "--head"
+                ? ["--lines"]
+                : [];
+        var result = await Run([
+            format,
+            "-n",
+            "2",
+            direction,
+            .. lineUnit,
+        ]);
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains(format, result.Error);
+        Assert.Contains(
+            format == "--json" ? "JSON" : format,
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

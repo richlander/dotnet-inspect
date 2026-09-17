@@ -193,6 +193,9 @@ dnx dotnet-inspect -y -- package query Azure.Mcp \
   --where "tool=true"
 dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
+dnx dotnet-inspect -y -- package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -200,14 +203,17 @@ expressions. Independent terms are ANDed; the broad `tool=true` term identifies
 the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 `tool-format=v2` for settings-based format classification; those specific
 formats are ORed. Query rows represent individual packages, with exact versions
-and product-authored evidence. `--take` bounds candidate work, while `-n` and
-`--rows` select final matched-package rows. Without explicit `--take`, a simple
-`-n N` is pushed into execution: direct package rows use an effective candidate
-bound of N, while filtered queries scan until N matches or their default
-candidate bound. Pushdown is capped at 1,000 candidates; larger semantic heads
-remain valid and are applied after bounded execution. Selecting a
-package-content term is itself approval for archive acquisition and permits at
-most 20 candidates; use
+and product-authored evidence. Dependency predicates inspect all nuspec groups
+by default; use `dependency-target=<TFM>` to select one compatible group, or
+`dependency-target=all` to spell the default explicitly. The query scope
+`all` remains distinct from a manifest's `any` group and does not request
+traversal. `--take` bounds candidate work, while `-n` and `--rows` select final
+matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
+execution: direct package rows use an effective candidate bound of N, while
+filtered queries scan until N matches or their default candidate bound.
+Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
+are applied after bounded execution. Selecting a package-content term is
+itself approval for archive acquisition and permits at most 20 candidates; use
 `--nuspec-only` to reject such a query. `--count` observes selected rows and
 succeeds only when completion or a satisfied finite row selection proves that
 count exact. Reached candidate bounds and failures remain visible.
@@ -310,9 +316,10 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines on commands that
-  have not adopted semantic rows, like `head`.
-- `--tail` takes the same count from the end, like `tail`.
+- `-n N` and numeric shorthand like `-6` select semantic rows on commands
+  that declare them. Other commands reject `-n` alone.
+- Add `--lines` for the first N rendered lines or `--tail-lines` for the last
+  N. `--lines --tail` is equivalent to `--tail-lines`.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.
@@ -326,10 +333,11 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-`find`, `package query`, package `--versions` / `--versions-with-feed`, and
-`demo list` use semantic rows. `-n N` selects complete items. Package version
-listings and `demo list` also accept `-n N --lines` to clip rendered lines.
-`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
-`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range. On `package query`, `--take N` separately bounds package work
-before semantic row selection.
+`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`timeline`, `package query`, package activity, package `--versions` /
+`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
+complete items; `-n N --lines` instead clips rendered output. Where supported,
+`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
+stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
+`package query`, `--take N` separately bounds package work before semantic row
+selection.

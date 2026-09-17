@@ -435,7 +435,7 @@ public sealed record PrintedBodyMap
                 [
                     .. contributors[id]
                         .SelectMany(static node => node.Descendants.Prepend(node))
-                        .Select(static node => node.SourceOffset)
+                        .SelectMany(static node => node.ProvenanceOffsets)
                         .Where(static offset => offset >= 0)
                         .Distinct()
                         .Order()
