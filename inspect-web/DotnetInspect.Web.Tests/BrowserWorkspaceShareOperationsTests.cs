@@ -17,6 +17,11 @@ public sealed class BrowserWorkspaceShareOperationsTests
         "eyJmIjoxLCJ0IjpbWyJQIixudWxsLCJuZXQxMC4wIixudWxsXSxbIlEiLG51bGwsIm5l"
         + "dDEwLjAiLG51bGxdXSwiZyI6W1swXSxbMV1dLCJhIjoxLCJ4IjowfQ";
 
+    private const string RegistrationOnlyFormat3Vector =
+        "eyJmIjozLCJ0IjpbXSwiZyI6W10sInIiOltbInAiLCJNaWNyb3NvZnQuRXh0ZW5zaW"
+        + "9ucy4iXV0sImEiOm51bGwsIngiOm51bGwsInYiOlt7InQiOm51bGwsInUiOnsiayI6I"
+        + "ndvcmtzcGFjZSJ9fV19";
+
     [Fact]
     public void CanonicalPacket_RoundTripsThroughLongFormBrowserTransport()
     {
@@ -97,6 +102,20 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.Equal("UnsupportedFormat", result.Failure?.Kind);
         Assert.Equal("packet", result.Failure?.Path);
         Assert.Contains("format 2", result.Failure?.Message);
+    }
+
+    [Fact]
+    public void Format3Packet_RoundTripsThroughManagedBrowserBoundary()
+    {
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.Canonicalize(
+                RegistrationOnlyFormat3Vector);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
+        Assert.Equal(
+            RegistrationOnlyFormat3Vector,
+            result.Packet);
     }
 
     [Fact]
