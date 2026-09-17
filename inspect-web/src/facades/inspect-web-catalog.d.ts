@@ -315,6 +315,7 @@ export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLik
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function activateRetainedWorkspace(retainedDefinitionId: string, packet: string): Promise<BrowserRetainedWorkspaceActivationResultDto>;
 export declare function awaitRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResultDto>;
+export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;

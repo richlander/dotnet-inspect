@@ -88,6 +88,14 @@ public abstract record CompleteRestorationRecipe
             Definitions
             ?? throw new ArgumentNullException(nameof(Definitions));
     }
+
+    public sealed record Version3(CommittedScenarioDefinitionSet Definitions)
+        : CompleteRestorationRecipe
+    {
+        public CommittedScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+    }
 }
 
 /// <summary>
@@ -422,14 +430,17 @@ public static class CompleteRestorationPreparation
 
         if (NonCurrent(authority, request) is { } superseded)
             return superseded;
-        if (packet.FormatVersion != WorkspaceSharePacketCodec.CurrentFormatVersion)
+        if (packet.FormatVersion is not (
+            WorkspaceSharePacketCodec.Format2Version
+            or WorkspaceSharePacketCodec.CurrentFormatVersion))
         {
             return new CompleteRestorationPreparationResult.Failed(
                 authority.Identity,
                 request,
                 new CompleteRestorationFailure.UnsupportedVersion(
                     packet.FormatVersion,
-                    $"Complete Workspace restoration requires packet format "
+                    "Complete Workspace restoration requires packet format "
+                        + $"{WorkspaceSharePacketCodec.Format2Version} or "
                         + $"{WorkspaceSharePacketCodec.CurrentFormatVersion}; "
                         + $"format {packet.FormatVersion} is not supported."));
         }
@@ -440,10 +451,9 @@ public static class CompleteRestorationPreparation
                 WorkspaceSharePacketTransposer.ToCommittedDefinitions(
                     packet,
                     cancellationToken);
-            return PrepareVersion2(
-                definitions,
-                authority,
-                request);
+            return packet.FormatVersion == WorkspaceSharePacketCodec.Format2Version
+                ? PrepareVersion2(definitions, authority, request)
+                : PrepareVersion3(definitions, authority, request);
         }
         catch (OperationCanceledException)
         {
@@ -522,6 +532,8 @@ public static class CompleteRestorationPreparation
         {
             InspectionDefinitionScenarioPreparationResult.Version2 version2 =>
                 PrepareVersion2(version2.Definitions, authority, request),
+            InspectionDefinitionScenarioPreparationResult.Version3 version3 =>
+                PrepareVersion3(version3.Definitions, authority, request),
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 new CompleteRestorationPreparationResult.Failed(
                     authority.Identity,
@@ -529,7 +541,8 @@ public static class CompleteRestorationPreparation
                     new CompleteRestorationFailure.UnsupportedVersion(
                         InspectionDefinitionSchema.Version1,
                         "Complete Workspace restoration requires schema "
-                            + $"version {InspectionDefinitionSchema.Version2}; "
+                            + $"version {InspectionDefinitionSchema.Version2} "
+                            + $"or {InspectionDefinitionSchema.Version3}; "
                             + "schema version 1 is not supported.")),
             _ => throw new InvalidOperationException(
                 "Unknown definition preparation result."),
@@ -539,8 +552,30 @@ public static class CompleteRestorationPreparation
     private static CompleteRestorationPreparationResult PrepareVersion2(
         CommittedScenarioDefinitionSet definitions,
         ICompleteRestorationIntentAuthority authority,
-        CompleteRestorationRequestBasis request)
+        CompleteRestorationRequestBasis request) =>
+        PrepareCommitted(
+            definitions,
+            authority,
+            request,
+            new CompleteRestorationRecipe.Version2(definitions));
+
+    private static CompleteRestorationPreparationResult PrepareVersion3(
+        CommittedScenarioDefinitionSet definitions,
+        ICompleteRestorationIntentAuthority authority,
+        CompleteRestorationRequestBasis request) =>
+        PrepareCommitted(
+            definitions,
+            authority,
+            request,
+            new CompleteRestorationRecipe.Version3(definitions));
+
+    private static CompleteRestorationPreparationResult PrepareCommitted(
+        CommittedScenarioDefinitionSet definitions,
+        ICompleteRestorationIntentAuthority authority,
+        CompleteRestorationRequestBasis request,
+        CompleteRestorationRecipe recipe)
     {
+        ArgumentNullException.ThrowIfNull(recipe);
         if (definitions.Workspace is null)
             return FailedWorkspaceFree(authority.Identity, request);
 
@@ -559,7 +594,7 @@ public static class CompleteRestorationPreparation
                 authority.Identity,
                 request,
                 workspacePlan,
-                new CompleteRestorationRecipe.Version2(definitions),
+                recipe,
                 packageSources));
     }
 

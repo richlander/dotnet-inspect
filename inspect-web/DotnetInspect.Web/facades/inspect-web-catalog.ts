@@ -356,6 +356,7 @@ type $ManagedExports = {
           readonly "CatalogExports": {
             readonly "ActivateRetainedWorkspace.451505237": (retainedDefinitionId: string, packet: string) => Promise<string>;
             readonly "AwaitRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
+            readonly "CanonicalizeWorkspaceSharePacket.304094707": (encoded: string) => string;
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -433,6 +434,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "AwaitRetainedWorkspaceSettlement.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.AwaitRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "CanonicalizeWorkspaceSharePacket.304094707");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CanonicalizeWorkspaceSharePacket.304094707\u0027 is not callable.");
     }
   }
   {
@@ -554,6 +567,12 @@ export async function awaitRetainedWorkspaceSettlement(settlementId: string): Pr
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AwaitRetainedWorkspaceSettlement.976702342"](settlementId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceSettlementResultDto;
+}
+
+export function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanonicalizeWorkspaceSharePacket.304094707"](encoded);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspaceShareEncodeResult;
 }
 
 export function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult {

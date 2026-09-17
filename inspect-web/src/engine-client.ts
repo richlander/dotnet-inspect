@@ -84,6 +84,7 @@ type CallGraphOperations =
 type CatalogOperations =
   | "activateRetainedWorkspace"
   | "awaitRetainedWorkspaceSettlement"
+  | "canonicalizeWorkspaceSharePacket"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"

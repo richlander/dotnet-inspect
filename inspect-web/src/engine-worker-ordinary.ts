@@ -96,6 +96,7 @@ type CatalogOperationName =
   | "activateRetainedWorkspace"
   | "awaitRetainedWorkspaceSettlement"
   | "resolveHomeDemo"
+  | "canonicalizeWorkspaceSharePacket"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "runHomeDemo";
@@ -1135,6 +1136,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.awaitRetainedWorkspaceSettlement(...args),
     ),
+    canonicalizeWorkspaceSharePacket: valueOperation(
+      "ordinary-catalog-canonicalize-workspace-share-packet",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["canonicalizeWorkspaceSharePacket"]
+        >
+      ) => facades.catalog.canonicalizeWorkspaceSharePacket(...args),
+    ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
       1,
@@ -1399,6 +1410,10 @@ export function bindEngineWorkerOrdinaryClient(
       awaitRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .awaitRetainedWorkspaceSettlement,
+      ),
+      canonicalizeWorkspaceSharePacket: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .canonicalizeWorkspaceSharePacket,
       ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,
