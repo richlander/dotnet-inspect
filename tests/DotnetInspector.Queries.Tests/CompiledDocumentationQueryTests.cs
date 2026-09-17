@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using CSharpText;
 using DotnetInspector.DocumentationHouse;
@@ -17,6 +19,8 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompiledDocumentationQueryTests
 {
+    private const int MaximumAvailablePayloadBytes = 1_100;
+    private const int MaximumBoundedNonAvailablePayloadBytes = 1_024;
     private const string DeserializeIdentity =
         "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)";
     private static readonly ApiSurfaceExtractionBounds s_apiSurfaceBounds =
@@ -31,18 +35,97 @@ public sealed class CompiledDocumentationQueryTests
         new(() => File.ReadAllBytes(RealAsset("System.Text.Json.dll")));
 
     [Fact]
-    public void SnapshotContract_ContainsOnlyPortableValues()
+    public void PortableContract_IsDiscriminatedAndQueriesOwned()
     {
         var visited = new HashSet<Type>();
+        (Type Type, string Discriminator, string[] Properties)[] expectedCases =
+        [
+            (
+                typeof(CompiledDocumentationOutcome.Available),
+                "available",
+                [nameof(CompiledDocumentationOutcome.Available.Documentation),
+                    nameof(CompiledDocumentationOutcome.Available.Source),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.Absent),
+                "absent",
+                [nameof(CompiledDocumentationOutcome.Absent.Source),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.Unavailable),
+                "unavailable",
+                [nameof(CompiledDocumentationOutcome.Unavailable.Sources),
+                    nameof(CompiledDocumentationOutcome.Unavailable.SourcesTruncated),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.Ambiguous),
+                "ambiguous",
+                [nameof(CompiledDocumentationOutcome.Ambiguous.Candidates),
+                    nameof(CompiledDocumentationOutcome.Ambiguous.CandidatesTruncated),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.ContributionsRejected),
+                "contributionsRejected",
+                [nameof(CompiledDocumentationOutcome.ContributionsRejected.Rejections),
+                    nameof(CompiledDocumentationOutcome.ContributionsRejected.RejectionsTruncated),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.ContributionFailed),
+                "contributionFailed",
+                [nameof(CompiledDocumentationOutcome.ContributionFailed.Reason),
+                    nameof(CompiledDocumentationOutcome.ContributionFailed.Source),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.Incomplete),
+                "incomplete",
+                [nameof(CompiledDocumentationOutcome.Incomplete.Reason),
+                    nameof(CompiledDocumentationOutcome.Incomplete.Sources),
+                    nameof(CompiledDocumentationOutcome.Incomplete.SourcesTruncated),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.RequestRejected),
+                "requestRejected",
+                [nameof(CompiledDocumentationOutcome.RequestRejected.Reason),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+            (
+                typeof(CompiledDocumentationOutcome.RequestFailed),
+                "requestFailed",
+                [nameof(CompiledDocumentationOutcome.RequestFailed.Reason),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
+        ];
 
-        Visit(typeof(CompiledDocumentationQuerySnapshot));
+        JsonPolymorphicAttribute polymorphic =
+            Assert.Single(
+                typeof(CompiledDocumentationOutcome)
+                    .GetCustomAttributes<JsonPolymorphicAttribute>());
+        Assert.Equal("kind", polymorphic.TypeDiscriminatorPropertyName);
+        Dictionary<Type, object> derivedTypes =
+            typeof(CompiledDocumentationOutcome)
+                .GetCustomAttributes<JsonDerivedTypeAttribute>()
+                .ToDictionary(
+                    static attribute => attribute.DerivedType,
+                    static attribute => attribute.TypeDiscriminator!);
+        Assert.Equal(expectedCases.Length, derivedTypes.Count);
+
+        Visit(typeof(CompiledDocumentationOutcome));
+        foreach ((Type type, string discriminator, string[] properties)
+            in expectedCases)
+        {
+            Assert.Equal(discriminator, derivedTypes[type]);
+            Assert.Equal(
+                properties.Order(StringComparer.Ordinal),
+                type.GetProperties(
+                        BindingFlags.Public | BindingFlags.Instance)
+                    .Select(static property => property.Name)
+                    .Order(StringComparer.Ordinal));
+            Visit(type);
+        }
 
         void Visit(Type type)
         {
             if (!visited.Add(type)
                 || type == typeof(string)
-                || type.IsPrimitive
-                || type.IsEnum)
+                || type.IsPrimitive)
             {
                 return;
             }
@@ -60,12 +143,18 @@ public sealed class CompiledDocumentationQueryTests
             }
 
             Assert.Equal(
-                typeof(CompiledDocumentationQuerySnapshot).Namespace,
+                typeof(CompiledDocumentationOutcome).Namespace,
                 type.Namespace);
-            Assert.StartsWith(
-                "CompiledDocumentation",
-                type.Name,
-                StringComparison.Ordinal);
+            if (!type.IsNested)
+            {
+                Assert.StartsWith(
+                    "CompiledDocumentation",
+                    type.Name,
+                    StringComparison.Ordinal);
+            }
+            if (type.IsEnum)
+                return;
+
             foreach (PropertyInfo property in type.GetProperties(
                 BindingFlags.Public | BindingFlags.Instance))
             {
@@ -76,7 +165,7 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
-        RealSystemTextJsonMember_PublishesOwnedSerializableSnapshot()
+        RealSystemTextJsonMember_PublishesLeanAvailableOutcome()
     {
         byte[] xml = await File.ReadAllBytesAsync(
             RealAsset("System.Text.Json.xml"),
@@ -117,79 +206,82 @@ public sealed class CompiledDocumentationQueryTests
         Assert.Null(
             CompiledDocumentationQueryJsonContext.Default.GetTypeInfo(
                 typeof(CompiledDocumentationQueryResult)));
-        string json = JsonSerializer.Serialize(
-            result.Snapshot,
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            result.Content,
             CompiledDocumentationQueryJsonContext
                 .Default
-                .CompiledDocumentationQuerySnapshot);
-        CompiledDocumentationQuerySnapshot copy =
+                .CompiledDocumentationOutcome);
+        CompiledDocumentationOutcome copy =
             JsonSerializer.Deserialize(
-                json,
+                payload,
                 CompiledDocumentationQueryJsonContext
                     .Default
-                    .CompiledDocumentationQuerySnapshot)!;
+                    .CompiledDocumentationOutcome)!;
         Assert.Equal(
-            json,
-            JsonSerializer.Serialize(
+            payload,
+            JsonSerializer.SerializeToUtf8Bytes(
                 copy,
                 CompiledDocumentationQueryJsonContext
                     .Default
-                    .CompiledDocumentationQuerySnapshot));
+                    .CompiledDocumentationOutcome));
 
-        CompiledDocumentationQuerySnapshot snapshot = result.Snapshot;
-        Assert.Equal(
-            CompiledDocumentationQueryOutcomeKind.Completed,
-            snapshot.Outcome);
-        Assert.Equal(
-            DocumentationCompiledXmlAttemptKind.Available,
-            snapshot.CompiledXml!.Kind);
+        CompiledDocumentationOutcome.Available available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                result.Content);
         Assert.Contains(
             "Converts the JsonDocument",
-            snapshot.CompiledXml.Documentation!.Summary,
+            available.Documentation.Summary,
             StringComparison.Ordinal);
         Assert.Equal(
             DeserializeIdentity,
-            snapshot.Subject.CompiledXmlIdentity);
+            available.Subject.DocumentationId);
         Assert.Equal(
             "System.Text.Json",
-            snapshot.Subject.Assembly.Name);
-        Assert.Equal(
-            "System.Text.Json",
-            snapshot.Subject.Type.Namespace);
-        Assert.Equal(
-            ["JsonSerializer"],
-            snapshot.Subject.Type.Segments);
-        Assert.NotNull(snapshot.Subject.Member);
+            available.Subject.Assembly.Name);
         Assert.Equal(
             "direct-library:System.Text.Json",
-            snapshot.CompiledXml.Selected!.Source);
-        Assert.True(snapshot.Work.ParsedCompiledXml);
-        Assert.Equal(
-            DocumentationLibraryLeaseConsumer.DocumentationHouse,
-            snapshot.LeaseConsumer);
+            available.Source.Name);
 
-        using JsonDocument document = JsonDocument.Parse(json);
-        Assert.Equal(
-            "Available",
-            document.RootElement
-                .GetProperty("compiledXml")
-                .GetProperty("kind")
-                .GetString());
-        Assert.False(
-            json.Contains(
-                "LibraryReference",
-                StringComparison.Ordinal));
-        Assert.False(
-            json.Contains(
-                "ArtifactContentReference",
-                StringComparison.Ordinal));
+        Assert.True(
+            payload.Length <= MaximumAvailablePayloadBytes,
+            $"Available payload was {payload.Length} UTF-8 bytes.");
+        using JsonDocument document = JsonDocument.Parse(payload);
+        JsonElement root = document.RootElement;
+        Assert.Equal("available", root.GetProperty("kind").GetString());
+        AssertPropertyNames(
+            root,
+            "kind",
+            "subject",
+            "source",
+            "documentation");
+        AssertPropertyNames(
+            root.GetProperty("subject"),
+            "assembly",
+            "documentationId");
+        AssertPropertyNames(
+            root.GetProperty("source"),
+            "kind",
+            "name");
+        Assert.DoesNotContain(
+            "request",
+            root.EnumerateObject()
+                .Select(static property => property.Name));
+        Assert.DoesNotContain(
+            "work",
+            root.EnumerateObject()
+                .Select(static property => property.Name));
+        Assert.DoesNotContain(
+            "leaseConsumer",
+            root.EnumerateObject()
+                .Select(static property => property.Name));
     }
 
     [Fact]
     public async Task
-        DeadlineAfterContributionObservation_PreservesProvenance()
+        DeadlineAfterMillionsOfObservations_PublishesBoundedProvenance()
     {
         const int contributionCount = 4_000_000;
+        const int distinctSourceCount = 9;
         byte[] xml = await File.ReadAllBytesAsync(
             RealAsset("System.Text.Json.xml"),
             TestContext.Current.CancellationToken);
@@ -202,8 +294,25 @@ public sealed class CompiledDocumentationQueryTests
                     .CreateCompiledXmlContributions(
                         library.Reference,
                         subject));
-        CompiledXmlContribution[] contributions =
-            Enumerable.Repeat(contribution, contributionCount).ToArray();
+        CompiledXmlContribution[] distinct =
+            Enumerable.Range(0, distinctSourceCount)
+                .Select(
+                    index =>
+                        CompiledXmlContribution.Candidate(
+                            subject,
+                            contribution.Library,
+                            contribution.ApiContent,
+                            DocumentationSourceReference.Create(
+                                DocumentationSourceKind.DirectLibrary,
+                                $"deadline-source-{index}"),
+                            contribution.CompiledXmlContent!,
+                            contribution.Precedence))
+                .ToArray();
+        var contributions =
+            new CompiledXmlContribution[contributionCount];
+        for (int index = 0; index < contributions.Length; index++)
+            contributions[index] = distinct[index % distinct.Length];
+
         DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(1);
         DocumentationHouseRequest request = Request(
             subject,
@@ -225,41 +334,57 @@ public sealed class CompiledDocumentationQueryTests
 
         Assert.IsType<DocumentationHouseOutcome.Incomplete>(
             result.Outcome);
+        CompiledDocumentationOutcome.Incomplete incomplete =
+            Assert.IsType<CompiledDocumentationOutcome.Incomplete>(
+                result.Content);
         Assert.Equal(
-            CompiledDocumentationQueryOutcomeKind.Incomplete,
-            result.Snapshot.Outcome);
+            CompiledDocumentationIncompleteReason.Deadline,
+            incomplete.Reason);
+        Assert.Equal(8, incomplete.Sources.Length);
+        Assert.True(incomplete.SourcesTruncated);
         Assert.Equal(
-            DocumentationIncompleteBoundary.Deadline,
-            result.Snapshot.IncompleteBoundary);
-        Assert.Null(result.Snapshot.CompiledXml);
+            "deadline-source-0",
+            incomplete.Sources[0].Source.Name);
         Assert.Equal(
-            contributionCount,
-            result.Snapshot.Work.ContributionsObserved);
+            CompiledDocumentationSourceEvidenceKind.Candidate,
+            incomplete.Sources[0].Kind);
 
         await library.RetireAsync();
-        string json = JsonSerializer.Serialize(
-            result.Snapshot,
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            result.Content,
             CompiledDocumentationQueryJsonContext
                 .Default
-                .CompiledDocumentationQuerySnapshot);
-        CompiledDocumentationQuerySnapshot copy =
+                .CompiledDocumentationOutcome);
+        CompiledDocumentationOutcome copy =
             JsonSerializer.Deserialize(
-                json,
+                payload,
                 CompiledDocumentationQueryJsonContext
                     .Default
-                    .CompiledDocumentationQuerySnapshot)!;
-        CompiledDocumentationContributionSnapshot observed =
-            Assert.Single(
-                copy.ObservedCompiledXmlContributions);
-        Assert.Equal(contribution.Kind, observed.Kind);
-        Assert.Equal(contribution.Source.Kind, observed.SourceKind);
-        Assert.Equal(contribution.Source.Name, observed.Source);
-        Assert.Equal(contribution.Precedence, observed.Precedence);
+                    .CompiledDocumentationOutcome)!;
+        CompiledDocumentationOutcome.Incomplete copied =
+            Assert.IsType<CompiledDocumentationOutcome.Incomplete>(copy);
+        Assert.Equal(8, copied.Sources.Length);
+        Assert.True(copied.SourcesTruncated);
+        Assert.True(
+            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
+            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
+
+        using JsonDocument document = JsonDocument.Parse(payload);
+        AssertPropertyNames(
+            document.RootElement,
+            "kind",
+            "subject",
+            "reason",
+            "sources",
+            "sourcesTruncated");
+        Assert.Equal(
+            "incomplete",
+            document.RootElement.GetProperty("kind").GetString());
     }
 
     [Fact]
     public async Task
-        UnavailableAndRejectedAttemptsRemainVisibleInSnapshot()
+        UnavailableAndRejectedContributionsHaveDistinctWireCases()
     {
         await using LibraryFixture selected =
             await LibraryFixture.CreateAsync();
@@ -276,17 +401,16 @@ public sealed class CompiledDocumentationQueryTests
                 selected.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(
-            DocumentationCompiledXmlAttemptKind.Unavailable,
-            unavailable.Snapshot.CompiledXml!.Kind);
-        Assert.Null(
-            unavailable.Snapshot.CompiledXml.Documentation);
-        CompiledDocumentationContributionSnapshot unavailableContribution =
+        CompiledDocumentationOutcome.Unavailable unavailableContent =
+            Assert.IsType<CompiledDocumentationOutcome.Unavailable>(
+                unavailable.Content);
+        CompiledDocumentationSourceEvidence unavailableSource =
             Assert.Single(
-                unavailable.Snapshot.CompiledXml.Contributions);
+                unavailableContent.Sources);
         Assert.Equal(
-            CompiledXmlContributionKind.Unavailable,
-            unavailableContribution.Kind);
+            CompiledDocumentationSourceEvidenceKind.Unavailable,
+            unavailableSource.Kind);
+        Assert.False(unavailableContent.SourcesTruncated);
 
         await using LibraryFixture foreign =
             await LibraryFixture.CreateAsync(
@@ -307,23 +431,110 @@ public sealed class CompiledDocumentationQueryTests
                 selected.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
-        Assert.Equal(
-            DocumentationCompiledXmlAttemptKind.Rejected,
-            rejected.Snapshot.CompiledXml!.Kind);
-        CompiledDocumentationRejectionSnapshot rejection =
+        CompiledDocumentationOutcome.ContributionsRejected rejectedContent =
+            Assert.IsType<
+                CompiledDocumentationOutcome.ContributionsRejected>(
+                    rejected.Content);
+        CompiledDocumentationSourceRejection rejection =
             Assert.Single(
-                rejected.Snapshot.CompiledXml.Rejections);
+                rejectedContent.Rejections);
         Assert.Equal(
-            DocumentationCompiledXmlRejectionKind.SubjectMismatch,
-            rejection.Kind);
+            CompiledDocumentationSourceRejectionKind.SubjectMismatch,
+            rejection.Reason);
         Assert.Equal(
             "direct-library:System.Text.Json",
-            rejection.Contribution.Source);
-        Assert.False(rejected.Snapshot.Work.ParsedCompiledXml);
+            rejection.Source.Name);
+        Assert.False(rejectedContent.RejectionsTruncated);
+
+        using JsonDocument unavailableJson =
+            JsonDocument.Parse(Serialize(unavailable.Content));
+        AssertPropertyNames(
+            unavailableJson.RootElement,
+            "kind",
+            "subject",
+            "sources");
+        using JsonDocument rejectedJson =
+            JsonDocument.Parse(Serialize(rejected.Content));
+        AssertPropertyNames(
+            rejectedJson.RootElement,
+            "kind",
+            "subject",
+            "rejections");
     }
 
     [Fact]
-    public async Task ForeignLease_PublishesTopLevelRejectionSnapshot()
+    public async Task AbsentAndMalformedContentHaveDistinctWireCases()
+    {
+        byte[] absentXml = Encoding.UTF8.GetBytes(
+            """
+            <doc><members>
+              <member name="T:System.Text.Json.JsonSerializer">
+                <summary>type documentation</summary>
+              </member>
+            </members></doc>
+            """);
+        await using LibraryFixture absentLibrary =
+            await LibraryFixture.CreateAsync(absentXml);
+        DocumentationSubjectReference absentSubject =
+            Subject(absentLibrary);
+        CompiledDocumentationQueryResult absent =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(
+                    absentSubject,
+                    DirectLibraryDocumentationHouseAdapter
+                        .CreateCompiledXmlContributions(
+                            absentLibrary.Reference,
+                            absentSubject)),
+                absentLibrary.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        CompiledDocumentationOutcome.Absent absentContent =
+            Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                absent.Content);
+        Assert.NotNull(absentContent.Source);
+        using JsonDocument absentJson =
+            JsonDocument.Parse(Serialize(absent.Content));
+        AssertPropertyNames(
+            absentJson.RootElement,
+            "kind",
+            "subject",
+            "source");
+
+        await using LibraryFixture malformedLibrary =
+            await LibraryFixture.CreateAsync(
+                Encoding.UTF8.GetBytes("<doc><members>"));
+        DocumentationSubjectReference malformedSubject =
+            Subject(malformedLibrary);
+        CompiledDocumentationQueryResult malformed =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(
+                    malformedSubject,
+                    DirectLibraryDocumentationHouseAdapter
+                        .CreateCompiledXmlContributions(
+                            malformedLibrary.Reference,
+                            malformedSubject)),
+                malformedLibrary.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        CompiledDocumentationOutcome.ContributionFailed failed =
+            Assert.IsType<
+                CompiledDocumentationOutcome.ContributionFailed>(
+                    malformed.Content);
+        Assert.Equal(
+            CompiledDocumentationFailureKind.MalformedOrUnreadableDocument,
+            failed.Reason);
+        using JsonDocument failedJson =
+            JsonDocument.Parse(Serialize(malformed.Content));
+        AssertPropertyNames(
+            failedJson.RootElement,
+            "kind",
+            "subject",
+            "source",
+            "reason");
+    }
+
+    [Fact]
+    public async Task ForeignLease_PublishesRequestRejectedWireCase()
     {
         await using LibraryFixture selected =
             await LibraryFixture.CreateAsync();
@@ -339,14 +550,37 @@ public sealed class CompiledDocumentationQueryTests
 
         Assert.IsType<DocumentationHouseOutcome.Rejected>(
             result.Outcome);
+        CompiledDocumentationOutcome.RequestRejected rejected =
+            Assert.IsType<
+                CompiledDocumentationOutcome.RequestRejected>(
+                    result.Content);
         Assert.Equal(
-            CompiledDocumentationQueryOutcomeKind.Rejected,
-            result.Snapshot.Outcome);
-        Assert.Equal(
-            DocumentationHouseRejectionKind.LeaseReferenceMismatch,
-            result.Snapshot.Rejection);
-        Assert.Null(result.Snapshot.CompiledXml);
+            CompiledDocumentationRequestRejectionKind.LeaseReferenceMismatch,
+            rejected.Reason);
+        using JsonDocument document =
+            JsonDocument.Parse(Serialize(result.Content));
+        AssertPropertyNames(
+            document.RootElement,
+            "kind",
+            "subject",
+            "reason");
     }
+
+    private static byte[] Serialize(CompiledDocumentationOutcome content) =>
+        JsonSerializer.SerializeToUtf8Bytes(
+            content,
+            CompiledDocumentationQueryJsonContext
+                .Default
+                .CompiledDocumentationOutcome);
+
+    private static void AssertPropertyNames(
+        JsonElement value,
+        params string[] expected) =>
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            value.EnumerateObject()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
 
     private static DocumentationHouseRequest Request(
         DocumentationSubjectReference subject,
