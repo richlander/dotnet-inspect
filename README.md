@@ -370,6 +370,7 @@ dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
