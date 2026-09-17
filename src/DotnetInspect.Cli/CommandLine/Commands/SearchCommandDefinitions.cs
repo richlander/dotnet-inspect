@@ -1010,13 +1010,13 @@ public static class SearchCommandDefinitions
         Option<string[]> libraryOption,
         Option<string[]> projectOption)
     {
-        var aliases = new Dictionary<string, DependsAssetRootKind>(
+        var aliases = new Dictionary<string, DependencyInspectionRootKind>(
             StringComparer.Ordinal)
         {
-            [packageOption.Name] = DependsAssetRootKind.Package,
-            [nuspecOption.Name] = DependsAssetRootKind.Nuspec,
-            [libraryOption.Name] = DependsAssetRootKind.Library,
-            [projectOption.Name] = DependsAssetRootKind.Project,
+            [packageOption.Name] = DependencyInspectionRootKind.Package,
+            [nuspecOption.Name] = DependencyInspectionRootKind.Nuspec,
+            [libraryOption.Name] = DependencyInspectionRootKind.Library,
+            [projectOption.Name] = DependencyInspectionRootKind.Project,
         };
         var roots = new List<DependsAssetRoot>();
         for (int index = 0; index < parseResult.Tokens.Count; index++)
@@ -1025,7 +1025,7 @@ public static class SearchCommandDefinitions
             if (token.Type != TokenType.Option
                 || !aliases.TryGetValue(
                     token.Value,
-                    out DependsAssetRootKind kind))
+                    out DependencyInspectionRootKind kind))
             {
                 continue;
             }

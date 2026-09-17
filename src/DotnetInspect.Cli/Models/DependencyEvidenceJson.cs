@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 
@@ -56,10 +57,10 @@ public sealed record DependencyEvidenceGroupJson
     public required string OrderKey { get; init; }
 
     public required List<DependencyEvidenceGroupOccurrenceJson> Occurrences
-        { get; init; }
+    { get; init; }
 
     public required PackageDependencyFrameworkScopeKind FrameworkScope
-        { get; init; }
+    { get; init; }
 
     public string? CanonicalFramework { get; init; }
 
@@ -164,7 +165,7 @@ public sealed record DependencyEvidenceRestoredPackageJson
     public InertString? RootDisplay { get; init; }
 
     public required DependencyEvidencePackageNodeIdentityJson Identity
-        { get; init; }
+    { get; init; }
 
     public required string PackageId { get; init; }
 

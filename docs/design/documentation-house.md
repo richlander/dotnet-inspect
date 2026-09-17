@@ -453,6 +453,23 @@ first operation lease while obtaining
 `LibraryApiSurfaceCorrespondence`, then issues a distinct second operation
 lease and transfers it to `DocumentationHouse.ExecuteAsync`.
 
+The direct-Library adapter is implemented in the separately compiled
+`DotnetInspector.DocumentationHouse.Direct` project. It accepts one exact
+direct Artifact-backed `LibraryReference` and the caller's documentation
+subject, then emits one candidate for every compiled-XML content reference
+associated with that Library's exact API assembly. It does not invent
+precedence when the direct Library contains several companions, so
+DocumentationHouse retains its ordinary ambiguity behavior.
+
+A direct Library with no admitted XML companion produces unavailable evidence,
+not authoritative absence. Unlike PackageHouse's completed materialization
+receipt, a bare direct Library does not prove that its producer exhaustively
+searched an external source for companions. The adapter rejects a
+source-coordinated Library rather than relabeling package, platform, project,
+or local-source evidence as direct-Library evidence. It retains no
+`LibraryContentOwner`, `ArtifactSetSession`, or `LibraryOperationLease` and
+does not invoke LibraryMetadata or DocumentationHouse.
+
 ## Authored-source documentation contribution
 
 Authored-source documentation starts with one exact implementation target and
@@ -810,7 +827,7 @@ assembly and XML companion in the .NET 11 reference pack.
 3. **Completed.** Implement compiled-XML attempt and receipt settlement over
    CSharpText;
 4. **Completed.** Add the PackageHouse adapter;
-5. add the direct-library adapter;
+5. **Completed.** Add the direct-library adapter;
 6. add the shared Queries compiled-documentation result;
 7. adopt package compiled documentation in Inspect Web;
 8. adopt package and direct-library compiled documentation in the CLI;
@@ -886,6 +903,13 @@ separate LibraryMetadata and DocumentationHouse operation leases, exact
 candidate settlement, authoritative missing-companion absence, detached
 documentation, owner retirement, and rejection when byte-identical content
 from another PackageHouse materialization is offered for the selected subject.
+
+`CompiledXmlDocumentationHouseTests` also gates the direct-Library adapter over
+a real direct Artifact-backed `System.Text.Json` 10.0.0 Library. It demonstrates
+exact candidate settlement, unavailable evidence when no XML companion was
+admitted, preservation of multiple companions without invented precedence,
+rejection of source-coordinated Libraries, and rejection when byte-identical
+content from another direct Library is offered for the selected subject.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

@@ -753,7 +753,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public async Task ReturnToSenderSourceProbe_ProjectsOpcodeDiffEvidence()
+    public async Task ReturnToSenderSourceProbe_DeclinesNotFullDynamicBodyBeforeSourceComparison()
     {
         var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
@@ -761,24 +761,17 @@ public class ReturnToSenderFixtureCatalogTests
                 new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
             ]));
 
-        Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
-        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
-        Assert.Equal("valid_different.compiler_lowering.dynamic_callsite.opcode_diff", result.Reason);
-        Assert.False(string.IsNullOrWhiteSpace(result.OriginalOpcodes));
-        Assert.False(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
-        Assert.NotEmpty(result.IlDiffLines ?? []);
-        Assert.Contains(result.IlDiffLines!, line => line.StartsWith("h", StringComparison.Ordinal));
-
-        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
-        Assert.Equal("source.correspondence.valid_different.compiler_lowering.dynamic_callsite.opcode_diff", finding.DescriptorId);
-        Assert.Equal("not-yet-raised-sugar", finding.Category);
-        Assert.StartsWith("DynamicAdd~", finding.SubjectId, StringComparison.Ordinal);
-        Assert.Equal("LadderRung9.cs", finding.SourceFile);
-        Assert.True(finding.HasFidelityDiffEvidence);
+        Assert.Equal(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+        Assert.Equal(FidelityCheck.CompileBackStatus.NotFull, result.CompileBackStatus);
+        Assert.Equal("NotFull", result.Reason);
+        Assert.True(string.IsNullOrWhiteSpace(result.OriginalOpcodes));
+        Assert.True(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
+        Assert.Empty(result.IlDiffLines ?? []);
+        Assert.Empty(ReturnToSenderSourceProbe.BuildFindings([result]));
     }
 
     [Fact]
-    public async Task ReturnToSenderSourceProbe_ClassifiesDynamicCallSiteOpcodeDiffs()
+    public async Task ReturnToSenderSourceProbe_DeclinesNotFullDynamicCallSites()
     {
         var results = await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
@@ -789,11 +782,11 @@ public class ReturnToSenderFixtureCatalogTests
 
         Assert.All(results, result =>
         {
-            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
-            Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
-            Assert.Equal("valid_different.compiler_lowering.dynamic_callsite.opcode_diff", result.Reason);
-            Assert.Contains("compiler_lowering.dynamic_callsite", result.Detail);
+            Assert.Equal(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+            Assert.Equal(FidelityCheck.CompileBackStatus.NotFull, result.CompileBackStatus);
+            Assert.Equal("NotFull", result.Reason);
         });
+        Assert.Empty(ReturnToSenderSourceProbe.BuildFindings(results));
     }
 
     [Fact]

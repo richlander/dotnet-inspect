@@ -60,12 +60,10 @@ static class AuthoredCorpusRatchet
         /// rows — while keeping the row count and the pool left the key intact, so a
         /// wholly different measurement compared clean.</para>
         ///
-        /// <para>Methodology deliberately is <em>not</em> part of this key. The
-        /// invalid-attribution lineage governs <c>productBodyDefect</c>, while
-        /// valid/correct/raw invalid remain comparable. Folding the global stamp into
-        /// the run key discarded those independent metrics at every version bump.
-        /// Attribution lineage is therefore applied per metric in
-        /// <see cref="Build"/>.</para>
+        /// <para>Methodology deliberately is <em>not</em> part of this key. Source
+        /// outcome and invalid-attribution lineages govern their own metrics. Folding
+        /// the global stamp into the run key discarded unaffected metrics at every
+        /// version bump, so lineage is applied per metric in <see cref="Build"/>.</para>
         /// </summary>
         public bool IsComparableTo(RunKey other, out string mismatch)
         {
@@ -108,8 +106,8 @@ static class AuthoredCorpusRatchet
     ///
     /// <para><see cref="ProductBodyDefect"/> is nullable because rows predating the
     /// invalid attribution did not record it; absent means <em>not measured</em>,
-    /// never zero. <see cref="Methodology"/> identifies the lineage that defines the
-    /// number.</para>
+    /// never zero. <see cref="Methodology"/> identifies the source-outcome and
+    /// invalid-attribution lineages that define the metrics.</para>
     /// </summary>
     internal sealed record RunMetrics(
         int? Valid,
@@ -132,6 +130,9 @@ static class AuthoredCorpusRatchet
 
         public int? InvalidAttributionLineage
             => AuthoredCorpusMethodology.InvalidAttributionLineage(Methodology);
+
+        public int? SourceOutcomeLineage
+            => AuthoredCorpusMethodology.SourceOutcomeLineage(Methodology);
     }
 
     /// <summary>
@@ -394,6 +395,7 @@ static class AuthoredCorpusRatchet
         }
 
         HistoryRun? baseline = null;
+        IReadOnlyList<Metric>? baselineMetrics = null;
         string? newestMismatch = null;
         for (int index = baselines.Count - 1; index >= 0; index--)
         {
@@ -416,7 +418,16 @@ static class AuthoredCorpusRatchet
                 continue;
             }
 
+            IReadOnlyList<Metric> metrics = Build(RunMetrics.From(candidate), current);
+            if (metrics.Count == 0)
+            {
+                newestMismatch ??=
+                    $"{candidate.Date ?? "(undated)"}: no ratcheted metric shares a methodology lineage";
+                continue;
+            }
+
             baseline = candidate;
+            baselineMetrics = metrics;
             break;
         }
 
@@ -427,7 +438,7 @@ static class AuthoredCorpusRatchet
                 : $"no comparable baseline row (newest candidate {newestMismatch})");
         }
 
-        return new Comparison(baseline, Build(RunMetrics.From(baseline), current), SkipReason: null);
+        return new Comparison(baseline, baselineMetrics!, SkipReason: null);
     }
 
     /// <summary>
@@ -519,15 +530,15 @@ static class AuthoredCorpusRatchet
 
     static IReadOnlyList<Metric> Build(RunMetrics baseline, RunMetrics current)
     {
-        var metrics = new List<Metric>
+        var metrics = new List<Metric>();
+        if (baseline.SourceOutcomeLineage == current.SourceOutcomeLineage)
         {
-            new("correct", baseline.Correct, current.Correct, HigherIsBetter: true),
-            new("invalid", baseline.Invalid, current.Invalid, HigherIsBetter: false),
-        };
+            if (baseline.Valid is { } baselineValid && current.Valid is { } currentValid)
+                metrics.Add(new("valid", baselineValid, currentValid, HigherIsBetter: true));
 
-        // Exact counts, so a sub-0.05pp loss cannot hide behind a rounded percentage.
-        if (baseline.Valid is { } baselineValid && current.Valid is { } currentValid)
-            metrics.Insert(0, new("valid", baselineValid, currentValid, HigherIsBetter: true));
+            metrics.Add(new("correct", baseline.Correct, current.Correct, HigherIsBetter: true));
+            metrics.Add(new("invalid", baseline.Invalid, current.Invalid, HigherIsBetter: false));
+        }
 
         // Product-defect counts are lower bounds and ratchet only when both sides
         // measured that specific metric under the same explicit attribution lineage.
