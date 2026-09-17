@@ -580,6 +580,13 @@ public class ApiSignature
     public string? CanonicalReturnType { get; set; }
 
     /// <summary>
+    /// Whether this MethodDef signature header has an exact C# declaration
+    /// representation. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodDeclarationHeaderIsRepresentable { get; set; }
+
+    /// <summary>
     /// Opaque structural return-type identity for call-graph selectors. Null on
     /// older serialized surfaces and members whose normalized display spelling
     /// already supplies the complete selector identity.

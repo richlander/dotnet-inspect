@@ -332,6 +332,63 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsVarargMethodsBeforeSampling()
+    {
+        string assemblyPath = CompileFixture("""
+            public static class VarargMethodFixture
+            {
+                public static int Good() => 1;
+                public static int Pick(__arglist) => 2;
+            }
+            """);
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+
+            Assert.Equal("Good", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsMalformedExplicitFinalizerBeforeSampling()
+    {
+        string assemblyPath = CreateExplicitFinalizerFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(
+                selected,
+                target =>
+                    target.Type == "ValidFinalizerFixture"
+                    && target.Method == "Finalize");
+            Assert.Contains(
+                selected,
+                target =>
+                    target.Type == "FinalizerNeighborFixture"
+                    && target.Method == "Good");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MalformedFinalizerFixture"
+                    && target.Method == "Finalize");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnavailableCanonicalSignaturesBeforeSampling()
     {
         string assemblyPath = CreateUnavailableCanonicalSignatureFixture();
@@ -3232,6 +3289,161 @@ public class FidelityCheckGeneratedFilterTests
 
         fixtureType.CreateType();
         assembly.Save(path);
+        return path;
+    }
+
+    static string CreateExplicitFinalizerFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "ExplicitFinalizers.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "ExplicitFinalizers.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ExplicitFinalizers"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle coreLib =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x20, 0x00, 0x01 });
+        MemberReferenceHandle objectFinalize =
+            metadata.AddMemberReference(
+                objectRef,
+                metadata.GetOrAddString("Finalize"),
+                instanceVoidSignature);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle validType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("ValidFinalizerFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle malformedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("MalformedFinalizerFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("FinalizerNeighborFixture"),
+            objectRef,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(3));
+
+        var methodBodies = new BlobBuilder();
+        var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int AddVoidBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(
+                instructions,
+                new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ret);
+            return methodBodyEncoder.AddMethodBody(
+                encoder,
+                maxStack: 0);
+        }
+
+        int AddIntBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(
+                instructions,
+                new ControlFlowBuilder());
+            encoder.LoadConstantI4(1);
+            encoder.OpCode(ILOpCode.Ret);
+            return methodBodyEncoder.AddMethodBody(
+                encoder,
+                maxStack: 1);
+        }
+
+        const MethodAttributes finalizerAttributes =
+            MethodAttributes.Family
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig;
+        MethodDefinitionHandle validFinalizer =
+            metadata.AddMethodDefinition(
+                finalizerAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Finalize"),
+                instanceVoidSignature,
+                AddVoidBody(),
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle malformedFinalizer =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Finalize"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }),
+                AddVoidBody(),
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Good"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x08 }),
+            AddIntBody(),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            validType,
+            validFinalizer,
+            objectFinalize);
+        metadata.AddMethodImplementation(
+            malformedType,
+            malformedFinalizer,
+            objectFinalize);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
         return path;
     }
 

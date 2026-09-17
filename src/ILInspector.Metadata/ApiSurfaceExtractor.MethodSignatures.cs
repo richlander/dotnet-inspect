@@ -273,6 +273,17 @@ public static partial class ApiSurfaceExtractor
             XmlDocumentationIsVararg =
                 treeSignature.Header.CallingConvention
                     == SignatureCallingConvention.VarArgs,
+            MethodDeclarationHeaderIsRepresentable =
+                treeSignature.Header.Kind == SignatureKind.Method
+                && treeSignature.Header.CallingConvention
+                    == SignatureCallingConvention.Default
+                && !treeSignature.Header.HasExplicitThis
+                && treeSignature.Header.IsInstance
+                    == ((method.Attributes & MethodAttributes.Static) == 0)
+                && treeSignature.Header.IsGeneric
+                    == (methodTypeParameters.Count > 0)
+                && treeSignature.GenericParameterCount
+                    == methodTypeParameters.Count,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload

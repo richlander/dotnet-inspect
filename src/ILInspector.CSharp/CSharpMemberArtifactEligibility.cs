@@ -22,6 +22,8 @@ public static class CSharpMemberArtifactEligibility
             || !IsMemberNameRepresentable(member)
             || !IsMemberAccessibilityRepresentable(member)
             || member.SignatureModel is not { } signature
+            || !IsMethodDeclarationHeaderRepresentable(member, signature)
+            || !IsFinalizerDeclarationRepresentable(member, signature)
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
             || !IsPropertyDeclarationRepresentable(member, signature)
@@ -103,6 +105,40 @@ public static class CSharpMemberArtifactEligibility
             && !member.IsStatic
             && member.GenericArity == 0
             && signature.TypeParameters.Count == 0
+            && IsVoid(signature.ReturnTypeShape);
+    }
+
+    static bool IsMethodDeclarationHeaderRepresentable(
+        ApiMember member,
+        ApiSignature signature) =>
+        member.Kind is not
+            ("method"
+                or "extension-method"
+                or "constructor"
+                or "operator"
+                or "finalizer"
+                or "explicit-interface-implementation")
+        || signature.MethodDeclarationHeaderIsRepresentable == true;
+
+    static bool IsFinalizerDeclarationRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+    {
+        if (member.Kind != "finalizer" && !member.IsFinalizer)
+            return true;
+
+        return member.Kind == "finalizer"
+            && member.IsFinalizer
+            && member.Name == "Finalize"
+            && member.Accessibility == "protected"
+            && !member.IsStatic
+            && member.IsVirtual
+            && member.IsOverride
+            && !member.IsAbstract
+            && !member.IsSealed
+            && member.GenericArity == 0
+            && signature.TypeParameters.Count == 0
+            && signature.Parameters.Count == 0
             && IsVoid(signature.ReturnTypeShape);
     }
 

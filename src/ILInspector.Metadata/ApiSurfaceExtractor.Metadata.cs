@@ -655,13 +655,11 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// The set of methods on <paramref name="typeDef"/> whose explicit
-    /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
-    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
-    /// declaration (not the method's own name/slot/signature) is what lets the
-    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
-    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
-    /// interface implementation.
+    /// The set of destructor-shaped methods on <paramref name="typeDef"/> whose
+    /// explicit <c>.override</c> MethodImpl targets
+    /// <c>System.Object::Finalize</c>. Both the declaration identity and the
+    /// MethodDef body shape must match before the C# writer may spell
+    /// <c>~Type()</c>.
     /// </summary>
     private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
         MetadataReader reader,
@@ -674,11 +672,19 @@ public static partial class ApiSurfaceExtractor
             var implementation = reader.GetMethodImplementation(implementationHandle);
             if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
                 continue;
+            var bodyHandle =
+                (MethodDefinitionHandle)implementation.MethodBody;
             if (ReferencesObjectFinalize(
                     reader,
                     implementation.MethodDeclaration,
+                    beforeDecodeWork)
+                && IsFinalizerDeclarationShape(
+                    reader,
+                    reader.GetMethodDefinition(bodyHandle),
                     beforeDecodeWork))
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+            {
+                handles.Add(bodyHandle);
+            }
         }
 
         return handles;
@@ -701,16 +707,13 @@ public static partial class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork = null)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(
-                DecodeString(
-                    reader,
-                    method.Name,
-                    beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!IsFinalizerDeclarationShape(
+                reader,
+                method,
+                beforeDecodeWork))
+        {
             return false;
-        if (method.GetGenericParameters().Count != 0)
-            return false;
+        }
 
         var typeHandle = method.GetDeclaringType();
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -742,6 +745,40 @@ public static partial class ApiSurfaceExtractor
     private const int MaxBaseChainDepth = 256;
 
     /// <summary>
+    /// True when a MethodDef has the exact declaration shape emitted for a C#
+    /// destructor or VB finalizer: protected, virtual, reuse-slot, non-final,
+    /// non-abstract, non-generic <c>instance void Finalize()</c>.
+    /// </summary>
+    private static bool IsFinalizerDeclarationShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
+    {
+        if (!string.Equals(
+                DecodeString(reader, method.Name, beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        MethodAttributes attributes = method.Attributes;
+        if ((attributes & MethodAttributes.MemberAccessMask)
+                != MethodAttributes.Family
+            || (attributes & MethodAttributes.Virtual) == 0
+            || (attributes & MethodAttributes.NewSlot) != 0
+            || (attributes & MethodAttributes.Static) != 0
+            || (attributes & MethodAttributes.Abstract) != 0
+            || (attributes & MethodAttributes.Final) != 0
+            || method.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+
+        return HasVoidNullaryInstanceSignature(reader, method);
+    }
+
+    /// <summary>
     /// True when <paramref name="method"/> on <paramref name="typeDefHandle"/> implicitly overrides
     /// <c>System.Object.Finalize</c> through the inherited virtual slot rather than an explicit
     /// <c>.override</c> MethodImpl — the shape the VB.NET compiler emits for
@@ -764,25 +801,13 @@ public static partial class ApiSurfaceExtractor
         MethodDefinition method,
         Action<int>? beforeDecodeWork = null)
     {
-        if (!string.Equals(
-                DecodeString(reader, method.Name, beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!IsFinalizerDeclarationShape(
+                reader,
+                method,
+                beforeDecodeWork))
+        {
             return false;
-
-        var attributes = method.Attributes;
-        // A finalizer reuses the inherited object.Finalize slot: Virtual and NOT NewSlot. An explicit
-        // interface implementation is NewSlot (and name-mangled), so it is excluded here too. Static
-        // and abstract methods are never finalizers.
-        if ((attributes & MethodAttributes.Virtual) == 0
-            || (attributes & MethodAttributes.NewSlot) != 0
-            || (attributes & MethodAttributes.Static) != 0
-            || (attributes & MethodAttributes.Abstract) != 0)
-            return false;
-        if (method.GetGenericParameters().Count != 0)
-            return false;
-        if (!HasVoidNullaryInstanceSignature(reader, method))
-            return false;
+        }
 
         // Walk the base-type chain. The slot roots at whichever ancestor first declares a
         // `new virtual void Finalize()`; for a genuine finalizer that ancestor is System.Object,

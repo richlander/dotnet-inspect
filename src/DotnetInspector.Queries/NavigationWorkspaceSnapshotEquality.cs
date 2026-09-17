@@ -198,6 +198,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && object.Equals(a.ReturnTypeShape, b.ReturnTypeShape)
         && Sequence(a.ReturnAttributes, b.ReturnAttributes)
         && a.MemberName == b.MemberName
+        && a.MethodDeclarationHeaderIsRepresentable
+            == b.MethodDeclarationHeaderIsRepresentable
         && a.IsIndexerDeclaration == b.IsIndexerDeclaration
         && a.IsRequired == b.IsRequired
         && Sequence(a.TypeParameters, b.TypeParameters, TypeParameter)

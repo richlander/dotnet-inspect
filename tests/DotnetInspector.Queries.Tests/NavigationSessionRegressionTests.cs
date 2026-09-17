@@ -530,6 +530,13 @@ public sealed partial class NavigationSessionTests
         };
         Assert.False(
             NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.IsIndexerDeclaration = true;
+        second.SignatureModel.IsIndexerDeclaration = true;
+        first.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        second.SignatureModel.MethodDeclarationHeaderIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
     }
 
     [Fact]

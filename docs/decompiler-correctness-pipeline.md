@@ -1078,9 +1078,13 @@ source-representable `unmanaged` pseudo-constraint encoding. Property shapes
 must form a valid C# property or indexer; a parameterized property is an indexer
 only when its metadata name matches the declaring type's authentic CoreLib
 `DefaultMemberAttribute`. MethodDef accessibility masks without an exact C#
-spelling are ineligible. Member-signature custom modifiers are ineligible
-unless they are authenticated read-only by-ref encodings that the product
-spells explicitly. `CB_TYPE`
+spelling are ineligible. MethodDef signature headers are also ineligible when
+their calling convention, instance/explicit-this state, or generic state cannot
+be preserved by a C# declaration. An authenticated
+`System.Object.Finalize` MethodImpl is rendered as `~Type()` only when its body
+retains the exact protected virtual reuse-slot destructor shape.
+Member-signature custom modifiers are ineligible unless they are authenticated
+read-only by-ref encodings that the product spells explicitly. `CB_TYPE`
 filters that population first. Stable
 hash ranking then chooses up to the remaining caller-ordered global
 `--compile-cap` for each assembly. The cap is a maximum, so an input set with

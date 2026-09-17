@@ -1030,9 +1030,13 @@ source-representable `unmanaged` pseudo-constraint encoding,
 rejects property shapes that cannot form a C# property or indexer, requires a
 parameterized property's metadata name to match the declaring type's authentic
 CoreLib `DefaultMemberAttribute`, rejects MethodDef accessibility masks without
-an exact C# spelling, and rejects unrepresented member-signature custom
-modifiers while retaining authenticated read-only by-ref modifier encodings
-that the product spells explicitly,
+an exact C# spelling, rejects MethodDef signature headers whose calling
+convention, instance/explicit-this state, or generic state cannot be preserved
+by a C# declaration, requires an authenticated `System.Object.Finalize`
+MethodImpl body to retain the exact protected virtual reuse-slot destructor
+shape before spelling `~Type()`, and rejects unrepresented member-signature
+custom modifiers while retaining authenticated read-only by-ref modifier
+encodings that the product spells explicitly,
 applies `CB_TYPE` before sampling, and chooses a stable hash-ranked set up to the
 remaining global `--compile-cap`. The cap remains a maximum across the complete
 assembly list: a run with fewer eligible methods reports the shorter population
