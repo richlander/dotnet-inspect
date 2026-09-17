@@ -12,7 +12,9 @@ import type {
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
   BrowserPackageIcon as PackageIconFromPackageFacade,
+  BrowserPackageLoadResult,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
+  BrowserPackageVersionSettlementInspection,
   BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
   BrowserTypeSurface as TypeSurfaceFromPackageFacade,
 } from "./facades/inspect-web-package.d.ts";
@@ -138,6 +140,7 @@ export interface AppPackage {
   icon: InspectedPackageIcon | null;
   inspectionErrors?: string[];
   inspectionError?: string;
+  versionSettlement?: BrowserPackageVersionSettlementInspection;
   isRuntimePack: boolean;
   surfaceRevision?: number;
 }
@@ -293,6 +296,14 @@ function defaultAssembly(
 
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
+  versionSettlement: BrowserPackageVersionSettlementInspection,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
+  versionSettlement?: BrowserPackageVersionSettlementInspection,
 ): AppPackage {
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
@@ -330,6 +341,9 @@ export function createNuGetPackageModel(
     icon: result.icon,
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
+    ...(versionSettlement
+      ? { versionSettlement }
+      : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
   };
@@ -549,7 +563,7 @@ export interface PackageAcquisitionDependencies {
     packageId: string,
     version: string,
     framework: string,
-  ): Promise<InspectedPackageSurface>;
+  ): Promise<BrowserPackageLoadResult>;
   loadRuntimePack(framework: string, platformVersion: string): Promise<string>;
   loadRuntimePackAssembly(
     framework: string,
@@ -580,6 +594,24 @@ export interface NuGetPackageRequest {
 export interface RuntimeAcquisitionResult {
   packageModel: AppPackage | null;
   error: unknown;
+}
+
+export class PackageVersionSettlementError extends Error {
+  readonly inspection: BrowserPackageVersionSettlementInspection;
+
+  constructor(inspection: BrowserPackageVersionSettlementInspection) {
+    const failure = inspection.content.kind === "NotSettled"
+      ? inspection.content.failure
+      : null;
+    if (!failure) {
+      throw new Error(
+        "A package load without a surface must carry a NotSettled inspection.");
+    }
+
+    super(failure.reason);
+    this.name = "PackageVersionSettlementError";
+    this.inspection = inspection;
+  }
 }
 
 export interface PackageAcquisition {
@@ -646,20 +678,35 @@ export function createPackageAcquisition(
   return {
     async loadPackage(request) {
       let result: InspectedPackageSurface;
+      let versionSettlement:
+        BrowserPackageVersionSettlementInspection | undefined;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
         }
         result = await dependencies.queryPackageRoot(request.rootRequest);
       } else {
-        result = await dependencies.queryPackage(
+        const loadResult = await dependencies.queryPackage(
           request.packageId,
           request.version,
           request.framework);
+        versionSettlement = loadResult.versionSettlement;
+        if (loadResult.surface === null) {
+          throw new PackageVersionSettlementError(
+            loadResult.versionSettlement);
+        }
+        if (loadResult.versionSettlement.content.kind !== "Settled"
+          || loadResult.versionSettlement.content.result === null) {
+          throw new Error(
+            "A settled package surface must carry a Settled inspection.");
+        }
+        result = loadResult.surface;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
-      const packageModel = createNuGetPackageModel(result);
+      const packageModel = versionSettlement
+        ? createNuGetPackageModel(result, versionSettlement)
+        : createNuGetPackageModel(result);
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

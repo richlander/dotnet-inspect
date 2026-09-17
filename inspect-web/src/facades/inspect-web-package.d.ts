@@ -26,6 +26,7 @@ export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | numbe
 export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -439,6 +440,10 @@ export interface BrowserPackageIcon {
     readonly mediaType: string;
     readonly base64: string;
 }
+export interface BrowserPackageLoadResult {
+    readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+    readonly surface: BrowserPackageSurface | null;
+}
 export interface BrowserPackagePruningRequest {
     readonly schemaVersion: number;
     readonly family: string;
@@ -647,6 +652,54 @@ export interface BrowserPackageSurface {
     readonly inspectionErrors: ReadonlyArray<string>;
     readonly inspectionError: string | null;
 }
+export interface BrowserPackageVersionSettlementAuthorityFailure {
+    readonly authority: string;
+    readonly kind: string;
+    readonly message: string;
+    readonly timeoutKind: string | null;
+}
+export interface BrowserPackageVersionSettlementCoordinate {
+    readonly packageId: string;
+    readonly version: string;
+}
+export interface BrowserPackageVersionSettlementFailure {
+    readonly request: BrowserPackageVersionSettlementRequest;
+    readonly kind: string;
+    readonly reason: string;
+    readonly operationTimedOut: boolean;
+    readonly authorityFailures: ReadonlyArray<BrowserPackageVersionSettlementAuthorityFailure>;
+}
+export interface BrowserPackageVersionSettlementInspection {
+    readonly content: BrowserPackageVersionSettlementOutcome;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserPackageVersionSettlementListing {
+    readonly version: string;
+    readonly listed: boolean;
+}
+export interface BrowserPackageVersionSettlementOutcome {
+    readonly kind: BrowserPackageVersionSettlementOutcomeKind;
+    readonly result: BrowserPackageVersionSettlementResult | null;
+    readonly failure: BrowserPackageVersionSettlementFailure | null;
+}
+export interface BrowserPackageVersionSettlementRequest {
+    readonly packageId: string;
+    readonly version: string | null;
+}
+export interface BrowserPackageVersionSettlementResult {
+    readonly request: BrowserPackageVersionSettlementRequest;
+    readonly coordinate: BrowserPackageVersionSettlementCoordinate;
+    readonly includePrerelease: boolean;
+    readonly freshness: string | null;
+    readonly listings: ReadonlyArray<BrowserPackageVersionSettlementListing>;
+    readonly sourceListings: ReadonlyArray<BrowserPackageVersionSettlementSourceListing>;
+}
+export interface BrowserPackageVersionSettlementSourceListing {
+    readonly version: string;
+    readonly feed: string;
+    readonly listed: boolean;
+}
 export interface BrowserPackageVersions {
     readonly versions: ReadonlyArray<string>;
     readonly currentVersionInsertionIndex: number;
@@ -752,7 +805,7 @@ export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
-export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
+export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
 export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;
 export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
