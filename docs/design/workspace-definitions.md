@@ -652,6 +652,32 @@ Implementation proceeds in focused slices:
    including registrations and derived scenarios, through the same Definitions
    owner.
 
+Query-bearing sharing follows a separate five-step path under
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971):
+
+1. **Portable intent and payload.** Define and implement the host-neutral
+   semantic model, canonical codec, and identity pair. Complete.
+2. **First production vocabulary.** Adopt `package-query/v1` in Package Query
+   and lower both CLI and Browser requests through it. Complete.
+3. **Definitions contract.** Define the common schema-version-2/3 query record,
+   state-bound packet projection, and the format-3 query-only composition. This
+   design slice.
+4. **Definitions implementation.** Implement record parsing, public query
+   descriptors, composition binding, format-3 query-table
+   encoding/transposition, and the fixed-vector gates below through one
+   host-neutral Definitions API.
+5. **Production-host adoption.** Have the CLI emit and replay the query-only
+   packet without acquisition during packet generation, and have Inspect Web
+   emit and restore the same packet in `/query` share links. Both hosts then
+   execute through their existing Package Query pipeline; no query result or
+   host-specific presentation enters Definitions.
+
+This extends the existing Definitions and Package Query paths rather than
+introducing an alternative architecture, so no retirement plan applies.
+Rendering is also outside this contract: the packet carries canonical request
+data, while each host's existing Package Query presentation continues to own
+its typed result rendering.
+
 Required evidence includes:
 
 - exact canonical round trips for Package, Exact Library, Package Prefix, and
