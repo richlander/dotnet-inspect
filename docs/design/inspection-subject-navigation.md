@@ -23,10 +23,10 @@ implemented by
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
 `Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
 retained evaluation bases, and pure lens recommendation are implemented by
-`NavigationLensRecommendation` and gated at their claims below. Pure initial
-subject ranking over available Library candidates and their retained Type
-inventory is implemented by `NavigationInitialSubjectRecommendation` and gated
-at its claim below for one already selected Package occurrence.
+`NavigationLensRecommendation` and gated at their claims below. Pure pre-#7318
+initial subject ranking over available Library candidates and their retained
+Type inventory is implemented by `NavigationInitialSubjectRecommendation` and
+gated at its claim below for one already selected Package occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
 `NavigationSubjectInventoryClassification` and gated at its claim below. Pure
@@ -1186,11 +1186,13 @@ canonical declaring text as lookup identity. Returned exact rows remain
 trustworthy when another row or participant fails; failure does not erase
 positive evidence.
 
-Every admitted Library remains an available Library candidate for initial
-subject recommendation. Only exact returned Type rows become Type candidates.
-Classification does not commit the recommendation, choose an active subject,
-compose `Current` or `Selection required`, mint generation-scoped actions, or
-produce a navigation snapshot.
+Every admitted Library remains an ordered aggregate member and an eligible
+target for explicit exact or namesake narrowing. No individual Library is an
+implicit initial-recommendation candidate. Exact returned Type rows remain
+inventory candidates for retained-context ranking; they are not implicit
+subjects. Classification does not commit the recommendation, choose an active
+subject, compose `Current` or `Selection required`, mint generation-scoped
+actions, or produce a navigation snapshot.
 
 This classification is gated by
 `NavigationSubjectInventoryTests.EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`,
@@ -1218,6 +1220,7 @@ Those gates describe pre-#7318 behavior and retire with its implementation.
 The aggregate-first replacement remains **unverified** and requires
 `InitialRecommendation_PrefersAggregateThenPackage`,
 `InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`,
+`InitialRecommendation_ExcludesIndividualLibraryCandidates`,
 `PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`,
 `PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`,
 `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`,
@@ -2274,6 +2277,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `ExplicitDirectLibraryActivation_SelectsExactLibrary`
 - `InitialRecommendation_PrefersAggregateThenPackage`
 - `InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`
+- `InitialRecommendation_ExcludesIndividualLibraryCandidates`
 - `PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`
 - `PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`
 - `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`
