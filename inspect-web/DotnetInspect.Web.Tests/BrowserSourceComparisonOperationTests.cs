@@ -5,6 +5,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using DotnetInspect.Web.Interop.Source;
@@ -515,15 +516,23 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             BrowserWorkspaceParticipant after = afterScope.ImplementationParticipant(
                 afterScope.SurfaceParticipant(
                     afterCoordinate, afterCoordinate.CompileAsset(request.Assembly)));
-            AssemblyMemberSourcePairResult pair = await before.Scope.UseImplementationParticipant(
+            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection = await before.Scope.UseImplementationParticipant(
                 before.ImplementationParticipant,
                 (beforeGroup, beforeParticipant) => afterScope.UseImplementationParticipant(
                     after,
                     (afterGroup, afterParticipant) =>
-                        AssemblyContextMemberSourcePairQuery.ExecuteAsync(
+                        MemberSourcePairInspection.ExecuteAsync(
                             beforeGroup, beforeParticipant, afterGroup, afterParticipant,
                             new(selected.Type, selected.Member), host.Context,
                             TestContext.Current.CancellationToken)));
+            AssemblyMemberSourcePairResult pair = inspection.Content;
+            foreach (var endpoint in new[] { pair.Before, pair.After })
+            {
+                var resolved = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(endpoint);
+                Assert.NotNull(resolved.HouseOutcome);
+                Assert.Equal(DotnetInspector.SourceHouse.SourceHousePdbContributionKind.Embedded,
+                    resolved.HouseOutcome.PdbContribution.Kind);
+            }
             return BrowserSourceComparisonProjection.Project(
                 request, pair, before.ImplementationParticipant, after);
         }

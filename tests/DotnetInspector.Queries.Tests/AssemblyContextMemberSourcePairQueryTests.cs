@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
@@ -8,6 +9,28 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
+    // Selected-member outcome and boundary cases are PR-fast.
+    [Fact]
+    public async Task SourcePair_RealRepositoryMemberUsesAuthoredHouse()
+    {
+        string path = typeof(CSharpText.MemberSlicing.MemberTextSlicer).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly before = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        TestAssembly after = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        using var host = QueryHost.WithPdb(pdbPath, File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryAdapter", "MemberTextSlicer.cs")));
+
+        var result = await ExecuteSourcePairAsync(
+            before, after, "ExtractMemberText", host, typeName: "MemberTextSlicer");
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Compared, result.Status);
+        Assert.True(result.IsExact);
+        var endpoint = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(result.Before);
+        var house = Assert.IsType<SourceHouseOutcome.Available>(endpoint.HouseOutcome);
+        Assert.StartsWith("public static string? ExtractMemberText(", house.Source.Text.TrimStart());
+        Assert.Equal(SourceHouseSourceUnitScope.ExactMember, house.Source.Mapping!.Scope);
+    }
+
     [Theory]
     [InlineData(false, true, false)]
     [InlineData(true, false, false)]
@@ -100,6 +123,19 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.NotEqual(beforeEndpoint.Subject.Registration, afterEndpoint.Subject.Registration);
         Assert.Equal(beforeEndpoint.Request.MetadataToken, afterEndpoint.Request.MetadataToken);
         Assert.NotEqual(beforeEndpoint.Subject.Identity.Version, afterEndpoint.Subject.Identity.Version);
+        foreach (var endpoint in new[] { beforeEndpoint, afterEndpoint })
+        {
+            var house = Assert.IsType<SourceHouseOutcome.Available>(endpoint.HouseOutcome);
+            Assert.Null(endpoint.LibraryFailure);
+            Assert.Equal(SourceHousePdbContributionKind.SuppliedCompanion, house.PdbContribution.Kind);
+            Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.LeaseSettlement.Consumer);
+            var selected = Assert.IsType<SourceHouseTarget.MemberTarget>(house.Request.Target);
+            Assert.Equal(endpoint.Request.MetadataToken, selected.MetadataToken);
+            Assert.Equal(endpoint.Request.Member, selected.Member);
+            var pdb = Assert.IsType<AssemblyMemberSourcePairPdbProvenance>(
+                house.PdbContribution.Content!.ArtifactReference.Provenance);
+            Assert.Same(endpoint.Subject.Registration, pdb.SourceRegistration);
+        }
         Assert.Equal(0, before.Policy.SelectionCount);
         Assert.Equal(0, after.Policy.SelectionCount);
         Assert.Contains(host.SourceRequests, uri => uri.AbsolutePath.StartsWith("/v1/", StringComparison.Ordinal));
@@ -288,6 +324,78 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(host.SourceRequests);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public async Task SourcePair_SourceHouseByteBoundIsVisibleAndExact(int adjustment)
+    {
+        var (before, after) = SourcePairAssemblies();
+        using var host = SourcePairHost(before, after);
+        SourceHouseLimits defaults = host.Context.MemberSourcePairLimits;
+        int bytes = Math.Max(
+            SourcePairBytes(FixtureCatalog.SourceDiffV1).Length,
+            SourcePairBytes(FixtureCatalog.SourceDiffV2).Length) + adjustment;
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            MemberSourcePairLimits = new(
+                defaults.MaximumAssemblyBytes, defaults.MaximumPortablePdbBytes,
+                defaults.TargetBounds, defaults.SourceLinkReadLimits,
+                defaults.MaximumDocuments, defaults.MaximumTargetMappings,
+                defaults.MaximumCandidateAttempts, bytes, defaults.MaximumSourceTextCharacters),
+        };
+
+        var result = await ExecuteSourcePairAsync(
+            before, after, "Value", host, sourceContext: context);
+
+        if (adjustment == 0)
+        {
+            Assert.Equal(AssemblyMemberSourcePairStatus.Compared, result.Status);
+        }
+        else
+        {
+            Assert.Equal(AssemblyMemberSourcePairStatus.Unavailable, result.Status);
+            Assert.Null(result.Comparison);
+            Assert.Contains(new[] { result.Before, result.After }, endpoint =>
+                endpoint is AssemblyMemberSourcePairEndpoint.Resolved
+                {
+                    HouseOutcome: SourceHouseOutcome.Incomplete
+                    {
+                        Boundary: SourceHouseIncompleteBoundary.SourceBytes,
+                    },
+                });
+        }
+    }
+
+    [Fact]
+    public async Task SourcePair_ExpiredHouseDeadlineIsNotMissingSource()
+    {
+        var (before, after) = SourcePairAssemblies();
+        using var host = SourcePairHost(before, after);
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            MemberSourcePairTimeout = TimeSpan.FromTicks(1),
+        };
+
+        var result = await ExecuteSourcePairAsync(
+            before, after, "Value", host, sourceContext: context);
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Unavailable, result.Status);
+        Assert.Null(result.Comparison);
+        foreach (var endpoint in new[] { result.Before, result.After })
+        {
+            var resolved = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(endpoint);
+            var incomplete = Assert.IsType<SourceHouseOutcome.Incomplete>(resolved.HouseOutcome);
+            Assert.Equal(SourceHouseIncompleteBoundary.Deadline, incomplete.Boundary);
+            var unavailable = Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(resolved.Source);
+            Assert.IsType<FindingInspection<string>.Failed>(unavailable.Inspection.Lines.Value);
+        }
+        Assert.Empty(host.SourceRequests);
+    }
+
     static (TestAssembly Before, TestAssembly After) SourcePairAssemblies()
         => (
             TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1),
@@ -317,7 +425,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         string memberName,
         QueryHost host,
         string typeName = "Counter",
-        CancellationToken? cancellationToken = null)
+        CancellationToken? cancellationToken = null,
+        AssemblyContextSourceQueryContext? sourceContext = null)
     {
         await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup([before.Participant]);
@@ -329,7 +438,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             afterGroup,
             after.Participant,
             AssemblyMemberSourcePairRequest.From(target.Type, target.Member),
-            host.Context,
+            sourceContext ?? host.Context,
             cancellationToken ?? TestContext.Current.CancellationToken);
     }
 }

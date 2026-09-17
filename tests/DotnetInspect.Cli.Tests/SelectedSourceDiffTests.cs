@@ -359,6 +359,8 @@ public sealed class SelectedSourceDiffTests
         var after = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(pair.After);
         Assert.NotEqual(before.Request.MetadataToken, after.Request.MetadataToken);
         Assert.NotEqual(before.Subject.Registration, after.Subject.Registration);
+        Assert.IsType<DotnetInspector.SourceHouse.SourceHouseOutcome.Available>(before.HouseOutcome);
+        Assert.IsType<DotnetInspector.SourceHouse.SourceHouseOutcome.Available>(after.HouseOutcome);
     }
 
     [Fact]
