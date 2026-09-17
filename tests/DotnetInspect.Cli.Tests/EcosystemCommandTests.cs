@@ -185,7 +185,8 @@ public sealed class EcosystemCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("# Ecosystem Catalog", result.Output);
         Assert.Contains("## Ecosystems", result.Output);
-        Assert.Contains("ecosystem.platform", result.Output);
+        Assert.Contains("ecosystem.dotnet", result.Output);
+        Assert.DoesNotContain("ecosystem.platform", result.Output);
         Assert.Contains("ecosystem.microsoft-extensions", result.Output);
         Assert.Contains("ecosystem.aspnetcore", result.Output);
         Assert.Contains("ecosystem.aspire", result.Output);
@@ -193,6 +194,9 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.azure", result.Output);
         Assert.Contains("ecosystem.blazor", result.Output);
         Assert.Contains("ecosystem.maui", result.Output);
+        Assert.Contains(
+            "| ecosystem.dotnet | .NET | .NET runtime libraries and product demos. | none | 0 | 3 |",
+            result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
@@ -687,11 +691,28 @@ public sealed class EcosystemCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("Unknown ecosystem 'unknown'.", result.Error);
+        Assert.Contains("dotnet (ecosystem.dotnet)", result.Error);
+        Assert.DoesNotContain("platform (ecosystem.platform)", result.Error);
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
         Assert.Contains("ai (ecosystem.ai)", result.Error);
         Assert.Contains("azure (ecosystem.azure)", result.Error);
         Assert.Contains("blazor (ecosystem.blazor)", result.Error);
         Assert.Contains("maui (ecosystem.maui)", result.Error);
+    }
+
+    [Fact]
+    public async Task RetiredPlatformSelectorIsNotOffered()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "platform",
+        });
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("Unknown ecosystem 'platform'.", result.Error);
+        Assert.Contains("dotnet (ecosystem.dotnet)", result.Error);
+        Assert.DoesNotContain("platform (ecosystem.platform)", result.Error);
     }
 
     [Theory]
@@ -746,7 +767,7 @@ public sealed class EcosystemCommandTests
         // leaves the live/frozen contract to the deterministic case below.
         var result = await ExecuteAsync(new EcosystemOptions
         {
-            Ecosystem = "platform",
+            Ecosystem = "dotnet",
             Select = ["Pruning"],
             Format = OutputFormat.Json,
         });
@@ -778,7 +799,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(
             new EcosystemOptions
             {
-                Ecosystem = "platform",
+                Ecosystem = "dotnet",
                 Select = ["Pruning"],
                 Format = OutputFormat.Json,
             },
@@ -804,9 +825,9 @@ public sealed class EcosystemCommandTests
     }
 
     [Fact]
-    public async Task Pruning_BelongsToThePlatformEcosystemAlone()
+    public async Task Pruning_BelongsToTheDotNetEcosystemAlone()
     {
-        // Only the platform ecosystem can answer which identities a target subsumes, so the
+        // Only the .NET ecosystem can answer which identities a target subsumes, so the
         // section is not selectable from the catalog-wide view or from another pack.
         var catalogWide = await ExecuteAsync(new EcosystemOptions { Select = ["Pruning"] });
         Assert.Equal(1, catalogWide.ExitCode);
@@ -838,7 +859,7 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, reads);
 
         var platformInfo = await ExecuteAsync(
-            new EcosystemOptions { Ecosystem = "platform" },
+            new EcosystemOptions { Ecosystem = "dotnet" },
             Counting);
         Assert.Equal(0, platformInfo.ExitCode);
         Assert.DoesNotContain("## Pruning", platformInfo.Output);
@@ -846,7 +867,7 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, reads);
 
         var pruning = await ExecuteAsync(
-            new EcosystemOptions { Ecosystem = "platform", Select = ["Pruning"] },
+            new EcosystemOptions { Ecosystem = "dotnet", Select = ["Pruning"] },
             Counting);
         Assert.Equal(0, pruning.ExitCode);
         Assert.Contains("## Pruning", pruning.Output);
@@ -859,7 +880,7 @@ public sealed class EcosystemCommandTests
         // A pack that cannot be read is not a platform that subsumes nothing. The failure reaches
         // stderr and no row claims otherwise.
         var result = await ExecuteAsync(
-            new EcosystemOptions { Ecosystem = "platform", Select = ["Pruning"] },
+            new EcosystemOptions { Ecosystem = "dotnet", Select = ["Pruning"] },
             static () => new InstalledPlatformPruneSource.Result(
                 null,
                 "Could not read '/packs/Microsoft.NETCore.App.Ref/11.0.0/data/PackageOverrides.txt'."),
@@ -884,7 +905,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(
             new EcosystemOptions
             {
-                Ecosystem = "platform",
+                Ecosystem = "dotnet",
                 Select = ["Pruning"],
                 Format = OutputFormat.Json,
             },

@@ -217,7 +217,7 @@ dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
 dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
-dotnet-inspect ecosystem platform -S Pruning
+dotnet-inspect ecosystem dotnet -S Pruning
 ```
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
@@ -251,7 +251,7 @@ report view; `--json` emits the lossless schema-versioned report, with
 on stderr. Single-table formats and catalog-only section projections are not
 available with `package activity`.
 
-`ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
+`ecosystem dotnet -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
 platform target supplies, so a reference to one resolves to the platform rather
 than to the package. `Kind` separates a version that moves with the framework

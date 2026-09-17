@@ -289,7 +289,7 @@ owner's correspondence.
 Static Ecosystem Packs may contribute:
 
 ```text
-ecosystem.platform
+ecosystem.dotnet
   -> Platform(DotNetRuntime)
 
 ecosystem.aspnetcore
@@ -415,7 +415,7 @@ There are seven counted production-adoption steps:
    declaration.
 3. Adopt the type in the Platform arm of the Queries-owned lower ecosystem
    registration declaration.
-4. Project `DotNetRuntime` from `ecosystem.platform` and `AspNetCore` from
+4. Project `DotNetRuntime` from `ecosystem.dotnet` and `AspNetCore` from
    `ecosystem.aspnetcore` in the application catalog's curated Workspace
    manifest.
 5. Define and implement integration requests and source-realization results
@@ -444,7 +444,7 @@ rendering strategy do not apply.
 The application catalog constructs:
 
 ```text
-ecosystem.platform
+ecosystem.dotnet
   Populations
     Platform(DotNetRuntime)
 

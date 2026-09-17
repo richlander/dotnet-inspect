@@ -11,22 +11,25 @@ internal static class ProductEcosystemPacks
     internal static EcosystemPackRegistry Registry { get; } = new(
     [
         ProjectWorkspace(new(
-            EcosystemPackIds.Platform,
-            "Platform",
-            "Core .NET product demos.",
+            EcosystemPackIds.DotNet,
+            ".NET",
+            ".NET runtime libraries and product demos.",
             100,
             PackageSet: null,
             [
-                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse the Runtime Platform API", 100, CreateStjSerializerRecords),
-                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Trace the Runtime STJ implementation", 300, CreateStjSerializeCallGraphRecords),
-                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "Trace the Runtime number parse path", 800, CreateStjGetDecimalCallGraphRecords),
-            ])
+                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse the .NET runtime API", 100, CreateStjSerializerRecords),
+                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Trace the .NET runtime STJ implementation", 300, CreateStjSerializeCallGraphRecords),
+                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "Trace the .NET runtime number parse path", 800, CreateStjGetDecimalCallGraphRecords),
+            ],
+            PopulationLoader: ProductEcosystemPopulationLoaders.DotNet)
         {
             NamespaceRoots = ["System"],
-        }, "ecosystem.platform",
+        }, "ecosystem.dotnet",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
                 new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime)),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("System.")),
         ]),
         ProjectWorkspace(new(
             EcosystemPackIds.MicrosoftExtensions,
@@ -35,7 +38,7 @@ internal static class ProductEcosystemPacks
             200,
             PackageSetIds.MicrosoftExtensions,
             [
-                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-library call graph", "Trace calls across three Platform libraries", 200, CreateExtensionsCallGraphRecords),
+                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-library call graph", "Trace calls across three ASP.NET Core libraries", 200, CreateExtensionsCallGraphRecords),
                 Demo(ProductDemoIds.ConfigBindCallGraph, "Configuration Bind", "Recursive binder call graph", 400, CreateConfigBindCallGraphRecords),
                 Demo(ProductDemoIds.OptionsAddCallGraph, "Options hub", "Inbound fan-in at AddOptions", 500, CreateOptionsAddCallGraphRecords),
                 Demo(ProductDemoIds.DiTryAddCallGraph, "DI TryAdd hub", "Keyed/scoped Try* fan-in", 600, CreateDiTryAddCallGraphRecords),
@@ -60,7 +63,8 @@ internal static class ProductEcosystemPacks
             "ASP.NET Core package content.",
             300,
             PackageSetIds.AspNetCore,
-            [])
+            [],
+            PopulationLoader: ProductEcosystemPopulationLoaders.AspNetCore)
         {
             NamespaceRoots = ["Microsoft.AspNetCore"],
             CorePackages =
@@ -229,7 +233,7 @@ internal static class ProductEcosystemPacks
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
         [
-            EcosystemPackIds.Platform,
+            EcosystemPackIds.DotNet,
             EcosystemPackIds.AspNetCore,
             EcosystemPackIds.MicrosoftExtensions,
         ]);
@@ -237,7 +241,7 @@ internal static class ProductEcosystemPacks
     internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
         [
-            EcosystemPackIds.Platform,
+            EcosystemPackIds.DotNet,
             EcosystemPackIds.AspNetCore,
             EcosystemPackIds.MicrosoftExtensions,
             EcosystemPackIds.Aspire,

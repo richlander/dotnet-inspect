@@ -11,8 +11,8 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     {
         WorkspacePlan plan = Create(platformOnly);
         EcosystemPackId[] expected = platformOnly
-            ? [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
-            : [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore,
+            ? [EcosystemPackIds.DotNet, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
+            : [EcosystemPackIds.DotNet, EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI, EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor, EcosystemPackIds.Maui];
@@ -29,9 +29,9 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     }
 
     [Fact]
-    public void PublicSelectedPlanCanRegisterOnlyPlatform()
+    public void PublicSelectedPlanCanRegisterOnlyDotNet()
     {
-        EcosystemPackId[] expected = [EcosystemPackIds.Platform];
+        EcosystemPackId[] expected = [EcosystemPackIds.DotNet];
         WorkspacePlan plan =
             EcosystemPackCatalog.CreateWorkspacePlan(expected);
 

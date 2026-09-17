@@ -619,7 +619,7 @@ This shared capability has eight focused stages:
 1. Lock this Ecosystem Population Loading contract.
 2. **Implemented:** host-neutral binding, request, outcome, receipt, and
    owner-transfer contract with a public consumer canary.
-3. Have Static Ecosystem Packs define `ecosystem.dotnet` and
+3. **Implemented:** Static Ecosystem Packs define `ecosystem.dotnet` and
    `ecosystem.aspnetcore`, their package prefixes, and their independent loader
    bindings; retire the user-facing `Platform` pack identity.
 4. Have Workspace Ecosystem Registration Handoff preserve the lower
