@@ -19,7 +19,7 @@ import type {
   BrowserAnnotatedSourceViewerCatalog,
 } from "./facades/inspect-web-source.d.ts";
 
-export interface AnnotatedSourceFindingEvidenceDocument
+interface AnnotatedSourceFindingEvidenceDocument
   extends Omit<BrowserAnnotatedSourceFindingEvidenceDocument, "document"> {
   document: AnnotatedSourceDocument;
 }
