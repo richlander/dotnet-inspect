@@ -455,6 +455,7 @@ public static class IrPasses
         // Decline any surviving unsafe-await statement rather than emit await
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
+        new PdbLocalScopePass(),
         new CoercionInsertionPass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
         // missing-name fallbacks only after every raise has exposed the final
@@ -501,7 +502,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass))];
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

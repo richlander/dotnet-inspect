@@ -20,13 +20,19 @@ internal sealed record ClassicInversePlan
         ImmutableArray<ClassicInversePhysicalRegion> PhysicalPartition,
         ImmutableArray<ClassicInverseSemanticRealization> SemanticRealizations,
         ImmutableArray<ClassicInverseAncestorReceipt> StructuredAncestorReceipts,
-        ImmutableArray<TypeRef> TypeArguments = default)
+        ImmutableArray<TypeRef> TypeArguments = default,
+        ImmutableArray<bool> LocalDeclaredInNestedScope = default,
+        ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings = default)
     {
         this.Recipe = Recipe;
         this.Body = Body;
         this.Locals = Locals;
         this.LocalNames = LocalNames;
         this.SynthesizedLocalNames = SynthesizedLocalNames;
+        this.LocalDeclaredInNestedScope =
+            LocalDeclaredInNestedScope.IsDefault ? [] : LocalDeclaredInNestedScope;
+        this.LocalDeclarationBindings =
+            LocalDeclarationBindings.IsDefault ? [] : LocalDeclarationBindings;
         this.TypeFacts = TypeFacts;
         this.SourceOffset = SourceOffset;
         this.PhysicalPartition = PhysicalPartition;
@@ -46,6 +52,10 @@ internal sealed record ClassicInversePlan
     internal ImmutableArray<string?> LocalNames { get; }
 
     internal ImmutableArray<string?> SynthesizedLocalNames { get; }
+
+    internal ImmutableArray<bool> LocalDeclaredInNestedScope { get; }
+
+    internal ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; }
 
     /// <summary>Execution type parameters bound into the authenticated kickoff context.</summary>
     internal ImmutableArray<TypeRef> TypeArguments { get; }
@@ -116,10 +126,19 @@ internal sealed record ClassicInversePlan
                 $"typeArguments={ClassicInverseSignature.Sequence(TypeArguments.Select(ClassicInverseTypedIdentity.Type))}",
                 $"names={string.Join(";", LocalNames.Select(static n => n ?? ""))}",
                 $"synthesizedNames={string.Join(";", SynthesizedLocalNames.Select(static n => n ?? ""))}",
+                $"nestedScopes={string.Join(";", LocalDeclaredInNestedScope)}",
+                $"localBindings={string.Join(";", LocalDeclarationBindings.Select(BindingSignature))}",
                 $"body={Body.Signature}",
                 $"typefacts={TypeFacts.Signature}",
                 $"physical={ClassicInverseSignature.Join(PhysicalPartition.Select(static r => r.Signature))}",
                 $"semantic={ClassicInverseSignature.Join(SemanticRealizations.Select(static r => r.Signature))}",
                 $"ancestors={ClassicInverseSignature.Join(StructuredAncestorReceipts.Select(static r => r.Signature))}",
             ]);
+
+    static string BindingSignature(PdbLocalDeclaration? binding)
+        => binding is null
+            ? ""
+            : $"{binding.VariableRowId},{binding.ScopeRowId},{binding.SlotIndex},"
+                + $"{binding.Scope.StartOffset},{binding.Scope.EndOffset},"
+                + $"{(int)binding.Attributes},{binding.Name}";
 }
