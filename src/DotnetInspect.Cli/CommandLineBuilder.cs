@@ -29,6 +29,9 @@ public static class CommandLineBuilder
     /// </summary>
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
+    public static bool LineWindowExplicitlySet =>
+        ArgumentPreprocessor.LineWindowExplicitlySet;
+
     /// <summary>
     /// Returns whether the parsed route owns <c>-n</c> as a typed item limit rather
     /// than delegating it to the host's rendered-line writer.
@@ -327,7 +330,8 @@ public static class CommandLineBuilder
 
             ArgumentPreprocessor.SetLineWindow(
                 headLines,
-                tailLines);
+                tailLines,
+                explicitlySet: true);
         }
         else if (!rowSelection.IsAdopted)
         {

@@ -361,7 +361,10 @@ public class SharedOptions
             result =>
                 result.GetResult(limit) is { Implicit: false }
                 || result.GetResult(Lines) is { Implicit: false }
-                || result.GetResult(TailLines) is { Implicit: false },
+                || result.GetResult(TailLines) is { Implicit: false }
+                || result.GetResult(Rows) is null
+                    && (result.GetResult(Head) is { Implicit: false }
+                        || result.GetResult(Tail) is { Implicit: false }),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     resolveOutputFormat(result),

@@ -269,6 +269,7 @@ public partial class CommandExecutionTests
         {
             var lineWindowPath = Path.Combine(tempDirectory.FullName, "line-window.txt");
             var rowWindowPath = Path.Combine(tempDirectory.FullName, "row-window.txt");
+            var composedPath = Path.Combine(tempDirectory.FullName, "composed.txt");
             string[] args =
             [
                 "package", "Newtonsoft.Json@13.0.3",
@@ -285,17 +286,30 @@ public partial class CommandExecutionTests
             var rowWindow = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
                 [.. args, "--rows", "1", "--out", rowWindowPath, "--tips", "q"]);
+            var composed = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [
+                    .. args,
+                    "--rows", "2",
+                    "--lines", "-n1",
+                    "--out", composedPath,
+                    "--tips", "q",
+                ]);
 
             Assert.Equal(0, stdout.Exit);
             Assert.Equal(0, redirected.Exit);
             Assert.Equal(0, rowWindow.Exit);
+            Assert.Equal(0, composed.Exit);
             Assert.Empty(stdout.Error);
             Assert.Empty(redirected.Output);
             Assert.Empty(redirected.Error);
             Assert.Empty(rowWindow.Output);
             Assert.Empty(rowWindow.Error);
+            Assert.Empty(composed.Output);
+            Assert.Empty(composed.Error);
             Assert.Equal(stdout.Output, File.ReadAllText(lineWindowPath));
             Assert.Equal(stdout.Output, File.ReadAllText(rowWindowPath));
+            Assert.Equal(stdout.Output, File.ReadAllText(composedPath));
             Assert.Single(
                 stdout.Output.Split(
                     '\n',

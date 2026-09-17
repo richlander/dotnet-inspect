@@ -208,6 +208,26 @@ public class SkillCommandTests
         }
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task FocusedSkill_DirectionWithoutCountRejects(
+        string direction)
+    {
+        string[] args = ["skill", "query", direction];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains($"{direction} requires -n", error);
+    }
+
     [Fact]
     public async Task EveryRegisteredSkillResourceResolves()
     {
