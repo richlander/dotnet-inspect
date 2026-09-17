@@ -668,6 +668,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
+- [Workspace default target framework](design/workspace-default-target-framework.md):
+  one configurable, host-neutral fallback target retained by every Workspace,
+  with `net11.0` as the product default and explicit required-versus-preferred
+  selection intent.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
