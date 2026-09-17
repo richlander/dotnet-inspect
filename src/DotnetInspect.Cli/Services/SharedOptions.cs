@@ -452,8 +452,7 @@ public class SharedOptions
             }
 
             bool renderedLineSelection =
-                result.GetResult(Lines) is { Implicit: false }
-                || result.GetResult(TailLines) is { Implicit: false };
+                HasExplicitRenderedLineSelection(result);
 
             // A range names the rows to keep, so it already answers the question a
             // direction would answer. Taking "the last of rows 2..10" is not a
@@ -572,7 +571,18 @@ public class SharedOptions
     }
 
     public RowWindow? ParseRows(ParseResult parseResult)
-        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Tail));
+        => BuildRowWindow(
+            parseResult.GetValue(Rows),
+            !HasExplicitRenderedLineSelection(parseResult)
+                && parseResult.GetValue(Tail));
+
+    private bool HasExplicitRenderedLineSelection(ParseResult parseResult) =>
+        parseResult.GetResult(Lines) is { Implicit: false }
+        || parseResult.GetResult(TailLines) is { Implicit: false };
+
+    private bool HasExplicitRenderedLineSelection(CommandResult commandResult) =>
+        commandResult.GetResult(Lines) is { Implicit: false }
+        || commandResult.GetResult(TailLines) is { Implicit: false };
 
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.

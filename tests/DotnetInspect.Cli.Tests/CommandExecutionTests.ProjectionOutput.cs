@@ -97,6 +97,39 @@ public partial class CommandExecutionTests
         Assert.NotEqual(headLines[1], tailLines[1]);
     }
 
+    [Theory]
+    [InlineData("1")]
+    [InlineData("1..1")]
+    public async Task Rows_LineTailSugarDoesNotChangeSemanticWindow(
+        string rows)
+    {
+        string[] arguments =
+        [
+            "type",
+            "System.String",
+            "-S",
+            "Member Index",
+            "--rows",
+            rows,
+            "--tsv",
+            "--tips",
+            "q",
+            "-n",
+            "1000",
+        ];
+
+        var tailLines = await RunAppAsync(
+            [.. arguments, "--tail-lines"]);
+        var linesTail = await RunAppAsync(
+            [.. arguments, "--lines", "--tail"]);
+
+        Assert.Equal(0, tailLines.Exit);
+        Assert.Equal(tailLines.Exit, linesTail.Exit);
+        Assert.Empty(tailLines.Error);
+        Assert.Empty(linesTail.Error);
+        Assert.Equal(tailLines.Output, linesTail.Output);
+    }
+
     [Fact]
     public async Task Rows_EqualsSyntaxAppliesTheWindow()
     {
