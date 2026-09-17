@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -37,6 +38,22 @@ internal sealed record BrowserPackageDocumentPayload(
 internal sealed record BrowserPackageIconPayload(
     string MediaType,
     string Base64);
+
+internal sealed record BrowserPackageAcquisition(
+    BrowserPackage Package,
+    InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement);
+
+internal abstract record BrowserPackageAcquisitionResult
+{
+    private BrowserPackageAcquisitionResult() { }
+
+    internal sealed record Acquired(BrowserPackageAcquisition Acquisition)
+        : BrowserPackageAcquisitionResult;
+
+    internal sealed record NotSettled(
+        InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement)
+        : BrowserPackageAcquisitionResult;
+}
 
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
@@ -145,6 +162,9 @@ internal static class BrowserPackageWorkspace
         PackageSourceIdentity> ConfiguredSourceIdentities =
         new ConcurrentDictionary<PackageSourceAssociation, PackageSourceIdentity>(
             ReferenceEqualityComparer.Instance);
+    static readonly ConditionalWeakTable<
+        IPackageSourceClient,
+        IPackageSourceAuthorization> SourceAuthorizations = new();
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
@@ -263,6 +283,23 @@ internal static class BrowserPackageWorkspace
         string? version,
         CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
+            async deadline => RequireAcquisition(
+                await AcquireCoreAsync(
+                    packageId,
+                    version,
+                    Gallery,
+                    ConfiguredSourceIdentityFor(Gallery),
+                    deadline,
+                    cancellationToken).ConfigureAwait(false),
+                deadline).Package,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPackageAcquisitionResult> AcquireWithSettlementAsync(
+        string packageId,
+        string? version,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
                 version,
@@ -298,6 +335,28 @@ internal static class BrowserPackageWorkspace
         CancellationToken cancellationToken,
         BrowserManagedEpochWorkSource? epochWork) =>
         RunPackageOperationAsync(
+            async deadline => RequireAcquisition(
+                await AcquireCoreAsync(
+                    packageId,
+                    version,
+                    source,
+                    configuredSourceIdentity,
+                    deadline,
+                    cancellationToken,
+                    epochWork).ConfigureAwait(false),
+                deadline).Package,
+            operationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPackageAcquisitionResult> AcquireWithSettlementAsync(
+        string packageId,
+        string? version,
+        IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken,
+        BrowserManagedEpochWorkSource? epochWork) =>
+        RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
                 version,
@@ -309,7 +368,7 @@ internal static class BrowserPackageWorkspace
             operationTimeout,
             cancellationToken);
 
-    static async Task<BrowserPackage> AcquireCoreAsync(
+    static async Task<BrowserPackageAcquisitionResult> AcquireCoreAsync(
         string packageId,
         string? version,
         IPackageSourceClient source,
@@ -330,10 +389,21 @@ internal static class BrowserPackageWorkspace
             CancellationTokenSource.CreateLinkedTokenSource(
                 deadline.Token,
                 cancellationToken);
-        PackageSourceCoordinate coordinate = await ResolveCoordinateAsync(
-            new PackageCoordinate(packageId, requestedVersion),
-            source,
-            resolutionCancellation.Token).ConfigureAwait(false);
+        InspectionEnvelope<PackageVersionSettlementOutcome> settlement =
+            await SettleCoordinateAsync(
+                new PackageCoordinate(packageId, requestedVersion),
+                source,
+                deadline,
+                resolutionCancellation.Token).ConfigureAwait(false);
+        if (settlement.Content is PackageVersionSettlementOutcome.NotSettled)
+            return new BrowserPackageAcquisitionResult.NotSettled(settlement);
+        PackageSourceCoordinate coordinate = settlement.Content switch
+        {
+            PackageVersionSettlementOutcome.Settled settled =>
+                settled.Result.Coordinate,
+            _ => throw new InvalidOperationException(
+                "Package version settlement returned an unknown outcome."),
+        };
 
         BrowserSessionPackageStore store = StoreFor(source);
         string key = store.PackageKey(coordinate.PackageId, coordinate.Version);
@@ -381,14 +451,74 @@ internal static class BrowserPackageWorkspace
         }
 
         Cache[key] = cached with { LastAccess = ++_clock };
-        return new BrowserPackage(
-            packageId,
-            payload,
-            cached.Bytes,
-            store);
+        return new BrowserPackageAcquisitionResult.Acquired(
+            new(
+                new BrowserPackage(
+                    packageId,
+                    payload,
+                    cached.Bytes,
+                    store),
+                settlement));
     }
 
-    static async Task<PackageSourceCoordinate> ResolveCoordinateAsync(
+    static BrowserPackageAcquisition RequireAcquisition(
+        BrowserPackageAcquisitionResult result,
+        BrowserPackageOperationDeadline deadline) =>
+        result switch
+        {
+            BrowserPackageAcquisitionResult.Acquired acquired =>
+                acquired.Acquisition,
+            BrowserPackageAcquisitionResult.NotSettled
+            {
+                VersionSettlement.Content:
+                    PackageVersionSettlementOutcome.NotSettled notSettled,
+            } when notSettled.Failure.OperationTimedOut =>
+                throw deadline.Timeout(
+                    new TimeoutException(
+                        notSettled.Failure.Reason.ToString())),
+            BrowserPackageAcquisitionResult.NotSettled
+            {
+                VersionSettlement.Content:
+                    PackageVersionSettlementOutcome.NotSettled notSettled,
+            } =>
+                throw new InvalidOperationException(
+                    notSettled.Failure.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "Package version settlement returned an invalid Browser acquisition result."),
+        };
+
+    static async Task<InspectionEnvelope<PackageVersionSettlementOutcome>>
+        SettleCoordinateAsync(
+        PackageCoordinate request,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline,
+        CancellationToken cancellationToken)
+    {
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "The package settlement requested another configured source."));
+        TimeSpan operationTimeout =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        using PackageSourceOperationLease sourceOperation =
+            sourceLease.IssueOperationLease(
+                cancellationToken,
+                requestTimeout: operationTimeout,
+                operationTimeout: operationTimeout);
+        return await PackageVersionSettlementInspection.ExecuteAsync(
+                request,
+                new PackageHouse(authorization),
+                sourceOperation).ConfigureAwait(false);
+    }
+
+    static async Task<PackageSourceCoordinate> ResolveExactCoordinateAsync(
         PackageCoordinate request,
         IPackageSourceClient source,
         CancellationToken cancellationToken)
@@ -413,6 +543,14 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    static TimeSpan SourceSettlementOperationTimeout(TimeSpan remaining)
+    {
+        TimeSpan margin = PackageOperationTimeout - GalleryOperationTimeout;
+        return remaining > margin
+            ? remaining - margin
+            : remaining;
+    }
+
     /// <summary>
     /// Creates one NuGet Gallery source client and registers its association
     /// with the configured Browser source identity it acquires against, so
@@ -421,11 +559,15 @@ internal static class BrowserPackageWorkspace
     internal static IPackageSourceClient CreateGallerySource(
         NuGetFetchOptions options)
     {
-        PackageSourceAssociation association =
-            PackageSourceAssociation.Create();
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        PackageSourceAssociation association = authorization
+            .AuthorizeSourcesFor("browser-source-registration")
+            .Authorities.Single()
+            .Association;
         return RegisterGallerySource(
-            association,
-            PackageSourceClientFactory.CreateGallery(association, options));
+            PackageSourceClientFactory.CreateGallery(association, options),
+            authorization);
     }
 
     /// <summary>
@@ -437,14 +579,18 @@ internal static class BrowserPackageWorkspace
         HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions options)
     {
-        PackageSourceAssociation association =
-            PackageSourceAssociation.Create();
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        PackageSourceAssociation association = authorization
+            .AuthorizeSourcesFor("browser-source-registration")
+            .Authorities.Single()
+            .Association;
         return RegisterGallerySource(
-            association,
             PackageSourceClientFactory.CreateGallery(
                 association,
                 ownedCredentialFreeTransport,
-                options));
+                options),
+            authorization);
     }
 
     /// <summary>
@@ -468,10 +614,12 @@ internal static class BrowserPackageWorkspace
     }
 
     static IPackageSourceClient RegisterGallerySource(
-        PackageSourceAssociation association,
-        IPackageSourceClient source)
+        IPackageSourceClient source,
+        IPackageSourceAuthorization authorization)
     {
-        ConfiguredSourceIdentities[association] = GalleryConfiguredIdentity;
+        ConfiguredSourceIdentities[source.Source.Association] =
+            GalleryConfiguredIdentity;
+        SourceAuthorizations.Add(source, authorization);
         return source;
     }
 
@@ -487,6 +635,20 @@ internal static class BrowserPackageWorkspace
 
         throw new InvalidOperationException(
             "The package source association is not registered with a configured Browser source identity.");
+    }
+
+    static IPackageSourceAuthorization SourceAuthorizationFor(
+        IPackageSourceClient source)
+    {
+        if (SourceAuthorizations.TryGetValue(
+                source,
+                out IPackageSourceAuthorization? authorization))
+        {
+            return authorization;
+        }
+
+        throw new InvalidOperationException(
+            "The package source client is not registered with Browser settlement authorization.");
     }
 
     /// <summary>
@@ -1717,7 +1879,7 @@ internal static class BrowserPackageWorkspace
             is { } exactVersion)
         {
             PackageSourceCoordinate coordinate =
-                await ResolveCoordinateAsync(
+                await ResolveExactCoordinateAsync(
                     new PackageCoordinate(packageId, exactVersion),
                     source,
                     cancellationToken).ConfigureAwait(false);
