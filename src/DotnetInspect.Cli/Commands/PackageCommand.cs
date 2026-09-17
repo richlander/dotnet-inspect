@@ -4908,8 +4908,6 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
-
         if (conflicts.Count == 0)
             return null;
 
@@ -4924,15 +4922,32 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        var selected = ResolvePackageLibrary(extractPath, packageName, version, options);
-        if (selected == null)
-            return 1;
-
         var packageReference = isLocalFile
             ? packageArg
             : !string.IsNullOrWhiteSpace(version)
                 ? $"{packageName}@{version}"
                 : packageName;
+        if (string.Equals(
+                options.Tfm,
+                "all",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return await LibraryCommand.ExecuteAsync(CreateLibraryOptions(
+                assemblyName: string.IsNullOrWhiteSpace(
+                    options.PackageLibrary)
+                    ? null
+                    : options.PackageLibrary,
+                packageReference,
+                options));
+        }
+
+        var selected = ResolvePackageLibrary(
+            extractPath,
+            packageName,
+            version,
+            options);
+        if (selected == null)
+            return 1;
 
         return await LibraryCommand.ExecuteAsync(CreateLibraryOptions(
             assemblyName: Path.GetRelativePath(extractPath, selected.Path).Replace('\\', '/'),
@@ -5058,6 +5073,9 @@ public class PackageCommand
         => new()
         {
             AssemblyName = assemblyName,
+            NamesakeLibrary =
+                options.PackageLibrary is not null
+                && string.IsNullOrWhiteSpace(options.PackageLibrary),
             IncludeMetadata = true,
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,

@@ -1077,6 +1077,19 @@ for (const change of packageCoordinateChanges) {
     totalMembers: 3,
   };
 
+  test(`package ${change.name} loading retains the all-libraries aggregate`, async ({ page }) => {
+    await installPackageLoadingFacades(page, {}, replacement);
+    await page.goto(frameworkRoot.replace("#pkg", ""));
+    await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
+    const selector = page.locator(change.selector);
+    await selector.selectOption(change.selected);
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+    await releaseFacade(page, "finish-package-query");
+    await expect(selector).toHaveValue(change.selected);
+    await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
+    await expect(page.locator(".query-notice")).toHaveCount(0);
+  });
+
   for (const view of packageCoordinateViews) {
     for (const width of [1280, 390]) {
       test(`package ${change.name} loading retains ${view.name} at ${width}px`, async ({ page }) => {

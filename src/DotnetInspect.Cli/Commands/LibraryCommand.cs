@@ -1128,6 +1128,9 @@ public class LibraryCommand
                     subjectSelections);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
+                bool libraryInspectionIncomplete =
+                    WritePackageLibraryFailures(
+                        collection.LibraryFailures);
                 int descriptorSelectionExitCode =
                     collection.DescriptorSelectionFailures.Count > 0 ? 1 : 0;
 
@@ -1155,7 +1158,11 @@ public class LibraryCommand
                     WritePackageIntegrationFailures(
                         collection.IntegrationFailures);
                 int evidenceExitCode =
-                    identifierAuditIncomplete || integrationsIncomplete ? 1 : 0;
+                    identifierAuditIncomplete
+                    || integrationsIncomplete
+                    || libraryInspectionIncomplete
+                        ? 1
+                        : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0],
@@ -3382,7 +3389,8 @@ public class LibraryCommand
             IdentifierAuditFailures,
         List<(
             string FileName,
-            CandidateOpenFailure Failure)> DescriptorSelectionFailures);
+            CandidateOpenFailure Failure)> DescriptorSelectionFailures,
+        List<(string FileName, string Reason)> LibraryFailures);
 
     private static async Task<PackageInspectionCollection>
         CollectPackageInspectionsAsync(
@@ -3406,6 +3414,7 @@ public class LibraryCommand
         List<(
             string FileName,
             CandidateOpenFailure Failure)> descriptorSelectionFailures = [];
+        List<(string FileName, string Reason)> libraryFailures = [];
 
         for (int index = 0; index < assemblyPaths.Count; index++)
         {
@@ -3420,8 +3429,9 @@ public class LibraryCommand
                 case TfmSelector.PackageLibraryImageKind.NonAssembly:
                     continue;
                 case TfmSelector.PackageLibraryImageKind.Unreadable:
-                    logger.LogWarning(
-                        $"Could not read library: {Path.GetFileName(targetPath)}");
+                    libraryFailures.Add((
+                        relativePath,
+                        "invalid or unreadable managed assembly image"));
                     continue;
             }
 
@@ -3549,7 +3559,9 @@ public class LibraryCommand
             }
             if (inspection is null || subject is null)
             {
-                logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
+                libraryFailures.Add((
+                    relativePath,
+                    "managed assembly inspection failed"));
                 continue;
             }
             if ((options.CollectIdentifierConfusionReferenceTree
@@ -3581,7 +3593,8 @@ public class LibraryCommand
             subjects,
             integrationFailures,
             identifierAuditFailures,
-            descriptorSelectionFailures);
+            descriptorSelectionFailures,
+            libraryFailures);
     }
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
@@ -3648,6 +3661,21 @@ public class LibraryCommand
         {
             CommandError.WriteWarning(
                 $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    private static bool WritePackageLibraryFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Library inspection failed for '{fileName}': {reason}");
         }
 
         return failures.Count > 0;
@@ -3748,20 +3776,76 @@ public class LibraryCommand
             }
         }
 
-        TfmSelector.PackageLibraryResolution libraryResolution =
-            namesakeLibrary
-                ? TfmSelector.SelectPackageLibrary(
-                    extractPath,
-                    resolution.PackageName ?? packageSource,
-                    requestedLibrary: null,
-                    tfm)
-                : string.IsNullOrWhiteSpace(assemblyName)
-                    ? TfmSelector.SelectPackageLibraries(extractPath, tfm)
-                    : TfmSelector.SelectPackageLibrary(
+        TfmSelector.PackageLibraryResolution libraryResolution;
+        List<string>? selectedFrameworks =
+            string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase)
+            && (namesakeLibrary
+                || !string.IsNullOrWhiteSpace(assemblyName))
+                ? TfmSelector.GetPackageLibraryTfms(extractPath)
+                : null;
+        if (selectedFrameworks is { Count: > 0 })
+        {
+            List<string> selectedPaths = [];
+            List<string> candidates = [];
+            foreach (string framework in selectedFrameworks)
+            {
+                var frameworkResolution =
+                    TfmSelector.SelectPackageLibrary(
                         extractPath,
                         resolution.PackageName ?? packageSource,
-                        assemblyName,
-                        tfm);
+                        namesakeLibrary ? null : assemblyName,
+                        framework);
+                candidates.AddRange(frameworkResolution.CandidatePaths);
+                if (!frameworkResolution.IsSelected)
+                {
+                    string subject = namesakeLibrary
+                        ? "namesake Library"
+                        : $"Library '{assemblyName}'";
+                    CommandError.Write(
+                        $"{subject} was not found uniquely for TFM "
+                        + $"'{framework}'.");
+                    foreach (string candidate in
+                             frameworkResolution.IdentityFailurePaths
+                             ?? frameworkResolution.CandidatePaths)
+                    {
+                        CommandError.WriteLine(
+                            "  "
+                            + Path.GetRelativePath(extractPath, candidate)
+                                .Replace('\\', '/'));
+                    }
+
+                    DeleteTempDir(tempDir);
+                    return null;
+                }
+
+                selectedPaths.Add(frameworkResolution.Paths[0]);
+            }
+
+            libraryResolution = new TfmSelector.PackageLibraryResolution(
+                selectedPaths,
+                "all",
+                selectedPaths.Count > 0
+                    ? TfmSelector.PackageLibraryResolutionStatus.Selected
+                    : TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
+                candidates);
+        }
+        else
+        {
+            libraryResolution =
+                namesakeLibrary
+                    ? TfmSelector.SelectPackageLibrary(
+                        extractPath,
+                        resolution.PackageName ?? packageSource,
+                        requestedLibrary: null,
+                        tfm)
+                    : string.IsNullOrWhiteSpace(assemblyName)
+                        ? TfmSelector.SelectPackageLibraries(extractPath, tfm)
+                        : TfmSelector.SelectPackageLibrary(
+                            extractPath,
+                            resolution.PackageName ?? packageSource,
+                            assemblyName,
+                            tfm);
+        }
 
         if (!libraryResolution.IsSelected)
         {

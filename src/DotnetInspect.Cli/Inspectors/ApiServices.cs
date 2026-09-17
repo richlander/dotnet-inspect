@@ -296,14 +296,50 @@ internal static class ApiServices
         }
 
         LoadedApiSurface first = loadedLibraries[0];
+        var aggregateTypes = new List<ApiType>();
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        var bindingContexts =
+            new Dictionary<ApiType, SelectedTypeBindingContext>(
+                ReferenceEqualityComparer.Instance);
+        var definingTypes = new HashSet<AggregateTypeIdentity>();
+        foreach (LoadedApiSurface loaded in loadedLibraries)
+        {
+            foreach (ApiType type in loaded.Api.Types)
+            {
+                ResolvedAssemblyReference? sourceAssembly =
+                    loaded.TryGetSourceAssembly(type);
+                string? sourcePath =
+                    sourceAssembly?.Path ?? type.SourceAssemblyPath;
+                if (sourcePath is not null
+                    && type.DefinitionName is not null
+                    && !definingTypes.Add(
+                        new AggregateTypeIdentity(
+                            Path.GetFullPath(sourcePath),
+                            type.DefinitionName)))
+                {
+                    continue;
+                }
+
+                aggregateTypes.Add(type);
+                if (sourceAssembly is not null)
+                {
+                    sourceAssemblies.Add(type, sourceAssembly);
+                    type.SourceAssemblyPath ??= sourceAssembly.Path;
+                }
+                if (loaded.TryGetBindingContext(type) is { } bindingContext)
+                    bindingContexts.Add(type, bindingContext);
+            }
+        }
+
         var api = new ApiSurface
         {
             Name = packageName ?? first.Api.Name,
             Version = apiVersion ?? first.Api.Version,
             Source = apiSource,
             Tfm = selection.Tfm,
-            Types = [.. loadedLibraries.SelectMany(
-                static loaded => loaded.Api.Types)],
+            Types = aggregateTypes,
             FilteredRuntimeJsExportFacts =
             [
                 .. loadedLibraries.SelectMany(
@@ -320,37 +356,23 @@ internal static class ApiServices
                 .. loadedLibraries.SelectMany(
                     static loaded => loaded.Api.TypeForwarders),
             ],
-            PublicTypeCount = loadedLibraries.Sum(
-                static loaded => loaded.Api.PublicTypeCount),
-            PublicMethodCount = loadedLibraries.Sum(
-                static loaded => loaded.Api.PublicMethodCount),
-            PublicPropertyCount = loadedLibraries.Sum(
-                static loaded => loaded.Api.PublicPropertyCount),
-            PublicEventCount = loadedLibraries.Sum(
-                static loaded => loaded.Api.PublicEventCount),
-            PublicFieldCount = loadedLibraries.Sum(
-                static loaded => loaded.Api.PublicFieldCount),
+            PublicTypeCount = aggregateTypes.Count,
+            PublicMethodCount = aggregateTypes.Sum(
+                static type => type.Members.Count(
+                    static member =>
+                        member.Kind is not "property"
+                            and not "field"
+                            and not "event")),
+            PublicPropertyCount = aggregateTypes.Sum(
+                static type => type.Members.Count(
+                    static member => member.Kind == "property")),
+            PublicEventCount = aggregateTypes.Sum(
+                static type => type.Members.Count(
+                    static member => member.Kind == "event")),
+            PublicFieldCount = aggregateTypes.Sum(
+                static type => type.Members.Count(
+                    static member => member.Kind == "field")),
         };
-
-        var sourceAssemblies =
-            new Dictionary<ApiType, ResolvedAssemblyReference>(
-                ReferenceEqualityComparer.Instance);
-        var bindingContexts =
-            new Dictionary<ApiType, SelectedTypeBindingContext>(
-                ReferenceEqualityComparer.Instance);
-        foreach (LoadedApiSurface loaded in loadedLibraries)
-        {
-            foreach (ApiType type in loaded.Api.Types)
-            {
-                if (loaded.TryGetSourceAssembly(type) is { } sourceAssembly)
-                {
-                    sourceAssemblies.Add(type, sourceAssembly);
-                    type.SourceAssemblyPath ??= sourceAssembly.Path;
-                }
-                if (loaded.TryGetBindingContext(type) is { } bindingContext)
-                    bindingContexts.Add(type, bindingContext);
-            }
-        }
 
         return new LoadedApiSurface(
             api,
@@ -362,6 +384,10 @@ internal static class ApiServices
                     ? null
                     : bindingContexts);
     }
+
+    private readonly record struct AggregateTypeIdentity(
+        string SourceAssemblyPath,
+        MetadataTypeDefinitionName DefinitionName);
 
     static ResolvedAssemblyReference? SelectRootAssembly(
         string assemblyPath,

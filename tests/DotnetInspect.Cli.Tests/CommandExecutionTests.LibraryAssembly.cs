@@ -4084,7 +4084,9 @@ public partial class CommandExecutionTests
                 "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
                 "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
 
-            Assert.Equal(0, markdownExit);
+            Assert.True(
+                markdownExit == 0,
+                $"Exit {markdownExit}: {markdownError}");
             Assert.Contains("## Libraries", markdownOutput);
             Assert.Empty(markdownError);
             Assert.Equal(0, jsonExit);
@@ -4245,7 +4247,9 @@ public partial class CommandExecutionTests
                 "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Contains(
+                "### lib/net8.0/Lib.dll (net8.0)",
+                output);
             Assert.Contains("U+0405→S", output);
             Assert.Contains(
                 "Warning: Identifier audit failed for "
@@ -4303,7 +4307,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Bad.dll", output);
             Assert.Contains("Bad.dll", error);
             Assert.Contains(
-                "selected managed assembly contains invalid metadata",
+                "invalid or unreadable managed assembly image",
                 error,
                 StringComparison.OrdinalIgnoreCase);
         }

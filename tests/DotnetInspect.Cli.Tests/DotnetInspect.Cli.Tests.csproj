@@ -22,6 +22,8 @@
                      Version="[8.0.4]" />
     <PackageDownload Include="Microsoft.EntityFrameworkCore.Relational"
                      Version="[8.0.4]" />
+    <PackageDownload Include="Avalonia"
+                     Version="[12.1.2]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +32,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.entityframeworkcore.relational/8.0.4/microsoft.entityframeworkcore.relational.8.0.4.nupkg"
           Link="RealAssets/TypeDependencies/microsoft.entityframeworkcore.relational.8.0.4.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)avalonia/12.1.2/avalonia.12.1.2.nupkg"
+          Link="RealAssets/PackageLibrarySelection/avalonia.12.1.2.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

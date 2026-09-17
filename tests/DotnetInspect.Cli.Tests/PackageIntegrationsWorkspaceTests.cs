@@ -933,7 +933,9 @@ public sealed class PackageIntegrationsWorkspaceTests
             string output = await stdout;
             string error = await stderr;
 
-            Assert.True(exit == 0, error);
+            Assert.Equal(
+                shape == "invalid-image" ? 1 : 0,
+                exit);
             Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
             Assert.Contains("## Integration: Opportunities", output);
             Assert.Equal(expectedLibraries, output.Split(
@@ -957,11 +959,16 @@ public sealed class PackageIntegrationsWorkspaceTests
             }
             if (shape == "invalid-image")
             {
-                Assert.Contains("Could not read library:", error);
+                Assert.Contains(
+                    "Warning: Library inspection failed for "
+                    + "'lib/net11.0/Invalid.dll'",
+                    error);
             }
             if (shape == "native-image")
             {
-                Assert.DoesNotContain("Could not read library:", error);
+                Assert.DoesNotContain(
+                    "Library inspection failed",
+                    error);
             }
             TestContext.Current.TestOutputHelper?.WriteLine($"{shape}: exit {exit}\n{output}");
         }

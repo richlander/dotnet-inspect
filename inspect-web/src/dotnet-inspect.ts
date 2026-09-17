@@ -7027,6 +7027,7 @@ function renderLibraryOverview() {
       activeFramework: pkg.activeFramework,
       totalTypes: pkg.totalTypes,
       totalMembers: pkg.totalMembers,
+      coordinateFieldsHtml: packageCoordinateFields(),
       contentHtml,
       escapeHtml,
     });
@@ -9593,10 +9594,13 @@ function capturePackageCoordinateView(): Pick<
   return {
     packageLens: state.atPackageRoot ? state.packageLens : "overview",
     ...(state.atLibraryRoot ? {
-      librarySelection: {
-        selector: selectedLibraryName(),
-        lens: state.libraryLens,
-      },
+      librarySelection: state.libraryScope === null
+        ? { kind: "aggregate" as const }
+        : {
+          kind: "exact" as const,
+          selector: selectedLibraryName(),
+          lens: state.libraryLens,
+        },
     } : {}),
   };
 }
@@ -15248,7 +15252,9 @@ interface LoadPackageOptions {
   queryNotice?: string;
   replacePackage?: AppPackage | null;
   packageLens?: PackageLens;
-  librarySelection?: { selector: string; lens: LibraryLens };
+  librarySelection?:
+    | { kind: "aggregate" }
+    | { kind: "exact"; selector: string; lens: LibraryLens };
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -15338,18 +15344,24 @@ async function loadPackage(
       state.atLibraryRoot = false;
       state.packageLens = options.packageLens ?? "overview";
       if (options.librarySelection) {
-        const { selector, lens } = options.librarySelection;
-        const library = resolvePackageLibrary(packageModel.assemblies, selector);
-        if (library) {
-          state.libraryScope = new Set([library.id]);
-          state.atPackageRoot = false;
-          state.atLibraryRoot = true;
-          state.libraryLens = lens;
+        if (options.librarySelection.kind === "aggregate") {
+          selectDefaultPackageSubject(packageModel);
         } else {
-          appendQueryNotice(
-            `The library '${selector}' is not uniquely available in `
-            + `${packageModel.id}@${packageModel.version} (${packageModel.activeFramework}). `
-            + "Showing Package Overview.");
+          const { selector, lens } = options.librarySelection;
+          const library = resolvePackageLibrary(
+            packageModel.assemblies,
+            selector);
+          if (library) {
+            state.libraryScope = new Set([library.id]);
+            state.atPackageRoot = false;
+            state.atLibraryRoot = true;
+            state.libraryLens = lens;
+          } else {
+            appendQueryNotice(
+              `The library '${selector}' is not uniquely available in `
+              + `${packageModel.id}@${packageModel.version} (${packageModel.activeFramework}). `
+              + "Showing Package Overview.");
+          }
         }
       }
     }

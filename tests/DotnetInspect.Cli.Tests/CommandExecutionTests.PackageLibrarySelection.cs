@@ -29,6 +29,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_UnreadableAggregateParticipantIsVisible()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string libDir = Path.Combine(
+                tempDir,
+                "content",
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(libDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(libDir, "Readable.dll"));
+            File.WriteAllBytes(
+                Path.Combine(libDir, "Invalid.dll"),
+                [1, 2, 3]);
+            string packagePath =
+                Path.Combine(tempDir, "Unreadable.Sample.1.0.0.nupkg");
+            System.IO.Compression.ZipFile.CreateFromDirectory(
+                Path.Combine(tempDir, "content"),
+                packagePath);
+
+            var result = await RunAppAsync(
+                "library", packagePath,
+                "-S", "Library Info",
+                "--markdown", "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains(
+                "# lib/net8.0/Readable.dll (net8.0)",
+                result.Output);
+            Assert.Contains(
+                "Warning: Library inspection failed for "
+                + "'lib/net8.0/Invalid.dll'",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_NamesakeNarrowsAggregate()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
@@ -84,6 +130,42 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task TypeCommand_AggregateDeduplicatesForwardedDeclaration()
+    {
+        string packagePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageLibrarySelection",
+            "avalonia.12.1.2.nupkg");
+
+        var listing = await RunAppAsync(
+            "type", packagePath,
+            "-t",
+            "Avalonia.Data.MultiBinding",
+            "--tfm", "net8.0",
+            "--table", "--columns", "Type,Library",
+            "--tips", "q");
+        var exact = await RunAppAsync(
+            "type",
+            "Avalonia.Data.MultiBinding",
+            "--package", packagePath,
+            "--tfm", "net8.0",
+            "--tips", "q");
+
+        Assert.Equal(0, listing.Exit);
+        Assert.Equal(
+            1,
+            listing.Output.Split(
+                "Avalonia.Data.MultiBinding",
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains("Avalonia.Base.dll", listing.Output);
+        Assert.Equal(0, exact.Exit);
+        Assert.DoesNotContain(
+            "ambiguous across the selected libraries",
+            exact.Error);
     }
 
     [Fact]
@@ -384,6 +466,59 @@ public partial class CommandExecutionTests
                 "# DotnetInspect.Cli.Tests (net8.0)",
                 result.Output);
             Assert.Empty(result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryAndPackageCommands_AllTfmsNarrowEachFramework()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalMultiTfmLibraryPackage(
+                "DotnetInspect.Cli.Tests",
+                "Different.File.dll");
+        try
+        {
+            var results = new[]
+            {
+                await RunAppAsync(
+                    "library", "Different.File.dll",
+                    "--package", packagePath,
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+                await RunAppAsync(
+                    "library", packagePath,
+                    "--namesake-library",
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+                await RunAppAsync(
+                    "package", packagePath,
+                    "--library", "Different.File.dll",
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+                await RunAppAsync(
+                    "package", packagePath,
+                    "--namesake-library",
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+            };
+
+            foreach (var result in results)
+            {
+                Assert.True(
+                    result.Exit == 0,
+                    $"Exit {result.Exit}: {result.Error}");
+                Assert.Contains("net10.0", result.Output);
+                Assert.Contains("net8.0", result.Output);
+                Assert.Empty(result.Error);
+            }
         }
         finally
         {
