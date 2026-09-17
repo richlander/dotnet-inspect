@@ -278,7 +278,7 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
-        DeadlineAfterMillionsOfObservations_PublishesBoundedProvenance()
+        MillionsOfContributions_PublishBoundedIncompleteProvenance()
     {
         const int contributionCount = 4_000_000;
         const int distinctSourceCount = 9;
@@ -313,18 +313,10 @@ public sealed class CompiledDocumentationQueryTests
         for (int index = 0; index < contributions.Length; index++)
             contributions[index] = distinct[index % distinct.Length];
 
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(1);
         DocumentationHouseRequest request = Request(
             subject,
             contributions,
-            contributionCount,
-            deadline);
-
-        while (deadline - DateTimeOffset.UtcNow
-            > TimeSpan.FromMilliseconds(50))
-        {
-            Thread.SpinWait(10_000);
-        }
+            maximumContributions: distinctSourceCount);
 
         CompiledDocumentationQueryResult result =
             await CompiledDocumentationQuery.ExecuteAsync(
@@ -332,13 +324,11 @@ public sealed class CompiledDocumentationQueryTests
                 library.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
-        Assert.IsType<DocumentationHouseOutcome.Incomplete>(
-            result.Outcome);
         CompiledDocumentationOutcome.Incomplete incomplete =
             Assert.IsType<CompiledDocumentationOutcome.Incomplete>(
                 result.Content);
         Assert.Equal(
-            CompiledDocumentationIncompleteReason.Deadline,
+            CompiledDocumentationIncompleteReason.ContributionLimit,
             incomplete.Reason);
         Assert.Equal(8, incomplete.Sources.Length);
         Assert.True(incomplete.SourcesTruncated);

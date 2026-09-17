@@ -963,11 +963,12 @@ source-generated JSON contract round trips the separately copied portable
 outcome. Neighboring absent, unavailable, contribution-rejected,
 contribution-failed, and top-level lease-rejected results each retain a
 discriminator-specific shape rather than becoming empty documentation.
-A top-level deadline after four million contribution observations retains eight
-distinct source, kind, and precedence values plus explicit truncation without
-presenting the unfinished channel as a completed attempt. That payload is 990
-UTF-8 bytes and is gated at no more than 1,024 bytes. The available real-package
-payload is 1,028 bytes and is gated at no more than 1,100 bytes.
+A four-million-contribution input constrained by a nine-entry House limit
+retains eight distinct source, kind, and precedence values plus explicit
+truncation without presenting unfinished work as available documentation. That
+payload is 999 UTF-8 bytes and is gated at no more than 1,024 bytes. The
+available real-package payload is 1,028 bytes and is gated at no more than
+1,100 bytes.
 `PortableContract_IsDiscriminatedAndQueriesOwned` provides full public-type
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
