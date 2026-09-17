@@ -349,9 +349,8 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
-    public async Task InactiveUnknownFacet_FailsBeforeActivation()
+    public async Task InactiveUnknownFacet_FailsBeforeConstruction()
     {
-        PackageFixture package = await SystemTextJsonPackageAsync();
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
@@ -365,22 +364,27 @@ public sealed class CompleteRestorationExecutionTests
                         focus: null),
                     "scenario",
                     authority));
-        var host = new TestHost();
         using var client = new HttpClient(new RejectingHandler());
 
         CompleteRestorationResult<InspectionWorkspace> result =
             await WorkspaceDefinitionConsumer.RestoreAsync(
                 preparation,
                 authority,
-                host,
-                Options(client, package.Store),
+                new NeverConstructHost(),
+                Options(client, []),
                 TestContext.Current.CancellationToken);
 
         var failed = Assert.IsType<
             CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
-        Assert.IsType<CompleteRestorationFailure.SelectorResolutionFailed>(
-            failed.Failure);
-        Assert.True(host.CloseReport!.Succeeded);
+        var selectorFailure =
+            Assert.IsType<
+                CompleteRestorationFailure.SelectorResolutionFailed>(
+                    failed.Failure);
+        Assert.Equal(
+            CommittedSelectorResolutionFailureKind.InvalidFacet,
+            selectorFailure.Failure.Kind);
+        Assert.Equal(1, selectorFailure.Failure.StateIndex);
+        Assert.Equal("package", selectorFailure.Failure.NavigationId);
     }
 
     [Fact]

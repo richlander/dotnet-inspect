@@ -450,6 +450,15 @@ public static class CompleteRestorationCoordinator
 
         var ready =
             (CompleteRestorationPreparationResult.Ready)preparation;
+        if (FindUnknownFacet(ready.Plan.Recipe, options.Facets)
+            is { } unknownFacet)
+        {
+            return new CompleteRestorationResult<TActivation>.Failed(
+                preparation.Intent,
+                preparation.Request,
+                new CompleteRestorationFailure.SelectorResolutionFailed(
+                    unknownFacet));
+        }
 
         CompleteWorkspaceActivation? callbackActivation = null;
         CompleteRestorationHostResult<TActivation> hostResult =
@@ -501,6 +510,32 @@ public static class CompleteRestorationCoordinator
             _ => throw new InvalidOperationException(
                 "Unknown complete-restoration host result."),
         };
+    }
+
+    private static CommittedSelectorResolutionFailure? FindUnknownFacet(
+        CompleteRestorationRecipe recipe,
+        ViewFacetRegistry facets)
+    {
+        var definitions =
+            ((CompleteRestorationRecipe.Version2)recipe).Definitions;
+        if (definitions.View is not { } view)
+            return null;
+
+        for (int index = 0; index < view.States.Count; index++)
+        {
+            CommittedViewStateDefinition state = view.States[index];
+            if (state.Facet is { } facet
+                && !facets.TryGetDescriptor(facet, out _))
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    index,
+                    state.Navigation,
+                    $"View state {index} facet '{facet}' is not registered.");
+            }
+        }
+
+        return null;
     }
 
     private static async ValueTask<CompleteWorkspacePreparationResult>
