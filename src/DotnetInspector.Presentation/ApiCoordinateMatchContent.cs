@@ -87,5 +87,5 @@ public sealed record ApiCoordinateMatchContent
 
     /// <summary>Exact, resource-free evidence for in-process consumers; never a portable receipt.</summary>
     [JsonIgnore]
-    public ApiCoordinateCorrespondenceResult? Evidence { get; init; }
+    public ApiCoordinateCorrespondenceEvidence? Evidence { get; init; }
 }
