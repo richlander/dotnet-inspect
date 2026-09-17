@@ -12,9 +12,11 @@ return deterministic shortest local call witnesses with their physical call
 receipts and visible completion boundaries.
 
 Analysis does not decide which methods are public roots or direct package-use
-sites. Metadata owns public-surface extraction. Queries will compose those
-roots with pairwise call-use destinations, and the CLI and Browser/Wasm hosts
-will consume that shared composition under #6313.
+sites. Metadata owns the exact public MethodDef root inventory under
+[#7391](https://github.com/richlander/dotnet-inspect/issues/7391). Queries will
+compose those roots with pairwise call-use destinations under
+[#7390](https://github.com/richlander/dotnet-inspect/issues/7390), and the CLI
+and Browser/Wasm hosts will consume that shared composition under #6313.
 
 ## Motivating asset
 
@@ -176,7 +178,7 @@ This operation does not:
 The end-to-end plan remains three steps:
 
 1. this Analysis operation supplies exact bounded root-to-use-site witnesses;
-2. a Queries slice composes Metadata-issued public roots, pairwise direct-use
+2. issue #7390 composes Metadata-issued public roots, pairwise direct-use
    destinations, provider grouping, and one shared typed result; and
 3. `graph libraries` and Browser/Wasm consume that same composition under
    #6313.
