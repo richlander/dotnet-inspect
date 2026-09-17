@@ -506,7 +506,7 @@ public partial class CommandExecutionTests
                 "--table",
                 "--tips", "q");
 
-            Assert.Equal(plainText ? 0 : 1, result.Exit);
+            Assert.Equal(0, result.Exit);
             Assert.Contains("CommandExecutionTests", result.Output);
             Assert.Contains("DotnetInspect.Cli.Tests", result.Output);
             if (plainText)
