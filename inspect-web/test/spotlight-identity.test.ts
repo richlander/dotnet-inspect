@@ -6022,8 +6022,13 @@ test("Package and Library Overview share the named identity frame", () => {
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
   assert.match(renderLibraryOverview,
+    /state\.libraryScope === null[\s\S]*renderOverviewSurface\(\{[\s\S]*displayName: "All libraries",[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
+  const renderExactLibraryOverview =
+    renderLibraryOverview.match(/const library = selectedLibrary\(\);[\s\S]*/)?.[0]
+    ?? "";
+  assert.match(renderLibraryOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "library",[\s\S]*displayName: library\.name,[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*details: \[library\.asset \|\| "Managed library", libraryIdentity\(library\)\]/);
-  assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
+  assert.doesNotMatch(renderExactLibraryOverview, /coordinateFieldsHtml:/);
   assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
     /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
