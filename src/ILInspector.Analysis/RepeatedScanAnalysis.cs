@@ -120,7 +120,8 @@ internal static class RepeatedScanAnalysis
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<OptimizationOpportunity> rawOpportunities,
         IReadOnlySet<int> suppressedMethodTokens,
-        IReadOnlyDictionary<int, int> reachByToken)
+        IReadOnlyDictionary<int, int> reachByToken,
+        MethodDefinitionMap methodMap)
     {
         var methodByToken =
             new Dictionary<int, MethodIdentity>(methods.Length);
@@ -207,7 +208,8 @@ internal static class RepeatedScanAnalysis
                         producer.Call));
             }
 
-            if (methodByToken.ContainsKey(call.CalleeDefinitionToken))
+            int calleeToken = methodMap.Resolve(call);
+            if (methodByToken.ContainsKey(calleeToken))
             {
                 if (!inAssemblyCallees.TryGetValue(
                         call.Caller.MetadataToken,
@@ -216,7 +218,7 @@ internal static class RepeatedScanAnalysis
                     inAssemblyCallees[call.Caller.MetadataToken] =
                         callees = [];
                 }
-                callees.Add(call.CalleeDefinitionToken);
+                callees.Add(calleeToken);
             }
         }
 
@@ -268,7 +270,6 @@ internal static class RepeatedScanAnalysis
                 evidence);
         }
 
-        var methodMap = MethodDefinitionMap.Create(methods);
         var recursiveTraversalTokens = directCalls
             .Where(static call => call.Kind == CallKind.Call && call.InLoop)
             .Where(call => methodMap.Resolve(call) == call.Caller.MetadataToken)
@@ -293,7 +294,7 @@ internal static class RepeatedScanAnalysis
             if (!IsInvocation(call)
                 || !call.InLoop)
                 continue;
-            int calleeToken = call.CalleeDefinitionToken;
+            int calleeToken = methodMap.Resolve(call);
             if (!scanningMethods.TryGetValue(
                     calleeToken,
                     out var scan)
@@ -324,7 +325,7 @@ internal static class RepeatedScanAnalysis
 
         foreach (var call in directCalls)
         {
-            int calleeToken = call.CalleeDefinitionToken;
+            int calleeToken = methodMap.Resolve(call);
             if (!IsInvocation(call)
                 || !recursiveTraversalTokens.Contains(
                     call.Caller.MetadataToken)

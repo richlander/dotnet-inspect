@@ -103,6 +103,9 @@ public static class FixtureIds
     public const string AnalysisMethodCorrespondenceSurface =
         "analysis.method-correspondence.surface";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
+    public const string AnalysisCallOverloads = "analysis.call-overloads";
+    public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
+    public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
     public const string AnalysisProtobuf = "analysis.protobuf";
@@ -470,6 +473,27 @@ public static class FixtureCatalog
         "ILInspector.Analysis.OwnershipFlowFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "ownership-flow");
+
+    public static readonly FixtureDefinition AnalysisCallOverloads = Fixture(
+        FixtureIds.AnalysisCallOverloads,
+        "ILInspector.Analysis.CallOverloadFixtures",
+        "ILInspector.Analysis.CallOverloadFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallGenericScope = Fixture(
+        FixtureIds.AnalysisCallGenericScope,
+        "ILInspector.Analysis.CallGenericScopeFixtures",
+        "ILInspector.Analysis.CallGenericScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallFunctionPointerScope = Fixture(
+        FixtureIds.AnalysisCallFunctionPointerScope,
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures",
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
 
     public static readonly FixtureDefinition AnalysisTopLevelAsync = Fixture(
         FixtureIds.AnalysisTopLevelAsync,
@@ -966,6 +990,9 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
+        AnalysisCallOverloads,
+        AnalysisCallGenericScope,
+        AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
         AnalysisCallerGraphCallerTwin,
@@ -1057,6 +1084,9 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisCallOverloads,
+            AnalysisCallGenericScope,
+            AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1399,6 +1429,9 @@ public static class FixtureCatalog
             "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
             "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
+            "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
+            "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
+            "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
             "ILInspector.Analysis.SpoofFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofFixtures",

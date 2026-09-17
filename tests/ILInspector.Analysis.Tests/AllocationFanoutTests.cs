@@ -183,6 +183,44 @@ public class AllocationFanoutTests
     }
 
     [Fact]
+    public void Analyze_TreatsResolvedBodilessTargetsAsOpaque()
+    {
+        var root = Method(1, "Root");
+        var bodiless = Method(2, "Bodiless");
+        MethodDefinitionMap declarationMap =
+            MethodDefinitionMap.Create(
+                [root, bodiless]);
+
+        AllocationFanoutSummary rootSummary = Assert.Single(
+            AllocationFanout.Analyze(
+                [root],
+                [
+                    Call(
+                        root,
+                        bodiless,
+                        4,
+                        AllocationMultiplicity.Once),
+                ],
+                new Dictionary<
+                    int,
+                    ImmutableArray<AllocationOccurrence>>
+                {
+                    [root.MetadataToken] =
+                    [
+                        Allocation(
+                            root,
+                            AllocationMultiplicity.Once),
+                    ],
+                },
+                excludedMethodTokens: null,
+                methodMap: declarationMap));
+
+        Assert.Equal(1, rootSummary.DirectSites);
+        Assert.Equal(1, rootSummary.OncePaths);
+        Assert.Equal(1, rootSummary.OpaquePaths);
+    }
+
+    [Fact]
     public void Analyze_TerminatesRecursiveComponentsWithoutInventingCounts()
     {
         var first = Method(1, "First");

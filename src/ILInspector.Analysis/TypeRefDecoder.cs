@@ -17,6 +17,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static readonly ConditionalWeakTable<
         MetadataReader,
         CurrentAssemblyInfo> s_currentAssemblies = new();
+    readonly Action<int>? _reserveStructuralWork;
+    bool _currentAssemblyWorkReserved;
 
     sealed record CurrentAssemblyInfo(
         string Name,
@@ -49,8 +51,22 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     static int s_cumulativeSignatureBytes;
     const int MaxCumulativeSignatureBytes = 4096;
 
+    TypeRefDecoder()
+    {
+    }
+
+    internal TypeRefDecoder(
+        Action<int> reserveStructuralWork)
+    {
+        ArgumentNullException.ThrowIfNull(
+            reserveStructuralWork);
+        _reserveStructuralWork =
+            reserveStructuralWork;
+    }
+
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
+        ReserveStructuralWork(1);
         string name = typeCode switch
         {
             PrimitiveTypeCode.Boolean => "Boolean",
@@ -97,13 +113,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 MetadataTypeNameFailure.From(rejection!));
         }
 
+        ReserveStructuralWork(consumedNodes);
         try
         {
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeDefinition(chain[0]);
             CurrentAssemblyInfo currentAssembly =
                 CurrentAssembly(reader);
-            string ns = reader.GetString(root.Namespace);
+            string ns = ReadString(reader, root.Namespace);
             return Definition(
                 currentAssembly.Name,
                 ns,
@@ -118,7 +135,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 currentAssembly.AuthenticProtobuf,
                 rawTypeKind);
         }
-        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (_reserveStructuralWork is null
+            && ex is (
+                BadImageFormatException
+                    or ArgumentOutOfRangeException))
         {
             return TypeRef.Unsupported(
                 RelationshipProjectionFailure("type-definition declaring-type", handle, ex),
@@ -143,11 +163,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 MetadataTypeNameFailure.From(rejection!));
         }
 
+        ReserveStructuralWork(consumedNodes);
         try
         {
             var chain = handles[..consumedNodes];
             var root = reader.GetTypeReference(chain[0]);
-            string ns = reader.GetString(root.Namespace);
+            string ns = ReadString(reader, root.Namespace);
             ImmutableArray<string> segments = TypeNameSegments(
                 reader,
                 chain,
@@ -157,6 +178,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             if (terminal.Kind == HandleKind.AssemblyReference)
             {
                 var assemblyHandle = (AssemblyReferenceHandle)terminal;
+                ReserveAssemblyReferenceWork(
+                    reader,
+                    assemblyHandle);
                 AssemblyReferenceIdentity assembly =
                     AssemblyReferenceIdentity.From(reader, assemblyHandle);
                 return Definition(
@@ -179,7 +203,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             }
             else if (terminal.Kind == HandleKind.ModuleReference)
             {
-                string moduleName = reader.GetString(
+                string moduleName = ReadString(
+                    reader,
                     reader.GetModuleReference(
                         (ModuleReferenceHandle)terminal).Name);
                 if (string.IsNullOrEmpty(moduleName))
@@ -202,7 +227,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 rawTypeKind);
         }
 
-        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (_reserveStructuralWork is null
+            && ex is (
+                BadImageFormatException
+                    or ArgumentOutOfRangeException))
         {
             return TypeRef.Unsupported(
                 RelationshipProjectionFailure("type-reference resolution-scope", handle, ex),
@@ -210,9 +238,25 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         }
     }
 
-    static CurrentAssemblyInfo CurrentAssembly(
+    CurrentAssemblyInfo CurrentAssembly(
         MetadataReader reader)
-        => s_currentAssemblies.GetValue(
+    {
+        if (!_currentAssemblyWorkReserved
+            && _reserveStructuralWork is not null
+            && reader.IsAssembly)
+        {
+            AssemblyDefinition definition =
+                reader.GetAssemblyDefinition();
+            _ = ReadString(reader, definition.Name);
+            if (!definition.Culture.IsNil)
+                _ = ReadString(reader, definition.Culture);
+            ReserveBlobWork(
+                reader,
+                definition.PublicKey);
+            _currentAssemblyWorkReserved = true;
+        }
+
+        return s_currentAssemblies.GetValue(
             reader,
             static current => current.IsAssembly
                 ? new CurrentAssemblyInfo(
@@ -229,6 +273,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                     null,
                     TrustedFramework: false,
                     AuthenticProtobuf: true));
+    }
 
     /// <summary>
     /// Validates the structured name and returns the definition it names. The flattened
@@ -267,7 +312,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             rawTypeKind);
     }
 
-    static ImmutableArray<string> TypeNameSegments<THandle>(
+    ImmutableArray<string> TypeNameSegments<THandle>(
         MetadataReader reader,
         ReadOnlySpan<THandle> chain,
         Func<MetadataReader, THandle, StringHandle> getName)
@@ -275,7 +320,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     {
         var segments = ImmutableArray.CreateBuilder<string>(chain.Length);
         foreach (THandle handle in chain)
-            segments.Add(reader.GetString(getName(reader, handle)));
+        {
+            segments.Add(
+                ReadString(
+                    reader,
+                    getName(reader, handle)));
+        }
         return segments.MoveToImmutable();
     }
 
@@ -285,6 +335,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return TypeRef.Unsupported("type-specification recursion depth exceeded");
         var spec = reader.GetTypeSpecification(handle);
         int blobLength = reader.GetBlobReader(spec.Signature).Length;
+        ReserveStructuralWork(blobLength);
         if (blobLength > MaxSignatureBlobLength)
             return TypeRef.Unsupported("type-specification signature blob too large");
         if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
@@ -312,28 +363,124 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         }
     }
 
-    public TypeRef GetSZArrayType(TypeRef elementType) => TypeRef.SzArray(elementType);
+    public TypeRef GetSZArrayType(TypeRef elementType)
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.SzArray(elementType);
+    }
+
     public TypeRef GetArrayType(TypeRef elementType, ArrayShape shape)
-        => ArrayShapeText.IsLoadableRank(shape.Rank)
+    {
+        ReserveStructuralWork(
+            1 + shape.Sizes.Length
+                + shape.LowerBounds.Length);
+        return ArrayShapeText.IsLoadableRank(shape.Rank)
             ? TypeRef.MdArray(elementType, shape)
             : TypeRef.Unsupported(
                 $"array rank {shape.Rank} is outside the loadable range 1..{ArrayShapeText.MaxRenderableRank}");
-    public TypeRef GetByReferenceType(TypeRef elementType) => TypeRef.ByRef(elementType);
-    public TypeRef GetPointerType(TypeRef elementType) => TypeRef.Pointer(elementType);
-    public TypeRef GetPinnedType(TypeRef elementType) => TypeRef.Pinned(elementType);
+    }
+
+    public TypeRef GetByReferenceType(TypeRef elementType)
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.ByRef(elementType);
+    }
+
+    public TypeRef GetPointerType(TypeRef elementType)
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.Pointer(elementType);
+    }
+
+    public TypeRef GetPinnedType(TypeRef elementType)
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.Pinned(elementType);
+    }
+
     public TypeRef GetGenericInstantiation(TypeRef genericType, ImmutableArray<TypeRef> typeArguments)
-        => TypeRef.GenericInstance(genericType, typeArguments);
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.GenericInstance(genericType, typeArguments);
+    }
+
     public TypeRef GetGenericTypeParameter(GenericScope genericContext, int index)
-        => TypeRef.GenericParameter(index, NameAt(genericContext.TypeParameters, index));
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.GenericParameter(
+            index,
+            NameAt(genericContext.TypeParameters, index));
+    }
+
     public TypeRef GetGenericMethodParameter(GenericScope genericContext, int index)
-        => TypeRef.MethodGenericParameter(index, NameAt(genericContext.MethodParameters, index));
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.MethodGenericParameter(
+            index,
+            NameAt(genericContext.MethodParameters, index));
+    }
+
     public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature)
-        => TypeRef.UnsupportedFunctionPointer(signature);
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.UnsupportedFunctionPointer(signature);
+    }
+
     public TypeRef GetModifiedType(TypeRef modifier, TypeRef unmodifiedType, bool isRequired)
-        => TypeRef.UnsupportedModified(
+    {
+        ReserveStructuralWork(1);
+        return TypeRef.UnsupportedModified(
             modifier,
             unmodifiedType,
             isRequired);
+    }
+
+    string ReadString(
+        MetadataReader reader,
+        StringHandle handle)
+    {
+        if (_reserveStructuralWork is null)
+            return reader.GetString(handle);
+
+        ReserveStructuralWork(
+            reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(
+            reader,
+            handle);
+    }
+
+    void ReserveAssemblyReferenceWork(
+        MetadataReader reader,
+        AssemblyReferenceHandle handle)
+    {
+        if (_reserveStructuralWork is null)
+            return;
+
+        System.Reflection.Metadata.AssemblyReference reference =
+            reader.GetAssemblyReference(handle);
+        _ = ReadString(reader, reference.Name);
+        if (!reference.Culture.IsNil)
+            _ = ReadString(reader, reference.Culture);
+        ReserveBlobWork(
+            reader,
+            reference.PublicKeyOrToken);
+    }
+
+    void ReserveBlobWork(
+        MetadataReader reader,
+        BlobHandle handle)
+    {
+        if (_reserveStructuralWork is not null
+            && !handle.IsNil)
+        {
+            ReserveStructuralWork(
+                reader.GetBlobReader(handle).Length);
+        }
+    }
+
+    void ReserveStructuralWork(int work)
+        => _reserveStructuralWork?.Invoke(
+            Math.Max(work, 1));
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";
