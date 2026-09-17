@@ -54,6 +54,8 @@ Related docs:
 - [Coordinate child command](coordinate-child-command.md) defines when a
   required subordinate coordinate earns a child request surface under an
   already selected subject.
+- [Inspection graph modes](inspection-graph-modes.md) defines the target split
+  between subject-local Graph operations and top-level Graph questions.
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
@@ -1169,6 +1171,18 @@ source context and therefore uses named `--library`, `--package`, or
 Member grammar: positional values identify what is sought, while named source
 options identify where it is resolved. The bare `library` command's historical
 positional source does not transfer into the child grammar.
+
+### Graph operation placement
+
+Graph uses the operation rule. `package graph`, `library graph`, `type graph`,
+and `member graph` are local single-seed operations over an already selected
+subject. Top-level `graph` hosts graph questions without one selected local
+subject.
+
+InspectionGraph-backed root modes construct or reopen the Workspace used for
+single-seed, peer-seed, induced-set, or path questions. Another root Graph mode
+may retain its producer-owned request, result, and rendering contracts when
+command placement is the only shared concern.
 
 ### Selection / discovery
 

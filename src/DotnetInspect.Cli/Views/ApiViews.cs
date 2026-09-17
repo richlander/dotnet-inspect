@@ -1318,6 +1318,10 @@ public class MemberCodeView
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
 
+    [MarkoutIgnore]
+    internal CallGraphRenderedFieldEvidence CallGraphRenderedFieldEvidence { get; set; } =
+        CallGraphRenderedFieldEvidence.Empty;
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
