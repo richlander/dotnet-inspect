@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;

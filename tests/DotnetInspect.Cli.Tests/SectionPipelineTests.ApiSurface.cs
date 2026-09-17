@@ -182,6 +182,108 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles()
+    {
+        var broad = ApiMemberSectionDescriptors.CreatePipeline();
+        var overload = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var detail = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        string[] expectedCategories =
+        [
+            SectionCategoryNames.Member,
+            SectionCategoryNames.Audit,
+            SectionCategoryNames.Calls,
+            SectionCategoryNames.Decompiler,
+            SectionCategoryNames.Performance,
+            SectionCategoryNames.Source,
+            SectionCategoryNames.SourceLink,
+        ];
+
+        foreach (var pipeline in new[] { broad, overload, detail })
+        {
+            var categories = pipeline.GetCategoryMap();
+            Assert.Equal(expectedCategories, categories.Keys);
+            Assert.DoesNotContain(SectionPipeline<ApiType>.AllCategory, categories.Keys);
+            Assert.DoesNotContain(SectionPipeline<ApiType>.HiddenCategory, categories.Keys);
+        }
+
+        Assert.Contains(SectionNames.MethodGroups, broad.BaseSectionNames);
+        Assert.Contains(SectionNames.Methods, broad.BaseSectionNames);
+        Assert.Contains(
+            SectionNames.UnsafeMembers,
+            broad.GetCategoryMap()[SectionCategoryNames.Audit]);
+        Assert.Contains(
+            SectionNames.CalledTypes,
+            broad.GetCategoryMap()[SectionCategoryNames.Calls]);
+        Assert.Contains(
+            SectionNames.SourceFiles,
+            broad.GetCategoryMap()[SectionCategoryNames.SourceLink]);
+
+        Assert.Contains(SectionNames.Methods, overload.BaseSectionNames);
+        Assert.Contains(
+            SectionNames.SourceLocations,
+            overload.GetCategoryMap()[SectionCategoryNames.SourceLink]);
+
+        Assert.Equal(
+            [
+                SectionNames.Signature,
+                SectionNames.CustomAttributes,
+                SectionNames.DecompiledSource,
+                SectionNames.PdbSource,
+                SectionNames.IL,
+            ],
+            detail.BaseSectionNames);
+        Assert.Contains(
+            SectionNames.UnsafeOperations,
+            detail.GetCategoryMap()[SectionCategoryNames.Audit]);
+        Assert.Contains(
+            SectionNames.CallGraph,
+            detail.GetCategoryMap()[SectionCategoryNames.Calls]);
+        Assert.Contains(
+            SectionNames.Facts,
+            detail.GetCategoryMap()[SectionCategoryNames.Decompiler]);
+
+        string[] Uncategorized(SectionPipeline<ApiType> pipeline)
+        {
+            HashSet<string> categorized =
+            [
+                .. ApiMemberSectionPipelines
+                    .GetCategoryMap(pipeline)
+                    .SelectMany(pair => pair.Value),
+            ];
+            return
+            [
+                .. pipeline.SelectableSectionNames.Where(
+                    section => !categorized.Contains(section)),
+            ];
+        }
+
+        Assert.Equal(
+            [
+                SectionNames.MemberIndex,
+                SectionNames.ImplementationProfiles,
+                SectionNames.CloneCandidates,
+            ],
+            Uncategorized(broad));
+        Assert.Equal(
+            [
+                SectionNames.Signature,
+                SectionNames.MemberIndex,
+                SectionNames.CustomAttributes,
+                SectionNames.FindingCensus,
+                SectionNames.CloneCandidates,
+                SectionNames.ImplementationProfiles,
+            ],
+            Uncategorized(overload));
+        Assert.Equal(
+            [
+                SectionNames.FindingCensus,
+                SectionNames.CloneCandidates,
+                SectionNames.ImplementationProfiles,
+            ],
+            Uncategorized(detail));
+    }
+
+    [Fact]
     public void ApiMemberPipeline_EnumValues_PrimaryAtMinimal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
@@ -194,7 +296,7 @@ public partial class SectionPipelineTests
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
         var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        // Values is index 0 (primary) — shown at Minimal for enums
+        // Values is an authored minimal member overview for enums.
         Assert.Contains("Values", atMinimal);
         Assert.Contains("Values", atNormal);
     }
@@ -211,7 +313,7 @@ public partial class SectionPipelineTests
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        // TypeParameters is within primary threshold (before first expensive)
+        // Generic identity is part of the authored member overview.
         Assert.Contains("Type Parameters", atMinimal);
     }
 
@@ -227,7 +329,7 @@ public partial class SectionPipelineTests
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
 
-        // Interfaces is within primary threshold (before first expensive)
+        // Interfaces is an authored minimal member overview.
         Assert.Contains("Interfaces", atMinimal);
     }
 
@@ -279,10 +381,10 @@ public partial class SectionPipelineTests
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
 
-        // Interfaces is within primary threshold — no promotion needed
+        // Interfaces is an authored overview section.
         var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Interfaces" });
 
-        Assert.Equal(Verbosity.Quiet, required);
+        Assert.Equal(Verbosity.Minimal, required);
     }
 
     [Fact]
@@ -406,7 +508,7 @@ public partial class SectionPipelineTests
     {
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
-        Assert.Equal(["Signature", "Decompiled Source"], pipeline.InfoSectionNames);
+        Assert.Equal([SectionNames.Signature], pipeline.InfoSectionNames);
     }
 
     [Fact]
@@ -422,7 +524,6 @@ public partial class SectionPipelineTests
     {
         var categories = ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap();
 
-        Assert.DoesNotContain(SectionCategoryNames.Audit, categories.Keys);
         Assert.Equal(
             [
                 SectionNames.DecompiledSource,

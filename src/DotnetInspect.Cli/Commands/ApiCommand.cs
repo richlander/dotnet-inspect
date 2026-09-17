@@ -516,7 +516,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                $"Use -S <Section> to select one, -D to discover what is available, or -S {SectionCategoryNames.Member} for the ordinary member view.");
             return (null!, 1);
         }
 
@@ -612,48 +612,44 @@ public class ApiCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-        (options, string? findingCensusSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.FindingCensus);
-        if (findingCensusSelectionError is not null)
+        foreach (string section in
+                 ApiMemberSectionPipelines.GetExactOnlySections(options))
         {
-            CommandError.Write(findingCensusSelectionError);
-            return (null!, 1);
-        }
-        (options, string? cloneCandidatesSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.CloneCandidates);
-        if (cloneCandidatesSelectionError is not null)
-        {
-            CommandError.Write(cloneCandidatesSelectionError);
-            return (null!, 1);
-        }
-        (options, string? implementationProfilesSelectionError) =
-            NormalizeExactOnlySectionSelection(
-                options,
-                memberPipeline.SelectableSectionNames,
-                SectionNames.ImplementationProfiles);
-        if (implementationProfilesSelectionError is not null)
-        {
-            CommandError.Write(implementationProfilesSelectionError);
-            return (null!, 1);
+            (options, string? selectionError) =
+                NormalizeExactOnlySectionSelection(
+                    options,
+                    memberPipeline.SelectableSectionNames,
+                    section);
+            if (selectionError is not null)
+            {
+                CommandError.Write(selectionError);
+                return (null!, 1);
+            }
         }
         if (options is
             {
                 BodyKindQuery.HasFilter: true,
                 Select: null,
                 SelectDefault: false,
-                Discover: null,
+                Discover: null or { Length: 0 },
                 IncludeSections: null,
             })
         {
+            var bodyShapeSelection = new SelectResult(
+                new HashSet<string>(
+                    [SectionNames.BodyShapes],
+                    StringComparer.OrdinalIgnoreCase),
+                []);
+            if (ApplyBodyShapeSelectionRequirements(
+                    options,
+                    bodyShapeSelection) is { } bodyShapeError)
+            {
+                CommandError.Write(bodyShapeError);
+                return (null!, 1);
+            }
             options = options with
             {
-                IncludeSections = [SectionNames.BodyShapes],
+                IncludeSections = bodyShapeSelection.Sections,
             };
         }
 
@@ -1618,7 +1614,9 @@ public class ApiCommand
                 discover,
                 discoveryScope,
                 infoSections: [],
-                categories);
+                categories,
+                exactOnlySections:
+                    ApiMemberSectionPipelines.GetExactOnlySections(options));
             var discoveredSections = new HashSet<string>(
                 resolved.Sections ?? [],
                 StringComparer.OrdinalIgnoreCase);
@@ -3889,10 +3887,13 @@ public class ApiCommand
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
         var discoveryRenderSections = bareDiscover
-            ? options is MemberOptions { OverloadIndex: not null }
+            ? options.BodyKindQuery.HasFilter
+                ? effective
+                : options is MemberOptions { OverloadIndex: not null }
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
-            : (IReadOnlyCollection<string>?)null;
+            : [.. GetRequestedMemberSections(filteredType, options)
+                .Where(section => !unprobed.Contains(section))];
         var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         if (bodyFilteredType is not null)
         {
@@ -3924,6 +3925,15 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
+        IReadOnlySet<string> catalogHiddenSections =
+            memberPipeline.GetCatalogHiddenSections();
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            catalogHiddenSections = catalogHiddenSections
+                .Where(section =>
+                    !options.IncludeSections.Contains(section))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
         var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
             queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
@@ -3942,7 +3952,11 @@ public class ApiCommand
                 options),
             fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline));
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
+            catalogHiddenSections: catalogHiddenSections,
+            listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
+            exactOnlySections:
+                ApiMemberSectionPipelines.GetExactOnlySections(options));
     }
 
     /// <summary>
