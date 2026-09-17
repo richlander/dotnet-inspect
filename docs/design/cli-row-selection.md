@@ -637,10 +637,11 @@ internal
 private
 ```
 
-The command does not expose Lines, Top, or `--order-by`. Predicate and ranking
-adoption waits for the shared row-query owner rather than adding a
-vocabulary-local implementation. Structural `-D` output remains outside this
-adoption and keeps the existing discovery projection behavior.
+The command exposes explicit rendered-line selection but does not expose Top
+or `--order-by`. Complete JSON rejects line selection before command work.
+Predicate and ranking adoption waits for the shared row-query owner rather than
+adding a vocabulary-local implementation. Structural `-D` output remains
+outside this adoption and keeps the existing discovery projection behavior.
 
 ## Timeline adoption
 
@@ -666,9 +667,10 @@ the complete vector. Semantic row selection never reduces those acquired
 cells. Markdown, table, TSV, JSONL, typed JSON, and Count consume the same
 selected rows.
 
-The command does not expose Lines, Top, `--order-by`, or predicates. Those
-capabilities require their owning rendering or row-query adoption rather than
-a timeline-local implementation.
+The command exposes explicit rendered-line selection but does not expose Top,
+`--order-by`, or predicates. Complete JSON rejects line selection before
+package acquisition. The remaining capabilities require their owning
+row-query adoption rather than a timeline-local implementation.
 
 ## Required gates
 
@@ -740,7 +742,7 @@ The vocabulary adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Structural discovery retains its existing projection path. |
+| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Explicit Lines clips rendered TSV, while complete JSON rejects line selection. Structural discovery retains its existing projection path. |
 
 The timeline adoption is enforced by:
 
@@ -748,6 +750,7 @@ The timeline adoption is enforced by:
 | --- | --- |
 | `TimelineCommandTests` | Evaluations and Transitions apply semantic Head/Tail and ordered Window stages independently before Markdown, table, TSV, JSONL, typed JSON, or Count lowering; one strict Window failure emits no partial document. |
 | `ConfiguredPayloadAcquisitionTests.TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition` | Bare `-N`, Tail, and Window compose over final Evaluation rows while explicit dense `--at all` still acquires every selected package cell. |
+| `ConfiguredPayloadAcquisitionTests.TimelineRange_ExplicitLinesClipRenderedOutput` and `TimelineRange_LinesRejectDocumentJsonBeforeAcquisition` | Explicit Lines clips rendered TSV without reducing authorized package-cell acquisition, while complete JSON rejects line selection before package acquisition. |
 
 The broad explicit-line rollout is enforced by:
 
