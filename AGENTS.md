@@ -366,8 +366,10 @@ Use the smallest sufficient set of claims and gates: state only what the user
 goal or an owned boundary or contract requires, and add only evidence that
 proves it. Inherit existing platform contracts unless a new dependency, API,
 or design calls one into question. Detailed practices live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
-are load-bearing everywhere:
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). During
+command development, expose typed evidence envelopes only through Debug hosts
+and only for supplemental facts that answer a named diagnosis or validation question;
+never treat static data or one-run timing as runtime proof. Three rules are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
@@ -386,10 +388,7 @@ are load-bearing everywhere:
   C# that is later compiled as product evidence. If a test needs that
   compensation, stop and fix the product gap instead.
 
-### Markdown
-
-All changed Markdown must pass `markdownlint` before commit (fixer:
-`npx markdownlint-cli --fix <file>`; check: `npx markdownlint-cli <file>`).
+All changed Markdown must pass `markdownlint` before commit (`npx markdownlint-cli <file>`).
 
 ## Adversarial review
 
