@@ -55,6 +55,15 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void AssemblySemanticLiteral_AcceptsNonemptyWhitespace()
+    {
+        BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(" ");
+
+        Assert.Throws<ArgumentException>(() =>
+            BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(""));
+    }
+
+    [Fact]
     public void AssemblySemanticResultRow_PreservesRootAndBoundsPreview()
     {
         var selectedAsset = new BrowserPackageAssemblySemanticSelectedAsset(

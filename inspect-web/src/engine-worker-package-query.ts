@@ -70,6 +70,9 @@ const maximumEventCollectionItems =
 const maximumSemanticCandidates = 5;
 const maximumSemanticOccurrencesPerCandidate = 10_000;
 const maximumSemanticDecodedCharactersPerCandidate = 4_000_000;
+// InertText can spell one decoded UTF-16 code unit as \uXXXX.
+const maximumInertCharactersPerDecodedCharacter = 6;
+const maximumSemanticModuleVersionIdCharacters = 36;
 const maximumSemanticPopulationFailures = maximumSemanticCandidates + 1;
 // Matched Results are serialized once in the Result population and once in
 // their typed candidate outcomes.
@@ -82,7 +85,12 @@ const maximumSemanticCollectionItems =
 const maximumSemanticCharacters =
   maximumEventCharacters
   + maximumSemanticCandidates
-  * maximumSemanticDecodedCharactersPerCandidate
+  * (
+    maximumSemanticDecodedCharactersPerCandidate
+      * maximumInertCharactersPerDecodedCharacter
+    + maximumSemanticOccurrencesPerCandidate
+      * maximumSemanticModuleVersionIdCharacters
+  )
   * 2;
 // System.Text.Json can encode one UTF-16 code unit as six JSON characters.
 // Repeated contract structure is bounded separately by the maximum collection

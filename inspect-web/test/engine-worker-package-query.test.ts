@@ -533,6 +533,8 @@ function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
 function semanticInspectedWithOccurrences(
   count: number,
   candidateCount = 1,
+  literalCharacterCount = 25,
+  literalText = "x".repeat(literalCharacterCount),
 ): BrowserPackageQueryResult {
   const valid = semanticInspected();
   const inspection = valid.inspection;
@@ -545,7 +547,11 @@ function semanticInspectedWithOccurrences(
     throw new Error("Expected semantic Package Query Document.");
   }
   const result = semantic.results[0]!;
-  const occurrence = result.occurrences[0]!;
+  const occurrence = {
+    ...result.occurrences[0]!,
+    literalCharacterCount,
+    literalText,
+  };
   const occurrences = Array.from({ length: count }, () => occurrence);
   const row = content.results[0]!;
   const evidence = row.evidence[0]!;
@@ -1032,7 +1038,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   harness.host.dispose();
 });
 
-test("Package Query Worker routes library-literal requests with progress-only callbacks", async () => {
+test("Package Query Worker routes whitespace-only library literals unchanged", async () => {
   const runs: unknown[][] = [];
   const assemblyProgress: EngineWorkerPackageQueryDurableEvent = {
     ...progressEvent,
@@ -1062,7 +1068,7 @@ test("Package Query Worker routes library-literal requests with progress-only ca
   const request = {
     ...withLibraryLiteralDraft(
       createQueryRequest("Contoso.Library"),
-      "shared-literal-use-marker",
+      " ",
       "net10.0"),
     includePrerelease: true,
   };
@@ -1086,7 +1092,7 @@ test("Package Query Worker routes library-literal requests with progress-only ca
   assert.deepEqual(runs[0]?.slice(0, 7), [
     "package-query-operation",
     "Contoso.Library",
-    "shared-literal-use-marker",
+    " ",
     "net10.0",
     1,
     true,
@@ -1105,7 +1111,7 @@ test("Package Query Worker routes library-literal requests with progress-only ca
   assert.deepEqual(payload, {
     kind: "library-literal",
     searchText: "Contoso.Library",
-    operand: "shared-literal-use-marker",
+    operand: " ",
     targetFramework: "net10.0",
     maximumCandidates: 1,
     includePrerelease: true,
@@ -1542,10 +1548,14 @@ test("Package Query Worker accepts an operation deadline before candidate admiss
   );
 });
 
-test("Package Query Worker accepts the full Browser semantic occurrence maximum", () => {
+test("Package Query Worker accepts full semantic occurrence, text, and inert expansion limits", () => {
   assert.equal(
     mapEngineWorkerPackageQueryResult(
-      semanticInspectedWithOccurrences(10_000, 5)).kind,
+      semanticInspectedWithOccurrences(
+        10_000,
+        5,
+        400,
+        "\\u202E".repeat(400))).kind,
     "succeeded",
   );
 });

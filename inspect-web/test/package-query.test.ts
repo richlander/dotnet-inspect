@@ -163,6 +163,14 @@ test("library-literal mode is exclusive and derives exact or prefix candidate bo
   assert.equal(prefix.requestedLimit, 5);
   assert.equal(prefix.requestedMatchLimit, 5);
 
+  const whitespace = withLibraryLiteralDraft(ordinary, " ", "net10.0");
+  assert.equal(isLibraryLiteralQuery(whitespace), true);
+  assert.deepEqual(whitespace.facets, []);
+  assert.deepEqual(whitespace.terms, []);
+  assert.equal(whitespace.requestedLimit, 1);
+  assert.equal(whitespace.requestedMatchLimit, 1);
+  assert.equal(whitespace.libraryLiteral.operand, " ");
+
   const cleared = withLibraryLiteralDraft(prefix, "", "net9.0");
   assert.equal(isLibraryLiteralQuery(cleared), false);
   assert.equal(cleared.requestedLimit, 200);

@@ -13,6 +13,9 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static partial class BrowserPackageQueryOperations
 {
+    internal static void ValidateAssemblySemanticLiteral(string literal) =>
+        ArgumentException.ThrowIfNullOrEmpty(literal);
+
     internal static async Task<BrowserPackageQueryInspection>
         ExecuteAssemblySemanticAsync(
         string packageInput,
@@ -24,7 +27,7 @@ internal static partial class BrowserPackageQueryOperations
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageInput);
-        ArgumentException.ThrowIfNullOrWhiteSpace(literal);
+        ValidateAssemblySemanticLiteral(literal);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         ArgumentNullException.ThrowIfNull(emit);
 
@@ -663,7 +666,8 @@ public static partial class PackageExports
         ArgumentNullException.ThrowIfNull(eventSink);
         try
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(literal);
+            BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(
+                literal);
             ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         }
         catch (ArgumentException exception)

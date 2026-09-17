@@ -120,7 +120,7 @@ export function withScopeQuery(
 }
 
 export function isLibraryLiteralQuery(request: QueryRequest): boolean {
-  return request.libraryLiteral.operand.trim().length > 0;
+  return request.libraryLiteral.operand.length > 0;
 }
 
 export function withLibraryLiteralDraft(
@@ -129,7 +129,7 @@ export function withLibraryLiteralDraft(
   targetFramework: string,
 ): QueryRequest {
   const wasActive = isLibraryLiteralQuery(request);
-  const active = operand.trim().length > 0;
+  const active = operand.length > 0;
   return queryRequest(request, {
     facets: active ? [] : request.facets,
     terms: active ? [] : request.terms,

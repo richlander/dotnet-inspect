@@ -7,7 +7,10 @@ import type {
   QueryTermDescriptor,
   TerminalQueryCompletion,
 } from "./package-query.ts";
-import { createQueryRequest } from "./package-query.ts";
+import {
+  createQueryRequest,
+  isLibraryLiteralQuery,
+} from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
   type PackageQueryViewportSnapshot,
@@ -755,7 +758,7 @@ function renderLibraryLiteralControls(
   request: QueryRequest,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const active = request.libraryLiteral.operand.trim().length > 0;
+  const active = isLibraryLiteralQuery(request);
   return `
     <details class="query-library-literal"${active ? " open" : ""}>
       <summary>Library literal</summary>
@@ -1056,8 +1059,7 @@ export function renderPackageQueryView(
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
-  const libraryLiteralActive =
-    request.libraryLiteral.operand.trim().length > 0;
+  const libraryLiteralActive = isLibraryLiteralQuery(request);
   const terms = libraryLiteralActive
     ? `<p class="query-facet-disclosure">Terms are unavailable while Library literal qualification is active.</p>`
     : renderTermControls(state, availableTerms, escapeHtml);

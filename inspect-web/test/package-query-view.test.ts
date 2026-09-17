@@ -219,6 +219,31 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
   assert.doesNotMatch(html, /data-query-term-add=/);
 });
 
+test("whitespace-only library literals remain active and unchanged", () => {
+  const request = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.Package"),
+    " ",
+    "net10.0");
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+    },
+    availableFacets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(html, /<details class="query-library-literal" open>/);
+  assert.match(html, /id="package-query-library-literal"[\s\S]*value=" "/);
+  assert.match(
+    html,
+    /Facets are unavailable while Library literal qualification is active/);
+  assert.match(
+    html,
+    /Terms are unavailable while Library literal qualification is active/);
+});
+
 test("library-literal completion distinguishes exhausted and bounded populations", () => {
   const request = withLibraryLiteralDraft(
     createQueryRequest("Contoso.*"),
