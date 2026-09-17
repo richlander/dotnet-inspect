@@ -164,10 +164,11 @@ not substituted for that view merely because family, version, and Library
 match. Migrating that route requires a source-owned exact implementation-view
 reopening adapter.
 
-The analogous `MemberSearchService` confirms the local convention of one
-ordered source collector, typed query execution, flat result rows, and
-writer-owned presentation. Member search has a different classification
-contract, however, and is not owned here.
+The analogous
+[Member Find service](find-member-search-service.md) confirms the local
+convention of one ordered source collector, typed query execution, flat result
+rows, and writer-owned presentation. Its grammar and classification remain
+separately owned.
 
 ## Discovery, not selection
 
@@ -201,16 +202,17 @@ uniqueness, or successful terminal selection. `Glob` means the direct or
 namespace-prefix wildcard grammar matched, while `Partial` remains similarity
 fallback.
 
-Type and member discovery use separate match-kind types because this document
-does not own member classification. The member route retains its existing
-`Exact` and `Glob` vocabulary.
+Type and member discovery use separate match-kind types because each owner
+defines its own grammar. The Member route also uses `Direct` and `Glob`, but
+its direct grammar is case-insensitive member-name matching plus the `this[]`
+indexer alias rather than Type-name matching.
 
-`Direct` is local to Type discovery grammar classification. It does not rename
-separately owned uses of exactness for terminal selection or relational
-equality, or `Matched`/`NoMatch` outcomes that report whether an explicit
-predicate was satisfied. In particular, Package Query exact-ID input selects
-one package identity, while assembly-semantic Find classifies candidate
-evaluation rather than coordinate-grammar quality.
+`Direct` is a discovery-grammar classification, not a global replacement for
+exactness. It does not rename separately owned uses of exactness for terminal
+selection or relational equality, or `Matched`/`NoMatch` outcomes that report
+whether an explicit predicate was satisfied. In particular, Package Query
+exact-ID input selects one package identity, while assembly-semantic Find
+classifies candidate evaluation rather than coordinate-grammar quality.
 
 The real platform `System.Action` family demonstrates the boundary:
 

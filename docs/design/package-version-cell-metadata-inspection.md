@@ -231,23 +231,26 @@ remain ordered beside healthy entries through the existing
 
 ## Production path
 
-This operation is step 2 of the six-step temporal ownership path:
+This operation is step 2 of the eight-step temporal ownership path:
 
 1. PackageHouse version-population settlement — complete in #7133.
 2. Package version-cell Metadata and explicit API Finding evidence — this owner.
 3. Exact matched API Member to implementation Analysis — owned by
    [matched API Member Analysis](matched-api-member-analysis.md).
-4. Bounded PackageHouse source/destination cell-pair Analysis — #7248.
-5. Shared Diff History and metadata-only version-count terminals, followed by
+4. Diff History baseline-required receipt and direct source-to-checkpoint
+   policy — owned by [Diff History inspection](diff-history.md).
+5. Queries-owned detached coordinate-correspondence evidence — #7337.
+6. Bounded PackageHouse baseline/checkpoint Analysis — #7248.
+7. Shared Diff History and metadata-only version-count terminals, followed by
    subject CLI cutover with top-level `timeline` removal.
-6. Browser Compare and version-count adoption.
+8. Browser Compare and version-count adoption.
 
 The later hosts supply their source authorization and cell executor while
 consuming the same request and outcome. This lower producer feeds the shared
-`InspectionEnvelope<DiffHistoryOutcome>` terminal in step 4; it does not
+`InspectionEnvelope<DiffHistoryOutcome>` terminal in step 7; it does not
 introduce a separate CLI or Browser counting/correlation algorithm. The existing
 standalone Timeline's host-local API acquisition/projection remains until the
-subject-owned cutover retires it in step 5.
+subject-owned cutover retires it in step 7.
 
 API evidence is structured producer content, not rendered output. The later
 History terminal retains it in the shared envelope; CLI Markout lowering and
