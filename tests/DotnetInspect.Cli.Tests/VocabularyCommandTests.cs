@@ -613,6 +613,46 @@ public sealed class VocabularyCommandTests
     }
 
     [Fact]
+    public async Task CommandLine_ExplicitLinesClipRenderedTsv()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "2",
+            "--lines",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            2,
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task CommandLine_LinesRejectCompleteJson()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "2",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
+    }
+
+    [Fact]
     public async Task CommandLine_ComposesSemanticStagesInArgumentOrder()
     {
         var result = await RunCliAsync(

@@ -14,6 +14,9 @@ export interface AnnotatedSourceNode {
   medium: SourceMedium;
   spans: readonly TextSpan[];
   il_offset?: number | null;
+  provenance?: {
+    readonly il_offsets: readonly number[];
+  } | null;
 }
 
 export interface AnnotatedSourceRegion {

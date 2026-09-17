@@ -553,8 +553,15 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationRecipe recipe,
         ViewFacetRegistry facets)
     {
-        var definitions =
-            ((CompleteRestorationRecipe.Version2)recipe).Definitions;
+        CommittedScenarioDefinitionSet definitions = recipe switch
+        {
+            CompleteRestorationRecipe.Version2 version2 =>
+                version2.Definitions,
+            CompleteRestorationRecipe.Version3 version3 =>
+                version3.Definitions,
+            _ => throw new InvalidOperationException(
+                "Unknown complete restoration recipe."),
+        };
         if (definitions.View is not { } view)
             return null;
 
