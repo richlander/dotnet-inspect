@@ -113,7 +113,7 @@ No additional dependencies
 ### 3a. Full layout
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --layout -n 65
+dotnet-inspect package System.CommandLine@2.0.3 --layout -n 65 --lines
 ```
 
 ```expect
@@ -125,7 +125,7 @@ lib
 ### 3b. Lib-only layout
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --layout --lib -n 25
+dotnet-inspect package System.CommandLine@2.0.3 --layout --lib -n 25 --lines
 ```
 
 ```expect
@@ -141,7 +141,7 @@ System.CommandLine.dll
 ### 4a. All files
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --path -n 10
+dotnet-inspect package System.CommandLine@2.0.3 --path -n 10 --lines
 ```
 
 ```expect

@@ -269,6 +269,47 @@ internal static class BrowserCallGraphProjection
             surfaceAssemblyId);
     }
 
+    internal static BrowserCallGraphTargetInfo Target(
+        Analysis.MethodIdentity member,
+        AssemblyReferenceIdentity identity,
+        string id,
+        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        Analysis.TypeRef? definition = DeclaringTypeDefinition(member.DeclaringType);
+        string? surfaceAssemblyId = null;
+        if (surfaceParticipants is not null)
+        {
+            BrowserWorkspaceParticipant[] matches =
+            [
+                .. surfaceParticipants.Where(participant =>
+                    participant.Assembly.Identity.IsEquivalentTo(identity)),
+            ];
+            if (matches.Length == 1)
+                surfaceAssemblyId = matches[0].Asset.Id;
+        }
+        return new BrowserCallGraphTargetInfo(
+            id,
+            identity.Name,
+            identity.Version?.ToString(),
+            identity.Culture,
+            identity.PublicKeyToken,
+            member.DeclaringType.ToQualifiedDisplayString(),
+            definition is null ? null : LegacyMetadataTypeId(definition),
+            DefinitionTypeId(definition),
+            member.Name,
+            [.. member.ParameterTypes.Select(type => type.ToQualifiedDisplayString())],
+            member.ReturnType.ToQualifiedDisplayString(),
+            member.GenericArity,
+            member.MetadataToken,
+            Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
+            "method",
+            PlatformPack: null,
+            surfaceAssemblyId);
+    }
+
     /// <summary>
     /// The exact escaped structured identity of a call-graph target's declaring type — the same
     /// identity the browsable type surface carries and the same one the product's resolver

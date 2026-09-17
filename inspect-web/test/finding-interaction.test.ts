@@ -9,6 +9,7 @@ import {
   selectFindingInstance,
 } from "../src/finding-interaction.ts";
 import { memberFindingCensusFixture } from "./member-finding-census-fixture.ts";
+import { sampleCalleeEvidence } from "./annotated-source-result-fixture.ts";
 
 test("display-identical Findings retain distinct bidirectional identity", () => {
   const interaction =
@@ -99,5 +100,18 @@ test("malformed sidecars and key sets are rejected without shape fallback", () =
         fact.instanceKey === 42 ? { ...fact, instanceKey: 43 } : fact),
     }),
     /do not carry the same Finding instance keys/,
+  );
+  assert.throws(
+    () => createMemberFindingInteraction({
+      ...census,
+      annotatedSource: {
+        ...census.annotatedSource,
+        findingEvidence: [{
+          ...sampleCalleeEvidence,
+          instanceKey: 42,
+        }],
+      },
+    }),
+    /callee evidence carries a mismatched Finding identity/,
   );
 });
