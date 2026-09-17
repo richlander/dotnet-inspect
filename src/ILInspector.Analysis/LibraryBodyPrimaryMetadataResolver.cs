@@ -311,6 +311,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         TypeRef returnType;
         byte signatureHeader;
         int requiredParameterCount;
+        bool hasMismatchedGenericParameterCount = false;
+        int genericArity =
+            methodDef.GetGenericParameters().Count;
         if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
         {
             var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
@@ -318,6 +321,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType = signature.ReturnType;
             signatureHeader = signature.Header.RawValue;
             requiredParameterCount = signature.RequiredParameterCount;
+            hasMismatchedGenericParameterCount =
+                signature.GenericParameterCount
+                    != genericArity;
         }
         else
         {
@@ -338,11 +344,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             IsExtensionMethod(typeHandle, methodDef),
             CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(methodHandle)),
-            methodDef.GetGenericParameters().Count,
+            genericArity,
             GenericParameterNames(methodDef))
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
+            HasMismatchedGenericParameterCount =
+                hasMismatchedGenericParameterCount,
             IsVirtualDispatchOpen =
                 DispatchCanTargetOverride(
                     _reader.GetTypeDefinition(typeHandle),

@@ -152,21 +152,22 @@ internal sealed class MethodDefinitionMap
         MethodIdentity candidate,
         int declaringTypeParameterCount,
         MemberRef callee)
-        => SignatureMatches(
-            candidate.ParameterTypes,
-            candidate.ReturnType,
-            declaringTypeParameterCount,
-            candidate.GenericArity,
-            candidate.IsStatic,
-            candidate.SignatureHeader,
-            candidate.RequiredParameterCount,
-            callee.OpenSignatureParameters,
-            callee.OpenSignatureReturn,
-            callee.GenericArity,
-            callee.HasThis,
-            callee.SignatureHeader,
-            callee.RequiredParameterCount,
-            _signatureComparer.Matches);
+        => !candidate.HasMismatchedGenericParameterCount
+            && SignatureMatches(
+                candidate.ParameterTypes,
+                candidate.ReturnType,
+                declaringTypeParameterCount,
+                candidate.GenericArity,
+                candidate.IsStatic,
+                candidate.SignatureHeader,
+                candidate.RequiredParameterCount,
+                callee.OpenSignatureParameters,
+                callee.OpenSignatureReturn,
+                callee.GenericArity,
+                callee.HasThis,
+                callee.SignatureHeader,
+                callee.RequiredParameterCount,
+                _signatureComparer.Matches);
 
     internal static bool SignatureMatches(
         ImmutableArray<TypeRef> candidateParameterTypes,

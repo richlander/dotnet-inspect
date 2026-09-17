@@ -135,7 +135,8 @@ public class UnsafeEvidencePresenceTests
         UnsafeEvidencePresence_MismatchedTargetGenericDeclarationFailsVisibly()
     {
         ImmutableArray<byte> image =
-            BuildMismatchedTargetGenericDeclarationAssembly();
+            BuildTargetGenericDeclarationAssembly(
+                addGenericParameterRow: false);
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
@@ -147,6 +148,46 @@ public class UnsafeEvidencePresenceTests
             "Unsafe evidence presence is incomplete",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, CallTreeStatus.External)]
+    [InlineData(true, CallTreeStatus.Leaf)]
+    public void
+        SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind(
+            bool addGenericParameterRow,
+            CallTreeStatus expectedStatus)
+    {
+        ImmutableArray<byte> image =
+            BuildTargetGenericDeclarationAssembly(
+                addGenericParameterRow);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"target-generic-declaration-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image.AsSpan());
+        try
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            MethodIdentity caller = Assert.Single(
+                index.Methods,
+                method => method.Name == "Call");
+            CallTreeNode child = Assert.Single(
+                index.BuildCallTree(
+                        caller.MetadataToken,
+                        maxDepth: 2,
+                        maxNodes: 10)
+                    .Children);
+
+            Assert.Empty(index.Diagnostics);
+            Assert.Equal(expectedStatus, child.Status);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -1596,11 +1637,14 @@ public class UnsafeEvidencePresenceTests
     }
 
     static ImmutableArray<byte>
-        BuildMismatchedTargetGenericDeclarationAssembly()
+        BuildTargetGenericDeclarationAssembly(
+            bool addGenericParameterRow)
     {
         MetadataBuilder metadata =
             CreateMetadata(
-                "MismatchedTargetGenericDeclaration");
+                addGenericParameterRow
+                    ? "MatchingTargetGenericDeclaration"
+                    : "MismatchedTargetGenericDeclaration");
         TypeDefinitionHandle targetType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
@@ -1646,7 +1690,8 @@ public class UnsafeEvidencePresenceTests
         int callerBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(callerCode),
             maxStack: 0);
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle targetMethod =
+            metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -1662,6 +1707,14 @@ public class UnsafeEvidencePresenceTests
             AddVoidMethodSignature(metadata),
             callerBody,
             MetadataTokens.ParameterHandle(1));
+        if (addGenericParameterRow)
+        {
+            metadata.AddGenericParameter(
+                targetMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
 
         return Serialize(metadata, bodies);
     }
