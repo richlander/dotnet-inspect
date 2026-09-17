@@ -1161,8 +1161,9 @@ public static class TypeCommand
     }
 
     static bool IsCompleteInspectionOutput(TypeOptions options) =>
-        options.IsDefaultInvocation
-        || options.JsonOutput && !options.ShapeExplicitlySet;
+        !options.Tree
+        && (options.IsDefaultInvocation
+            || options.JsonOutput && !options.ShapeExplicitlySet);
 
     static void WriteExactTypeDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)

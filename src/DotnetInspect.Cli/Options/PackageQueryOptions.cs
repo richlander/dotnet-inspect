@@ -35,7 +35,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         && RowSelection is null
         && !Count
         && Columns is null
-        && Fields is null;
+        && Fields is null
+        && !Tree;
 
     private static ImmutableArray<PackageQueryFacetDescriptor> CliFacets { get; } =
     [

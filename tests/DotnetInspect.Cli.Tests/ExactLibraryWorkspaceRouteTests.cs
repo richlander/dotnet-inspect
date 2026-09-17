@@ -113,6 +113,14 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     ShowDocs = true,
                 },
                 out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Tree = true,
+                },
+                out _));
     }
 
     [Fact]

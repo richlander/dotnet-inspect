@@ -352,6 +352,13 @@ public static class PackageCommandDefinitions
                 result.AddError(
                     "--compact requires package query --json or --envelope.");
             }
+            if (result.GetValue(opts.Json)
+                && result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is not { Implicit: false })
+            {
+                result.AddError(
+                    "--tree with package query --json requires schema discovery.");
+            }
         });
 
         queryCommand.SetAction(async (parseResult, ct) =>

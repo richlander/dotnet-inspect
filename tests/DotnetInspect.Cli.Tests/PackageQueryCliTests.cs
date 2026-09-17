@@ -169,6 +169,35 @@ public class PackageQueryCliTests
             error => error.Message.Contains(
                 "--envelope cannot be combined with -n",
                 StringComparison.Ordinal));
+
+        string[] rejectedTree =
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    "package",
+                    "query",
+                    "Contoso.*",
+                    "--json",
+                    "--tree",
+                ],
+                root);
+        Assert.Contains(
+            root.Parse(rejectedTree).Errors,
+            error => error.Message.Contains(
+                "--tree with package query --json requires schema discovery",
+                StringComparison.Ordinal));
+
+        string[] discoveryTree =
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    "package",
+                    "query",
+                    "-D",
+                    "Packages",
+                    "--json",
+                    "--tree",
+                ],
+                root);
+        Assert.Empty(root.Parse(discoveryTree).Errors);
     }
 
     [Theory]

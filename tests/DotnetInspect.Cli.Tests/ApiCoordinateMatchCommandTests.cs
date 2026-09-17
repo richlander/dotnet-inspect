@@ -268,6 +268,38 @@ public sealed class ApiCoordinateMatchCommandTests
     }
 
     [Fact]
+    public void TypeContentJsonRejectsTreeOutsideDiscovery()
+    {
+        RootCommand root = CommandLineBuilder.CreateRootCommand();
+
+        ParseResult rejected = root.Parse(
+        [
+            "type",
+            "Example.Widget",
+            "--package",
+            "Example@1.0.0",
+            "--tfm",
+            "net8.0",
+            "--json",
+            "--tree",
+        ]);
+        Assert.Contains(
+            rejected.Errors,
+            error => error.Message.Contains(
+                "--tree with type --json requires schema discovery",
+                StringComparison.Ordinal));
+
+        ParseResult discovery = root.Parse(
+        [
+            "type",
+            "-D",
+            "--json",
+            "--tree",
+        ]);
+        Assert.Empty(discovery.Errors);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task SystemTextJson_ContentAndEnvelopeAreIdentical()
     {

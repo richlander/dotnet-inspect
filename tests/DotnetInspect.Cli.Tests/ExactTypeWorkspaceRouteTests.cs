@@ -108,6 +108,14 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactTypeRequest(
                 options with { DocsExplicitlySet = true },
                 out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Tree = true,
+                },
+                out _));
         Assert.DoesNotContain(
             typeof(ExactTypeInspectionRequest).GetProperties(),
             property => property.Name == "IncludeAll");

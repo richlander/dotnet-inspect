@@ -117,6 +117,13 @@ public static class ApiCommandDefinitions
             {
                 result.AddError("--compact requires --json or --envelope.");
             }
+            if (result.GetValue(opts.Json)
+                && result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is not { Implicit: false })
+            {
+                result.AddError(
+                    "--tree with type --json requires schema discovery.");
+            }
         });
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
