@@ -51,7 +51,6 @@ public sealed record WorkspaceOptions
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
-    internal bool HasExplicitLimitOrDirection { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }

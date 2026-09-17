@@ -1625,7 +1625,6 @@ public static class WorkspaceCommand
         if (options.ShareFormat is not null
             && (options.Count
                 || options.Rows is not null
-                || options.HasExplicitLimitOrDirection
                 || options.NoHeader))
         {
             return "--share emits one portable Workspace definition and "

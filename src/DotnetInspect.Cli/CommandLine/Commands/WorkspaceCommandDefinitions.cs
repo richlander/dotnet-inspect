@@ -209,13 +209,6 @@ public static class WorkspaceCommandDefinitions
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),
-                    HasExplicitLimitOrDirection =
-                        parseResult.GetResult(opts.Limit)
-                            is { Implicit: false }
-                        || parseResult.GetResult(opts.Head)
-                            is { Implicit: false }
-                        || parseResult.GetResult(opts.Tail)
-                            is { Implicit: false },
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =

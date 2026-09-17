@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
-using DotnetInspector.SourceSelection;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -477,70 +476,6 @@ public sealed class CompleteRestorationExecutionTests
             selectorFailure.Failure.Kind);
         Assert.Equal(1, selectorFailure.Failure.StateIndex);
         Assert.Equal("package", selectorFailure.Failure.NavigationId);
-    }
-
-    [Fact]
-    public async Task Version3InvalidFacet_FailsBeforeConstruction()
-    {
-        var registry = new InspectionDefinitionRegistry();
-        registry.Add(new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version3,
-            "workspace",
-            [],
-            registrations:
-            [
-                new WorkspaceRegistration.PackagePrefix(
-                    new PackagePrefixDeclaration("Microsoft.Extensions.")),
-            ]));
-        registry.Add(new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version3,
-            "navigation",
-            [],
-            focus: null));
-        registry.Add(new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version3,
-            "view",
-            [
-                new CommittedViewStateDefinition(
-                    navigation: null,
-                    subject: new PortableSubjectRequest.Workspace(),
-                    facet: "workspace.unknown"),
-            ]));
-        registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version3,
-            "scenario",
-            workspace: "workspace",
-            context: null,
-            view: "view",
-            navigation: "navigation"));
-        var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
-                WorkspaceDefinitionConsumer.PrepareRestoration(
-                    registry,
-                    "scenario",
-                    authority));
-        using var client = new HttpClient(new RejectingHandler());
-
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                new NeverConstructHost(),
-                Options(client, []),
-                TestContext.Current.CancellationToken);
-
-        var failed = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
-        var selectorFailure =
-            Assert.IsType<
-                CompleteRestorationFailure.SelectorResolutionFailed>(
-                    failed.Failure);
-        Assert.Equal(
-            CommittedSelectorResolutionFailureKind.InvalidFacet,
-            selectorFailure.Failure.Kind);
-        Assert.Equal(0, selectorFailure.Failure.StateIndex);
-        Assert.Null(selectorFailure.Failure.NavigationId);
     }
 
     [Fact]

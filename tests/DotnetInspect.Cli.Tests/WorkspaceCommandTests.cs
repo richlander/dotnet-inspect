@@ -1481,9 +1481,6 @@ public sealed class WorkspaceCommandTests
 
     [Theory]
     [InlineData("--rows", "1")]
-    [InlineData("-n", "0")]
-    [InlineData("--head", null)]
-    [InlineData("--tail", null)]
     [InlineData("--count", null)]
     [InlineData("--no-headers", null)]
     public async Task CommandLineShare_RejectsInventoryRowControls(
