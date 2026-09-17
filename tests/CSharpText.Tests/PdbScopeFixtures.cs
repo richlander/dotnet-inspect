@@ -46,6 +46,18 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static void SequentialValueTypeScopeLocals()
+    {
+        {
+            System.Guid same = default;
+            KeepGuidAlive(ref same);
+        }
+        {
+            System.Guid same = default;
+            KeepGuidAlive(ref same);
+        }
+    }
+
     public static System.Action<int> LambdaScopes() => static value =>
     {
         {
@@ -99,4 +111,6 @@ public static class PdbScopeFixtures
     static void Increment(ref int value) => value++;
 
     static void KeepAlive(ref string value) => System.GC.KeepAlive(value);
+
+    static void KeepGuidAlive(ref System.Guid value) => System.GC.KeepAlive(value);
 }

@@ -1525,7 +1525,7 @@ public sealed partial class CSharpPrinter
                     }
                     else if ((function.IsLocalDeclaredInNestedScope(store.Index)
                             || store.Parent is Block { Parent: Block })
-                        && LocalReferencesStayInsideStoreBlock(function, store))
+                        && LocalReferencesStayInsideDeclarationBlock(function, store, store.Index))
                     {
                         // The PDB scoped this local to a nested block, so the source
                         // declared it at its assignment rather than at method scope.
@@ -1549,8 +1549,14 @@ public sealed partial class CSharpPrinter
                     // child, so this fires before the address marks the
                     // local as seen.
                     seenLocals.Add(initTarget.Index);
-                    if (entryStatements.Contains(init))
+                    if (entryStatements.Contains(init)
+                        || (function.IsLocalDeclaredInNestedScope(initTarget.Index)
+                                || init.Parent is Block { Parent: Block })
+                            && LocalReferencesStayInsideDeclarationBlock(
+                                function, init, initTarget.Index))
+                    {
                         _declaringStores.Add(init);
+                    }
                     break;
                 case LoadLocal load: seenLocals.Add(load.Index); break;
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
@@ -1647,10 +1653,15 @@ public sealed partial class CSharpPrinter
         {
             var owner = scope is Lambda or LocalFunctionStatement ? scope : scope.Parent;
             (BlockContainer? Body, ImmutableArray<TypeRef> Locals, ImmutableArray<string?> Names,
-                ImmutableArray<bool> NestedScopes, ImmutableArray<Parameter> Parameters, TypeRef? ReturnType) nested = owner switch
+                ImmutableArray<bool> NestedScopes, ImmutableArray<PdbLocalDeclaration?> Bindings,
+                ImmutableArray<Parameter> Parameters, TypeRef? ReturnType) nested = owner switch
             {
-                Lambda lambda => (lambda.Body, lambda.Locals, lambda.LocalNames, lambda.LocalDeclaredInNestedScope, lambda.Parameters, LambdaReturnType(lambda) ?? TypeRef.CoreLib("System", "Void")),
-                LocalFunctionStatement local => (local.Body, local.Locals, local.LocalNames, local.LocalDeclaredInNestedScope, local.Parameters, local.ReturnType),
+                Lambda lambda => (lambda.Body, lambda.Locals, lambda.LocalNames,
+                    lambda.LocalDeclaredInNestedScope, lambda.LocalDeclarationBindings,
+                    lambda.Parameters, LambdaReturnType(lambda) ?? TypeRef.CoreLib("System", "Void")),
+                LocalFunctionStatement local => (local.Body, local.Locals, local.LocalNames,
+                    local.LocalDeclaredInNestedScope, local.LocalDeclarationBindings,
+                    local.Parameters, local.ReturnType),
                 _ => default,
             };
             if (nested.Body is null || nested.ReturnType is null)
@@ -1671,6 +1682,7 @@ public sealed partial class CSharpPrinter
             {
                 LocalNames = nested.Names,
                 LocalDeclaredInNestedScope = nested.NestedScopes,
+                LocalDeclarationBindings = nested.Bindings,
                 UsesUpdatedMemorySafetyRules = owner is Lambda { UsesUpdatedMemorySafetyRules: true }
                     or LocalFunctionStatement { UsesUpdatedMemorySafetyRules: true },
                 SkipLocalsInit = owner is Lambda { SkipLocalsInit: true }
@@ -1809,9 +1821,9 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Every reference to the local written by <paramref name="store"/> lies in the
-    /// run of statements from that store to the end of its enclosing block, so the
-    /// declaration can be merged into the store where it sits.
+    /// Every reference to <paramref name="index"/> lies in the run of statements
+    /// from <paramref name="declaration"/> to the end of its enclosing block, so
+    /// the declaration can remain where it sits.
     /// </summary>
     /// <remarks>
     /// <see cref="LocalReferencesStayInBlockAfterStatement"/> answers the same question
@@ -1822,21 +1834,23 @@ public sealed partial class CSharpPrinter
     /// *ancestor* of the reference instead, so that test can never say yes. This walks
     /// the reference nodes themselves, which is orientation-free.
     /// </remarks>
-    bool LocalReferencesStayInsideStoreBlock(IrFunction function, StoreLocal store)
+    bool LocalReferencesStayInsideDeclarationBlock(
+        IrFunction function, IrNode declaration, int index)
     {
-        if (store.Parent is not Block block || store.ChildIndex < 0)
+        if (declaration.Parent is not Block block || declaration.ChildIndex < 0)
             return false;
-        if (StoreValueReferencesLocal(store))
+        if (declaration is StoreLocal store && StoreValueReferencesLocal(store))
             return false;
-        if (HasBranchTargetAfterStatement(store))
-            return false;
-
-        if (store.ChildIndex >= block.Children.Count || !ReferenceEquals(block.Children[store.ChildIndex], store))
+        if (HasBranchTargetAfterStatement(declaration))
             return false;
 
-        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        if (declaration.ChildIndex >= block.Children.Count
+            || !ReferenceEquals(block.Children[declaration.ChildIndex], declaration))
+            return false;
 
-        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, store.Index))
+        var allowed = block.Children.Skip(declaration.ChildIndex).ToList();
+
+        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, index))
         {
             if (!allowed.Any(statement => IsDescendantOrSelf(reference, statement)))
                 return false;
@@ -2122,6 +2136,7 @@ public sealed partial class CSharpPrinter
                 LocalNames = localFunction.LocalNames,
                 SynthesizedLocalNames = localFunction.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = localFunction.LocalDeclaredInNestedScope,
+                LocalDeclarationBindings = localFunction.LocalDeclarationBindings,
                 LocalNameImportCauses = localFunction.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,

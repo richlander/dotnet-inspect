@@ -8,12 +8,13 @@ namespace ILInspector.Decompiler.Tests;
 public sealed class PdbLocalScopeFidelityTests
 {
     [Fact]
-    public void DisjointAndSequentialNames_CompileBackExactly()
+    public void DisjointSequentialAndValueTypeNames_CompileBackExactly()
     {
         string[] methods =
         [
             nameof(PdbScopeFixtures.DisjointScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocals),
+            nameof(PdbScopeFixtures.SequentialValueTypeScopeLocals),
         ];
         var results = FidelityCheck.Evaluate(
             typeof(PdbScopeFixtures).Assembly.Location,

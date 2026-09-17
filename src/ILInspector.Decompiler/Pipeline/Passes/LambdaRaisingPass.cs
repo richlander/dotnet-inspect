@@ -461,6 +461,7 @@ public sealed class LambdaRaisingPass : IIrPass
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
             SynthesizedLocalNames = body.SynthesizedLocalNames,
             LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
+            LocalDeclarationBindings = body.LocalDeclarationBindings,
             LocalNameImportCauses = body.LocalNameImportCauses,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };

@@ -30,6 +30,30 @@ public sealed class PdbLocalNamePropagationTests
     }
 
     [Theory]
+    [InlineData(nameof(PdbScopeFixtures.LambdaScopes))]
+    [InlineData(nameof(PdbScopeFixtures.LocalFunctionScopes))]
+    public void NestedBody_PreservesSuccessfulLocalBindings(string method)
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!, method)!;
+
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(
+            member => IrImporter.Import(source, member)));
+
+        var bindings = method == nameof(PdbScopeFixtures.LambdaScopes)
+            ? Assert.Single(function.Descendants.OfType<Lambda>()).LocalDeclarationBindings
+            : Assert.Single(function.Descendants.OfType<LocalFunctionStatement>())
+                .LocalDeclarationBindings;
+        var exact = bindings.Where(static binding => binding?.Name == "same").ToArray();
+        Assert.True(exact.Length >= 2);
+        Assert.True(exact.Select(static binding => binding!.VariableRowId).Distinct().Count() >= 2);
+        Assert.All(exact, static binding => Assert.NotNull(binding));
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("int same", output);
+        Assert.Contains("string same", output);
+    }
+
+    [Theory]
     [InlineData(nameof(CfgSampleClass.YieldTwo))]
     [InlineData(nameof(CfgSampleClass.YieldGrid))]
     public void ReconstructedIterator_PreservesImportedNameLoss(string method)

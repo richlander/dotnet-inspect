@@ -50,6 +50,24 @@ public sealed class PdbLocalDeclarationScopeTests
     }
 
     [Fact]
+    public void SequentialValueTypeCompilerScopes_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialValueTypeScopeLocals))!;
+
+        var result = CSharpPrinter.PrintRaised(function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "Guid same = default;", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, result.Output.Split(
+            "KeepGuidAlive(ref same);", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("Guid V_", result.Output);
+    }
+
+    [Fact]
     public void SiblingBlocks_PreserveNamesWithoutAdditionalWrapping()
     {
         var function = Siblings();

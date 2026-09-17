@@ -51,16 +51,22 @@ public sealed class PdbLocalScopePass : IIrPass
     static void TryRetainBlock(IrFunction function, int index, int[] sameName, PassContext context)
     {
         var references = IrFunction.LocalSlotReferencesInScope(function.Body, index).ToArray();
-        if (references.Length == 0
-            || references[0] is not StoreLocal store
-            || store.Parent is not Block block
-            || store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
+        if (references.Length == 0)
+            return;
+        IrNode? declaration = references[0] switch
+        {
+            StoreLocal store when !store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
                 node is LoadLocal load && load.Index == index
-                || node is LoadLocalAddress address && address.Index == index))
+                || node is LoadLocalAddress address && address.Index == index) => store,
+            LoadLocalAddress address when address.Parent is InitObject init
+                && ReferenceEquals(init.Address, address) => init,
+            _ => null,
+        };
+        if (declaration?.Parent is not Block block)
         {
             return;
         }
-        int first = store.ChildIndex;
+        int first = declaration.ChildIndex;
         int last = first;
         foreach (var reference in references)
         {
@@ -97,7 +103,7 @@ public sealed class PdbLocalScopePass : IIrPass
         }
 
         var statements = block.DetachChildren();
-        var lexical = new Block(store.SourceOffset);
+        var lexical = new Block(declaration.SourceOffset);
         for (int position = 0; position < statements.Count; position++)
         {
             if (position == first)
