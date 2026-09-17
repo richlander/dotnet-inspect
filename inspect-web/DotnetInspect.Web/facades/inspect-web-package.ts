@@ -56,6 +56,8 @@ export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageC
 
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
+
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
   readonly label: string;
@@ -525,6 +527,11 @@ export interface BrowserPackageIcon {
   readonly base64: string;
 }
 
+export interface BrowserPackageLoadResult {
+  readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+  readonly surface: BrowserPackageSurface | null;
+}
+
 export interface BrowserPackagePruningRequest {
   readonly schemaVersion: number;
   readonly family: string;
@@ -753,6 +760,63 @@ export interface BrowserPackageSurface {
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly inspectionErrors: ReadonlyArray<string>;
   readonly inspectionError: string | null;
+}
+
+export interface BrowserPackageVersionSettlementAuthorityFailure {
+  readonly authority: string;
+  readonly kind: string;
+  readonly message: string;
+  readonly timeoutKind: string | null;
+}
+
+export interface BrowserPackageVersionSettlementCoordinate {
+  readonly packageId: string;
+  readonly version: string;
+}
+
+export interface BrowserPackageVersionSettlementFailure {
+  readonly request: BrowserPackageVersionSettlementRequest;
+  readonly kind: string;
+  readonly reason: string;
+  readonly operationTimedOut: boolean;
+  readonly authorityFailures: ReadonlyArray<BrowserPackageVersionSettlementAuthorityFailure>;
+}
+
+export interface BrowserPackageVersionSettlementInspection {
+  readonly content: BrowserPackageVersionSettlementOutcome;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageVersionSettlementListing {
+  readonly version: string;
+  readonly listed: boolean;
+}
+
+export interface BrowserPackageVersionSettlementOutcome {
+  readonly kind: BrowserPackageVersionSettlementOutcomeKind;
+  readonly result: BrowserPackageVersionSettlementResult | null;
+  readonly failure: BrowserPackageVersionSettlementFailure | null;
+}
+
+export interface BrowserPackageVersionSettlementRequest {
+  readonly packageId: string;
+  readonly version: string | null;
+}
+
+export interface BrowserPackageVersionSettlementResult {
+  readonly request: BrowserPackageVersionSettlementRequest;
+  readonly coordinate: BrowserPackageVersionSettlementCoordinate;
+  readonly includePrerelease: boolean;
+  readonly freshness: string | null;
+  readonly listings: ReadonlyArray<BrowserPackageVersionSettlementListing>;
+  readonly sourceListings: ReadonlyArray<BrowserPackageVersionSettlementSourceListing>;
+}
+
+export interface BrowserPackageVersionSettlementSourceListing {
+  readonly version: string;
+  readonly feed: string;
+  readonly listed: boolean;
 }
 
 export interface BrowserPackageVersions {
@@ -1385,10 +1449,10 @@ export async function queryMemberDocumentation(packageId: string, version: strin
   return $parsed as BrowserMemberDocumentation;
 }
 
-export async function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface> {
+export async function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackage.1001223652"](packageId, version, targetFramework);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackageSurface;
+  return $parsed as BrowserPackageLoadResult;
 }
 
 export async function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies> {

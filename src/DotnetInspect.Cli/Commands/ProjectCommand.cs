@@ -5,6 +5,7 @@ using System.Text;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
@@ -30,21 +31,13 @@ public class ProjectCommand
     }
 
     public const string Name = "project";
-    internal const string ProjectSkillsSection = "Skills";
-    internal const string ProjectReadmeSection = "Package README file";
+    internal const string ProjectSkillsSection = ProjectSections.SkillsName;
+    internal const string ProjectReadmeSection =
+        ProjectSections.PackageReadmeName;
 
     private const string ProjectTitle = "Restored Project Package Documents";
     private const string ProjectDescription =
         "Package-authored documents from the restored project's direct dependencies.";
-
-    private static readonly string[] ProjectSectionNames =
-    [
-        ProjectSkillsSection,
-        ProjectReadmeSection,
-    ];
-
-    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
     public static Task<int> ExecuteAsync(ProjectOptions options)
         => Task.FromResult(Execute(options));
@@ -55,18 +48,20 @@ public class ProjectCommand
         if (!ValidateOptions(options))
             return 1;
 
+        SectionCatalog<ProjectDiscoveryModel> catalog = ProjectSections.Catalog;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
-            ProjectSectionNames,
-            infoSections: [ProjectSkillsSection],
-            NoCategories,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selection))
             return 1;
 
-        DocumentSchema schema = ProjectDiscoverySchema();
+        DocumentSchema schema = ProjectSections.CreateSchema();
         if (options.Discover is not null)
         {
+            SectionPipeline<ProjectDiscoveryModel> pipeline = catalog.Pipeline;
             return DiscoverOutput.Execute(
                 options.Discover,
                 schema,
@@ -76,7 +71,11 @@ public class ProjectCommand
                     options.Format == OutputFormat.Table,
                     options.NoHeader,
                     projection: options),
-                sectionCategories: NoCategories,
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: catalog.SelectionCategoryMap,
+                catalogHiddenSections:
+                    options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
                 rootLabel: ProjectTitle);
         }
 
@@ -120,7 +119,7 @@ public class ProjectCommand
 
         string[] orderedNames =
         [
-            .. ProjectSectionNames.Where(selectedNames.Contains),
+            .. catalog.AlphabeticalSectionOrder.Where(selectedNames.Contains),
         ];
 
         string[]? projectedColumns = ResolveProjectedColumns(options);
@@ -812,20 +811,6 @@ public class ProjectCommand
             section.Labels,
             section.Ids,
             section.Documents.Select(document => document.Cells).ToArray());
-
-    private static DocumentSchema ProjectDiscoverySchema()
-    {
-        var schema = new DocumentSchema();
-        schema.Add(
-            ProjectSkillsSection,
-            "column",
-            ["Package", "Version", "Path", "Size", "Name", "Description"]);
-        schema.Add(
-            ProjectReadmeSection,
-            "column",
-            ["Package", "Version", "Path", "Size"]);
-        return schema;
-    }
 
     private static string[]? ResolveProjectedColumns(ProjectOptions options)
     {
