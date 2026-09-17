@@ -381,8 +381,10 @@ public sealed class CompleteRestorationExecutionTests
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
-    [Fact]
-    public async Task InactiveUnknownFacet_FailsBeforeConstruction()
+    [Theory]
+    [InlineData("package.unknown")]
+    [InlineData("workspace.overview")]
+    public async Task InactiveInvalidFacet_FailsBeforeConstruction(string facet)
     {
         var authority = new TestIntentAuthority();
         var preparation =
@@ -393,7 +395,7 @@ public sealed class CompleteRestorationExecutionTests
                             "package",
                             new PortableSubjectRequest.Package(),
                             new PortableRetainedSubjectContext.Package(),
-                            facet: "package.unknown"),
+                            facet),
                         focus: null),
                     "scenario",
                     authority));

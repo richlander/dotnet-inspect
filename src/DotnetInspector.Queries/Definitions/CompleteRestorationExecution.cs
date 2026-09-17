@@ -450,14 +450,14 @@ public static class CompleteRestorationCoordinator
 
         var ready =
             (CompleteRestorationPreparationResult.Ready)preparation;
-        if (FindUnknownFacet(ready.Plan.Recipe, options.Facets)
-            is { } unknownFacet)
+        if (FindInvalidFacet(ready.Plan.Recipe, options.Facets)
+            is { } invalidFacet)
         {
             return new CompleteRestorationResult<TActivation>.Failed(
                 preparation.Intent,
                 preparation.Request,
                 new CompleteRestorationFailure.SelectorResolutionFailed(
-                    unknownFacet));
+                    invalidFacet));
         }
 
         CompleteWorkspaceActivation? callbackActivation = null;
@@ -512,7 +512,7 @@ public static class CompleteRestorationCoordinator
         };
     }
 
-    private static CommittedSelectorResolutionFailure? FindUnknownFacet(
+    private static CommittedSelectorResolutionFailure? FindInvalidFacet(
         CompleteRestorationRecipe recipe,
         ViewFacetRegistry facets)
     {
@@ -524,14 +524,37 @@ public static class CompleteRestorationCoordinator
         for (int index = 0; index < view.States.Count; index++)
         {
             CommittedViewStateDefinition state = view.States[index];
-            if (state.Facet is { } facet
-                && !facets.TryGetDescriptor(facet, out _))
+            if (state.Facet is not { } facet)
+                continue;
+
+            if (!facets.TryGetDescriptor(
+                facet,
+                out ViewFacetDescriptor? descriptor))
             {
                 return new CommittedSelectorResolutionFailure(
                     CommittedSelectorResolutionFailureKind.InvalidFacet,
                     index,
                     state.Navigation,
                     $"View state {index} facet '{facet}' is not registered.");
+            }
+
+            StructuralSubjectKind subjectKind = state.Subject switch
+            {
+                PortableSubjectRequest.Workspace =>
+                    StructuralSubjectKind.Workspace,
+                PortableSubjectRequest.Package =>
+                    StructuralSubjectKind.Package,
+                _ => throw new InvalidOperationException(
+                    "An exact committed facet requires an exact subject."),
+            };
+            if (descriptor.Kind != subjectKind)
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    index,
+                    state.Navigation,
+                    $"View state {index} facet '{facet}' does not apply to "
+                        + $"the {subjectKind} subject.");
             }
         }
 
