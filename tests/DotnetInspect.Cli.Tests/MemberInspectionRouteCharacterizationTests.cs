@@ -292,31 +292,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:72:9AA6EF0DD181]",
+                "ApiMember[schema:76:0ADF1F7B4824]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:72:9AA6EF0DD181]",
+                "ApiMember[schema:76:0ADF1F7B4824]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:89:B39F45D705A5]",
+                "ApiMemberOverload[schema:92:778FDEFB3A13]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:65:B6F8C32CB8FA]",
+                "ApiMemberDetail[schema:70:D28A53F5A84F]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:178:DF909EA11155]",
+                "ApiType[schema:185:D680B3053711]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

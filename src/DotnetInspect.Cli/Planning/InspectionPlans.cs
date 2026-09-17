@@ -298,7 +298,12 @@ public sealed record ResolvedMemberInspectionPlan(
             descriptor.SectionNames,
             defaultSections,
             descriptor.Categories,
-            intent.Sections.SelectDefault);
+            intent.Sections.SelectDefault,
+            catalog == InspectionCatalogIdentity.ApiType
+                ? null
+                : ApiMemberSectionPipelines.GetExactOnlySections(
+                    catalog
+                        == InspectionCatalogIdentity.ApiMemberOverload));
 
         return new ResolvedMemberInspectionPlan(
             intent,
@@ -456,9 +461,6 @@ public static class ApiSectionDemandIndex
     private static readonly string[] KnownSectionNames =
         [.. MemberRequirements.Keys.Order(StringComparer.OrdinalIgnoreCase)];
 
-    private static readonly IReadOnlyDictionary<string, string[]> Categories =
-        CreateCategories();
-
     public static IReadOnlyDictionary<
         string,
         InspectionTargetRequirement> Declarations => MemberRequirements;
@@ -495,11 +497,26 @@ public static class ApiSectionDemandIndex
             [.. demandSelectors],
             KnownSectionNames,
             infoSections: null,
-            Categories);
+            CategoriesFor(baseRequirement),
+            exactOnlySections:
+                ApiMemberSectionPipelines.AllExactOnlySections);
         InspectionTargetRequirement requirement = baseRequirement;
         if (surface != InspectionSurface.Type)
         {
-            foreach (string section in result.Sections ?? [])
+            string[] sectionSelectors =
+            [
+                .. demandSelectors.Where(selector =>
+                    !selector.StartsWith("@", StringComparison.Ordinal)),
+            ];
+            SelectResult sectionDemand =
+                SelectResolver.ResolveSelectAsSections(
+                    sectionSelectors,
+                    KnownSectionNames,
+                    infoSections: null,
+                    categories: null,
+                    exactOnlySections:
+                        ApiMemberSectionPipelines.AllExactOnlySections);
+            foreach (string section in sectionDemand.Sections ?? [])
             {
                 if (MemberRequirements.TryGetValue(
                         section,
@@ -660,36 +677,20 @@ public static class ApiSectionDemandIndex
         }
     }
 
-    private static IReadOnlyDictionary<string, string[]> CreateCategories()
-    {
-        Dictionary<string, HashSet<string>> categories =
-            new(StringComparer.OrdinalIgnoreCase);
-        foreach (ApiInspectionCatalog catalog in
-                 ApiInspectionCatalogRegistry.All.Where(catalog =>
-                     catalog.Identity != InspectionCatalogIdentity.ApiType))
-        {
-            foreach (var (category, sections) in catalog.Categories)
+    private static IReadOnlyDictionary<string, string[]> CategoriesFor(
+        InspectionTargetRequirement requirement)
+        => ApiInspectionCatalogRegistry.Get(
+            requirement switch
             {
-                if (!categories.TryGetValue(category, out var merged))
-                {
-                    merged = new HashSet<string>(
-                        StringComparer.OrdinalIgnoreCase);
-                    categories.Add(category, merged);
-                }
-
-                merged.UnionWith(sections);
-            }
-        }
-
-        categories[SelectResolver.AllSelector] =
-            new HashSet<string>(
-                MemberRequirements.Keys,
-                StringComparer.OrdinalIgnoreCase);
-        return categories.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value
-                .Order(StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
-            StringComparer.OrdinalIgnoreCase);
-    }
+                InspectionTargetRequirement.Type =>
+                    InspectionCatalogIdentity.ApiMember,
+                InspectionTargetRequirement.MemberSet =>
+                    InspectionCatalogIdentity.ApiMemberOverload,
+                InspectionTargetRequirement.ExactMember =>
+                    InspectionCatalogIdentity.ApiMemberDetail,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(requirement),
+                    requirement,
+                    "The target requirement has no member catalog."),
+            }).Categories;
 }

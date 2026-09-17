@@ -5,6 +5,30 @@ using InertText;
 namespace DotnetInspector.Sections;
 
 /// <summary>
+/// A completed inspection and the supplemental evidence captured by the same
+/// operation.
+/// </summary>
+/// <typeparam name="TContent">The owner-issued primary content result.</typeparam>
+/// <typeparam name="TEvidence">The owner-issued supplemental evidence.</typeparam>
+public sealed record EvidenceInspectionEnvelope<TContent, TEvidence>
+{
+    [JsonConstructor]
+    public EvidenceInspectionEnvelope(
+        InspectionEnvelope<TContent> inspection,
+        TEvidence evidence)
+    {
+        Inspection = inspection
+            ?? throw new ArgumentNullException(nameof(inspection));
+        Evidence = evidence
+            ?? throw new ArgumentNullException(nameof(evidence));
+    }
+
+    public InspectionEnvelope<TContent> Inspection { get; }
+
+    public TEvidence Evidence { get; }
+}
+
+/// <summary>
 /// The host-neutral handoff for one completed inspection operation.
 /// </summary>
 /// <typeparam name="TContent">The owner-issued primary content result.</typeparam>

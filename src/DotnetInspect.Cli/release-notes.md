@@ -6,6 +6,11 @@
   default Library/API subject across Navigation, CLI, and Inspect Web. Use
   `--namesake-library` or exact `--library <asset>` to narrow. Removes
   `--all-libraries`; bare `package` inspection remains Package-scoped (#7318).
+- **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
+  discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
+  member discovery remains case-insensitive and one-to-many across overloads,
+  declaring Types, and sources; the `this[]` alias continues to match indexer
+  metadata names. Glob matching and rendered output are unchanged (#7260).
 - Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
   and Workspace with Spotlight as the responsive alternate entry, and retires
   the `/query` Packages/Activity peer mode while preserving report state,
@@ -23,7 +28,7 @@
 - **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
   discoveries emit `Direct` in typed JSON and `direct` in rendered output
   instead of the misleading `Exact`. Matching remains lenient and one-to-many;
-  member discovery retains its separately owned `Exact`/`Glob` vocabulary
+  this change did not alter the separately owned Member discovery vocabulary
   (#7173).
 - Records Package Source-issued portable producer tokens in fresh package Root
   coordinates, enabling configured HTTP and local Roots to round-trip through

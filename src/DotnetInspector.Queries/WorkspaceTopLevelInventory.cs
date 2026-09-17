@@ -217,6 +217,7 @@ public sealed record WorkspaceTopLevelPackageEntry(
     WorkspaceTopLevelPackageState State)
     : WorkspaceTopLevelInventoryEntry(Key, SourceOrder)
 {
+    [JsonIgnore]
     public override WorkspaceTopLevelInventoryEntryKind Kind =>
         WorkspaceTopLevelInventoryEntryKind.Package;
 }
@@ -227,6 +228,7 @@ public sealed record WorkspaceTopLevelExactLibraryEntry(
     WorkspaceTopLevelExactLibraryCoordinate Coordinate)
     : WorkspaceTopLevelInventoryEntry(Key, SourceOrder)
 {
+    [JsonIgnore]
     public override WorkspaceTopLevelInventoryEntryKind Kind =>
         WorkspaceTopLevelInventoryEntryKind.ExactLibrary;
 }
@@ -237,6 +239,7 @@ public sealed record WorkspaceTopLevelPackagePrefixEntry(
     PackagePrefixDeclaration Prefix)
     : WorkspaceTopLevelInventoryEntry(Key, SourceOrder)
 {
+    [JsonIgnore]
     public override WorkspaceTopLevelInventoryEntryKind Kind =>
         WorkspaceTopLevelInventoryEntryKind.PackagePrefix;
 }
@@ -251,6 +254,7 @@ public sealed record WorkspaceTopLevelEcosystemEntry(
     bool HasIntegrationScanner)
     : WorkspaceTopLevelInventoryEntry(Key, SourceOrder)
 {
+    [JsonIgnore]
     public override WorkspaceTopLevelInventoryEntryKind Kind =>
         WorkspaceTopLevelInventoryEntryKind.Ecosystem;
 }

@@ -273,13 +273,9 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
-        && options.IncludeSections is { Count: > 0 }
+        && !options.SelectDefault
         && !SelectResolver.IsActiveAllSelector(
             options.Select,
-            options.IncludeSections,
-            options is MemberOptions { MemberSectionsPreResolved: true })
-        && !SelectResolver.IsActiveInfoSelector(
-            options.SelectDefault,
             options.IncludeSections,
             options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count
@@ -1700,17 +1696,24 @@ public static class ApiOutputFormatter
                 // before rendering. Either route addresses the same stable edge rows exactly once.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
                     loweringNeedsSelectedGraph ? selectedRows : null;
-                memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
-                    projection,
-                    FormatCallee,
-                    analysisInspection.CallGraphFields,
-                    analysisInspection.HasCallGraphFieldProjection,
-                    renderedRows,
-                    analysisInspection.IncludesCallGraphOpportunities
-                        ? BuildCallGraphOpportunityAnnotations(
-                            projection,
-                            analysisInspection.CallGraphBodyIndexes)
-                        : null);
+                CallGraphSectionOutput graphOutput =
+                    CallGraphSectionAdapter.ToGraph(
+                        projection,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        renderedRows,
+                        selectedRows,
+                        includeFocusInEvidence: loweringNeedsSelectedGraph,
+                        opportunityAnnotations:
+                            analysisInspection.IncludesCallGraphOpportunities
+                                ? BuildCallGraphOpportunityAnnotations(
+                                    projection,
+                                    analysisInspection.CallGraphBodyIndexes)
+                                : null);
+                memberCode.CallGraph = graphOutput.Graph;
+                memberCode.CallGraphRenderedFieldEvidence =
+                    graphOutput.RenderedFieldEvidence;
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)

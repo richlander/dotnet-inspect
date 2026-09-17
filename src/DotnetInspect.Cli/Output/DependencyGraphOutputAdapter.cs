@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using InertText;
