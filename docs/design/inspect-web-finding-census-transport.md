@@ -82,10 +82,10 @@ the combined envelope:
 - every keyed Facts row carries that receipt and a unique non-default key;
 - every source sidecar row carries that receipt, a unique non-default key, and
   a unique body fact id present in the document;
-- the sidecar covers every document body fact and no member-header fact; and
+- the sidecar covers every document body fact and no member-header fact;
 - the Facts and Annotated Source key sets are equal;
 - every callee-evidence row names one exact sidecar fact-id/key pair and no pair
-  appears more than once; and
+  appears more than once;
 - every callee-document id is unique, non-negative, referenced, and resolves to
   one valid compact document; and
 - an available evidence row carries a valid document reference and exact node
