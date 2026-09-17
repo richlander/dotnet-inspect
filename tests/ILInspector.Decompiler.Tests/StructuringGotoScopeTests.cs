@@ -1,5 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -351,6 +353,37 @@ public class StructuringGotoScopeTests
         Assert.DoesNotContain("IL_0018:", output);
     }
 
+    [Fact]
+    public void FalseArmPrefixBeforeRegionExit_PreservesBothArms()
+    {
+        var function = RegionExitDiamond(includeFalseArmPrefix: true);
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var conditional = Assert.Single(
+            tryFinally.TryBody.Descendants.OfType<IfStatement>(),
+            statement => statement.HasElse);
+        var takenStore = Assert.Single(conditional.Then.Descendants.OfType<StoreLocal>());
+        var fallthroughStore = Assert.Single(conditional.Else!.Descendants.OfType<StoreLocal>());
+        Assert.Equal(1, Assert.IsType<Constant>(takenStore.Value).Value);
+        Assert.Equal(7, Assert.IsType<Constant>(fallthroughStore.Value).Value);
+        Assert.Same(conditional, Assert.IsType<Block>(conditional.Parent).Children[^1]);
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.Contains(" = 7;", output);
+        Assert.Contains("else", output);
+        AssertCompiles(output);
+    }
+
+    [Fact]
+    public void PrefixFreeFalseArmRegionExit_StillStructures()
+    {
+        var function = RegionExitDiamond(includeFalseArmPrefix: false);
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.False(Assert.Single(tryFinally.TryBody.Descendants.OfType<IfStatement>()).HasElse);
+        Assert.Empty(tryFinally.TryBody.Descendants.OfType<Leave>());
+    }
+
     [Theory]
     [InlineData(0x0077, 0x0062, false)]
     [InlineData(0x005E, 0x0062, false)]
@@ -490,6 +523,74 @@ public class StructuringGotoScopeTests
             pass.Run(function, PassContext.None);
         }
         return function;
+    }
+
+    static IrFunction RegionExitDiamond(bool includeFalseArmPrefix)
+    {
+        var tryBody = new BlockContainer();
+        tryBody.Add(Block(0x00, new ConditionalBranch(Cond(), 0x20)));
+        var falseArm = Block(0x10);
+        if (includeFalseArmPrefix)
+            falseArm.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        falseArm.Add(new Leave(0x40));
+        tryBody.Add(falseArm);
+        tryBody.Add(Block(
+            0x20,
+            new StoreLocal(0, Int32, new Constant(1, Int32)),
+            new Leave(0x40)));
+
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(Block(0x30));
+
+        var root = new BlockContainer();
+        root.Add(Block(0x00, new TryFinally(tryBody, finallyBody)));
+        root.Add(Block(0x40, new Return(new LoadLocal(0, Int32))));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [new Parameter("a", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            root);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static void AssertCompiles(string body)
+    {
+        string source = $$"""
+            static class Synthetic
+            {
+                static int M(int a)
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        var errors = CSharpCompilation.Create(
+                "region-exit-gate",
+                [tree],
+                RoslynTestReferences.TrustedPlatform,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+            .GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+
+        Assert.True(
+            errors.Length == 0,
+            "Rendered body must compile, got:\n  "
+                + string.Join("\n  ", errors)
+                + "\n--- body ---\n"
+                + body);
     }
 
     [Fact]
