@@ -1029,6 +1029,41 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task PacketRoute_PreservesRequestedFrameworkWithCompatibleAssets()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(WorkspaceCommandTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ("lib/net8.0/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = CreatePacket(PackageId);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = encoded,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    Format = OutputFormat.Json,
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(encoded, captured.Error.Trim());
+    }
+
+    [Fact]
     public async Task PacketRoute_RejectsGroupConstructionIntent()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(

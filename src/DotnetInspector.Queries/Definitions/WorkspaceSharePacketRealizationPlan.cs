@@ -136,7 +136,7 @@ public sealed class WorkspaceSharePacketRealizationPlan
                     == NuGetVersion.Parse(descriptor.PackageVersion))
             && string.Equals(
                 framework,
-                descriptor.RequestedTargetFramework,
+                root.Coordinate.Framework,
                 StringComparison.OrdinalIgnoreCase)
             && string.Equals(
                 runtimeIdentifier,

@@ -60,7 +60,9 @@ before calling
 `WorkspaceTopLevelInventoryOperation`.
 The packet plan validates each declaration against its acquired Root before
 coalescing, preserving floating/exact declaration evidence when both resolve
-to one logical Scope occurrence.
+to one logical Scope occurrence. Requested target association uses the
+acquisition coordinate, while selected and effective compatible targets are
+verified through realized Scope.
 
 The focused packet route accepts direct Package context members only. Group
 subscriptions and non-Package context members are rejected visibly until the

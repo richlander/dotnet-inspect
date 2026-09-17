@@ -158,7 +158,9 @@ routes:
    complete restoration of those packets remains #7027. Each declaration is
    associated with its acquisition result before coalescing, so floating and
    exact declarations that resolve to one logical Root retain exact packet
-   evidence while Scope applies its duplicate policy.
+   evidence while Scope applies its duplicate policy. Declaration association
+   compares the requested target with the acquisition coordinate; selected and
+   effective compatible targets remain realized Scope facts.
 
 Both routes populate and admit one ephemeral realized Workspace through the
 same owner operations before calling
