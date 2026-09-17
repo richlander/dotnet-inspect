@@ -221,6 +221,39 @@ public static class PackagePlatformLibraryMaterializer
             consumedWork);
 
     /// <summary>
+    /// Materializes one authoritative package-backed reference population.
+    /// </summary>
+    public static async ValueTask<
+        PackagePlatformPopulationMaterializationResult>
+        MaterializeReferencePopulationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool prepared = TryPrepareReferencePopulation(
+            request,
+            PlatformViewDemand.Reference,
+            reference,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeReferencesAsync(
+                    request,
+                    prepared ? items : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToPackagePopulationResult(outcome);
+    }
+
+    /// <summary>
     /// Materializes authoritative package-backed reference and implementation
     /// populations through PlatformHouse-issued view correspondence.
     /// </summary>
@@ -242,6 +275,7 @@ public static class PackagePlatformLibraryMaterializer
 
         bool referencePrepared = TryPrepareReferencePopulation(
             request,
+            PlatformViewDemand.ReferenceAndImplementation,
             reference,
             out IReadOnlyList<
                 PlatformLibraryArtifactMaterializationItem> references);
@@ -402,18 +436,22 @@ public static class PackagePlatformLibraryMaterializer
 
     static bool TryPrepareReferencePopulation(
         PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
         PackagePlatformHouseResult<
             PackageReferenceRealization>.Succeeded reference,
         out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
     {
         items = [];
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        if (expectedView is not PlatformViewDemand.Reference
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
-                View: PlatformViewDemand.ReferenceAndImplementation,
+                View: var view,
                 Population:
                     PlatformPopulationDemand.CompletePopulation,
             }
+            || view != expectedView
             || !ValidContribution(
                 request,
                 exact.Target,

@@ -23,11 +23,21 @@ public static class UnsafeLeverage
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<MethodIdentity> methods,
         int count)
+        => Top(
+            directCalls,
+            methods,
+            count,
+            MethodDefinitionMap.Create(methods));
+
+    internal static ImmutableArray<UnsafeMethodLeverage> Top(
+        ImmutableArray<DirectCall> directCalls,
+        ImmutableArray<MethodIdentity> methods,
+        int count,
+        MethodDefinitionMap methodMap)
     {
         // Distinct direct callers per callee, keyed by the targeted MethodDef token. Generic
         // method calls carry a MethodSpec operand, and calls through a constructed generic
         // declaring type carry a MemberRef operand; normalize both back to the open definition.
-        var methodMap = MethodDefinitionMap.Create(methods);
         var callersByToken = directCalls
             .GroupBy(methodMap.Resolve)
             .Where(group => group.Key != 0)

@@ -15,6 +15,133 @@ public sealed class PackagePlatformRealPackageTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
+        GalleryReferencePopulationMaterializesAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        var authorization = new TestAuthorization(sources);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "gallery-reference-population");
+        PlatformHouseRequest request =
+            ReferencePopulationRequest(adapter, cancellationToken);
+
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        root.IssueOperationLease(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies: reference.Value.Libraries.Length,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: reference.Value.Libraries.Sum(
+                static library => library.ContentLength),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
+        var completed = Assert.IsType<
+            PackagePlatformPopulationMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferencePopulationAsync(
+                        request,
+                        reference,
+                        consumed));
+
+        Assert.Equal(
+            reference.Value.Libraries.Select(
+                static library => library.Identity),
+            completed.Population.Value.Libraries.Select(
+                static library =>
+                    library.ApiAssembly.AssemblyIdentity!.Identity),
+            AssemblyReferenceIdentity.EquivalentComparer);
+        Assert.Equal(
+            reference.Value.Libraries.Length,
+            completed.Population.Owners.Count);
+        Assert.Same(
+            reference.Contribution,
+            Assert.Single(
+                    completed.Population.Receipt.HouseReceipt
+                        .SourceSettlements)
+                .Contribution);
+        Assert.All(
+            completed.Population.Value.Libraries,
+            static library =>
+                Assert.Null(library.ImplementationAssembly));
+
+        LibraryReference json = Assert.Single(
+            completed.Population.Value.Libraries,
+            static library =>
+                library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                == "System.Text.Json");
+        var provenance =
+            Assert.IsType<PackageReferenceArtifactProvenance>(
+                Assert.IsType<PlatformLibraryArtifactProvenance>(
+                        json.ApiAssembly.ArtifactReference.Provenance)
+                    .SourceProvenance);
+        Assert.Equal(
+            "ref/net11.0/System.Text.Json.dll",
+            provenance.Path);
+        Assert.Same(reference.Value.Candidate, provenance.Candidate);
+        Assert.Same(reference.Value.Authority, provenance.Authority);
+        Assert.Same(
+            reference.Value.ContentGeneration,
+            provenance.ContentGeneration);
+
+        ValueTask sourceRetirement = root.DisposeAsync();
+        Assert.True(sourceRetirement.IsCompletedSuccessfully);
+        await sourceRetirement;
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        int jsonIndex =
+            completed.Population.Value.Libraries.ToList().IndexOf(json);
+        using LibraryOperationLease operation = Assert.IsType<
+                LibraryOperationLeaseIssueOutcome.Issued>(
+                    completed.Population.Owners[jsonIndex]
+                        .IssueOperationLease(json))
+            .Lease;
+        Assert.Equal(
+            ((byte)'M', (byte)'Z'),
+            operation.Snapshot(
+                json.ApiAssembly,
+                static (view, _) =>
+                    (view.Content[0], view.Content[1]),
+                cancellationToken));
+        operation.Dispose();
+        foreach (
+            LibraryContentOwner owner
+            in completed.Population.Owners)
+        {
+            await owner.DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
         GalleryRuntimePopulationMaterializesPairedAuthorities()
     {
         CancellationToken cancellationToken =
@@ -543,6 +670,31 @@ public sealed class PackagePlatformRealPackageTests
                         PlatformSourceFacet.Implementation,
                         PlatformSourceSelectionMode.Precedence,
                         [adapter.ImplementationRealization]),
+                ]),
+            Work(maxBytes: 512L * 1024 * 1024),
+            cancellationToken);
+
+    private static PlatformHouseRequest ReferencePopulationRequest(
+        PackagePlatformHouseAdapter adapter,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "gallery-reference-population"),
+            new PlatformTargetDemand.Exact(Target()),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "gallery-reference-population"),
+                PlatformSourcePolicyGeneration.Create(
+                    "gallery-reference-population"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
                 ]),
             Work(maxBytes: 512L * 1024 * 1024),
             cancellationToken);
