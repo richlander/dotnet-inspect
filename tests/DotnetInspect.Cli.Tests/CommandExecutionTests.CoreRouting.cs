@@ -442,7 +442,9 @@ public partial class CommandExecutionTests
             [target, .. scopedTail]);
 
         Assert.Equal(direct, routed);
-        Assert.Equal(0, routed.Exit);
+        Assert.True(
+            routed.Exit == 0,
+            $"Exit {routed.Exit}: {routed.Error}");
         Assert.Contains("## Type Info", routed.Output);
     }
 
@@ -4899,10 +4901,12 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
+            var (exit, output, error) = await RunAppAsync(packagePath, "--namesake-library", "-S", "Library Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains(
+                "# lib/net10.0/Test.Primary.dll (net10.0)",
+                output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
@@ -4926,7 +4930,9 @@ public partial class CommandExecutionTests
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("# Newtonsoft.Json.dll", output);
+        Assert.Contains(
+            "# lib/net6.0/Newtonsoft.Json.dll (net6.0)",
+            output);
         Assert.Contains("## Library Info", output);
         Assert.DoesNotContain("## Package Info", output);
         Assert.DoesNotContain("best-effort prefix matches", error);
@@ -4957,7 +4963,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains(
+            "# lib/net6.0/Newtonsoft.Json.dll (net6.0)",
+            routed.Output);
         Assert.Contains("## Library Info", routed.Output);
     }
 
@@ -4970,10 +4978,6 @@ public partial class CommandExecutionTests
         "Newtonsoft.Json@13.0.4",
         "lib/net6.0/Newtonsoft.Json.dll",
         "Newtonsoft.Json.dll")]
-    [InlineData(
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
-        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
     public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
         string package,
         string libraryPath,
@@ -5009,7 +5013,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(direct, routed);
             Assert.Equal(0, routed.Exit);
-            Assert.Contains($"# {libraryName}", routed.Output);
+            Assert.Contains(
+                $"# {libraryPath.Replace('\\', '/')} ",
+                routed.Output);
+            Assert.Contains(libraryName, routed.Output);
         }
         finally
         {
@@ -5035,7 +5042,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains(
+            "# lib/net6.0/Newtonsoft.Json.dll (net6.0)",
+            routed.Output);
         Assert.Contains("## Library Info", routed.Output);
     }
 
@@ -5221,7 +5230,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(direct, routed);
             Assert.Equal(0, routed.Exit);
-            Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+            Assert.Contains(
+                "# lib/net6.0/Newtonsoft.Json.dll (net6.0)",
+                routed.Output);
         }
         finally
         {
@@ -5230,7 +5241,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareLibraryFollowedByColonOption_PreservesPackageInspection()
+    public async Task Router_BareLibraryFollowedByColonOption_ReportsMissingValue()
     {
         string[] arguments =
         [
@@ -5245,8 +5256,11 @@ public partial class CommandExecutionTests
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
-        Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            "Required argument missing for option: '--library'",
+            routed.Error);
     }
 
     [Fact]

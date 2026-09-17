@@ -1938,7 +1938,6 @@ public sealed class InspectionPlanningTests
     [InlineData("--tfms", null)]
     [InlineData("--print", null)]
     [InlineData("--dependencies", null)]
-    [InlineData("--tfm", "all")]
     [InlineData("--path", "README.md")]
     public async Task PackageLibraryAlternativesUsePackageModeValidation(string option, string? value)
     {
@@ -1957,6 +1956,30 @@ public sealed class InspectionPlanningTests
         Assert.Contains($"--library cannot be combined with {option}", commandless.Error);
         Assert.Contains(explicitPackage.Error.Trim(), commandless.Error);
         Assert.DoesNotContain("Resolving", commandless.Error);
+    }
+
+    [Fact]
+    public async Task PackageLibraryAlternativesAllowAllTfms()
+    {
+        string[] args =
+        [
+            "Missing.Type.Run", "--library", "missing.dll",
+            "--tfm", "all",
+            "-D", "Library Info", "--schema", "--table",
+            "--tips", "q",
+        ];
+
+        var commandless = await RunAppAsync(args);
+        var explicitPackage =
+            await RunAppAsync(["package", .. args]);
+
+        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(0, explicitPackage.Exit);
+        Assert.Empty(commandless.Error);
+        Assert.Empty(explicitPackage.Error);
+        Assert.DoesNotContain(
+            "--library cannot be combined with --tfm",
+            commandless.Error);
     }
 
     [Theory]

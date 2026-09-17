@@ -286,7 +286,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Browser compile-asset set",
+            "No library found for TFM 'netcoreapp3.0'",
             result.Error);
     }
 

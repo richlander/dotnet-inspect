@@ -18,9 +18,13 @@ public partial class CommandExecutionTests
             Assert.True(
                 result.Exit == 0,
                 $"Exit {result.Exit}: {result.Error}");
-            Assert.Contains("# Latest.One.dll", result.Output);
-            Assert.Contains("# Latest.Two.dll", result.Output);
-            Assert.DoesNotContain("# Older.dll", result.Output);
+            Assert.Contains(
+                "### lib/net10.0/Latest.One.dll (net10.0)",
+                result.Output);
+            Assert.Contains(
+                "### lib/net10.0/Latest.Two.dll (net10.0)",
+                result.Output);
+            Assert.DoesNotContain("Older.dll", result.Output);
         }
         finally
         {
@@ -89,7 +93,9 @@ public partial class CommandExecutionTests
             Assert.True(
                 result.Exit == 0,
                 $"Exit {result.Exit}: {result.Error}");
-            Assert.Contains("# Test.Primary.dll", result.Output);
+            Assert.Contains(
+                "# lib/net10.0/Test.Primary.dll (net10.0)",
+                result.Output);
             Assert.Contains("## Library Info", result.Output);
             Assert.Empty(result.Error);
         }
@@ -202,9 +208,13 @@ public partial class CommandExecutionTests
                 "--markdown", "--tips", "q");
 
             Assert.Equal(0, result.Exit);
-            Assert.Contains("# Latest.One.dll", result.Output);
-            Assert.Contains("# Latest.Two.dll", result.Output);
-            Assert.DoesNotContain("# Older.dll", result.Output);
+            Assert.Contains(
+                "### lib/net10.0/Latest.One.dll (net10.0)",
+                result.Output);
+            Assert.Contains(
+                "### lib/net10.0/Latest.Two.dll (net10.0)",
+                result.Output);
+            Assert.DoesNotContain("Older.dll", result.Output);
             Assert.Empty(result.Error);
         }
         finally
@@ -226,8 +236,10 @@ public partial class CommandExecutionTests
                 "--tips", "q");
 
             Assert.Equal(0, result.Exit);
-            Assert.Contains("# Latest.Two.dll", result.Output);
-            Assert.DoesNotContain("# Latest.One.dll", result.Output);
+            Assert.Contains(
+                "# lib/net10.0/Latest.Two.dll (net10.0)",
+                result.Output);
+            Assert.DoesNotContain("Latest.One.dll", result.Output);
         }
         finally
         {

@@ -68,6 +68,9 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
+        if (result.Errors.Count > 0)
+            return args.PackageNameArg.Arity.MaximumNumberOfValues;
+
         // Only mode facts are needed here; full option parsing owns format, projection,
         // and row-selection validation and must not run during argv ownership checks.
         var mode = new InspectionOptions

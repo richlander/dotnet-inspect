@@ -547,7 +547,39 @@ public static class TfmSelector
                 or UnauthorizedAccessException
                 or BadImageFormatException)
         {
-            return PackageLibraryImageKind.Unreadable;
+            return exception is BadImageFormatException
+                && IsPlainText(path)
+                    ? PackageLibraryImageKind.NonAssembly
+                    : PackageLibraryImageKind.Unreadable;
+        }
+    }
+
+    private static bool IsPlainText(string path)
+    {
+        Span<byte> buffer = stackalloc byte[512];
+        try
+        {
+            using var stream = File.OpenRead(path);
+            int length = stream.Read(buffer);
+            if (length == 0)
+                return false;
+
+            foreach (byte value in buffer[..length])
+            {
+                if (value is not (9 or 10 or 13)
+                    && value is < 0x20 or > 0x7e)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

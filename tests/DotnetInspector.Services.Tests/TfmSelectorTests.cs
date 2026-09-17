@@ -457,6 +457,28 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal(runtimeAssembly, result);
     }
 
+    [Fact]
+    public void ClassifyPackageLibraryImage_PlainTextIsNotAnAssembly()
+    {
+        string path = WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(path, "not a managed assembly");
+
+        Assert.Equal(
+            TfmSelector.PackageLibraryImageKind.NonAssembly,
+            TfmSelector.ClassifyPackageLibraryImage(path));
+    }
+
+    [Fact]
+    public void ClassifyPackageLibraryImage_BinaryTruncationIsUnreadable()
+    {
+        string path = WriteDll("lib/net8.0/Truncated.dll");
+        File.WriteAllBytes(path, [1, 2, 3]);
+
+        Assert.Equal(
+            TfmSelector.PackageLibraryImageKind.Unreadable,
+            TfmSelector.ClassifyPackageLibraryImage(path));
+    }
+
     private string WriteDll(string relativePath)
     {
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));

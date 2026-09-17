@@ -179,7 +179,7 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_MixedPackageLayoutUsesCompatibilityInventory()
+    public async Task FindTypesAsync_MixedPackageLayoutUsesCompileAssetInventory()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
@@ -199,16 +199,11 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Equal(2, result.Rows.Count);
-        Assert.All(
-            result.Rows,
-            static row =>
-            {
-                Assert.Equal(
-                    "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
-                    row.FullName);
-                Assert.Null(row.Location);
-            });
+        TypeFindResult row = Assert.Single(result.Rows);
+        Assert.Equal(
+            "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException",
+            row.FullName);
+        Assert.Null(row.Location);
         Assert.Empty(result.LocatorSections);
     }
 

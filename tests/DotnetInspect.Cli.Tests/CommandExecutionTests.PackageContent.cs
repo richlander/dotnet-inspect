@@ -629,13 +629,15 @@ public partial class CommandExecutionTests
             Assert.Equal(libraryBaseline, File.ReadAllText(libraryPath));
 
             var (allLibrariesBaselineExit, allLibrariesBaseline, allLibrariesBaselineError) = await RunAppAsync(
-                "library", packagePath, "-S", "Library Info", "--count");
+                "package", packagePath, "-S", "Library Info", "--count");
             var (allLibrariesExit, allLibrariesOutput, allLibrariesError) = await RunAppAsync(
-                "library", packagePath, "-S", "Library Info", "--count",
+                "package", packagePath, "-S", "Library Info", "--count",
                 "--out", allLibrariesPath);
 
             Assert.Equal(0, allLibrariesBaselineExit);
-            Assert.Equal(0, allLibrariesExit);
+            Assert.True(
+                allLibrariesExit == 0,
+                $"Exit {allLibrariesExit}: {allLibrariesError}");
             Assert.Empty(allLibrariesOutput);
             Assert.Equal(allLibrariesBaselineError, allLibrariesError);
             Assert.Equal(allLibrariesBaseline, File.ReadAllText(allLibrariesPath));
