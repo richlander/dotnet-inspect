@@ -485,7 +485,8 @@ reports independent `Candidates`, `Matches`, and `Evaluation Failures` integer
 columns, so a missing package (`Candidates=0`) remains distinct from an
 existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
 stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
-`Packages` retains its empty table or array when no package matched.
+`Packages` retains its empty table or array when no package matched. Bare `-S`
+also requests the non-adaptive `Packages` preset.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
