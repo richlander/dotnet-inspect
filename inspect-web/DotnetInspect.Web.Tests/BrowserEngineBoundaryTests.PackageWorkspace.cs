@@ -174,13 +174,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     ($"lib/net8.0{bidi}/{packageId}.dll", [0x01])),
                 fromCache: false));
 
-        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
-            JsonSerializer.Deserialize(
-                await DotnetInspect.Web.Interop.Package.PackageExports.QueryPackage(
-                    packageId,
-                    "1.0.0",
-                    "net11.0"),
-                BrowserPackageJsonContext.Default.BrowserPackageSurface));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
 
         Assert.DoesNotContain(
             surface.Frameworks,
