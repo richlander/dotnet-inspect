@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -142,12 +143,12 @@ public static class WorkspaceCommandDefinitions
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
             string? packet = parseResult.GetValue(packetOption);
-            string[] registeredLibraries =
-                parseResult.GetValue(registerLibraryOption) ?? [];
-            string[] registeredPackagePrefixes =
-                parseResult.GetValue(registerPackagePrefixOption) ?? [];
-            string[] registeredEcosystems =
-                parseResult.GetValue(registerEcosystemOption) ?? [];
+            WorkspaceRegistrationInput[] orderedRegistrations =
+                ParseOrderedRegistrations(
+                    parseResult,
+                    registerLibraryOption,
+                    registerPackagePrefixOption,
+                    registerEcosystemOption);
             WorkspaceTopLevelInventoryEntryKind[] inventoryKinds =
             [
                 .. (parseResult.GetValue(kindOption) ?? [])
@@ -188,9 +189,7 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
-                    RegisteredLibraries = registeredLibraries,
-                    RegisteredPackagePrefixes = registeredPackagePrefixes,
-                    RegisteredEcosystems = registeredEcosystems,
+                    OrderedRegistrations = orderedRegistrations,
                     InventoryKinds = inventoryKinds,
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
@@ -215,6 +214,46 @@ public static class WorkspaceCommandDefinitions
         });
 
         return command;
+    }
+
+    static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
+        ParseResult parseResult,
+        Option<string[]> registerLibraryOption,
+        Option<string[]> registerPackagePrefixOption,
+        Option<string[]> registerEcosystemOption)
+    {
+        var kinds =
+            new Dictionary<string, WorkspaceRegistrationInputKind>(
+                StringComparer.Ordinal)
+            {
+                [registerLibraryOption.Name] =
+                    WorkspaceRegistrationInputKind.ExactLibrary,
+                [registerPackagePrefixOption.Name] =
+                    WorkspaceRegistrationInputKind.PackagePrefix,
+                [registerEcosystemOption.Name] =
+                    WorkspaceRegistrationInputKind.Ecosystem,
+            };
+        var registrations = new List<WorkspaceRegistrationInput>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !kinds.TryGetValue(
+                    token.Value,
+                    out WorkspaceRegistrationInputKind kind)
+                || index + 1 >= parseResult.Tokens.Count
+                || parseResult.Tokens[index + 1].Type == TokenType.Option)
+            {
+                continue;
+            }
+
+            registrations.Add(
+                new WorkspaceRegistrationInput(
+                    kind,
+                    parseResult.Tokens[++index].Value));
+        }
+
+        return [.. registrations];
     }
 
     static WorkspaceTopLevelInventoryEntryKind ParseInventoryKind(

@@ -53,18 +53,21 @@ text, or hide a failed producer behind an empty section.
 The `workspace` command first distinguishes durable definition output from
 runtime observation. With `--share`, direct Package and registration inputs
 become one schema-version-3 Workspace definition plus its committed peer
-records, then the Definitions-owned transposer and codec emit a canonical
-format-3 packet or URL as the command's stdout scalar. This deliberately differs
-from noun-command Share, which is additive stderr output beside inspection
-content: the portable definition is the `workspace` command's primary result.
-With `--share`, canonical packet or exact Inspect Web URL input follows the
-same resource-free decode, transposition, and projection path. No
+records. Package coordinates coalesce by normalized identity, and
+registrations retain authored cross-kind command-line order. The
+Definitions-owned transposer and codec then emit a canonical format-3 packet or
+URL as the command's stdout scalar. This deliberately differs from noun-command
+Share, which is additive stderr output beside inspection content: the portable
+definition is the `workspace` command's primary result. With `--share`,
+canonical packet or exact Inspect Web URL input follows the same resource-free
+decode, transposition, and projection path. No
 `WorkspacePlan`, Package-store access, complete-restoration host, or live
 Workspace exists on this path. Inventory filters, Root reopening, and
 Navigation selectors are rejected rather than ignored because they request
-runtime observation. Prerelease resolution and explicit NuGet source policy are
-also rejected because they are acquisition settings that the portable
-definition cannot preserve.
+runtime observation. Inventory row controls are likewise rejected before
+output. Prerelease resolution and explicit NuGet source policy are also
+rejected because they are acquisition settings that the portable definition
+cannot preserve.
 
 Without `--share`, the `workspace` command constructs one ephemeral
 `WorkspaceRealizationCoordinator` candidate from direct Package and

@@ -425,7 +425,12 @@ public static class WorkspaceCommand
                         member.Version,
                         framework,
                         member.RuntimeIdentifier))
-                .Distinct(),
+                .DistinctBy(static coordinate =>
+                    new PortablePackageCoordinateKey(
+                        coordinate.Id.ToLowerInvariant(),
+                        NormalizePackageVersion(coordinate.Version),
+                        coordinate.Framework?.ToLowerInvariant(),
+                        coordinate.RuntimeIdentifier)),
         ];
         WorkspaceContextDefinition[] contexts =
             coordinates.Length == 0
@@ -621,53 +626,28 @@ public static class WorkspaceCommand
         var builder = ImmutableArray.CreateBuilder<WorkspaceRegistration>();
         try
         {
-            foreach (string value in options.RegisteredLibraries)
+            foreach (WorkspaceRegistrationInput input
+                in GetRegistrationInputs(options))
             {
-                builder.Add(
-                    new WorkspaceRegistration.ExactLibrary(
-                        ParseExactPackageLibrary(value)));
-            }
-            foreach (string value in options.RegisteredPackagePrefixes)
-            {
-                builder.Add(
-                    new WorkspaceRegistration.PackagePrefix(
-                        new PackagePrefixDeclaration(value)));
-            }
-            foreach (string value in options.RegisteredEcosystems)
-            {
-                string canonical = value.StartsWith(
-                    "ecosystem.",
-                    StringComparison.Ordinal)
-                        ? value
-                        : $"ecosystem.{value}";
-                if (!EcosystemPackId.TryCreate(
-                    canonical,
-                    out EcosystemPackId? id))
+                switch (input.Kind)
                 {
-                    throw new ArgumentException(
-                        $"'{value}' is not a canonical ecosystem identity.");
+                    case WorkspaceRegistrationInputKind.ExactLibrary:
+                        builder.Add(
+                            new WorkspaceRegistration.ExactLibrary(
+                                ParseExactPackageLibrary(input.Value)));
+                        break;
+                    case WorkspaceRegistrationInputKind.PackagePrefix:
+                        builder.Add(
+                            new WorkspaceRegistration.PackagePrefix(
+                                new PackagePrefixDeclaration(input.Value)));
+                        break;
+                    case WorkspaceRegistrationInputKind.Ecosystem:
+                        builder.Add(ParseEcosystemRegistration(input.Value));
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unsupported Workspace registration input kind '{input.Kind}'.");
                 }
-
-                EcosystemWorkspaceRegistrationSelectionResult selected =
-                    EcosystemPackCatalog.SelectWorkspaceRegistration(id);
-                if (selected
-                    is not EcosystemWorkspaceRegistrationSelectionResult.Known
-                        known)
-                {
-                    throw new ArgumentException(
-                        selected switch
-                        {
-                            EcosystemWorkspaceRegistrationSelectionResult
-                                .Unavailable =>
-                                $"Ecosystem '{canonical}' has no Workspace registration.",
-                            EcosystemWorkspaceRegistrationSelectionResult
-                                .Unknown =>
-                                $"Ecosystem '{canonical}' is not registered.",
-                            _ => "The ecosystem registration returned an unsupported result.",
-                        });
-                }
-                builder.Add(
-                    new WorkspaceRegistration.Ecosystem(known.Declaration));
             }
         }
         catch (ArgumentException ex)
@@ -681,6 +661,91 @@ public static class WorkspaceCommand
 
         registrations = builder.ToImmutable();
         return true;
+    }
+
+    static IEnumerable<WorkspaceRegistrationInput> GetRegistrationInputs(
+        WorkspaceOptions options)
+    {
+        if (options.OrderedRegistrations.Length != 0)
+        {
+            foreach (WorkspaceRegistrationInput input
+                in options.OrderedRegistrations)
+            {
+                yield return input;
+            }
+            yield break;
+        }
+
+        foreach (string value in options.RegisteredLibraries)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.ExactLibrary,
+                value);
+        }
+        foreach (string value in options.RegisteredPackagePrefixes)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.PackagePrefix,
+                value);
+        }
+        foreach (string value in options.RegisteredEcosystems)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.Ecosystem,
+                value);
+        }
+    }
+
+    static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
+        string value)
+    {
+        string canonical = value.StartsWith(
+            "ecosystem.",
+            StringComparison.Ordinal)
+                ? value
+                : $"ecosystem.{value}";
+        if (!EcosystemPackId.TryCreate(
+            canonical,
+            out EcosystemPackId? id))
+        {
+            throw new ArgumentException(
+                $"'{value}' is not a canonical ecosystem identity.");
+        }
+
+        EcosystemWorkspaceRegistrationSelectionResult selected =
+            EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+        if (selected
+            is not EcosystemWorkspaceRegistrationSelectionResult.Known known)
+        {
+            throw new ArgumentException(
+                selected switch
+                {
+                    EcosystemWorkspaceRegistrationSelectionResult
+                        .Unavailable =>
+                        $"Ecosystem '{canonical}' has no Workspace registration.",
+                    EcosystemWorkspaceRegistrationSelectionResult
+                        .Unknown =>
+                        $"Ecosystem '{canonical}' is not registered.",
+                    _ => "The ecosystem registration returned an unsupported result.",
+                });
+        }
+        return new WorkspaceRegistration.Ecosystem(known.Declaration);
+    }
+
+    static string? NormalizePackageVersion(string? value)
+    {
+        if (value is null)
+            return null;
+        if (!DotnetInspector.Packages.PackageExtractor
+            .TryNormalizePackageVersion(
+                value,
+                out string normalized))
+        {
+            throw new ArgumentException(
+                $"Invalid exact package version '{value}'.");
+        }
+
+        return normalized.ToLowerInvariant();
     }
 
     static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
@@ -1511,6 +1576,7 @@ public static class WorkspaceCommand
             options.Packages.Length != 0
             || options.Tfm is not null
             || options.RootRequest is not null
+            || options.OrderedRegistrations.Length != 0
             || options.RegisteredLibraries.Length != 0
             || options.RegisteredPackagePrefixes.Length != 0
             || options.RegisteredEcosystems.Length != 0;
@@ -1546,6 +1612,14 @@ public static class WorkspaceCommand
         {
             return "--share emits the complete portable Workspace definition "
                 + "and cannot be combined with --kind inventory filters.";
+        }
+        if (options.ShareFormat is not null
+            && (options.Count
+                || options.Rows is not null
+                || options.NoHeader))
+        {
+            return "--share emits one portable Workspace definition and "
+                + "cannot be combined with inventory row controls.";
         }
         if (options.ShareFormat is not null
             && (options.IncludePrerelease
@@ -1612,6 +1686,12 @@ public static class WorkspaceCommand
         }
         return null;
     }
+
+    readonly record struct PortablePackageCoordinateKey(
+        string Id,
+        string? Version,
+        string? Framework,
+        string? RuntimeIdentifier);
 }
 
 [JsonSourceGenerationOptions(

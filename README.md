@@ -531,18 +531,20 @@ dotnet-inspect workspace \
 
 Direct Package and registration inputs become one schema-version-3 definition
 and canonical format-3 packet. Registration-only authoring also remains
-resource-free. A scanner-bearing Ecosystem fails visibly as non-projectable;
-the command never drops its scanner to manufacture a packet.
+resource-free. Normalized-equivalent Package coordinates are emitted once,
+while registration options retain their authored cross-kind order. A
+scanner-bearing Ecosystem fails visibly as non-projectable; the command never
+drops its scanner to manufacture a packet.
 
 `--packet` accepts either canonical packet text or the exact
 `https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
 re-emits the canonical packet or selected URL without complete restoration.
 The `--share` selection governs this scalar; inventory output formats apply
 only when `--share` is absent.
-Durable definition output cannot be combined with `--kind`,
-`--root-request`, `--preview`, explicit NuGet source policy, or Package
-Navigation selectors because those options request runtime acquisition or
-observation rather than a definition transformation.
+Durable definition output cannot be combined with `--kind`, inventory row
+controls, `--root-request`, `--preview`, explicit NuGet source policy, or
+Package Navigation selectors because those options request runtime acquisition
+or observation rather than a definition transformation.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations

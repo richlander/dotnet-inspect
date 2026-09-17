@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -1222,6 +1223,69 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(2, packet.ViewStates.Count);
     }
 
+    [Theory]
+    [InlineData(
+        "System.Text.Json@10.0.0",
+        "system.text.json@10.0.0")]
+    [InlineData(
+        "System.Text.Json@1.0",
+        "System.Text.Json@1.0.0")]
+    public async Task DirectShare_CoalescesNormalizedPackageCoordinates(
+        string first,
+        string second)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [first, second],
+                    Tfm = "net10.0",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.Single(packet.Tabs);
+        Assert.Single(packet.Contexts);
+        Assert.Single(packet.Contexts[0].TabIndexes);
+    }
+
+    [Fact]
+    public async Task CommandLineShare_PreservesCrossKindRegistrationOrder()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--register-package-prefix",
+            "Zeta.",
+            "--register-library",
+            "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+            "--share",
+            "packet",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            packet.Registrations[0]);
+        Assert.IsType<WorkspaceRegistration.ExactLibrary>(
+            packet.Registrations[1]);
+    }
+
     [Fact]
     public async Task RegistrationOnlyShare_AuthorsUrlWithoutAcquisition()
     {
@@ -1381,6 +1445,41 @@ public sealed class WorkspaceCommandTests
         Assert.Empty(captured.Output);
         Assert.Contains(
             "resource-free portable Workspace definition",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--rows", "1")]
+    [InlineData("--count", null)]
+    [InlineData("--no-headers", null)]
+    public async Task CommandLineShare_RejectsInventoryRowControls(
+        string option,
+        string? value)
+    {
+        var arguments = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Microsoft.Extensions.",
+            "--share",
+            "packet",
+            option,
+        };
+        if (value is not null)
+            arguments.Add(value);
+        string[] args = [.. arguments];
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "inventory row controls",
             captured.Error,
             StringComparison.Ordinal);
     }
