@@ -29,7 +29,8 @@ internal sealed record ApiTypeLookupResult(
     /// <see cref="CommandError"/> puts the prefix, the containment, and the
     /// continuation indent all in one place.
     /// </remarks>
-    public void WriteNotFoundError()
+    public void WriteNotFoundError(
+        bool inspectionIncomplete = false)
     {
         if (IsAmbiguous)
         {
@@ -50,7 +51,11 @@ internal sealed record ApiTypeLookupResult(
         }
 
         CommandError.Write(
-            $"Type '{Query}' not found.",
+            inspectionIncomplete
+                ? $"Type '{Query}' was not found in the readable package "
+                    + "Libraries; lookup is incomplete because one or more "
+                    + "selected Libraries could not be inspected."
+                : $"Type '{Query}' not found.",
             [.. SuggestionDetails(Suggestions)]);
     }
 

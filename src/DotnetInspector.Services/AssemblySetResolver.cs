@@ -488,17 +488,23 @@ public static class AssemblySetResolver
             dlls = dlls.OrderBy(static p => p, StringComparer.Ordinal);
         }
 
-        bool foundAssembly = false;
+        bool foundLibrary = false;
         foreach (string dll in dlls)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foundAssembly = true;
+            foundLibrary = true;
+            if (TfmSelector.ClassifyPackageLibraryImage(dll)
+                    == TfmSelector.PackageLibraryImageKind
+                        .NonAssembly)
+            {
+                continue;
+            }
             assemblies.Add(new AssemblySetEntry(
                 dll, extracted.PackageName ?? package, extracted.Version,
                 AssemblySetSourceKind.Package, selectedTfm));
         }
 
-        if (!foundAssembly)
+        if (!foundLibrary)
         {
             string message = selectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending
                 ? $"No libraries found in package '{package}'."

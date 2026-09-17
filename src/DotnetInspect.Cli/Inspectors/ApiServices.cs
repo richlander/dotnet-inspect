@@ -15,6 +15,9 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal static class ApiServices
 {
+    internal const string PackageLibraryAcquisitionOperation =
+        "acquire package Library API surface";
+
     // ===== Extraction Pipeline =====
 
     internal sealed record LoadedApiSurface(
@@ -426,7 +429,7 @@ internal static class ApiServices
             string kind,
             string detail) =>
         new(
-            "acquire package Library API surface",
+            PackageLibraryAcquisitionOperation,
             0,
             MetadataTypeNameFailureMechanism.Metadata,
             kind,

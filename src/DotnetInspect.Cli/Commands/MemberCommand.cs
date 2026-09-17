@@ -255,7 +255,11 @@ public static class MemberCommand
                         loaded);
                 }
 
-                lookupResult.WriteNotFoundError();
+                bool inspectionIncomplete =
+                    ApiCommand
+                        .WritePackageAggregateAcquisitionDiagnostics(
+                            api);
+                lookupResult.WriteNotFoundError(inspectionIncomplete);
                 return 1;
             }
 
@@ -793,7 +797,10 @@ public static class MemberCommand
 
             // Enrich with local XML docs only (source info is in the source command)
             {
-                var dllPath = runtimeAssemblyPath ?? apiDllPath;
+                var dllPath =
+                    apiType.SourceAssemblyPath
+                    ?? runtimeAssemblyPath
+                    ?? apiDllPath;
                 if (dllPath != null && effectiveOptions.ShowDocs)
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }

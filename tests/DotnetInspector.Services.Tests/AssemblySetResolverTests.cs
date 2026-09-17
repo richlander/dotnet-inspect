@@ -46,6 +46,84 @@ public class AssemblySetResolverTests
     }
 
     [Fact]
+    public void CollectExtractedPackage_SkipsNonAssemblyLibrary()
+    {
+        string root = Directory
+            .CreateTempSubdirectory("assembly-set-non-assembly-")
+            .FullName;
+        try
+        {
+            string lib = Directory
+                .CreateDirectory(Path.Combine(root, "lib", "net10.0"))
+                .FullName;
+            File.Copy(
+                typeof(AssemblySetResolverTests).Assembly.Location,
+                Path.Combine(lib, "Healthy.dll"));
+            File.WriteAllText(
+                Path.Combine(lib, "Text.dll"),
+                "not an assembly");
+            var extracted = new PackageExtractionResult(
+                root,
+                null,
+                "Classification.Package",
+                "1.0.0",
+                FromCache: true);
+
+            using var set =
+                AssemblySetResolver.CollectExtractedPackage(extracted);
+
+            Assert.Empty(set.Diagnostics);
+            Assert.Equal(
+                ["Healthy.dll"],
+                set.Assemblies.Select(
+                    entry => Path.GetFileName(entry.Path)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CollectExtractedPackage_RetainsUnreadableLibrary()
+    {
+        string root = Directory
+            .CreateTempSubdirectory("assembly-set-unreadable-")
+            .FullName;
+        try
+        {
+            string lib = Directory
+                .CreateDirectory(Path.Combine(root, "lib", "net10.0"))
+                .FullName;
+            File.Copy(
+                typeof(AssemblySetResolverTests).Assembly.Location,
+                Path.Combine(lib, "Healthy.dll"));
+            File.WriteAllBytes(
+                Path.Combine(lib, "Unreadable.dll"),
+                [1, 2, 3]);
+            var extracted = new PackageExtractionResult(
+                root,
+                null,
+                "Classification.Package",
+                "1.0.0",
+                FromCache: true);
+
+            using var set =
+                AssemblySetResolver.CollectExtractedPackage(extracted);
+
+            Assert.Empty(set.Diagnostics);
+            Assert.Equal(
+                ["Healthy.dll", "Unreadable.dll"],
+                set.Assemblies.Select(
+                    entry => Path.GetFileName(entry.Path)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CollectAsync_LocalPackageOwnsExtractionUntilDisposed()
     {
         var packageDir = Directory.CreateTempSubdirectory("assembly-set-package-test").FullName;

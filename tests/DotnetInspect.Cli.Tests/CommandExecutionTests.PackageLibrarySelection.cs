@@ -73,6 +73,128 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_AggregateRowsRetainProducerLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var table = await RunAppAsync(
+                "library", packagePath,
+                "-S", "References",
+                "--table", "--rows", "1",
+                "--tips", "q");
+            var tsv = await RunAppAsync(
+                "library", packagePath,
+                "-S", "References",
+                "--tsv", "--rows", "1",
+                "--tips", "q");
+            var jsonl = await RunAppAsync(
+                "library", packagePath,
+                "-S", "References",
+                "--jsonl", "--rows", "1",
+                "--tips", "q");
+            var projected = await RunAppAsync(
+                "library", packagePath,
+                "-S", "References",
+                "--tsv", "--columns", "Name",
+                "--rows", "1",
+                "--tips", "q");
+            var exact = await RunAppAsync(
+                "library", "Latest.One.dll",
+                "--package", packagePath,
+                "-S", "References",
+                "--tsv", "--rows", "1",
+                "--tips", "q");
+
+            Assert.Equal(0, table.Exit);
+            Assert.Empty(table.Error);
+            Assert.StartsWith("library", table.Output);
+            Assert.Contains("Name", table.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll",
+                table.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll",
+                table.Output);
+
+            Assert.Equal(0, tsv.Exit);
+            Assert.Empty(tsv.Error);
+            Assert.Contains("library\tname\t", tsv.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll",
+                tsv.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll",
+                tsv.Output);
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Empty(jsonl.Error);
+            Assert.Contains(
+                "\"library\":\"lib/net10.0/Latest.One.dll\"",
+                jsonl.Output);
+            Assert.Contains(
+                "\"library\":\"lib/net10.0/Latest.Two.dll\"",
+                jsonl.Output);
+
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(projected.Error);
+            Assert.StartsWith("library\tname\n", projected.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll",
+                projected.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.StartsWith("name\t", exact.Output);
+            Assert.DoesNotContain("library\t", exact.Output);
+
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_AggregateRejectsLibraryCoordinate()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string offsetsPath = Path.Combine(
+                tempDir,
+                "offsets.txt");
+            File.WriteAllText(
+                offsetsPath,
+                "0x06000001+0x0");
+
+            foreach (string[] coordinate in new[]
+            {
+                new[] { "--il-offset", "0x06000001+0x0" },
+                new[] { "--il-offsets", offsetsPath },
+            })
+            {
+                var result = await RunAppAsync(
+                    ["library", packagePath, .. coordinate, "--tips", "q"]);
+
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    "requires one exact Library",
+                    result.Error);
+                Assert.Contains("--library <asset>", result.Error);
+                Assert.Contains(
+                    "--namesake-library",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_UnreadableAggregateParticipantIsVisible()
     {
         string tempDir = Path.Combine(
@@ -265,8 +387,142 @@ public partial class CommandExecutionTests
                 "DotnetInspect.Cli.Tests.CommandExecutionTests",
                 result.Output);
             Assert.Contains(
-                "API inspection rejected 1 metadata row",
-                result.Output + result.Error);
+                command == "member"
+                    ? "Package Library 'lib/net8.0/Invalid.dll' is not "
+                        + "a readable managed assembly image"
+                    : "API inspection rejected 1 metadata row",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCommand_UnreadableParticipantMakesMissingTypeIncomplete()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithAdditionalLibrary(
+                "Invalid.dll",
+                [1, 2, 3]);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "Possibly.In.Unreadable.Library",
+                "--package", packagePath,
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Package Library 'lib/net8.0/Invalid.dll' is not "
+                    + "a readable managed assembly image",
+                result.Error);
+            Assert.Contains(
+                "lookup is incomplete because one or more selected "
+                    + "Libraries could not be inspected",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCommand_AggregateDocsUseDefiningLibrary()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithDefiningLibraryDocumentation();
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "DotnetInspector.Services.TfmSelector",
+                "--package", packagePath,
+                "--markdown", "-v:n",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "Defining Library documentation.",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MemberCommand_AggregateDocsUseDefiningLibrary()
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithDefiningLibraryDocumentation();
+        try
+        {
+            var result = await RunAppAsync(
+                "member",
+                "DotnetInspector.Services.TfmSelector",
+                "NormalizeTfm",
+                "--package", packagePath,
+                "--markdown", "-v:n",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "Defining Library member documentation.",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Invalid.dll", false)]
+    [InlineData("Text.dll", true)]
+    public async Task FindCommand_ClassifiesAggregateParticipants(
+        string additionalLibrary,
+        bool plainText)
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithAdditionalLibrary(
+                additionalLibrary,
+                plainText
+                    ? "not an assembly"u8.ToArray()
+                    : [1, 2, 3]);
+        try
+        {
+            var result = await RunAppAsync(
+                "find",
+                "CommandExecutionTests",
+                "--package", packagePath,
+                "--table",
+                "--tips", "q");
+
+            Assert.Equal(plainText ? 0 : 1, result.Exit);
+            Assert.Contains("CommandExecutionTests", result.Output);
+            Assert.Contains("DotnetInspect.Cli.Tests", result.Output);
+            if (plainText)
+            {
+                Assert.Empty(result.Error);
+                Assert.DoesNotContain(
+                    additionalLibrary,
+                    result.Output);
+            }
+            else
+            {
+                Assert.Contains("Could not read", result.Error);
+                Assert.Contains(
+                    additionalLibrary,
+                    result.Error);
+            }
         }
         finally
         {
@@ -738,6 +994,52 @@ public partial class CommandExecutionTests
         string packagePath = Path.Combine(
             tempDir,
             "Aggregate.Participant.Sample.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreatePackageWithDefiningLibraryDocumentation()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDir, "A.Healthy.dll"));
+        string definingLibrary =
+            Path.Combine(libDir, "Z.Services.dll");
+        File.Copy(
+            typeof(DotnetInspector.Services.TfmSelector)
+                .Assembly.Location,
+            definingLibrary);
+        File.WriteAllText(
+            Path.ChangeExtension(definingLibrary, ".xml"),
+            """
+            <?xml version="1.0"?>
+            <doc>
+              <assembly>
+                <name>DotnetInspector.Services</name>
+              </assembly>
+              <members>
+                <member name="T:DotnetInspector.Services.TfmSelector">
+                  <summary>Defining Library documentation.</summary>
+                </member>
+                <member name="M:DotnetInspector.Services.TfmSelector.NormalizeTfm(System.String)">
+                  <summary>Defining Library member documentation.</summary>
+                </member>
+              </members>
+            </doc>
+            """);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Aggregate.Documentation.Sample.1.0.0.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);

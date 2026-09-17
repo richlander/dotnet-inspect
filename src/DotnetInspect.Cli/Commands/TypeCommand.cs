@@ -375,7 +375,12 @@ public static class TypeCommand
                 var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
                 if (lookupResult.ImpliedMember is not null)
                 {
-                    lookupResult.WriteNotFoundError();
+                    inspectionIncomplete =
+                        ApiCommand
+                            .WritePackageAggregateAcquisitionDiagnostics(
+                                api);
+                    lookupResult.WriteNotFoundError(
+                        inspectionIncomplete);
                     return 1;
                 }
 
@@ -522,7 +527,7 @@ public static class TypeCommand
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
-                        var dllPath = runtimeAssemblyPath ?? apiDllPath;
+                        var dllPath = effectiveOptions.DllPath;
                         if (dllPath != null && effectiveOptions.ShowDocs)
                             SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
                     }
@@ -697,13 +702,23 @@ public static class TypeCommand
                         }
                         else
                         {
-                            lookupResult.WriteNotFoundError();
+                            bool lookupIncomplete =
+                                ApiCommand
+                                    .WritePackageAggregateAcquisitionDiagnostics(
+                                        api);
+                            lookupResult.WriteNotFoundError(
+                                lookupIncomplete);
                             return 1;
                         }
                     }
                     else
                     {
-                        lookupResult.WriteNotFoundError();
+                        bool lookupIncomplete =
+                            ApiCommand
+                                .WritePackageAggregateAcquisitionDiagnostics(
+                                    api);
+                        lookupResult.WriteNotFoundError(
+                            lookupIncomplete);
                         return 1;
                     }
                 }

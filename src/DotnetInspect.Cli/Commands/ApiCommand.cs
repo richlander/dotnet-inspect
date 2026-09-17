@@ -1670,18 +1670,37 @@ public class ApiCommand
         ApiType selectedType,
         HashSet<string>? selectedMemberNames = null)
     {
+        bool packageAcquisitionIncomplete =
+            WritePackageAggregateAcquisitionDiagnostics(api);
         WarnSelectedApiInspectionIncomplete(
             api,
             selectedType,
             selectedMemberNames);
         int rejectedRows = CountRejectedMetadataRows(api);
         if (rejectedRows == 0)
-            return 0;
+            return packageAcquisitionIncomplete ? 1 : 0;
 
         CommandError.WriteWarning(
             $"API inspection rejected {rejectedRows} metadata row(s); "
             + "selected output excludes failure details.");
         return 1;
+    }
+
+    internal static bool
+        WritePackageAggregateAcquisitionDiagnostics(
+            ApiSurface api)
+    {
+        List<ApiSurfaceInspectionFailure> failures =
+        [
+            .. api.InspectionFailures.Where(
+                static failure =>
+                    failure.Operation
+                        == ApiServices
+                            .PackageLibraryAcquisitionOperation),
+        ];
+        foreach (ApiSurfaceInspectionFailure failure in failures)
+            CommandError.WriteWarning(failure.Detail);
+        return failures.Count > 0;
     }
 
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)

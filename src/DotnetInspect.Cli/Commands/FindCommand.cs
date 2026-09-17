@@ -146,7 +146,7 @@ public class FindCommand
                 WriteOutput(results, title, options);
             }
 
-            return 0;
+            return search.HasFailures ? 1 : 0;
         }
         catch (Exception ex)
         {

@@ -950,6 +950,33 @@ public class LibraryCommand
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
 
+                if (assemblyPaths.Count > 1
+                    && (options.Print
+                        || options.Value
+                        || options.Urls
+                        || options.Paths))
+                {
+                    CommandError.Write(
+                        "Scalar Library projections require one exact Library. "
+                        + "Narrow the package with --library <asset> "
+                        + "or --namesake-library.");
+                    return 1;
+                }
+                if (assemblyPaths.Count > 1
+                    && (HasILOffsetCoordinate(options)
+                        || !string.IsNullOrWhiteSpace(
+                            options.ILOffsetsPath)
+                        || HasHeapCoordinate(options)
+                        || options.ExtractResources is not null
+                        || discoveryInspection))
+                {
+                    CommandError.Write(
+                        "The selected Library operation requires one exact "
+                        + "Library. Narrow the package with "
+                        + "--library <asset> or --namesake-library.");
+                    return 1;
+                }
+
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1141,19 +1168,6 @@ public class LibraryCommand
                     CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
-                if (inspections.Count > 1
-                    && (options.Print
-                        || options.Value
-                        || options.Urls
-                        || options.Paths))
-                {
-                    CommandError.Write(
-                        "Scalar Library projections require one exact Library. "
-                        + "Narrow the package with --library <asset> "
-                        + "or --namesake-library.");
-                    return 1;
-                }
-
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
                 if (inspections.Count == 1
