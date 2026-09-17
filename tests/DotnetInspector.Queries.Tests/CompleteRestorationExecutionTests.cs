@@ -12,6 +12,57 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class CompleteRestorationExecutionTests
 {
     [Fact]
+    public async Task RegistrationOnlyVersion3_RestoresWithoutAcquisition()
+    {
+        const string json =
+            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    encoded,
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, assembly),
+                TestContext.Current.CancellationToken);
+
+        var activated =
+            Assert.IsType<
+                CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                    result);
+        Assert.Empty(activated.Workspace.Snapshot.Contexts);
+        Assert.Empty(activated.Workspace.Snapshot.Scope.Packages);
+        Assert.Single(
+            activated.Workspace.Snapshot.Definition.Plan.Registrations);
+        Assert.IsType<CompleteRestorationResolvedState.Version3>(
+            activated.Workspace.Snapshot.Resolved);
+        var projectable =
+            Assert.IsType<CompleteRestorationProjection.Projectable>(
+                activated.Workspace.Projection);
+        Assert.Equal(encoded, projectable.CanonicalPacket);
+        Assert.Equal(
+            StructuralSubjectKind.Workspace,
+            activated.Workspace.Snapshot.Navigation.State.Snapshot
+                .ActiveSubject.Kind);
+
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
     public async Task WorkspaceDefinition_PreparesOneExactUnpublishedActivation()
     {
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -177,7 +228,7 @@ public sealed class CompleteRestorationExecutionTests
             Assert.IsType<CompleteRestorationProjection.Projectable>(
                 activated.Workspace.Projection);
         Assert.Equal(
-            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            WorkspaceSharePacketCodec.Format2Version,
             WorkspaceSharePacketCodec.Decode(
                 projectable.CanonicalPacket,
                 TestContext.Current.CancellationToken).FormatVersion);
