@@ -101,7 +101,7 @@ public partial class PackageCommand
                 p.Replace('\\', '/')))
             .OrderBy(p => p);
 
-        var results = options.Limit.HasValue 
+        var results = options.Limit.HasValue
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
         var visibleResults = RowWindow.Apply(options.Rows, results);
