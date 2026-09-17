@@ -851,7 +851,7 @@ public static class CompleteRestorationCoordinator
                             PackageArtifactRootRequest.From(binding);
                         return request.Coordinate == realized[0]
                             && string.Equals(
-                                request.SelectionTargetFramework,
+                            request.CompileTargetFramework,
                                 source.EffectiveCoordinate.Framework,
                                 StringComparison.Ordinal)
                             && string.Equals(

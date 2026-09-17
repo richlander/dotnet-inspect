@@ -607,6 +607,19 @@ whole-assembly acquisition must not be implied by category selection. On an
 overload inventory, `Signature` and `Custom Attributes` remain exact-name
 sections because both require one selected overload.
 
+## Diff category map
+
+The diff command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Diff` | `Changes`, `Analysis Diff`, `Implementation Diff` |
+
+`@Diff` is the base category and groups the three comparison sections that may
+compose in one document. `Finding Transitions` remains exact-name-only because
+it requires a focused type or type-qualified member and does not compose with
+comparison sections.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -620,10 +633,12 @@ The section pipeline and derived catalog gates enforce these invariants:
    Every selectable member section is categorized except the explicitly pinned
    `Member Index`, `Finding Census`, `Clone Candidates`, and `Implementation
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
-   sections. Gates:
+   sections. Every diff comparison section belongs to `@Diff`; `Finding
+   Transitions` is its only standalone section. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
-   `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles`.
+   `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
+   `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -638,10 +653,10 @@ sets so stale and missing entries both fail.
 
 ## Migration
 
-The library model is the reference implementation. Package, type listing, and
-member inspection use the same size/cost axes, base-category scope, authored
-category model, and curated discovery. Project and remaining API commands
-should migrate incrementally.
+The library model is the reference implementation. Package, type listing,
+member inspection, and diff use the same size/cost axes, base-category scope,
+authored category model, and curated discovery. Project and remaining API
+commands should migrate incrementally.
 
 During migration:
 

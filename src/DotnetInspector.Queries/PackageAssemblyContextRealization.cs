@@ -472,6 +472,58 @@ public sealed class PackageRootBinding
             usesCompatibleImplementationSelection: true);
     }
 
+    internal static PackageRootBinding
+        CreateFromResolvedWithCompatibleSelection(
+            AcquiredPackagePayload payload,
+            string requestedTargetFramework,
+            string? displayPackageId,
+            string coordinateProducer,
+            PackageProducerIdentity producer)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinateProducer);
+        ArgumentNullException.ThrowIfNull(producer);
+        PackageRootBinding exact = CreateFromResolved(
+            payload,
+            requestedTargetFramework,
+            displayPackageId,
+            coordinateProducer,
+            producer);
+        if (exact.Root.AssetSelection.Status
+                is not PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            return exact;
+        }
+        if (!TrySelectCompatibleCompileAssets(
+                payload.Content,
+                payload.Coordinate.PackageId,
+                requestedTargetFramework,
+                payload.Coordinate.RuntimeIdentifier,
+                exact.Root.AssetSelection,
+                out PackageCompileAssetSelection? compatibleSelection))
+        {
+            compatibleSelection = exact.Root.AssetSelection;
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinateProducer,
+            producer,
+            sourceProducerAlias: null,
+            payload.Coordinate.Framework,
+            compatibleSelection.TargetFramework,
+            payload.Coordinate.RuntimeIdentifier,
+            compatibleSelection,
+            requestedTargetFramework,
+            usesCompatibleImplementationSelection: true);
+    }
+
     static PackageCompileAssetSelection? ReacquiredCompatibleSelection(
         IPackageContent content,
         string packageId,
