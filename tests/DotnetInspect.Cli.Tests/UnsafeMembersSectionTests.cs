@@ -49,7 +49,7 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public async Task MemberAuditCategory_IsNotAvailableForSelectedMember()
+    public async Task MemberAuditCategory_SelectsUnsafeEvidence()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -63,8 +63,9 @@ public class UnsafeMembersSectionTests
             FormatExplicitlySet = true,
         }));
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("@Audit", result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Unsafe Operations", result.Output);
     }
 
     [Fact]
@@ -135,7 +136,7 @@ public class UnsafeMembersSectionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task MemberEffectiveDiscovery_ListsUnsafeOperationsForUnsafeApiMember()
+    public async Task MemberAuditEffectiveDiscovery_ListsUnsafeOperationsForUnsafeApiMember()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -143,7 +144,7 @@ public class UnsafeMembersSectionTests
             PlatformAssembly = "System.Runtime",
             MemberFilter = ["Add"],
             OverloadIndex = 1,
-            Discover = [],
+            Discover = [SectionCategoryNames.Audit],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,
@@ -178,13 +179,13 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
-    public async Task TypeEffectiveDiscovery_ListsUnsafeMembers()
+    public async Task TypeAuditEffectiveDiscovery_ListsUnsafeMembers()
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            Discover = [],
+            Discover = [SectionCategoryNames.Audit],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,

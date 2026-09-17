@@ -437,6 +437,22 @@ An adapter may provide explicit precedence among several associated
 companions. DocumentationHouse does not infer precedence from path order,
 framework spelling, package layout, or file timestamps.
 
+The PackageHouse adapter is implemented in the separately compiled
+`DotnetInspector.DocumentationHouse.Packages` project. It accepts one exact
+`PackageHouseLibraryMaterializationReceipt` and the caller's documentation
+subject, then binds the receipt's Library and API content to the exact
+API-associated compiled-XML content materialized by PackageHouse. A present
+companion becomes one candidate contribution; a completed materialization
+without that companion becomes authoritative absence.
+
+The adapter creates only resource-free contribution evidence. It does not
+retain the PackageHouse payload, `LibraryContentOwner`, `ArtifactSetSession`,
+or a `LibraryOperationLease`, and it does not invoke LibraryMetadata or
+DocumentationHouse. Orchestration retains the two owners, issues and settles a
+first operation lease while obtaining
+`LibraryApiSurfaceCorrespondence`, then issues a distinct second operation
+lease and transfers it to `DocumentationHouse.ExecuteAsync`.
+
 ## Authored-source documentation contribution
 
 Authored-source documentation starts with one exact implementation target and
@@ -793,7 +809,7 @@ assembly and XML companion in the .NET 11 reference pack.
    shared Library ownership contract under #6950;
 3. **Completed.** Implement compiled-XML attempt and receipt settlement over
    CSharpText;
-4. add the PackageHouse adapter;
+4. **Completed.** Add the PackageHouse adapter;
 5. add the direct-library adapter;
 6. add the shared Queries compiled-documentation result;
 7. adopt package compiled documentation in Inspect Web;
@@ -863,6 +879,13 @@ and partial selection, distinct-content precedence with duplicate
 observations, malformed and bounded XML, stage-boundary deadline and
 cancellation, in-flight owner retirement, and the resource-free result
 closure.
+
+`PackageHouseExecutionTests` gates the PackageHouse adapter over real
+`System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
+separate LibraryMetadata and DocumentationHouse operation leases, exact
+candidate settlement, authoritative missing-companion absence, detached
+documentation, owner retirement, and rejection when byte-identical content
+from another PackageHouse materialization is offered for the selected subject.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.
