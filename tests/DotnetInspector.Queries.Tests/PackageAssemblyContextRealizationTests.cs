@@ -999,6 +999,14 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             Framework,
             "linux-x64");
+        PackageCompileAssetSlice slice =
+            Assert.Single(package.AssetSelection.AvailableSlices);
+        Assert.Equal(
+            [
+                "lib/net11.0/Rid.Sample.dll",
+                "lib/net11.0/shadow/Rid.Sample.dll",
+            ],
+            slice.CandidateAssets.Select(asset => asset.Path));
         await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
@@ -1006,17 +1014,8 @@ public sealed class PackageAssemblyContextRealizationTests
                 cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(realization.SharesGroup);
-        Assert.Equal(
-            [
-                "lib/net11.0/Rid.Sample.dll",
-                "lib/net11.0/shadow/Rid.Sample.dll",
-            ],
-            realization.SurfaceParticipants.Select(
-                participant => participant.Asset.Path));
         PackageAssemblyRoleParticipant surface =
-            realization.SurfaceParticipants[0];
-        PackageAssemblyRoleParticipant shadow =
-            realization.SurfaceParticipants[1];
+            Assert.Single(realization.SurfaceParticipants);
         PackageAssemblyRoleParticipant implementation =
             realization.ImplementationParticipants.Single(candidate =>
                 candidate.Asset.Path
@@ -1025,18 +1024,14 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll",
             implementation.Asset.Path);
-        PackageAssemblyRoleParticipant shadowImplementation =
-            Assert.Single(
-                realization.ImplementationParticipants,
-                candidate =>
-                    candidate.Asset.Path
-                        == "lib/net11.0/shadow/Rid.Sample.dll");
+        Assert.Contains(
+            realization.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Sample.dll");
         Assert.Same(
             implementation,
             realization.ImplementationParticipant(surface));
-        Assert.Same(
-            shadowImplementation,
-            realization.ImplementationParticipant(shadow));
     }
 
     [Fact]

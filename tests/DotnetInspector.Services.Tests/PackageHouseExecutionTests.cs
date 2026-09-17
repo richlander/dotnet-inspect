@@ -887,7 +887,7 @@ public sealed partial class PackageHouseExecutionTests
                     [
                         "ref/net6.0/_._",
                         $"lib/net8.0/{PackageId}.dll",
-                        $"ref/net10.0/{PackageId}.Companion.dll",
+                        $"ref/net10.0/nested/{PackageId}.Companion.dll",
                         $"ref/net10.0/{PackageId}.dll",
                     ]));
         var request = new PackageHouseRequest(
@@ -938,8 +938,8 @@ public sealed partial class PackageHouseExecutionTests
         Assert.True(emptySlice.HasExplicitEmptyReferenceGroup);
         Assert.Equal(
             [
-                $"ref/net10.0/{PackageId}.Companion.dll",
                 $"ref/net10.0/{PackageId}.dll",
+                $"ref/net10.0/nested/{PackageId}.Companion.dll",
             ],
             realization.LibraryHandoffs
                 .Select(handoff =>

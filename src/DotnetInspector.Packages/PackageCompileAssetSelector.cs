@@ -215,6 +215,7 @@ public static class PackageCompileAssetSelector
             packageId,
             targetFramework,
             runtimeIdentifier,
+            includeNestedCompileAssets: targetFramework is null,
             allowCompatibleFallback: false);
 
     /// <summary>
@@ -237,6 +238,7 @@ public static class PackageCompileAssetSelector
             requestedTargetFramework,
             runtimeIdentifier,
             implementationTargetFramework,
+            includeNestedCompileAssets: false,
             allowCompatibleFallback: true);
     }
 
@@ -300,6 +302,8 @@ public static class PackageCompileAssetSelector
                 packageId,
                 targetFramework,
                 runtimeIdentifier,
+                includeNestedCompileAssets:
+                    policy != PackageCompileAssetSelectionPolicy.ExactTarget,
                 allowCompatibleFallback:
                     policy == PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
@@ -310,6 +314,7 @@ public static class PackageCompileAssetSelector
         string? targetFramework = null,
         string? runtimeIdentifier = null,
         string? implementationTargetFramework = null,
+        bool includeNestedCompileAssets = false,
         bool allowCompatibleFallback = false)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -375,18 +380,45 @@ public static class PackageCompileAssetSelector
                         framework,
                         StringComparer.OrdinalIgnoreCase))),
         ];
+        HashSet<string> selectableFrameworks =
+            new(StringComparer.OrdinalIgnoreCase);
+        selectableFrameworks.UnionWith(
+            discovered
+                .Where(asset =>
+                    includeNestedCompileAssets
+                    || IsDirectCompileAsset(asset))
+                .Select(asset => asset.TargetFramework)
+                .Concat(emptyReferenceGroups));
+        string[] selectionFrameworks =
+        [
+            .. frameworks.Where(selectableFrameworks.Contains),
+        ];
+        if (selectionFrameworks.Length == 0)
+        {
+            return new PackageCompileAssetSelection(
+                PackageCompileAssetSelectionStatus.NoCompileAssets,
+                null,
+                frameworks,
+                [],
+                null,
+                discovered,
+                [],
+                emptyReferenceGroups,
+                slices);
+        }
+
         string? selectedFramework;
         if (targetFramework is null)
         {
-            selectedFramework = frameworks[0];
+            selectedFramework = selectionFrameworks[0];
         }
         else
         {
             selectedFramework = allowCompatibleFallback
                 ? SelectApplicableFramework(
-                    frameworks,
+                    selectionFrameworks,
                     targetFramework)
-                : frameworks.FirstOrDefault(framework =>
+                : selectionFrameworks.FirstOrDefault(framework =>
                     framework.Equals(
                         targetFramework,
                         StringComparison.OrdinalIgnoreCase));
@@ -408,14 +440,19 @@ public static class PackageCompileAssetSelector
         PackageCompileAsset[] frameworkAssets =
         [
             .. discovered.Where(
-                asset => asset.TargetFramework.Equals(
-                    selectedFramework,
-                    StringComparison.OrdinalIgnoreCase)),
+                asset =>
+                    (includeNestedCompileAssets
+                        || IsDirectCompileAsset(asset))
+                    && asset.TargetFramework.Equals(
+                        selectedFramework,
+                        StringComparison.OrdinalIgnoreCase)),
         ];
         PackageCompileAsset[] referenceAssets =
         [
             .. discovered.Where(
-                asset => asset.Kind == PackageCompileAssetKind.Reference
+                asset => (includeNestedCompileAssets
+                        || IsDirectCompileAsset(asset))
+                    && asset.Kind == PackageCompileAssetKind.Reference
                     && asset.TargetFramework.Equals(
                         selectedFramework,
                         StringComparison.OrdinalIgnoreCase)),
@@ -581,6 +618,9 @@ public static class PackageCompileAssetSelector
         return segments.Length >= 4
             && TfmResolver.IsCultureFolderName(segments[^2]);
     }
+
+    static bool IsDirectCompileAsset(PackageCompileAsset asset) =>
+        asset.Path.Count(character => character == '/') == 2;
 
     /// <summary>
     /// The target framework of an explicit empty reference group (<c>ref/&lt;tfm&gt;/_._</c>), or

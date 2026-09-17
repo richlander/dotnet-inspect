@@ -47,12 +47,13 @@ empty compile slice may retain compatible lower implementation assets.
 `PackageAssetSelector` remains the sole implementation-universe and RID
 overlay owner.
 
-One selected compile projection contains zero assets for an explicit empty
-slice or every reference/library fallback asset in the selected slice. It may
-therefore contain one or many Libraries; compile selection does not collapse
-that projection to a namesake or representative Library. The legacy
-`DefaultAsset` convenience remains outside this package-local projection
-claim until its current consumers adopt aggregate Navigation.
+One package-local selected compile projection contains zero assets for an
+explicit empty slice or every reference/library fallback asset in the selected
+slice, including nested candidates. It may therefore contain one or many
+Libraries; compile selection does not collapse that projection to a namesake or
+representative Library. The legacy `DefaultAsset` convenience remains outside
+this package-local projection claim until its current consumers adopt aggregate
+Navigation.
 
 ## Receipts
 
@@ -71,7 +72,8 @@ selected target frameworks remain separate.
 
 `ExactTarget` is a transitional, non-PackageHouse policy for existing
 consumers that have not reached their aggregate-adoption slice. It selects only
-an exactly named available slice. PackageHouse correspondence rejects that
+direct assets from an exactly named available slice while retaining nested
+candidates in `AvailableSlices`. PackageHouse correspondence rejects that
 policy, so an exact-only consumer cannot accidentally satisfy the new
 package-local contract.
 

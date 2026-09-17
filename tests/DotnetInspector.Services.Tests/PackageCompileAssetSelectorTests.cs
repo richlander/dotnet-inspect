@@ -134,9 +134,11 @@ public class PackageCompileAssetSelectorTests : IDisposable
             [
                 "lib/net8.0/Example.Companion.dll",
                 "lib/net8.0/Example.dll",
-                "lib/net8.0/shadow/Example.dll",
             ],
             selection.Assets.Select(asset => asset.Path));
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal(3, slice.CandidateAssets.Count);
         Assert.Equal(
             [
                 "lib/net8.0/Example.Companion.dll",
@@ -410,7 +412,11 @@ public class PackageCompileAssetSelectorTests : IDisposable
             "lib/net8.0/x64/Example.dll");
 
         PackageCompileAssetSelection selection =
-            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net8.0").Selection;
 
         Assert.True(selection.IsSelected);
         Assert.Equal("net8.0", selection.TargetFramework);
@@ -439,6 +445,27 @@ public class PackageCompileAssetSelectorTests : IDisposable
                 Assert.Empty(slice.CandidateAssets);
                 Assert.True(slice.HasExplicitEmptyReferenceGroup);
             });
+        PackageCompileAssetSelection exact =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net8.0");
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            exact.Status);
+        Assert.Equal(
+            selection.AvailableSlices.Select(slice =>
+                slice.TargetFramework),
+            exact.AvailableSlices.Select(slice =>
+                slice.TargetFramework));
+        Assert.Equal(
+            selection.CandidateAssets.Select(asset => asset.Path),
+            exact.CandidateAssets.Select(asset => asset.Path));
+        Assert.Equal(
+            selection.AvailableSlices.Select(slice =>
+                slice.HasExplicitEmptyReferenceGroup),
+            exact.AvailableSlices.Select(slice =>
+                slice.HasExplicitEmptyReferenceGroup));
     }
 
     [Fact]

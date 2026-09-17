@@ -91,7 +91,7 @@ A real reference assembly wins over a co-located empty marker in the selected
 compile slice. Compile slices are reduced independently from implementation
 slices: a lower marker does not suppress a selected higher compile slice, and
 a lower real `ref` group does not override a selected higher empty group. A
-selected slice retains nested DLL candidates such as
+package-local selected slice retains nested DLL candidates such as
 `lib/net8.0/x64/Implementation.dll`. A library empty group such as
 `lib/net8.0/_._` says nothing about compile assets. Files such as
 `ref/net8.0/_` and `ref/net8.0/_._.dll` are not empty-group markers.
