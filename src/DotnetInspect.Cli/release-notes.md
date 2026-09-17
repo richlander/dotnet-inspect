@@ -19,7 +19,7 @@
 - **Breaking:** Replaces the separate `Integration: <concept>` library sections
   with one homogeneous `Integrations` section. Narrow it with
   `--where "integration=integration.<concept>"`; use the orthogonal
-  `  ecosystem` facet for configured ecosystem bindings. Renames
+  `ecosystem` facet for configured ecosystem bindings. Renames
   `Integration: Opportunities` to `Integration Opportunities`, while
   `@Integrations` continues to select both current sections.
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
