@@ -12,6 +12,9 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2/ILInspector.Analysis.CallerGraphTargetV2.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures/ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures/ILInspector.Analysis.CallGenericScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures/ILInspector.Analysis.CallOverloadFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" />
@@ -131,6 +134,7 @@
     <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Direct/DotnetInspector.DocumentationHouse.Direct.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
+    <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
@@ -196,6 +200,7 @@
     <Project Path="tests/DotnetInspector.Cache.Tests/DotnetInspector.Cache.Tests.csproj" />
     <Project Path="tests/DotnetInspector.DependencyManifests.Tests/DotnetInspector.DependencyManifests.Tests.csproj" />
     <Project Path="tests/DotnetInspector.DocumentationHouse.Tests/DotnetInspector.DocumentationHouse.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.EcosystemLoading.Tests/DotnetInspector.EcosystemLoading.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />

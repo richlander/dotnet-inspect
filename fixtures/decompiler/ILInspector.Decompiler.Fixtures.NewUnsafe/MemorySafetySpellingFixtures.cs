@@ -19,6 +19,22 @@ public sealed class MemorySafetySpellingFixture
         }
     }
 
+    public static int CallPointerNoneMethod(int* value)
+    {
+        unsafe
+        {
+            return PointerNoneMethod(value);
+        }
+    }
+
+    public static int CallPointerFreeUnsafeMethod()
+    {
+        unsafe
+        {
+            return PointerFreeUnsafeMethod();
+        }
+    }
+
     public int* PointerNoneField;
 
     public unsafe int UnsafeField;
@@ -73,6 +89,25 @@ public struct MemorySafetyExplicitLayoutFixture
     public unsafe int UnsafeInstanceField;
 
     public static int StaticField;
+}
+
+public sealed class GenericCallerContractFixture<T>
+{
+    public T ContractChoice(T value) => value;
+
+    public unsafe T ContractChoice<TMarker>(T value) => value;
+}
+
+public static class GenericCallerContractCalls
+{
+    public static int CallConstructedInstance(
+        GenericCallerContractFixture<int> fixture)
+    {
+        unsafe
+        {
+            return fixture.ContractChoice<string>(42);
+        }
+    }
 }
 
 public interface IMemorySafetyAccessorContract
