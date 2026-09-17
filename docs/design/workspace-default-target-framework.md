@@ -7,9 +7,10 @@ carried by every Workspace. Design and production adoption are tracked by
 [#7352](https://github.com/richlander/dotnet-inspect/issues/7352).
 
 The owner defines one typed default, its construction and validation, and the
-governing-target choice made when a consumer has or lacks one authoritative
-target framework. It does not select package assets, determine framework
-compatibility, infer project intent, or define Workspace wire formats.
+governing-target choice made when a consumer must select a participant and has
+or lacks one authoritative target framework. It does not select package
+assets, select package dependency groups, determine framework compatibility,
+infer project intent, or define Workspace wire formats.
 
 Adjacent owners retain their authority:
 
@@ -20,7 +21,7 @@ Adjacent owners retain their authority:
 - Package asset selectors own compatibility, nearest applicable asset,
   ambiguity, and no-match outcomes.
 - [Package dependency traversal](package-dependency-traversal.md) owns graph
-  traversal and completion.
+  traversal, source dependency-group evidence, and completion.
 - [Target-framework selection across dependency
   realization](https://github.com/richlander/dotnet-inspect/issues/6424) owns
   correspondence from an exact edge target to realized package assets.
@@ -31,8 +32,9 @@ Adjacent owners retain their authority:
 
 > Every Workspace has one validated canonical default target framework.
 > Product-created Workspaces use `net11.0` unless configured otherwise.
-> Consumers use that value from the first selection when no authoritative
-> target governs the choice, and retain which target governed selection.
+> Consumers use that value from the first participant selection when no
+> authoritative target governs the choice, and retain which target governed
+> selection.
 
 The default is stable Workspace construction intent. It is not:
 
@@ -70,7 +72,8 @@ Replacing registration state does not replace the policy.
 
 ## Target intent and governing target
 
-A consumer supplies one typed local intent:
+A consumer that must select a target-specific participant supplies one typed
+local intent:
 
 ```text
 WorkspaceTargetFrameworkIntent
@@ -93,12 +96,12 @@ The policy lowers the intent to exactly one governing target:
 | `Required(T)` | `T` |
 | `Unspecified` | the Workspace default |
 
-An inspected participant's selected asset-folder framework is provenance, not
-implicit consumer intent for a newly reached package. It never inserts a
-source-TFM request before the Workspace default. This remains true when the
-destination carries an asset for that source framework: the Workspace default
-governs compatibility and nearest selection through the operation's only
-selection request.
+An inspected source participant's selected asset-folder framework is
+provenance, not implicit consumer intent for a newly reached destination. It
+never inserts a source-TFM request before the Workspace default. This remains
+true when the destination carries an asset for that source framework: the
+Workspace default governs compatibility and nearest participant selection
+through the operation's only selection request.
 
 The adjacent selection owner evaluates the governing target under its existing
 compatibility and nearest-selection contract. `Selected`, `NoMatch`,
@@ -108,10 +111,19 @@ a second target, an unconstrained "highest TFM" request, or an alternate
 manifest-local default.
 
 An explicitly selected hub asset remains that exact physical subject. The
-Workspace governing target selects target-sensitive package evidence used for
-its dependency closure, including the dependency group and newly reached
-participant assets; it does not replace the hub merely because the Workspace
-default would select a different hub asset.
+Workspace governing target selects newly reached destination participants; it
+does not replace the hub merely because the Workspace default would select a
+different hub asset.
+
+This target choice does not select the dependency group of an already realized
+package participant. A consumer of this policy accepts dependency declarations
+only through an owner-issued association between that physical source
+participant and selected dependency-group evidence; package and traversal
+owners define that association. Those declarations form candidate edges; the
+Workspace governing target then selects the destination participant reached by
+each edge. A selected source asset-folder framework may participate in the
+association evidence without becoming the target used to select the
+destination.
 
 ## Retained decision evidence
 
@@ -122,7 +134,7 @@ WorkspaceTargetFrameworkDecision
   Policy
   Intent
   GoverningTarget: canonical target supplied to selection
-  SelectionOutcome: owner-issued outcome
+  ParticipantSelectionOutcome: owner-issued outcome
 ```
 
 The selected package asset-folder framework remains separate owner-issued
@@ -130,11 +142,12 @@ evidence. A result may therefore say that Workspace default `net11.0` governed
 selection of a `net8.0` asset. It must not rewrite either value or imply that
 the inspected source itself targets `net11.0`.
 
-When a successful selection authorizes later dependency-edge realization, the
+When a source dependency declaration authorizes destination realization, the
 consumer passes the exact governing target into the correspondence owned by
-issue #6424. Later nodes do not substitute their selected asset-folder
-framework, rerun Workspace default choice, or choose a new per-manifest
-default.
+issue #6424. Later destination selections do not substitute their source
+participant's selected asset-folder framework or rerun Workspace default
+choice. Source dependency-group selection remains separate owner-issued
+evidence at every node.
 
 Human output may explain that the Workspace default governed selection.
 Machine output retains the typed decision. Hosts do not reconstruct it from
@@ -174,9 +187,9 @@ harmless preference:
 Dependency groups differ as well. Polly.Core's `netstandard2.0` group carries
 four compatibility dependencies while its `net8.0` group carries none;
 Telemetry's `net6.0` group includes `System.Collections.Immutable` while its
-`net8.0` group does not. Source-first and Workspace-default-first selection can
-therefore produce different API graphs and dependency closures even when both
-select successfully.
+`net8.0` group does not. That evidence requires the selected dependency group
+to remain associated with its physical source participant. It does not make
+the source participant's TFM the destination-selection target.
 
 Observed with production `dotnet-inspect` 0.25.0:
 
@@ -201,16 +214,19 @@ derive that consumer intent. The Workspace default provides the analogous
 explicit ambient target and then delegates compatibility and nearest selection
 to the existing package owner.
 
-Using the ambient target from the first dependency selection follows the
-conventional restore model: a project's target governs package asset
-selection, not whichever physical TFM happened to expose the referring body.
+Using the ambient target from the first destination-participant selection
+follows the conventional restore model: a project's target governs package
+asset selection, not whichever physical TFM happened to expose the referring
+body.
 
 The deliberate inspection-only divergence is preserving an explicitly
 selected hub asset even when the Workspace default would select another asset
 from that package. The hub is the subject the person chose to inspect; the
-Workspace default governs newly realized dependency participants. Results keep
-both physical and governing TFMs visible and do not claim that this mixed
-inspection graph is one restored project.
+package owner keeps its dependency declarations associated with that subject,
+and the Workspace default governs newly realized destination participants.
+Results keep physical source, dependency-group, and governing-target evidence
+separate and do not claim that this mixed inspection graph is one restored
+project.
 
 ## Required gates
 
@@ -219,12 +235,12 @@ inspection graph is one restored project.
 | Omitted configuration produces exactly `ProductDefault(net11.0)`; configured values canonicalize; invalid values fail before a Workspace exists. | Workspace-policy construction tests using the product constant and existing NuGet target-framework parser. |
 | Reusing a construction plan preserves equal policy in independent live Workspaces; registration replacement preserves it. | `WorkspacePlan` and registration-replacement tests. |
 | Required intent supplies its exact target once and never substitutes the Workspace default after any selection outcome. | Governing-target unit tests covering explicit, restored, context, and edge origins. |
-| Unspecified intent supplies the Workspace default once and never inserts the source asset TFM, a manifest default, or an unconstrained highest-folder request. | Governing-target unit test plus a selector spy asserting the exact target. |
+| Unspecified intent supplies the Workspace default once and never inserts the source asset TFM or an unconstrained highest-folder request into destination participant selection. | Governing-target unit test plus a participant-selector spy asserting the exact target. |
 | A `netstandard2.0` source reaching NodaTime selects its `net8.0` asset under default `net11.0` even though NodaTime also carries `netstandard2.0`; source and selected folder remain separate evidence. | Pinned package integration test using `NodaTime@3.2.2`, with an equivalent deterministic fixture. |
-| The real relationship selects Telemetry `net8.0` under default `net11.0` and `net6.0` under configured `net7.0`, retaining source target, policy source, governing target, selection outcome, and selected folder separately. | Pinned package integration test using `Microsoft.Extensions.DependencyInjection.Abstractions@8.0.0` and `Microsoft.Extensions.Telemetry@8.0.0`, with an equivalent deterministic fixture. |
-| An explicitly selected hub asset remains unchanged while a newly reached dependency uses the Workspace governing target. | Two-participant realization test with differing hub and dependency asset choices. |
+| The real relationship selects Telemetry `net8.0` under default `net11.0` and `net6.0` under configured `net7.0`, retaining source target, policy source, governing target, participant-selection outcome, and selected folder separately. | Pinned package integration test using `Microsoft.Extensions.DependencyInjection.Abstractions@8.0.0` and `Microsoft.Extensions.Telemetry@8.0.0`, with an equivalent deterministic fixture. |
+| An explicitly selected Polly.Core `netstandard2.0` hub remains unchanged and retains its four associated dependency declarations, while every destination participant uses the Workspace governing target. | Pinned `Polly.Core@8.8.0` composition test plus an equivalent two-participant fixture. |
 | A default with no applicable asset returns typed `NoMatch`. | Boundary fixture containing only incompatible framework families. |
-| Later dependency edges retain the first governing target rather than selected-folder TFMs or per-manifest defaults. | Three-node traversal fixture under the #6424 adoption. |
+| Later destination selections retain the first governing target rather than source selected-folder TFMs, while every source node retains its owner-issued selected dependency group. | Three-node traversal fixture under the #6424 adoption. |
 
 The design is specification-only. Every property is unverified until its named
 Release gate lands.
@@ -238,16 +254,18 @@ existing owners adopt it independently:
    Workspace snapshots.
 2. Artifact Acquisition consumes it for a context that requires a framework
    and declares none.
-3. Package traversal preserves required intent where supplied, otherwise uses
-   the Workspace default for the root dependency group and newly reached
-   packages, and carries the governing target through #6424.
+3. Package traversal composes each realized source participant's owner-issued
+   selected dependency group with Workspace-governed destination participant
+   selection, and carries that governing target through #6424.
 4. Workspace Definitions and share packets add versioned portable
    representation; legacy versions lower to the product default.
 5. CLI and Browser/Wasm expose configuration through the same host-neutral
    plan and display retained governing-target evidence where their operation
    requires it.
-6. Workspace-hosted traversal retires per-manifest default selection where the
-   Workspace policy now supplies one graph-wide target.
+6. Workspace-hosted traversal retires per-manifest no-request group selection
+   in favor of the dependency group associated with each realized source
+   participant, while the Workspace policy supplies one graph-wide destination
+   target.
 
 These are sequenced follow-up efforts, not normative changes to those owners in
 this document.
@@ -259,5 +277,6 @@ this document.
 - Treating the default as a Platform family or version.
 - Making incompatible Workspace participants compatible.
 - Replacing an explicit or owner-issued required target.
+- Selecting an already realized source participant's dependency group.
 - Selecting the highest package folder without a concrete target.
 - Adding a host-specific default or a second Workspace policy.
