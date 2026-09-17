@@ -1617,26 +1617,21 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// Source names and declaration scopes for a method's local slots from its
-    /// portable PDB, indexed by IL local slot. No PDB returns two empty arrays.
-    /// Present PDB entries with no recorded name, a compiler-generated
-    /// (debugger-hidden) local, or a name that is not a usable identifier stay null,
-    /// and the printer renders <c>V_index</c>. A slot with no scope entry at all — a
-    /// compiler temp the source never declared — keeps a null scope, which is itself
-    /// usable evidence that the slot is synthetic.
+    /// Exact local declaration rows from a method's Portable PDB, together with
+    /// unique-name and unique-scope views indexed by physical IL slot. No PDB
+    /// returns empty arrays. Hidden, absent, or competing rows do not select a
+    /// preferred name in the aligned views; C# spellability is a later concern.
     /// </summary>
     /// <remarks>
     /// Names and scopes come from the same <c>LocalScope</c> rows, so they are read in
     /// one walk: splitting them would traverse the table twice per method and let the
     /// two views disagree about which entries were skipped.
     /// <para>
-    /// The two halves fail differently, so a malformed table is not handled the same
-    /// way for both. A missing name degrades visibly to <c>V_index</c> and affects
-    /// nothing else, so a partial name array is kept. A scope drives where the printer
-    /// puts a declaration, so a <em>partial</em> scope array would make output shape a
-    /// function of where the corruption happened to stop. Scopes are therefore dropped
-    /// wholesale on a decode failure, which yields exactly the documented no-PDB
-    /// behavior: no evidence, no sinking, byte-stable output.
+    /// Every decoded row is retained, including hidden and out-of-range rows.
+    /// The aligned views admit only a unique visible row per slot. Multiple rows
+    /// need the raw IL importer's independent storage proof before they can bind
+    /// separate logical locals. Incomplete decoding retains the evidence already
+    /// read, but cannot authorize either aligned view.
     /// </para>
     /// <para>
     /// This fallback is <b>unverified by test</b>. It is not reachable from any
@@ -1648,19 +1643,22 @@ public sealed class MetadataSource : IDisposable
     /// opens cleanly and then fails mid-walk.
     /// </para>
     /// </remarks>
-    internal (ImmutableArray<string?> Names, ImmutableArray<LocalSlotScope?> Scopes) LocalDeclarations(
+    internal (
+        ImmutableArray<string?> Names,
+        ImmutableArray<LocalSlotScope?> Scopes,
+        ImmutableArray<PdbLocalDeclaration> Declarations,
+        bool IsComplete) LocalDeclarations(
         MethodDefinitionHandle methodHandle,
         int localCount)
     {
-        if (localCount == 0)
-            return ([], []);
         var pdb = PdbReader();
         if (pdb is null)
-            return ([], []);
+            return ([], [], [], true);
 
         var names = new string?[localCount];
         var scopes = new LocalSlotScope?[localCount];
-        bool scopesUsable = true;
+        var declarations = ImmutableArray.CreateBuilder<PdbLocalDeclaration>();
+        bool complete = true;
         try
         {
             foreach (var scopeHandle in pdb.GetLocalScopes(methodHandle))
@@ -1669,29 +1667,34 @@ public sealed class MetadataSource : IDisposable
                 foreach (var varHandle in scope.GetLocalVariables())
                 {
                     var variable = pdb.GetLocalVariable(varHandle);
-                    if ((variable.Attributes & LocalVariableAttributes.DebuggerHidden) != 0)
-                        continue;
-                    if (variable.Index < 0 || variable.Index >= localCount)
-                        continue;
-                    names[variable.Index] = pdb.GetString(variable.Name);
-                    // The current model retains only one range per slot. Keep the
-                    // narrowest range so collapsing legal scope-qualified slot reuse
-                    // cannot widen a declaration; #5617 tracks retaining every name
-                    // and scope instead.
-                    var candidate = new LocalSlotScope(scope.StartOffset, scope.EndOffset);
-                    if (scopes[variable.Index] is not { } existing || candidate.Length < existing.Length)
-                        scopes[variable.Index] = candidate;
+                    declarations.Add(new PdbLocalDeclaration(
+                        MetadataTokens.GetRowNumber(varHandle),
+                        MetadataTokens.GetRowNumber(scopeHandle),
+                        variable.Index,
+                        pdb.GetString(variable.Name),
+                        new LocalSlotScope(scope.StartOffset, scope.EndOffset),
+                        variable.Attributes));
                 }
             }
         }
         catch (BadImageFormatException)
         {
-            // Malformed scope table. Keep the names read so far, but discard the
-            // scopes: a partial set would silently place some declarations from
-            // evidence and others from the fallback. Anything other than a decode
-            // failure is a bug here and is left to propagate.
-            scopesUsable = false;
+            complete = false;
         }
-        return ([.. names], scopesUsable ? [.. scopes] : []);
+        if (complete)
+        {
+            foreach (var group in declarations
+                .Where(d => (d.Attributes & LocalVariableAttributes.DebuggerHidden) == 0
+                    && (uint)d.SlotIndex < (uint)localCount)
+                .GroupBy(d => d.SlotIndex))
+            {
+                if (group.Count() != 1)
+                    continue;
+                var declaration = group.First();
+                names[group.Key] = declaration.Name;
+                scopes[group.Key] = declaration.Scope;
+            }
+        }
+        return ([.. names], complete ? [.. scopes] : [], declarations.ToImmutable(), complete);
     }
 }

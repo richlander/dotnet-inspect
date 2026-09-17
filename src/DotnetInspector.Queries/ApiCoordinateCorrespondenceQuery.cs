@@ -33,14 +33,15 @@ public sealed record ApiCoordinateCorrespondenceFailure(
     CandidateOpenFailure? ImageFailure = null);
 
 /// <summary>
-/// Detached evidence for one source declaration through an exact destination
-/// entry Library and, when forwarded, its actual defining Library.
+/// Live result for one source declaration through an exact destination entry
+/// Library and, when forwarded, its actual defining Library.
 /// </summary>
 public sealed class ApiCoordinateCorrespondenceResult
 {
     internal ApiCoordinateCorrespondenceResult(
         ApiCoordinateCorrespondenceStatus status,
         StructuralSubjectIdentity source,
+        ApiDeclarationKind sourceKind,
         CoordinateLibraryPairingResult libraryPairing,
         ApiDeclarationBindingResult? sourceBinding = null,
         CoordinateTypeResolutionEvidence? resolution = null,
@@ -50,6 +51,7 @@ public sealed class ApiCoordinateCorrespondenceResult
     {
         Status = status;
         Source = source;
+        SourceKind = sourceKind;
         LibraryPairing = libraryPairing;
         SourceBinding = sourceBinding;
         Resolution = resolution;
@@ -60,12 +62,20 @@ public sealed class ApiCoordinateCorrespondenceResult
 
     public ApiCoordinateCorrespondenceStatus Status { get; }
     public StructuralSubjectIdentity Source { get; }
+    public ApiDeclarationKind SourceKind { get; }
     public CoordinateLibraryPairingResult LibraryPairing { get; }
     public ApiDeclarationBindingResult? SourceBinding { get; }
     public CoordinateTypeResolutionEvidence? Resolution { get; }
     public ApiDeclarationCorrespondenceResult? Correspondence { get; }
     public StructuralSubjectIdentity? Destination { get; }
     public ApiCoordinateCorrespondenceFailure? Failure { get; }
+
+    /// <summary>
+    /// Projects the completed result before its Workspace closes. The returned
+    /// evidence retains no Workspace-local subject or Package observation.
+    /// </summary>
+    public ApiCoordinateCorrespondenceEvidence Detach() =>
+        ApiCoordinateCorrespondenceEvidenceProjector.Project(this);
 }
 
 /// <summary>
@@ -84,7 +94,8 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(source);
         return ExecuteAsync(
             workspace, source, source.Library, source.Identity.Type,
-            member: null, before, after, cancellationToken);
+            member: null, before, after, admittedSource: null,
+            cancellationToken);
     }
 
     public static ValueTask<ApiCoordinateCorrespondenceResult> ExecuteAsync(
@@ -100,7 +111,56 @@ public static class ApiCoordinateCorrespondenceQuery
             workspace, source, source.DeclaringType.Library,
             source.Identity.DeclaringType,
             new ApiDeclarationMemberSelection(sourceKind, source.Identity.Member),
-            before, after, cancellationToken);
+            before, after, admittedSource: null, cancellationToken);
+    }
+
+    internal static ValueTask<ApiCoordinateCorrespondenceResult>
+        ExecuteAdmittedSourceAsync(
+            InspectionWorkspace workspace,
+            StructuralSubjectIdentity.TypeSubject source,
+            CoordinatePackageObservation before,
+            PackageAssemblyContextRealization sourceRealization,
+            CoordinatePackageObservation after,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(sourceRealization);
+        return ExecuteAsync(
+            workspace,
+            source,
+            source.Library,
+            source.Identity.Type,
+            member: null,
+            before,
+            after,
+            sourceRealization,
+            cancellationToken);
+    }
+
+    internal static ValueTask<ApiCoordinateCorrespondenceResult>
+        ExecuteAdmittedSourceAsync(
+            InspectionWorkspace workspace,
+            StructuralSubjectIdentity.MemberSubject source,
+            ApiDeclarationKind sourceKind,
+            CoordinatePackageObservation before,
+            PackageAssemblyContextRealization sourceRealization,
+            CoordinatePackageObservation after,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(sourceRealization);
+        return ExecuteAsync(
+            workspace,
+            source,
+            source.DeclaringType.Library,
+            source.Identity.DeclaringType,
+            new ApiDeclarationMemberSelection(
+                sourceKind,
+                source.Identity.Member),
+            before,
+            after,
+            sourceRealization,
+            cancellationToken);
     }
 
     static async ValueTask<ApiCoordinateCorrespondenceResult> ExecuteAsync(
@@ -111,12 +171,14 @@ public static class ApiCoordinateCorrespondenceQuery
         ApiDeclarationMemberSelection? member,
         CoordinatePackageObservation before,
         CoordinatePackageObservation after,
+        PackageAssemblyContextRealization? admittedSource,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         cancellationToken.ThrowIfCancellationRequested();
+        ApiDeclarationKind sourceKind = member?.Kind ?? ApiDeclarationKind.Type;
 
         CoordinateLibraryPairingResult pairing =
             CoordinateLibraryPairingQuery.Execute(sourceLibrary, before, after);
@@ -134,121 +196,22 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 PairingStatus(pairing.Status),
                 source,
+                sourceKind,
                 pairing);
+        }
+
+        if (admittedSource is not null)
+        {
+            return await ExecuteWithSourceAsync(
+                admittedSource,
+                cancellationToken).ConfigureAwait(false);
         }
 
         ArtifactRootResult<ApiCoordinateCorrespondenceResult> sourceAccess =
             await workspace.ExecutePackageRootQueryAsync(
                 before.Correspondence,
                 before.Generation,
-                async (sourceRealization, token) =>
-                {
-                    if (!TryGetParticipant(
-                            sourceRealization,
-                            before,
-                            sourceLibrary.Identity.Registration,
-                            out PackageAssemblyRoleParticipant? sourceParticipant)
-                        || sourceParticipant is null)
-                    {
-                        return Stop(
-                            ApiCoordinateCorrespondenceStatus.Failed,
-                            pairing,
-                            ApiCoordinateCorrespondenceFailureKind
-                                .SourcePopulationUnavailable,
-                            "The exact source Library is unavailable in the pinned source API population.");
-                    }
-
-                    AssemblyImageAccessResult<ResolvedAssemblyReference> sourceImage =
-                        sourceRealization.SurfaceGroup.RetainAssemblyReference(
-                            sourceParticipant.Participant.Assembly);
-                    if (sourceImage is AssemblyImageAccessResult<
-                            ResolvedAssemblyReference>.Rejected sourceRejected)
-                    {
-                        return Stop(
-                            ApiCoordinateCorrespondenceStatus.Failed,
-                            pairing,
-                            ApiCoordinateCorrespondenceFailureKind
-                                .SourceImageUnavailable,
-                            "The exact source Library image is unavailable.",
-                            imageFailure: sourceRejected.Failure);
-                    }
-                    if (sourceImage is not AssemblyImageAccessResult<
-                            ResolvedAssemblyReference>.Available sourceAvailable)
-                    {
-                        throw new InvalidOperationException(
-                            "Unknown source assembly image-access outcome.");
-                    }
-
-                    ApiDeclarationBindingResult binding =
-                        ApiDeclarationCorrespondence.BindSource(
-                            sourceAvailable.Value,
-                            declaringType,
-                            member,
-                            token);
-                    if (!binding.IsExact)
-                    {
-                        return new(
-                            SourceBindingStatus(binding.Status),
-                            source,
-                            pairing,
-                            sourceBinding: binding);
-                    }
-                    if (binding.Declaration is not { } sourceDeclaration)
-                    {
-                        return Stop(
-                            ApiCoordinateCorrespondenceStatus.Failed,
-                            pairing,
-                            ApiCoordinateCorrespondenceFailureKind
-                                .InvalidSourceAssociation,
-                            "The exact source binding did not identify a declaration.",
-                            sourceBinding: binding);
-                    }
-                    if (pairing.Status != CoordinateLibraryPairingStatus.Exact)
-                    {
-                        return new(
-                            PairingStatus(pairing.Status),
-                            source,
-                            pairing,
-                            sourceBinding: binding);
-                    }
-
-                    ArtifactRootResult<ApiCoordinateCorrespondenceResult>
-                        destinationAccess =
-                        await workspace.ExecutePackageRootQueryAsync(
-                            after.Correspondence,
-                            after.Generation,
-                            (destinationRealization, innerToken) =>
-                                ValueTask.FromResult(ExecutePinned(
-                                    source,
-                                    declaringType,
-                                    pairing,
-                                    binding,
-                                    sourceDeclaration,
-                                    sourceAvailable.Value,
-                                    destinationRealization,
-                                    after,
-                                    innerToken)),
-                            after.BindingPolicy,
-                            token).ConfigureAwait(false);
-                    return destinationAccess switch
-                    {
-                        ArtifactRootResult<
-                            ApiCoordinateCorrespondenceResult>.Available available =>
-                            available.Value,
-                        ArtifactRootResult<
-                            ApiCoordinateCorrespondenceResult>.Rejected rejected =>
-                            Stop(
-                                ApiCoordinateCorrespondenceStatus.Failed,
-                                pairing,
-                                ApiCoordinateCorrespondenceFailureKind
-                                    .DestinationRootUnavailable,
-                                "The exact destination Package Root is unavailable.",
-                                sourceBinding: binding,
-                                rootFailure: rejected.Failure),
-                        _ => throw new InvalidOperationException(
-                            "Unknown destination Root access outcome."),
-                    };
-                },
+                ExecuteWithSourceAsync,
                 before.BindingPolicy,
                 cancellationToken).ConfigureAwait(false);
 
@@ -267,6 +230,121 @@ public static class ApiCoordinateCorrespondenceQuery
                 "Unknown source Root access outcome."),
         };
 
+        async ValueTask<ApiCoordinateCorrespondenceResult>
+            ExecuteWithSourceAsync(
+                PackageAssemblyContextRealization sourceRealization,
+                CancellationToken token)
+        {
+            if (!TryGetParticipant(
+                    sourceRealization,
+                    before,
+                    sourceLibrary.Identity.Registration,
+                    out PackageAssemblyRoleParticipant? sourceParticipant)
+                || sourceParticipant is null)
+            {
+                return Stop(
+                    ApiCoordinateCorrespondenceStatus.Failed,
+                    pairing,
+                    ApiCoordinateCorrespondenceFailureKind
+                        .SourcePopulationUnavailable,
+                    "The exact source Library is unavailable in the pinned source API population.");
+            }
+
+            AssemblyImageAccessResult<ResolvedAssemblyReference> sourceImage =
+                sourceRealization.SurfaceGroup.RetainAssemblyReference(
+                    sourceParticipant.Participant.Assembly);
+            if (sourceImage is AssemblyImageAccessResult<
+                    ResolvedAssemblyReference>.Rejected sourceRejected)
+            {
+                return Stop(
+                    ApiCoordinateCorrespondenceStatus.Failed,
+                    pairing,
+                    ApiCoordinateCorrespondenceFailureKind
+                        .SourceImageUnavailable,
+                    "The exact source Library image is unavailable.",
+                    imageFailure: sourceRejected.Failure);
+            }
+            if (sourceImage is not AssemblyImageAccessResult<
+                    ResolvedAssemblyReference>.Available sourceAvailable)
+            {
+                throw new InvalidOperationException(
+                    "Unknown source assembly image-access outcome.");
+            }
+
+            ApiDeclarationBindingResult binding =
+                ApiDeclarationCorrespondence.BindSource(
+                    sourceAvailable.Value,
+                    declaringType,
+                    member,
+                    token);
+            if (!binding.IsExact)
+            {
+                return new(
+                    SourceBindingStatus(binding.Status),
+                    source,
+                    sourceKind,
+                    pairing,
+                    sourceBinding: binding);
+            }
+            if (binding.Declaration is not { } sourceDeclaration)
+            {
+                return Stop(
+                    ApiCoordinateCorrespondenceStatus.Failed,
+                    pairing,
+                    ApiCoordinateCorrespondenceFailureKind
+                        .InvalidSourceAssociation,
+                    "The exact source binding did not identify a declaration.",
+                    sourceBinding: binding);
+            }
+            if (pairing.Status != CoordinateLibraryPairingStatus.Exact)
+            {
+                return new(
+                    PairingStatus(pairing.Status),
+                    source,
+                    sourceKind,
+                    pairing,
+                    sourceBinding: binding);
+            }
+
+            ArtifactRootResult<ApiCoordinateCorrespondenceResult>
+                destinationAccess =
+                await workspace.ExecutePackageRootQueryAsync(
+                    after.Correspondence,
+                    after.Generation,
+                    (destinationRealization, innerToken) =>
+                        ValueTask.FromResult(ExecutePinned(
+                            source,
+                            sourceKind,
+                            declaringType,
+                            pairing,
+                            binding,
+                            sourceDeclaration,
+                            sourceAvailable.Value,
+                            destinationRealization,
+                            after,
+                            innerToken)),
+                    after.BindingPolicy,
+                    token).ConfigureAwait(false);
+            return destinationAccess switch
+            {
+                ArtifactRootResult<
+                    ApiCoordinateCorrespondenceResult>.Available available =>
+                    available.Value,
+                ArtifactRootResult<
+                    ApiCoordinateCorrespondenceResult>.Rejected rejected =>
+                    Stop(
+                        ApiCoordinateCorrespondenceStatus.Failed,
+                        pairing,
+                        ApiCoordinateCorrespondenceFailureKind
+                            .DestinationRootUnavailable,
+                        "The exact destination Package Root is unavailable.",
+                        sourceBinding: binding,
+                        rootFailure: rejected.Failure),
+                _ => throw new InvalidOperationException(
+                    "Unknown destination Root access outcome."),
+            };
+        }
+
         ApiCoordinateCorrespondenceResult Stop(
             ApiCoordinateCorrespondenceStatus status,
             CoordinateLibraryPairingResult libraryPairing,
@@ -278,6 +356,7 @@ public static class ApiCoordinateCorrespondenceQuery
             new(
                 status,
                 source,
+                sourceKind,
                 libraryPairing,
                 sourceBinding: sourceBinding,
                 failure: new(
@@ -286,6 +365,7 @@ public static class ApiCoordinateCorrespondenceQuery
 
     static ApiCoordinateCorrespondenceResult ExecutePinned(
         StructuralSubjectIdentity source,
+        ApiDeclarationKind sourceKind,
         MetadataTypeDefinitionName declaringType,
         CoordinateLibraryPairingResult pairing,
         ApiDeclarationBindingResult sourceBinding,
@@ -328,6 +408,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ApiCoordinateCorrespondenceStatus.Failed,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -338,6 +419,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ApiCoordinateCorrespondenceStatus.Refused,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -349,6 +431,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ResolutionStatus(outcome),
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -394,6 +477,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 DeclarationStatus(correspondence.Status),
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached,
@@ -442,6 +526,7 @@ public static class ApiCoordinateCorrespondenceQuery
         return new(
             ApiCoordinateCorrespondenceStatus.Exact,
             source,
+            sourceKind,
             pairing,
             sourceBinding,
             detached,
@@ -457,6 +542,7 @@ public static class ApiCoordinateCorrespondenceQuery
             new(
                 status,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 resolutionEvidence,

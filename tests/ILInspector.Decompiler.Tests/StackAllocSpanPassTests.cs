@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using IrConvert = ILInspector.Decompiler.Pipeline.Convert;
 
@@ -17,15 +18,27 @@ public class StackAllocSpanPassTests
     [Fact]
     public void CorelibSpanDirectStackalloc_Raises()
     {
-        var function = Build(StackAllocSpanConstructor(
+        var allocation = new StackAllocate(new Constant(4, Int32));
+        allocation.SetSourceOffset(2);
+        var construction = StackAllocSpanConstructor(
             TypeRef.CoreLib("System", "Span`1"),
-            new StackAllocate(new Constant(4, Int32))));
+            allocation);
+        construction.SetSourceOffset(5);
+        var function = Build(construction);
 
         new StackAllocSpanPass().Run(function, PassContext.None);
 
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Equal("int", raised.ElementType.ToDisplayString());
         Assert.Empty(function.Descendants.OfType<NewObject>());
+        CSharpPrinter.Print(function, out PrintedRangeMap ranges);
+        PrintedBodyMap map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>());
+        PrintedNodeSpan node = Assert.Single(
+            map.Nodes,
+            candidate => candidate.Kind == "StackAllocationExpression");
+        Assert.Equal([2, 5], node.Provenance!.IlOffsets);
         function.CheckInvariant();
     }
 

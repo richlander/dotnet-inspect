@@ -120,12 +120,15 @@ public sealed record SectionQueryCatalog(
                 LibraryCallUseCommand.ProviderApiTypesSection,
                 LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
+                LibraryCallUseCommand.PublicRootPathsSection,
             })
             {
                 queries.Add(new(
                     section,
-                    "An exact Cluster=... equality predicate scopes the pair occurrence population "
-                    + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
+                    section == LibraryCallUseCommand.PublicRootPathsSection
+                        ? "An exact Cluster=... equality predicate selects one direct-use component before public roots and local paths are inspected. Name this section explicitly; wildcard selection does not opt into it."
+                        : "An exact Cluster=... equality predicate scopes the pair occurrence population "
+                            + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
                     [LibraryCallUseQueryOptions.QueryKey]));
             }
         }
@@ -140,6 +143,7 @@ public sealed record SectionQueryCatalog(
                 LibraryCallUseCommand.ProviderApiTypesSection,
                 LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
+                LibraryCallUseCommand.PublicRootPathsSection,
             ],
             _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))

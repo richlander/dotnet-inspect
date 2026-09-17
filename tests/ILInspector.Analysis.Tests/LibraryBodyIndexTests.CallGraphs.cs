@@ -331,9 +331,11 @@ public partial class LibraryBodyIndexTests
             "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
+            "_declaredMethodMap",
             "_methodMap",
             "_overloadRelationships",
             "_projectedImplementationProfiles",
+            "_rootPathGraph",
         ];
 
         // Evidence-domain caches the release methods deliberately retain.
@@ -376,6 +378,21 @@ public partial class LibraryBodyIndexTests
             int token = index.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            _ = LibraryBodyRootPathAnalysis.FindShortestPaths(
+                index,
+                [
+                    new(
+                        index.ModuleIdentity.ModuleVersionId,
+                        MetadataTokens.MethodDefinitionHandle(
+                            token & 0x00FFFFFF)),
+                ],
+                [
+                    new(
+                        index.ModuleIdentity.ModuleVersionId,
+                        MetadataTokens.MethodDefinitionHandle(
+                            token & 0x00FFFFFF)),
+                ],
+                new(0, 1, 1, 1));
             _ = index.GetDirectCallsByEvidenceMethod();
             _ = index.ImplementationProfiles();
             // The retained half of the contract is only gated on caches this workload actually

@@ -176,6 +176,20 @@ the Services suite.
 remain with their existing CLI, `DotnetInspector.Services`,
 `ILInspector.Metadata`, and `NuGetFetch` owner suites.
 
+### Authored SourceHouse tests
+
+Run the focused settlement suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release
+```
+
+This Microsoft Testing Platform executable covers exact Library and target
+correspondence, supplied-PDB authored source, ordered source capabilities,
+bounded settlement, and transferred-lease retirement. It uses real repository
+assembly/PDB/source inputs. Production CLI and Browser source-query adoption
+remains separately staged.
+
 ### Untrusted-document tests
 
 Run the independent parsing-owner suite from the repository root:

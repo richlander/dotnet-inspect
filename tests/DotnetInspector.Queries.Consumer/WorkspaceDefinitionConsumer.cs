@@ -26,6 +26,8 @@ public static class WorkspaceDefinitionConsumer
         {
             InspectionDefinitionScenarioPreparationResult.Version2 prepared =>
                 prepared.Definitions,
+            InspectionDefinitionScenarioPreparationResult.Version3 prepared =>
+                prepared.Definitions,
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 throw new InvalidOperationException(
                     "The scenario is a schema-version-1 composition."),

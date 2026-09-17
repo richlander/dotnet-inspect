@@ -66,6 +66,9 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static int InvocationDestinationTarget(int value) => value;
 
+    public static int CalleeEvidenceProbe(int value) =>
+        PerformanceStackAllocProbe(value);
+
     public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
         new(bytes);
 
@@ -885,13 +888,14 @@ public sealed partial class BrowserEngineBoundaryTests
         string packageId,
         string version,
         byte[] archive,
-        bool provideSearchResult = false,
+        (string Version, bool Listed)[]? discoveryVersions = null,
         System.Net.HttpStatusCode packageStatus =
             System.Net.HttpStatusCode.OK,
         bool omitContentLength = false,
         Task? payloadRelease = null)
         : HttpMessageHandler
     {
+        readonly string _package = packageId.ToLowerInvariant();
         readonly string _packageUrl =
             $"https://globalcdn.nuget.org/packages/{packageId.ToLowerInvariant()}.{version}.nupkg";
 
@@ -907,17 +911,39 @@ public sealed partial class BrowserEngineBoundaryTests
             cancellationToken.ThrowIfCancellationRequested();
             string url = request.RequestUri!.AbsoluteUri;
             Requested.Add(url);
-            if (provideSearchResult
-                && url.StartsWith(
-                    "https://azuresearch-usnc.nuget.org/query?",
+            if (discoveryVersions is not null
+                && url.Equals(
+                    $"https://globalcdn.nuget.org/v3-flatcontainer/{_package}/index.json",
                     StringComparison.Ordinal))
             {
-                return Task.FromResult(
-                    new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                return Json(JsonSerializer.Serialize(new
+                {
+                    versions = discoveryVersions.Select(candidate => candidate.Version),
+                }));
+            }
+
+            if (discoveryVersions is not null
+                && url.Equals(
+                    $"https://globalcdn.nuget.org/v3/registration5-gz-semver2/{_package}/index.json",
+                    StringComparison.Ordinal))
+            {
+                return Json(JsonSerializer.Serialize(new
+                {
+                    items = new[]
                     {
-                        Content = new StringContent(
-                            $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""),
-                    });
+                        new
+                        {
+                            items = discoveryVersions.Select(candidate => new
+                            {
+                                catalogEntry = new
+                                {
+                                    version = candidate.Version,
+                                    listed = candidate.Listed,
+                                },
+                            }),
+                        },
+                    },
+                }));
             }
 
             if (!url.Equals(_packageUrl, StringComparison.Ordinal))
@@ -945,6 +971,13 @@ public sealed partial class BrowserEngineBoundaryTests
 
             return Task.FromResult(response);
         }
+
+        static Task<HttpResponseMessage> Json(string json) =>
+            Task.FromResult(
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json),
+                });
     }
 
     sealed class GalleryVersionHandler : HttpMessageHandler

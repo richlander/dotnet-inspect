@@ -435,20 +435,26 @@ public class PdbSourceHouseTests
         {
             var cancellationToken = TestContext.Current.CancellationToken;
             var fetcher = new SourceFetch(client);
-            var repaired = await fetcher.FetchVerifiedSourceBytesAsync(
+            FetchSourceResult repaired =
+                await fetcher.FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(expected),
                 cancellationToken);
 
-            Assert.Equal(expected, repaired);
+            Assert.Equal(
+                expected,
+                Assert.IsType<FetchSourceResult.Success>(repaired).Content);
             Assert.Equal(1, handler.RequestCount);
 
-            var cached = await new SourceFetch(client).FetchVerifiedSourceBytesAsync(
-                Url,
-                bytes => bytes.Span.SequenceEqual(expected),
-                cancellationToken);
+            FetchSourceResult cached =
+                await new SourceFetch(client).FetchVerifiedSourceBytesAsync(
+                    Url,
+                    bytes => bytes.Span.SequenceEqual(expected),
+                    cancellationToken);
 
-            Assert.Equal(expected, cached);
+            Assert.Equal(
+                expected,
+                Assert.IsType<FetchSourceResult.Success>(cached).Content);
             Assert.Equal(1, handler.RequestCount);
         }
         finally
@@ -479,12 +485,15 @@ public class PdbSourceHouseTests
 
         try
         {
-            byte[]? result = await fetcher.FetchVerifiedSourceBytesAsync(
+            FetchSourceResult result =
+                await fetcher.FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(source),
                 TestContext.Current.CancellationToken);
 
-            Assert.Equal(source, result);
+            Assert.Equal(
+                source,
+                Assert.IsType<FetchSourceResult.Success>(result).Content);
             Assert.Equal(1, handler.RequestCount);
             Assert.Equal(1, content.ReadCount);
         }
@@ -506,12 +515,14 @@ public class PdbSourceHouseTests
             new InMemorySourceContentStore(),
             policy);
 
-        byte[]? result = await fetcher.FetchVerifiedSourceBytesAsync(
+        FetchSourceResult result = await fetcher.FetchVerifiedSourceBytesAsync(
             "https://localhost/Sample.cs",
             static _ => true,
             TestContext.Current.CancellationToken);
 
-        Assert.Null(result);
+        Assert.Equal(
+            SourceError.RequestNotAuthorized,
+            Assert.IsType<FetchSourceResult.Failure>(result).Error);
         Assert.Equal(0, handler.RequestCount);
         Assert.Equal(0, policy.ConfiguredRequests);
     }
@@ -537,12 +548,15 @@ public class PdbSourceHouseTests
         try
         {
             var fetcher = new SourceFetch(client);
-            byte[]? result = await fetcher.FetchVerifiedSourceBytesAsync(
+            FetchSourceResult result =
+                await fetcher.FetchVerifiedSourceBytesAsync(
                 Url,
                 bytes => bytes.Span.SequenceEqual(expected),
                 TestContext.Current.CancellationToken);
 
-            Assert.Equal(expected, result);
+            Assert.Equal(
+                expected,
+                Assert.IsType<FetchSourceResult.Success>(result).Content);
             Assert.Equal(1, handler.RequestCount);
         }
         finally

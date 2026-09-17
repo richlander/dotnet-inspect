@@ -61,8 +61,7 @@ internal static class PackageQueryCommand
         deadline.CancelAfter(fetchOptions.OperationTimeout);
         using var operation = new NuGetOperationContext(
             fetchOptions.RequestTimeout, fetchOptions.OperationTimeout, deadline.Token);
-        await using ContentProvider? provider = options.Plan.Facets.Any(facet =>
-            facet.Tier == PackageQueryFacetTier.PackageContent)
+        await using ContentProvider? provider = options.Plan.RequiresPackageContent
             ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
             : null;
         try

@@ -176,10 +176,10 @@ only during execution remains owner-issued outcome evidence.
 [source delegation](source-delegation.md), but that optimization preserves the
 semantic answer. For a direct ordered package-row path with no explicit
 `--take`, `package query 'Foo*' -n 2` lowers to the effective work shape
-`--take 2 -n 2`: each candidate is already one final row. A facet-filtered path
-may inspect more than two candidates, but may stop after finding two matches.
-Failures before the second match remain visible; candidates after the requested
-Head are outside that evaluation.
+`--take 2 -n 2`: each candidate is already one final row. An
+inspection-term-filtered path may inspect more than two candidates, but may
+stop after finding two matches. Failures before the second match remain
+visible; candidates after the requested Head are outside that evaluation.
 
 An execution bound answers the different question: how much work may be
 attempted before the user accepts an explicitly incomplete answer? For
@@ -187,7 +187,7 @@ example:
 
 ```console
 dotnet-inspect package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool" --take 20 -n 5
+  --where "tool-format=v2" --take 20 -n 5
 ```
 
 The explicit `--take 20` disables Head pushdown: it requests evaluation of that
@@ -399,7 +399,7 @@ The following request is valid:
 
 ```console
 dotnet-inspect package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool" --take 20 -n 5
+  --where "tool-format=v2" --take 20 -n 5
 ```
 
 It authorizes inspection of at most 20 package candidates, then selects up to
@@ -412,7 +412,7 @@ The inverse numeric relationship is also valid:
 
 ```console
 dotnet-inspect package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool" --take 10 -n 20
+  --where "tool-format=v2" --take 10 -n 20
 ```
 
 The operation may produce fewer than 20 final rows. L3 does not reject the
@@ -529,10 +529,10 @@ upstream work dimension that is not selection over matched-package rows, gives
 it a correspondingly accurate name, and separately preserves semantic `-n`.
 The low-compatibility default is retirement, not an alias.
 
-Package Query is a compelling `--take` consumer because its selective facets
-break the one-to-one relationship between inspected candidates and final rows.
-The owner still declares the candidate unit, stage, scope, stopping behavior,
-and completion evidence during adoption.
+Package Query is a compelling `--take` consumer because its selective
+inspection terms break the one-to-one relationship between inspected
+candidates and final rows. The owner still declares the candidate unit, stage,
+scope, stopping behavior, and completion evidence during adoption.
 
 ### Step 3: adopt `package query`
 

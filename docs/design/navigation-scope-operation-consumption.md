@@ -14,9 +14,13 @@ boundary of issue
 
 The executable model is under
 [`models/navigation-scope-operation-consumption/`](models/navigation-scope-operation-consumption/).
-It is bounded design evidence, not C# implementation conformance. The
-Navigation API, producer integration, CLI adoption, and Browser/Wasm adoption
-described below remain **unverified** until their named Release gates land.
+It is bounded design evidence, not C# implementation conformance. The shared
+Navigation producer boundary is implemented by
+`NavigationTransitions.AcceptScopeOperation`, `EvaluateScopeOperation`, and
+`CompleteScopeOperation`. `NavigationScopeOperations` now implements the real
+source-retiring Type/Member coordinate replacement and retention producer.
+CLI adoption and Browser/Wasm adoption remain **unverified** until their named
+Release gates land.
 
 The adjacent
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md)
@@ -28,8 +32,7 @@ publication policy.
 
 ## Demo
 
-The intended shared C# composition is shown below. Every `NavigationTransitions`
-member marked `SKETCH` is unimplemented:
+The shared C# composition is:
 
 ```csharp
 WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
@@ -38,32 +41,58 @@ WorkspaceScopeRequest request = workspace.IssueReplaceScopeRequest(
     deadline,
     workspace.CreateScopePackageTarget(destinationBinding));
 
-// SKETCH: compute and commit against the exact host-current NavigationState.
 NavigationTransition accepted = NavigationTransitions.AcceptScopeOperation(
     currentNavigation,
-    request.Association,
-    requestedNavigationIntent);
+    request.Association);
+if (accepted.AdmissionRefusal is { } refusal)
+    return refusal;
 if (!NavigationTransitions.CanCommit(currentNavigation, accepted))
     return StaleAcceptance;
 currentNavigation = accepted.State;
 
-// SKETCH: a second command returns Refused before submission or new intent.
-NavigationAdmission later = NavigationTransitions.TryBegin(
-    currentNavigation, anotherSubject);
+// A second command returns a typed refusal before new intent or work.
+NavigationTransition later = NavigationTransitions.Begin(
+    currentNavigation,
+    anotherAction);
+if (later.AdmissionRefusal is not null)
+    ReportRefusal(later.AdmissionRefusal); // Does not abandon the accepted operation.
 
-WorkspaceScopeOperationResult scopeResult =
-    await workspace.SubmitScopeRequestAsync(request, cancellationToken);
-
-// SKETCH: invocation-local preparation consumes the complete Scope result.
-NavigationScopePreparation prepared = await PrepareNavigationAsync(scopeResult);
+NavigationScopeEvaluationResult evaluated =
+    await NavigationScopeOperations.EvaluateCoordinateReplacementAsync(
+        workspace,
+        accepted.ScopeWork!,
+        request,
+        sourceBinding,
+        registry,
+        availability,
+        cancellationToken);
 NavigationTransition completed = NavigationTransitions.CompleteScopeOperation(
     currentNavigation,
-    request.Association,
-    scopeResult,
-    prepared);
+    accepted.ScopeWork!,
+    evaluated);
 if (NavigationTransitions.CanCommit(currentNavigation, completed))
     currentNavigation = completed.State;
 ```
+
+The evaluator validates the accepted request association and original Scope
+revision before submission. It admits the source Root query first, observes the
+source inside that callback, submits the original request, and prepares the
+exact requested destination occurrence from the returned Scope result. The
+source binding, destination binding, borrowed realizations, availability
+provider, and callback authority remain invocation-local.
+An unchanged occurrence preserves its exact active subject, retained path, and
+inspector request while rebuilding facts. A Package-only retained path is an
+exact retention, not a fallback.
+
+Before leaving admitted source access, the producer uses the correspondence
+owner's `Detach()` projection. Its retention result carries Package descriptors,
+`CoordinateLibraryPairingEvidence`, and `ApiCoordinateCorrespondenceEvidence`,
+not the live matching results or Package observations. Navigation's own exact
+destination initialization remains its existing detached protocol currency.
+The operation result retains that native correspondence evidence. Its serialized
+consumer outcome also carries the retention disposition, explanation, and
+Library/Type/Member correspondence statuses; a host need not infer why a lower
+context was truncated or turn a refused route into an absence verdict.
 
 While that accepted transition is protected, a later subject, lens,
 coordinate, restoration, or participating Scope command receives a synchronous
@@ -251,33 +280,68 @@ defining-Library context are finite owner-supplied values. Bounded TLC success
 establishes properties of this specification, not unbounded proof or
 implementation conformance.
 
-## Planned implementation gates
+## Production implementation gates
 
-The following Release gate families are necessary and remain **unverified**:
+The PR-fast Release gates are in `NavigationScopeOperationTests`.
+Each method name below is prefixed with `ProtectedScope_`:
 
-- `ProtectedScope_AcceptanceCommitsExactCurrentSlotBeforeSubmission`
-- `ProtectedScope_LaterCommandsRefuseWithoutIntentActionOrEffectChange`
-- `ProtectedScope_AcceptanceInvalidatesStaleWorkAndEffectAuthority`
-- `ProtectedScope_OnlyOriginalAssociationCanSettleAndRelease`
-- `ProtectedScope_ConsumesEveryCompleteCurrentSettlementSnapshot`
-- `ProtectedScope_UnavailableRetainsHistoricalEvidenceWithoutCurrentAuthority`
-- `ProtectedScope_CancellationControlCannotManufactureSettlement`
-- `ProtectedScope_ExplicitDuplicateUsesExactRequestedOccurrence`
-- `ProtectedScope_MembershipPreparationFailurePublishesCurrentFailure`
-- `ProtectedScope_ForwardedTypePublishesPreparedDefiningLibraryContext`
-- `ProtectedScope_UsesExistingRevisionGenerationAuthorityAndReceipt`
-- `ProtectedScope_RetainedStateAndResultsDoNotRetainInvocationAuthority`
+| Owned claim | Test method |
+| --- | --- |
+| Acceptance before effects; exact current-slot commit; later-command refusal; stale work/authority invalidation; queue identity retention | `AcceptanceCommitsExactCurrentSlotBeforeSubmission` |
+| Original association and exact attempt govern settlement/release | `OnlyOriginalAssociationCanSettleAndRelease` |
+| Every complete current settlement arm is consumed | `ConsumesEveryCompleteCurrentSettlementSnapshot` |
+| Per-request `NoEffect` does not authorize retaining old inventory | `NoEffectConsumesNewerInventoryThanNavigation` |
+| Historical unavailability persists through later admission and maintenance | `UnavailableRetainsHistoricalEvidenceWithoutCurrentAuthority` |
+| Cancellation control cannot settle mutation; control failures remain visible | `CancellationControlCannotManufactureSettlement` |
+| Explicit duplicate activation uses the exact requested occurrence; no-intent duplicates preserve Workspace selection | `ExplicitDuplicateUsesExactRequestedOccurrence`, `DuplicateHonorsActivationWithRetainedWorkspaceContext` |
+| The retained request, not its effective fallback or availability, preserves inspector intent, including Workspace without an active occurrence | `RetainsUnavailableExactInspectorRequest`, `WorkspaceRetainsExactInspectorWithoutActiveOccurrence` |
+| Fallback from a descendant recommends a Workspace inspector rather than carrying the descendant's request | `WorkspaceFallbackDoesNotCarryDescendantInspector` |
+| Membership-preparation failure publishes current membership and typed failure | `MembershipPreparationFailurePublishesCurrentFailure` |
+| Semantic revision, generation, effect authority, installation, and composite acknowledgement remain distinct | `ConsumesEveryCompleteCurrentSettlementSnapshot`, `MembershipPreparationFailurePublishesCurrentFailure` |
+| Retained state/results erase invocation resources | `RetainedStateAndResultsDoNotRetainInvocationAuthority` |
 
-Producer adoption must exercise product-issued Scope results rather than
-constructing successful result arms in a test harness. The real gates use
-`System.Text.Json@10.0.0` for duplicate Add and the pinned Avalonia pair for
-forwarded Type and defining-Library retention.
+These gates exercise product-issued Scope results rather than constructing
+successful result arms in a test harness. The explicit duplicate gate uses the
+pinned `System.Text.Json@10.0.0` archive. The producer retains only the exact
+Scope association, detached Navigation basis, and resource-free outcome.
 
-The correspondence query currently accesses both exact observed Roots in one
-Workspace. Producer integration must establish the observation and lifetime
-strategy for a source-retiring replacement before claiming that full scenario
-supported. Opaque prepared facts in this model do not establish that strategy
-or authorize retaining an extra user-visible Package as replacement semantics.
+The coordinate-replacement Release gates are in
+`NavigationCoordinateReplacementTests`; each method name is prefixed with
+`ProtectedReplacement_`:
+
+| Owned claim | Test method |
+| --- | --- |
+| The real Avalonia forwarded Type and constructor survive a source-retiring replacement with exact destination inventory, inspector request, actions, and no implicit source Package | `RetainsRealForwardedTypeAndMember` |
+| A declared Avalonia extension Member remains exact despite its receiver-projected inventory row; active Member and ancestor Type retain their inspectors, and completion releases protection | `RetainsExtensionDeclarationDespiteReceiverProjection` |
+| Member non-success falls back to the exact Type and does not transfer the Member inspector | `MemberNonSuccessFallsBackToExactType` |
+| An active entry Library remains at its exact pair when the lower Type moves to another defining Library | `ActiveLibraryTruncatesForwardedLowerContext` |
+| Active Workspace and Package ancestors retain their own subject and exact inspector while lower context follows the forwarded Type | `ActiveAncestorsKeepOwnInspectorAndForwardedContext` |
+| Destination Registry unavailable/failed outcomes retain the destination-bound exact request without recommendation substitution | `ExactInspectorNonSuccessKeepsDestinationRequest` |
+| An unchanged coordinate retains the exact active Type and inspector; a Package-only path remains exact beneath an active Package or Workspace | `UnchangedCoordinateRetainsExactTypeAndInspector`, `PackageOnlyContextIsAnExactPath` |
+| A dangling forwarder stops before Member matching and retains native unbound-route evidence | `UnresolvedForwarderDoesNotUseMemberEvidence` |
+| A resolved Type whose strict profile changed falls back to its paired Library without retaining lower context; exact Type/Member neighbors retain their inspector, and detached evidence remains readable after Workspace close | `StrictTypeCorrespondenceControlsMemberRetention` |
+| Pre-admission cancellation still submits and consumes the original correlated Scope settlement | `PreCancelledRequestSettlesAndCanComplete` |
+| Rejected Scope and retired-source preparation failures publish the complete current membership rather than stale successful content | `RejectedScopeUsesCompleteNewerSnapshot`, `RetiredSourceFailureStillSettlesCurrentMembership` |
+
+`ApiCoordinateCorrespondenceQueryTests.RetiredSourceRoot_ReturnsTypedFailure`
+keeps the public two-current-Root behavior unchanged.
+`ArtifactRootPublicationTests.PackageArtifactRootPublication_RetirementStopsNewEntryAndDrainsLeases`
+owns the Acquisition lifetime evidence: retirement rejects fresh entry while
+an already admitted query can continue using its borrowed source image, and
+release waits for query disposal. The Navigation producer uses that existing
+admitted-query lifetime; it adds no lease contract.
+
+The small strict-correspondence and dangling-forwarder cases are PR-fast.
+The full Avalonia population cases measured 2.35-9.12 seconds per case in an
+isolated Release xUnit report and are tagged `Speed=Slow`. Daily Deep Inspect's
+unfiltered Queries suite owns their recurring coverage. The focused pre-merge
+gate for this producer is the complete unfiltered
+`NavigationCoordinateReplacementTests` class, including its slow cases:
+
+```bash
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*NavigationCoordinateReplacementTests'
+```
 
 ## Adoption and rendering
 
@@ -285,8 +349,9 @@ The approved #7061 path under #5512 remains six capability steps:
 
 1. Navigation retention policy.
 2. Shared correspondence producers.
-3. Protected Navigation adoption: this checked contract/model, then producer
-   integration and exact API-retention wiring.
+3. Protected Navigation adoption: this checked contract/model, shared producer
+   boundary, source-retiring correspondence orchestration, and exact retained
+   API integration are implemented.
 4. CLI retained-result adoption in #5513.
 5. Browser descriptors and coordinate controls in #5510.
 6. Browser complete-result installation in #5511.
@@ -310,8 +375,7 @@ This contract does not define or implement:
 - Scope request construction, validation, admission, mutation, cancellation,
   successor selection, or Artifact publication;
 - Type, Member, forwarding, correspondence, Registry, or lens algorithms;
-- C# or TypeScript APIs, serialization of runtime identities, or retained
-  services;
+- TypeScript APIs, serialization of runtime identities, or retained services;
 - Browser focus, history, accessibility, rendering, or operation control;
 - CLI command behavior or output;
 - complete Workspace restoration or realization cutover; or

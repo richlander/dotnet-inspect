@@ -49,6 +49,16 @@ public class SharedOptions
     };
     public Option<bool> Head { get; } = new("--head") { Description = "Take the count from the start (the default direction)" };
     public Option<bool> Tail { get; } = new("--tail") { Description = "Take the count from the end instead of the start" };
+    public Option<bool> Lines { get; } = new("--lines")
+    {
+        Description = "Apply -n to rendered lines instead of semantic rows",
+        Arity = ArgumentArity.Zero
+    };
+    public Option<bool> TailLines { get; } = new("--tail-lines")
+    {
+        Description = "Apply -n to rendered lines from the end",
+        Arity = ArgumentArity.Zero
+    };
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
     public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
@@ -127,7 +137,7 @@ public class SharedOptions
 
         Limit = new Option<int?>("-n")
         {
-            Description = "Count selected by the active command: semantic rows where adopted, otherwise rendered lines; pair with --tail to take from the end"
+            Description = "Select semantic rows; add --lines to select rendered lines instead; pair with --tail to take from the end"
         };
 
         Tips = new Option<string?>("--tips")
@@ -300,15 +310,74 @@ public class SharedOptions
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
         command.Options.Add(Info);
-        command.Options.Add(Limit);
         command.Options.Add(Rows);
-        command.Options.Add(Head);
-        command.Options.Add(Tail);
+        AddLineSelectionOptionsTo(command);
 
         AddRowWindowValidators(
             command,
             supportsRowWindows,
             validateLegacyRowWindow);
+    }
+
+    public void AddLineSelectionOptionsTo(
+        Command command,
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
+        Option<int?>? limit = null,
+        bool inferLines = false)
+    {
+        limit ??= Limit;
+        command.Options.Add(limit);
+        command.Options.Add(Head);
+        command.Options.Add(Tail);
+        command.Options.Add(Lines);
+        command.Options.Add(TailLines);
+        RegisterLineSelectionFallback(
+            command,
+            limit,
+            resolveOutputFormat,
+            inferLines);
+    }
+
+    public void RegisterLineSelectionFallback(
+        Command command,
+        Option? limit = null,
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
+        bool inferLines = false)
+    {
+        limit ??= Limit;
+        resolveOutputFormat ??= result => ResolveFormat(result);
+        var unavailableSemanticRows =
+            new Option<string?>("--unavailable-semantic-rows")
+            {
+                Hidden = true,
+            };
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                limit,
+                unavailableSemanticRows,
+                top: null,
+                orderBy: null,
+                Head,
+                Tail,
+                Lines,
+                TailLines),
+            CliRowSelectionCapabilities.Lines,
+            result =>
+                result.GetResult(limit) is { Implicit: false }
+                || result.GetResult(Lines) is { Implicit: false }
+                || result.GetResult(TailLines) is { Implicit: false }
+                || result.GetResult(Rows) is null
+                    && (result.GetResult(Head) is { Implicit: false }
+                        || result.GetResult(Tail) is { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    IsJsonDocumentOutput(result, resolveOutputFormat),
+                    lowering),
+            defaultUnit:
+                inferLines
+                    ? CliRowSelectionDefaultUnit.RenderedLines
+                    : CliRowSelectionDefaultUnit.SemanticRows);
     }
 
     /// <summary>
@@ -391,15 +460,21 @@ public class SharedOptions
                 return;
             }
 
+            bool renderedLineSelection =
+                HasExplicitRenderedLineSelection(result);
+
             // A range names the rows to keep, so it already answers the question a
             // direction would answer. Taking "the last of rows 2..10" is not a
             // narrower request, it is two different answers to the same question.
-            if (spec.IsRange && (result.GetValue(Head) || result.GetValue(Tail)))
+            if (!renderedLineSelection
+                && spec.IsRange
+                && (result.GetValue(Head) || result.GetValue(Tail)))
                 result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with --head or --tail; use a count such as --rows {spec.RowCount ?? 10} --tail to take rows from one end.");
 
-            // -n counts output lines. With --rows the count comes from the spec, so a
-            // second count is ambiguous rather than redundant.
-            if (result.GetResult(Limit) is { Implicit: false } limitResult
+            // In semantic mode, --rows and -n both select rows. In explicit line
+            // mode, they select independent units and may compose.
+            if (!renderedLineSelection
+                && result.GetResult(Limit) is { Implicit: false } limitResult
                 && limitResult.Tokens.Count > 0
                 && int.TryParse(
                     limitResult.Tokens[^1].Value,
@@ -505,7 +580,18 @@ public class SharedOptions
     }
 
     public RowWindow? ParseRows(ParseResult parseResult)
-        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Tail));
+        => BuildRowWindow(
+            parseResult.GetValue(Rows),
+            !HasExplicitRenderedLineSelection(parseResult)
+                && parseResult.GetValue(Tail));
+
+    private bool HasExplicitRenderedLineSelection(ParseResult parseResult) =>
+        parseResult.GetResult(Lines) is { Implicit: false }
+        || parseResult.GetResult(TailLines) is { Implicit: false };
+
+    private bool HasExplicitRenderedLineSelection(CommandResult commandResult) =>
+        commandResult.GetResult(Lines) is { Implicit: false }
+        || commandResult.GetResult(TailLines) is { Implicit: false };
 
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.
@@ -647,6 +733,15 @@ public class SharedOptions
 
         return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
     }
+
+    public bool IsJsonDocumentOutput(
+        ParseResult parseResult,
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null) =>
+        (resolveOutputFormat is null
+            ? ResolveFormat(parseResult)
+            : resolveOutputFormat(parseResult)) == OutputFormat.Json
+        || IsExplicitTrue(parseResult, Envelope)
+        || IsExplicitTrue(parseResult, JsonArray);
 
     /// <summary>
     /// Returns true when --mermaid is combined with --markdown (embedded mermaid in markdown).

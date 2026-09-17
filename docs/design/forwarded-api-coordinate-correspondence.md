@@ -231,6 +231,49 @@ reacquired and relabeled as the original endpoint. The consumer group must
 arrange permitted access under the existing Acquisition contract; this design
 adds no lease, publication or scheduling protocol.
 
+### Detached retained projection
+
+`ApiCoordinateCorrespondenceResult` is the live operation result. It retains
+Workspace-local source and destination subjects, Library-pairing observations,
+and the associations needed by an immediate in-Workspace consumer such as
+matched Member Analysis. It is not the value retained after the Workspace
+closes.
+
+`ApiCoordinateCorrespondenceResult.Detach()` projects that live result once,
+while its associations remain valid, into
+`ApiCoordinateCorrespondenceEvidence`. The detached value preserves:
+
+- source and exact destination declaration coordinates as
+  `ApiCoordinateDeclarationEvidence`;
+- source, entry, and defining Library facts as
+  `CoordinateApiLibraryEvidence`;
+- directional package and Library-pairing status as
+  `CoordinateLibraryPairingEvidence`;
+- strict source binding, destination Type-resolution route, strict declaration
+  correspondence, and typed composition failure; and
+- `IsCompleteDestinationAbsence`, issued from the composite `Absent` status.
+
+The source Library retains its own package descriptor even when a refused
+request supplied observations from another Workspace or occurrence. An exact
+destination must retain the selected defining asset; projection fails visibly
+if that already-proven association is missing rather than manufacturing an
+exact destination with an unknown asset.
+
+The detached projection contains no `StructuralSubjectIdentity`,
+`CoordinatePackageObservation`, Workspace, Root binding, image/session,
+stream, callback, lease, or reopening authority. Existing Metadata declaration
+results and `CoordinateTypeResolutionEvidence` are retained because their
+owner-issued endpoints, locations, erased registration identities, and route
+facts are resource-free. `CoordinateTypeResolutionEvidence` lowers any
+associated selected Library to `CoordinateApiLibraryEvidence`; it does not
+retain `CoordinateApiLibraryObservation`.
+
+Overall `Absent` is the owner-issued complete destination-subject absence
+classification. Its native stage remains inspectable: absent entry Library,
+zero-hop destination Type `NotFound`, or strict destination declaration
+`Absent`. A dangling forwarded route, ambiguity, refusal, failure, or
+non-exact source binding is never complete destination absence.
+
 ## Consumers and delivery
 
 The CLI matching consumer is [#7107](https://github.com/richlander/dotnet-inspect/issues/7107).
@@ -251,11 +294,13 @@ ApiCoordinateCorrespondenceResult result =
     await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
         workspace, sourceType, beforeObservation, afterObservation,
         cancellationToken);
+ApiCoordinateCorrespondenceEvidence retained = result.Detach();
 
 ApiCoordinateCorrespondenceResult memberResult =
     await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
         workspace, sourceMember, sourceDeclarationKind,
         beforeObservation, afterObservation, cancellationToken);
+ApiCoordinateCorrespondenceEvidence retainedMember = memberResult.Detach();
 ```
 
 The Member overload requires Metadata's declaration kind because
@@ -264,11 +309,21 @@ The Member overload requires Metadata's declaration kind because
 from the same one-time source selection; Queries never parses the anchor or
 replays an ordinal or digest against the destination.
 
-The result retains Library pairing, strict source binding, detached resolution,
-strict declaration correspondence, and a destination structural subject only
-for an exact result. `CoordinateTypeResolutionEvidence` projects all six native
+`ApiCoordinateSourceSelectionResult` is live because its selected subject and
+Type candidates are structural identities. A caller that needs the completed
+selection after Workspace close invokes `Detach(sourceObservation)` while the
+source observation remains live. The resulting
+`ApiCoordinateSourceSelectionEvidence` retains resource-free declaration
+coordinates, portable candidate anchors, inspection failures, and typed
+selection failure evidence without retaining a structural subject.
+
+The live result retains Library pairing, strict source binding, detached
+resolution, strict declaration correspondence, and a destination structural
+subject only for an exact result. Its detached projection replaces structural
+subjects and package observations with resource-free declaration, Library, and
+package evidence. `CoordinateTypeResolutionEvidence` projects all six native
 resolution arms and query-level refusal without retaining an image opener,
-borrowed context, or catalog-local definition key.
+borrowed context, catalog-local definition key, or live Library observation.
 
 A non-exact source binding is not destination evidence. Source `Absent` or
 `Ambiguous` remains visible in the retained binding result but maps to overall
@@ -352,12 +407,23 @@ The acceptance cohort is PR-fast: its slowest observed individual case was
 | `ForwardedTypeSuccess_DoesNotProveMemberCorrespondence` | MultiBinding's Converter Property remains strict Absent after successful forwarding, preserving the Base candidate and route. |
 | `ForwarderTargetOmittedFromSelectedPopulation_IsNotApiAbsence` | A fixture containing the pinned facades without Base produces Refused/UnboundBinding with its target and route, never API absence. |
 | `ApiCoordinateCorrespondenceQueryTests` | Direct exact correspondence, retired Root refusal, and source-binding precedence over Library absence. |
+| `DetachedEvidence_PublicBoundaryExcludesLiveQueryTypes` | The immediate public properties of the detached correspondence, declaration, Library-pairing, Library, and resolution-assembly evidence do not expose live Workspace/query result types. |
 | `CoordinateLibraryPairingQueryTests` | Complete API populations, identity-profile differences, ambiguity, incomplete observations, occurrence association, and retirement. |
 | `OverloadOrdinalMoves_MatchingUsesSourceAnchorNotDestinationOrdinal` | Independently compiled Metadata fixtures insert an earlier destination overload; matching follows the source declaration, not its ordinal. |
 
 Existing resolver gates own cycle, bound, ambiguous, rejected and unavailable
 route behavior. A dedicated composed forwarded-NotFound fixture is still
 **unverified**; no existing resolver proof is transferred to this join.
+
+The resource-freedom absence claim intentionally has **partial mechanical
+coverage**. Outcome tests retain exact, entry-Library-absent, zero-hop
+Type-absent, strict-declaration-absent, refused, and failed evidence across
+Workspace closure. The structural gate checks the immediate public boundary
+types named above. It does not recursively inspect every transitive public CLR
+type, so exhaustive closure remains **unverified**. A future ownership-analysis
+rule may replace this narrow structural gate once Analysis can classify
+detached immutable values and domain-owned live authority; this Queries
+contract does not depend on that future work.
 
 Host adoption must exercise the same evidence through CLI matching and the
 separately owned Navigation/Browser result path. This design does not claim

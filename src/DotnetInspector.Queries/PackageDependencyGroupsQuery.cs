@@ -31,7 +31,13 @@ public sealed record PackageDependencyGroups(
     string? RequestedTargetFramework,
     string? SelectedTargetFramework,
     int? SelectedGroupIndex,
-    PackageDependencyGroupSelectionStatus SelectionStatus);
+    PackageDependencyGroupSelectionStatus SelectionStatus)
+{
+    /// <summary>
+    /// The logical selected group, including coalesced implicit manifest runs.
+    /// </summary>
+    public DeclaredPackageDependencyGroup? SelectedGroup { get; init; }
+}
 
 /// <summary>NuGet-owned matching and selection for declared dependency version ranges.</summary>
 public static class PackageDependencyVersionRange
@@ -285,8 +291,25 @@ public static class PackageDependencyGroupsQuery
                     PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework,
                 _ => throw new InvalidOperationException(
                     "Unknown dependency-group selection status."),
-            });
+            })
+        {
+            SelectedGroup = ProjectSelectedGroup(selection.Group),
+        };
     }
+
+    private static DeclaredPackageDependencyGroup? ProjectSelectedGroup(
+        DependencyGroup? group) =>
+        group is null
+            ? null
+            : new DeclaredPackageDependencyGroup(
+                group.TargetFramework,
+                [
+                    .. group.Dependencies.Select(dependency =>
+                        new DeclaredPackageDependency(
+                            dependency.Id,
+                            dependency.Version)),
+                ],
+                group.IsImplicitManifestGroup);
 
     private static int? FindSelectedGroupIndex(
         List<DependencyGroup> declaredGroups,

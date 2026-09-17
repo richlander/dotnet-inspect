@@ -22,6 +22,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
+  property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
@@ -678,6 +680,53 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+### Member Finding callee evidence
+
+The explicit member `Facts` section keeps one row per Research Finding. Its
+`Member`, `IL`, `Cs Line`, and `Anchor` fields describe where the Finding is
+presented in the selected member. For `semantics.callee`, `safety.callee`, and
+`cost.callee`, three additional fields describe the callee evidence without
+moving that caller-side relationship anchor:
+
+- `Evidence Subject` names the producer-owned callee subject.
+- `Evidence State` is `instruction`, `method`, or
+  `instruction-unavailable`.
+- `Evidence Locations` renders each physical method identity with its optional
+  IL offset. Method-level evidence has no invented offset, and unavailable
+  instruction evidence says so instead of borrowing the caller coordinate.
+
+These fields are the lowered table vocabulary used by Markdown, table, TSV,
+JSONL, and projected JSON. They are display text, not the typed interchange
+contract.
+
+Exact singleton `member ... -S Facts --json` selects the complete typed Facts
+document. Each Finding retains its caller anchor and optional `callee_evidence`.
+Callee evidence contains the producer-owned subject plus ordered physical
+locations. A physical method is identified by assembly, module version id,
+MethodDef token, declaring type, name, parameter types, return type, generic
+arity, and static shape; each location adds a nullable numeric IL offset.
+`instruction-unavailable` has an empty location array, while `method` has one
+location with a null offset. Structured output never substitutes the caller
+offset for either state.
+
+The typed document is complete rather than a rendered row window. Combining
+its exact unprojected JSON selection with another section, `--rows`, `-n`,
+`--head`, or `--tail` is rejected. A caller that wants lowered or windowed rows
+uses table, TSV, JSONL, or an explicit field/column projection. In projected
+JSON, `-n` with `--head` or `--tail` is a semantic Facts-row window applied
+before serialization; it never clips the rendered JSON text.
+
+Release CLI gates cover:
+
+- caller relationship IL remaining distinct from callee instruction evidence;
+- method-level `cost.callee` evidence retaining a null callee offset;
+- `safety.callee` retaining an explicit unavailable state when the producer has
+  no supported instruction coordinate;
+- exact Facts JSON retaining the typed subject and physical method identities;
+  and
+- explicit Facts field and column projections using the lowered row
+  vocabulary, including valid first- and last-item JSON windows.
+
 ### Reverse type-declaration locator projection
 
 The shared reverse-locator projection implemented under
@@ -828,12 +877,20 @@ owned by the `extensions` adoption tracked in
 retired only when a compatible Markout typed-JSON lowering is available.
 
 The current `CountProjectionFormatter` establishes cardinality by intercepting
-structured Markout rows without writing them. Under the target
+structured Markout rows without writing them. The product contract is that
+section selection and row windows determine cardinality before count
+formatting. Its Release gates are
+`OutputFormatterTests.CountProjection_CapturesTableRowsBySection`,
+`OutputFormatterTests.CountProjection_AppliesRowWindowBeforeReduction`,
+`OutputFormatterTests.CountProjection_DoesNotCountNonTableContent`, and
+`OutputFormatterTests.CountProjection_SectionRowsRenderThroughEveryCompatibleFormat`.
+No separate source-shape gate constrains which formatter implementation may
+satisfy that contract. Under the target
 [section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
 formatters instead consume typed L2 Row-outcomes, Count, or failure results and
-do not establish cardinality. Rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose the same declared
-logical rows to L2 that their renderers consume.
+do not establish cardinality. Producers outside Markout, such as metadata
+tables, expose the same declared logical rows to L2 that their renderers
+consume.
 
 ### Approved `vocabulary --json` compatibility boundary
 

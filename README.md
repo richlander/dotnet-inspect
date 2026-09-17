@@ -160,7 +160,7 @@ stderr rather than mixed into structured output.
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
-| Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace inventory and navigation | `workspace --package X --tfm TFM` | Render one typed top-level inventory over committed Packages and inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent, or restore one canonical packet with `--packet`. Add `--active-package N` on the direct route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
@@ -180,7 +180,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
+| `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -308,7 +308,8 @@ diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### ReadyToRun and raw metadata
@@ -316,15 +317,16 @@ dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
 ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
 validated image header and section directory. Use `@Metadata` to discover or
 render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
-the ReadyToRun manifest metadata instead of the default CLI root, and `--heap`
-for one exact heap address in the selected root.
+the ReadyToRun manifest metadata instead of the default CLI root, and
+`library coordinate` for one exact heap address in the selected root.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
+dotnet-inspect library coordinate "#Strings:0x1a4" \
+  --library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll
 dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
 
@@ -347,7 +349,7 @@ have not adopted this transport.
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
-| Limit rows | `--rows`, `-n`, `--head`, `--tail` |
+| Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
@@ -358,6 +360,13 @@ have not adopted this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
+`-n N` selects the command's declared items. That normally means semantic rows.
+For `skill` and focused skill-document commands, text lines are the only item
+domain, so bare `-n` selects rendered lines. Other commands without a
+semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
+lines or `--tail-lines` for the last N. Rendered-line clipping is not available
+with JSON document output.
+
 Useful discovery and projection patterns:
 
 ```bash
@@ -367,6 +376,7 @@ dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
@@ -405,39 +415,49 @@ dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
-Use `depends=<package-id>` to require a direct dependency declared in any
-package manifest group. Repeat the term to require every named dependency:
+Use `depends=<package-id>` to require a direct dependency. Package Query
+considers all package manifest groups by default; add
+`dependency-target=<TFM>` to select one applicable dependency group instead.
+`dependency-target=all` spells the default explicitly and remains distinct
+from a manifest's real `any` group. Repeat `depends` to require every named
+dependency under the same scope:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
-Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
-one matched package per row and product-authored evidence. The initial CLI
-facet set identifies .NET tool packages and their CLI v1/v2 format. Discover
-the admitted IDs before constructing a query:
+Add `--where "key=value"` to select product-owned Package Query terms, with one
+matched package per row and product-authored evidence. The initial CLI
+vocabulary covers package metadata, dependencies, downloads, README presence,
+.NET tools and their CLI v1/v2 format, and skill packages. Discover the
+admitted keys and values before constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages
 dotnet-inspect package query Azure.Mcp \
-  --where "facet=package.query.dotnet-tool"
-dotnet-inspect package query 'dotnet-*' \
-  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5 --jsonl
+  --where "tool=true"
+dotnet-inspect package query 'Azure.Mcp*' \
+  --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
-Repeat `--where` to combine facets; the engine rejects incompatible selections.
-The broad tool facet reports CLI v1, CLI v2, or unrecognized settings from
-`DotnetToolSettings.xml`; tool v1 and v2 are compatible filtering alternatives.
-Selecting a content facet authorizes the required archive acquisition and
-defaults to at most 20 candidates. Use `--nuspec-only` to reject a query that
-would require package content. Without explicit `--take`, a simple `-n N`
-query pushes that semantic head into execution; explicit `--take` instead
-fixes the candidate population before row selection. Reached candidate limits
-and partial failures are reported explicitly. `--count` counts selected
+Repeat `--where` to combine terms; the engine rejects incompatible selections.
+The broad `tool=true` term identifies the .NET tool package type from manifest
+evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
+classification; the two specific formats are compatible filtering
+alternatives. Selecting a package-content term authorizes the required archive
+acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
+reject a query that would require package content. Without explicit `--take`, a
+simple `-n N` query pushes that semantic head into execution; explicit
+`--take` instead fixes the candidate population before row selection. Reached
+candidate limits and partial failures are reported explicitly. `--count`
+counts selected
 matching package rows only when completion or the semantic selection proves
 the count exact.
 
@@ -607,6 +627,7 @@ generation, action, and authority identities are omitted.
 
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
+dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
@@ -620,7 +641,8 @@ For API and relationship commands, `--project` means an existing
 directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
-`AGENTS.md` or `PROJECT.md` files.
+`AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
+inventories; bare `-S` retains the focused `Skills` overview.
 
 ### Types, members, and source
 
@@ -630,10 +652,12 @@ dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
+dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
+dotnet-inspect library coordinate 0x060002EA+0x0 \
+  --package System.Text.Json --library System.Text.Json.dll
 ```
 
 ### Compatibility and change tracking
@@ -691,6 +715,11 @@ returns nonzero and says **not compared**, rather than claiming no changes.
 Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
 Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
+
+Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
+Diff` views. `Finding Transitions` remains an exact-name section because its
+focused endpoint-confirmation semantics do not compose with those comparison
+views.
 
 ### Structural matching
 
@@ -911,14 +940,30 @@ dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
   --where "Cluster=3"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --where "Cluster=3" \
+  -S "Public Root Paths"
 ```
 
 The drill-down names every source member, source token, target member, target
 token, call kind, evidence method, evidence token, and IL offset in that
 cluster. Use source and target identities for ordinary `member` inspection.
-Use the evidence token with the IL offset for `library --il-offset`, because a
+Use the evidence token with the IL offset for `library coordinate`, because a
 compiler-generated physical body can differ from the attributed source member.
 The cluster remains structural evidence rather than a source-inlining verdict.
+
+`Public Root Paths` traces the selected cluster's exact consumer methods back
+to exhaustive public MethodDef roots in the consumer library. Each row reports
+one deterministic shortest local static path, its public root and destination
+tokens, and physical IL receipts for every logical step. The section must be
+named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
+from defaults, bare `-S`, and wildcard section selection. A complete empty
+section means no public root has a local static path to the selected use sites.
+If pair, public-root, or path analysis is incomplete, retained positive paths
+are still rendered and the command exits nonzero instead of asserting absence.
 
 ```bash
 dotnet-inspect member "<SourceType>" \
@@ -931,8 +976,8 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library ./Consumer.dll \
-  --il-offset "<EvidenceToken>+<ILOffset>"
+dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+  --library ./Consumer.dll
 ```
 
 ### Workspace sharing and built-in guidance
