@@ -198,11 +198,13 @@ range plus an exact `--at` selection is single-coordinate because the operation
 may evaluate only the selected address. Expansion order, bounds, resolution,
 deduplication, and acquisition remain with the operation and source owners.
 
-Workspace is the aggregate owner for top-level location **inputs**, including
-inert population declarations that are not yet coordinates. Its inventory
-operation reports those inputs without implying that they have been expanded
-or evaluated. A later operation selecting one realized occurrence establishes
-its own location cardinality.
+Workspace is the aggregate owner for portable top-level location **inputs**,
+including inert population declarations that are not yet coordinates. The
+`workspace` command authors or transforms that aggregate definition, while its
+inventory operation is one observation that reports the inputs without
+implying that they have been expanded or evaluated. A noun operation consuming
+the Workspace context and selecting one realized occurrence establishes its own
+location cardinality.
 
 **Result identity family** states what independently meaningful answers the
 selected mode emits, such as Package, Library, Type, or Member. **Result
@@ -348,12 +350,16 @@ The target primary result contracts are:
 | `find` | Multiple | Type or Member, selected by mode | Vector |
 | `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
 | `package query` | Multiple | Package | Vector |
-| `workspace` inventory | Multiple top-level inputs; no implied evaluation | Workspace inventory entry | Vector |
+| `workspace` definition | Multiple top-level inputs; no implied evaluation | Workspace definition | Scalar |
 
 The table classifies the command's primary semantic answer. Observations below
 that focus may contain other typed populations. Package files and versions,
 Library dependencies, Type members, and attached Findings do not change the
 primary identity merely because they render rows.
+
+Workspace inventory is one optional observation below the Workspace-definition
+result. Its closed entry union and vector cardinality describe that observation,
+not the `workspace` command's primary semantic answer.
 
 Package version ranges remain address spaces under
 [A version range is an address space](#a-version-range-is-an-address-space).
