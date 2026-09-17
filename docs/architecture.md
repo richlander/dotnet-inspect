@@ -202,7 +202,7 @@ interpretation and Decompiler reconstruction stay with their respective owners.
 | `ILInspector.Decompiler` | IR producer | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | `ILInspector.ILDiff` | Comparison producer | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
 | `ILInspector.CallGraph` | Derived projection | Host-neutral projection of Analysis call trees into graph nodes, edges, cycles, and characteristics. | [Call graph projection](design/call-graph-projection.md) |
-| `ILInspector.Research` | Cross-representation composer | Composition of producer-owned Analysis and Decompiler evidence into offset-keyed facts and implementation comparisons. | [IL coordinate workflows](design/il-coordinate-workflows.md), [Implementation diff](design/implementation-diff.md) |
+| `ILInspector.Research` | Cross-representation composer | Composition of producer-owned Analysis and Decompiler evidence into method-qualified facts, source relationships, and implementation comparisons. | [Research evidence locations](design/research-evidence-locations.md), [IL coordinate workflows](design/il-coordinate-workflows.md), [Implementation diff](design/implementation-diff.md) |
 
 Analysis and Decompiler intentionally answer different questions at different
 representation altitudes. Research composes their evidence; neither engine
