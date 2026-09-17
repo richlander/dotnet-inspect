@@ -117,6 +117,42 @@ public sealed class CoordinateLibraryPairingQueryTests
     }
 
     [Fact]
+    public async Task InvalidSourceAssociation_DetachesTheSourcePackage()
+    {
+        await using var workspace = new InspectionWorkspace();
+        string image = typeof(EmbeddedSourceFixture).Assembly.Location;
+        PackageRootBinding sourceBinding = BindingFrom(
+            "source.package", "1.0.0", PackageProducerIdentity.NuGetOrg,
+            ("lib/net11.0/Fixture.dll", image));
+        PackageRootBinding before = Binding(
+            "1.0.0", ("lib/net11.0/Fixture.dll", image));
+        PackageRootBinding after = Binding(
+            "2.0.0", ("lib/net11.0/Fixture.dll", image));
+        WorkspaceScopeSnapshot scope =
+            await Replace(workspace, sourceBinding, before, after);
+        CoordinatePackageObservation source =
+            await Observe(workspace, sourceBinding, scope);
+        CoordinatePackageObservation first =
+            await Observe(workspace, before, scope);
+        CoordinatePackageObservation second =
+            await Observe(workspace, after, scope);
+
+        CoordinateLibraryPairingEvidence evidence =
+            CoordinateLibraryPairingQuery.Execute(
+                Assert.Single(source.Libraries).Subject,
+                first,
+                second).Detach();
+        await workspace.CloseAsync();
+
+        Assert.Equal(CoordinateLibraryPairingStatus.Refused, evidence.Status);
+        Assert.Equal(
+            CoordinateLibraryPairingFailureKind.InvalidEndpointAssociation,
+            evidence.Failure!.Kind);
+        Assert.Equal("source.package", evidence.Source.Package.PackageId);
+        Assert.Equal("coordinate.sample", evidence.Before.PackageId);
+    }
+
+    [Fact]
     public async Task FreshBindingForSameLogicalRequest_CannotRelabelRetainedGeneration()
     {
         await using var workspace = new InspectionWorkspace();

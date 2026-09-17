@@ -14,7 +14,7 @@ public sealed record CoordinateResolutionAssemblyEvidence(
     CoordinateResolutionRegistrationEvidence Registration,
     AssemblyReferenceIdentity Identity,
     AssemblyResolutionProvenance Provenance,
-    CoordinateApiLibraryObservation? Library);
+    CoordinateApiLibraryEvidence? Library);
 
 /// <summary>
 /// Weak erased identity for one exact binding lineage. The result never retains
@@ -541,7 +541,7 @@ static class CoordinateTypeResolutionProjector
             new(registration, assembly.Registration.ModuleVersionId),
             assembly.Identity,
             assembly.Provenance,
-            library);
+            library?.Detach());
     }
 
     static CoordinateAssemblyBindingTargetEvidence Target(
