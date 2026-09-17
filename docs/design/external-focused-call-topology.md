@@ -142,8 +142,11 @@ through an external or unknown node.
 
 The boundary row remains the final outgoing step or first incoming step. A
 boundary incident directly on a seed has a zero-edge local connector.
-Disconnected boundaries are outside the seeded question and are omitted; they
-do not make the result incomplete.
+Disconnected positive external boundaries are outside the seeded question and
+are omitted. A directionally relevant unknown boundary remains visible even
+when it is disconnected because boundary classification is independent of
+seed reachability; it has no connector in that case and prevents a complete
+classification result.
 
 The source graph is already finite and bounded. Breadth-first search supplies
 minimum connector depth. Equal-length alternatives choose the
@@ -225,8 +228,9 @@ Release gates cover:
 6. disconnected boundary omission in seeded mode;
 7. repeated physical sites remaining attached to one retained logical row;
 8. unknown membership remaining visible and preventing complete absence;
-9. preservation of source traversal and analysis boundaries; and
-10. request rejection for foreign, overlapping, or invalid membership.
+9. a seed-disconnected unknown boundary remaining visible without a connector;
+10. preservation of source traversal and analysis boundaries; and
+11. request rejection for foreign, overlapping, or invalid membership.
 
 ## Non-claims
 

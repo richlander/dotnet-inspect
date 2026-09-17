@@ -304,22 +304,25 @@ public sealed class ExternalFocusedCallGraphProjection
             return;
 
         ImmutableArray<int> connector = [];
-        if (mode == ExternalFocusedCallGraphMode.SeededConnectors
-            && !paths.TryGetValue(hubEndpoint, out connector))
+        bool hasConnector =
+            mode != ExternalFocusedCallGraphMode.SeededConnectors
+            || paths.TryGetValue(
+                hubEndpoint,
+                out connector);
+        if (opposite == NodeMembership.Unknown)
         {
+            unclassifiedRowNumbers.Add(row.Number);
+            if (hasConnector)
+                unclassifiedConnectorRowNumbers.UnionWith(connector);
+
             return;
         }
 
-        if (opposite == NodeMembership.External)
-        {
-            boundaryRowNumbers.Add(row.Number);
-            connectorRowNumbers.UnionWith(connector);
-        }
-        else
-        {
-            unclassifiedRowNumbers.Add(row.Number);
-            unclassifiedConnectorRowNumbers.UnionWith(connector);
-        }
+        if (!hasConnector)
+            return;
+
+        boundaryRowNumbers.Add(row.Number);
+        connectorRowNumbers.UnionWith(connector);
     }
 
     static Dictionary<int, ImmutableArray<int>> ShortestPathsFromSeeds(

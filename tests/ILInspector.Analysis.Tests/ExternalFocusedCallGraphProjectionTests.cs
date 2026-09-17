@@ -339,6 +339,44 @@ public sealed class ExternalFocusedCallGraphProjectionTests
     }
 
     [Fact]
+    public void SeededUnknownBoundary_RemainsVisibleWhenDisconnected()
+    {
+        CallGraphProjection graph =
+            CallGraphProjection.FromCallees(
+                Node(
+                    "Focus",
+                    Node("Connected", Leaf("External")),
+                    Node("Disconnected", Leaf("Unknown"))));
+
+        ExternalFocusedCallGraphProjection projection =
+            ExternalFocusedCallGraphProjection.Create(
+                graph,
+                new(
+                    [
+                        Id(graph, "Focus"),
+                        Id(graph, "Connected"),
+                        Id(graph, "Disconnected"),
+                    ],
+                    [Id(graph, "External")],
+                    ExternalFocusedCallGraphDirection.Outgoing,
+                    ExternalFocusedCallGraphMode.SeededConnectors,
+                    [Id(graph, "Connected")]));
+
+        Assert.Equal(
+            ["Connected->External"],
+            Rows(projection));
+        CallGraphRow unknown =
+            Assert.Single(projection.UnclassifiedBoundaryRows);
+        Assert.Equal(
+            "Disconnected->Unknown",
+            $"{graph.Nodes[unknown.Edge.From].Member.Name}"
+            + "->"
+            + $"{graph.Nodes[unknown.Edge.To].Member.Name}");
+        Assert.Empty(projection.UnclassifiedConnectorRows);
+        Assert.False(projection.HasCompleteBoundaryClassification);
+    }
+
+    [Fact]
     public void SeededEmptyResult_RetainsSeed()
     {
         CallGraphProjection graph =
