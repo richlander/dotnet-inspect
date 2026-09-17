@@ -119,6 +119,7 @@ evidence unless a category is named.
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
+| `ecosystem` | `@Ecosystem` | `@Integrations` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -134,8 +135,10 @@ or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 by exact name. Project `@Project` composes restored dependency `Skills` and
 `Package README file` inventories. Vocabulary `@Vocabulary` composes the
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
-the corresponding query family. `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+the corresponding query family. Ecosystem `@Ecosystem` composes every section
+available after the optional focus operand chooses the route; use
+`@Integrations` for configured Integration bindings. `Switches` is a section.
+There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
