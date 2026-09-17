@@ -372,6 +372,37 @@ public class LibraryBodyRootPathAnalysisTests
     }
 
     [Fact]
+    public void
+        FindShortestPaths_UnattributedLiftedBodyMakesAbsenceIncomplete()
+    {
+        Guid mvid = Guid.NewGuid();
+        MethodIdentity root = Method(mvid, 1, "Root");
+        MethodIdentity lifted =
+            Method(mvid, 2, "<MissingOwner>g__Use|0_0");
+        MethodIdentity destination = Method(mvid, 3, "Destination");
+        LibraryBodyIndex index = Index(
+            [root, lifted, destination],
+            [Call(lifted, destination, 4)]);
+
+        LibraryBodyRootPathResult result =
+            LibraryBodyRootPathAnalysis.FindShortestPaths(
+                index,
+                [Address(root)],
+                [Address(destination)],
+                s_generousLimits);
+
+        Assert.Empty(result.Witnesses);
+        Assert.False(result.IsComplete);
+        Assert.Equal(
+            1,
+            Assert.Single(
+                result.Boundaries.OfType<
+                    LibraryBodyRootPathBoundary
+                        .UnattributedGeneratedBodies>())
+            .Count);
+    }
+
+    [Fact]
     public void FindShortestPaths_RejectsInvalidRequests()
     {
         Guid mvid = Guid.NewGuid();

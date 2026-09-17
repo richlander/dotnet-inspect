@@ -137,13 +137,14 @@ observed, so exactly filling the capacity remains complete.
 An index built with a caller-supplied method or type scope carries a partial
 method-evidence boundary. Typed call operands that name the current module but
 cannot resolve to one MethodDef carry a local-resolution boundary.
-Unattributed generated execution bodies carry a generated-body boundary. The
-input index's diagnostic count is also retained as one bounded analysis
-boundary; exact diagnostics remain available from the index. An excluded,
-failed, unresolved, or unattributed body can hide an otherwise relevant caller
-edge even when that method was not reached through the partial graph. Positive
-witnesses remain valid when any boundary is present; only absence and
-exhaustiveness become incomplete.
+Unattributed generated execution bodies carry a generated-body boundary. This
+includes unresolved lifted local-function and lambda bodies as well as
+state-machine execution bodies. The input index's diagnostic count is also
+retained as one bounded analysis boundary; exact diagnostics remain available
+from the index. An excluded, failed, unresolved, or unattributed body can hide
+an otherwise relevant caller edge even when that method was not reached
+through the partial graph. Positive witnesses remain valid when any boundary
+is present; only absence and exhaustiveness become incomplete.
 
 The result also carries a typed receipt with requested endpoint counts, search
 work, observed reachable pairs, and returned witnesses. The following Release
@@ -154,6 +155,7 @@ gates own the asserted behavior:
 - `FindShortestPaths_HonorsExactRootSetAndLocalParticipant`;
 - `FindShortestPaths_ReportsIndependentLimits`; and
 - `FindShortestPaths_RetainsPositiveEvidenceAcrossAnalysisBoundary`;
+- `FindShortestPaths_UnattributedLiftedBodyMakesAbsenceIncomplete`; and
 - `FindShortestPaths_RejectsInvalidRequests`.
 
 ## Non-claims

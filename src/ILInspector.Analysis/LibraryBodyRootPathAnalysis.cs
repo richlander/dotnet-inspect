@@ -422,7 +422,7 @@ public static class LibraryBodyRootPathAnalysis
             }
             if (call.Caller == call.EvidenceMethod
                 && CompilerGeneratedNames
-                    .IsStateMachineExecutionMethod(call.Caller)
+                    .RequiresDeclaredOwner(call.Caller)
                 && index.ResolveDeclaredMethod(call.Caller) is null)
             {
                 unattributedGeneratedBodyTokens.Add(
