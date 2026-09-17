@@ -187,6 +187,78 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        DeadlineAfterContributionObservation_PreservesProvenance()
+    {
+        const int contributionCount = 4_000_000;
+        byte[] xml = await File.ReadAllBytesAsync(
+            RealAsset("System.Text.Json.xml"),
+            TestContext.Current.CancellationToken);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution contribution =
+            Assert.Single(
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(
+                        library.Reference,
+                        subject));
+        CompiledXmlContribution[] contributions =
+            Enumerable.Repeat(contribution, contributionCount).ToArray();
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(1);
+        DocumentationHouseRequest request = Request(
+            subject,
+            contributions,
+            contributionCount,
+            deadline);
+
+        while (deadline - DateTimeOffset.UtcNow
+            > TimeSpan.FromMilliseconds(50))
+        {
+            Thread.SpinWait(10_000);
+        }
+
+        CompiledDocumentationQueryResult result =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                request,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<DocumentationHouseOutcome.Incomplete>(
+            result.Outcome);
+        Assert.Equal(
+            CompiledDocumentationQueryOutcomeKind.Incomplete,
+            result.Snapshot.Outcome);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.Deadline,
+            result.Snapshot.IncompleteBoundary);
+        Assert.Null(result.Snapshot.CompiledXml);
+        Assert.Equal(
+            contributionCount,
+            result.Snapshot.Work.ContributionsObserved);
+
+        await library.RetireAsync();
+        string json = JsonSerializer.Serialize(
+            result.Snapshot,
+            CompiledDocumentationQueryJsonContext
+                .Default
+                .CompiledDocumentationQuerySnapshot);
+        CompiledDocumentationQuerySnapshot copy =
+            JsonSerializer.Deserialize(
+                json,
+                CompiledDocumentationQueryJsonContext
+                    .Default
+                    .CompiledDocumentationQuerySnapshot)!;
+        CompiledDocumentationContributionSnapshot observed =
+            Assert.Single(
+                copy.ObservedCompiledXmlContributions);
+        Assert.Equal(contribution.Kind, observed.Kind);
+        Assert.Equal(contribution.Source.Kind, observed.SourceKind);
+        Assert.Equal(contribution.Source.Name, observed.Source);
+        Assert.Equal(contribution.Precedence, observed.Precedence);
+    }
+
+    [Fact]
+    public async Task
         UnavailableAndRejectedAttemptsRemainVisibleInSnapshot()
     {
         await using LibraryFixture selected =
@@ -278,10 +350,12 @@ public sealed class CompiledDocumentationQueryTests
 
     private static DocumentationHouseRequest Request(
         DocumentationSubjectReference subject,
-        IReadOnlyList<CompiledXmlContribution> contributions)
+        IReadOnlyList<CompiledXmlContribution> contributions,
+        int maximumContributions = 8,
+        DateTimeOffset? deadline = null)
     {
         var limits = new DocumentationHouseLimits(
-            maximumCompiledXmlContributions: 8,
+            maximumContributions,
             maximumCompiledXmlBytes: 8 * 1024 * 1024,
             XmlDocumentationReadLimits.Default);
         var plan = new DocumentationHouseOperationPlan(
@@ -289,7 +363,7 @@ public sealed class CompiledDocumentationQueryTests
                 "compiled-plan"),
             DocumentationHousePolicyGeneration.Create("policy-1"),
             limits,
-            DateTimeOffset.UtcNow.AddMinutes(1),
+            deadline ?? DateTimeOffset.UtcNow.AddMinutes(1),
             contributions);
         return new DocumentationHouseRequest(
             DocumentationHouseRequestIdentity.Create(

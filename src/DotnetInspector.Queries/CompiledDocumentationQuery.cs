@@ -99,6 +99,8 @@ public sealed record CompiledDocumentationQuerySnapshot(
     CompiledDocumentationSubjectSnapshot Subject,
     CompiledDocumentationQueryOutcomeKind Outcome,
     CompiledDocumentationAttemptSnapshot? CompiledXml,
+    ImmutableArray<CompiledDocumentationContributionSnapshot>
+        ObservedCompiledXmlContributions,
     DocumentationHouseRejectionKind? Rejection,
     CompiledDocumentationHouseFailureSnapshot? Failure,
     DocumentationIncompleteBoundary? IncompleteBoundary,
@@ -205,6 +207,7 @@ public static class CompiledDocumentationQuery
                 Snapshot(request.Subject),
                 kind,
                 compiledXml,
+                ObservedContributions(source, compiledXml),
                 rejection,
                 failure,
                 incompleteBoundary,
@@ -213,6 +216,26 @@ public static class CompiledDocumentationQuery
                     source.Work.CompiledXmlBytesObserved,
                     source.Work.ParsedCompiledXml),
                 source.LeaseSettlement.Consumer);
+    }
+
+    private static ImmutableArray<
+        CompiledDocumentationContributionSnapshot> ObservedContributions(
+            DocumentationHouseOutcome outcome,
+            CompiledDocumentationAttemptSnapshot? compiledXml)
+    {
+        if (compiledXml is not null
+            || outcome.Work.ContributionsObserved == 0)
+        {
+            return [];
+        }
+
+        return
+        [
+            .. outcome.Request.Plan.CompiledXmlContributions
+                .Take(outcome.Work.ContributionsObserved)
+                .Select(Snapshot)
+                .Distinct(),
+        ];
     }
 
     private static CompiledDocumentationSubjectSnapshot Snapshot(
