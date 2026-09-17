@@ -12,7 +12,9 @@ using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using InertText;
 using NuGet.Versioning;
 using NuGetFetch;
 
@@ -31,6 +33,71 @@ public sealed class DependsAssetCommandTests
 
     private static string ProjectDirectoryFixture =>
         FixtureCatalog.RestoredProjectDependencyFacts.ProjectDirectory();
+
+    [Fact]
+    public void AssetProjectionPublishesItsSettledSemanticContentAndEvidence()
+    {
+        var summary = new DependencyInspectionSummary(
+            DependencyInspectionRootSetCompletion.Complete,
+            RequestedRoots: 1,
+            AdmittedRoots: 1,
+            FailedRoots: 0,
+            DependencyInspectionTraversalCompletion.NotRequested,
+            RequestedDepth: null,
+            GraphNodes: 0,
+            GraphEdges: 0,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested,
+            DependencyInspectionPruningSummary.NotRequested,
+            IsPrefixRootSet: false,
+            PackagePrefix: null);
+        var graph = new DependencyGraphDocument([], [], [], [], []);
+        var root = new DependsRootRow(
+            occurrence: 1,
+            DependencyInspectionRootKind.Library,
+            new InertString(TextPolicy.Field, "example.dll"),
+            source: "Path",
+            DependencyInspectionRootState.Admitted,
+            identityKind: null,
+            identity: null,
+            DependencyInspectionTraversalCompletion.NotRequested,
+            DependencyInspectionEvidenceAvailability.NotRequested,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested,
+            DependencyInspectionSelectionStatus.NotRequested,
+            DependencyInspectionEvidenceAvailability.NotRequested,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested);
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest([], []));
+        var evidence = new DependencyInspectionEvidenceDocument(
+            outcome,
+            [],
+            []);
+
+        var projection = new DependsAssetProjection(
+            summary,
+            graph,
+            GraphRows: [],
+            [root],
+            Dependencies: [],
+            Pruning: [],
+            RestoredEdges: [],
+            Failures: [],
+            DependencyGroups: [],
+            RestoredPackages: [],
+            evidence);
+
+        Assert.Same(summary, projection.Content.Summary);
+        Assert.Same(graph, projection.Content.Graph);
+        Assert.Same(root.Content, Assert.Single(projection.Content.Roots));
+        Assert.Equal(
+            new DependencyRootOccurrenceIdentity(1),
+            Assert.Single(projection.Content.Roots).Identity);
+        Assert.Same(evidence, projection.Evidence);
+        Assert.Empty(projection.Content.Dependencies);
+        Assert.Empty(projection.Content.Pruning);
+        Assert.Empty(projection.Content.Failures);
+    }
 
     [Fact]
     public void ModeValidation_PreservesTypeScopesAndRejectsCrossModeGestures()
@@ -1544,7 +1611,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Pruning.Root@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -1652,7 +1719,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Project,
+                    DependencyInspectionRootKind.Project,
                     AssetsFixture),
             ],
             Tfm = "net11.0",
@@ -1716,7 +1783,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.AspNetCore.Pruning@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -1786,7 +1853,7 @@ public sealed class DependsAssetCommandTests
                 [
                     new DependsAssetRoot(
                         1,
-                        DependsAssetRootKind.Package,
+                        DependencyInspectionRootKind.Package,
                         "Contoso.Pruning.Render@1.0.0"),
                 ],
                 Tfm = "net11.0",
@@ -1848,7 +1915,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Pruning.Window@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -1906,7 +1973,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Pruning.WindowFailure@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -2494,7 +2561,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Dependencies.Only@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -2544,7 +2611,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Nuspec,
+                    DependencyInspectionRootKind.Nuspec,
                     NuspecFixture),
             ],
             Tfm = "net11.0",
@@ -2603,7 +2670,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Inventory.Root@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -2674,7 +2741,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Inventory.Root@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -2743,7 +2810,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Package,
+                    DependencyInspectionRootKind.Package,
                     "Contoso.Candidate.Root@1.0.0"),
             ],
             Tfm = "net11.0",
@@ -3281,7 +3348,7 @@ public sealed class DependsAssetCommandTests
             [
                 new DependsAssetRoot(
                     1,
-                    DependsAssetRootKind.Nuspec,
+                    DependencyInspectionRootKind.Nuspec,
                     "/missing/cancelled.nuspec"),
             ],
             Select = ["Dependencies"],
