@@ -1161,6 +1161,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
 
+      - name: Run SourceHouse authored settlement tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release
+
       - name: Run section-row tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
