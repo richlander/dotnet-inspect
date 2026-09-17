@@ -43,7 +43,10 @@ under the end-to-end adoption tracker
 
 Inspect Web may retain zero or more resource-free Workspace definitions and
 restoration records, but at most one selected Workspace realization may admit
-new user operations.
+new user operations. Each retained Workspace may contain multiple packages and
+retain one package or Navigation focus independently of whether that Workspace
+is active. An inactive Workspace's retained package selection is inert
+restoration state, not live package authority.
 
 Selecting an inactive definition constructs a fresh candidate realization and
 atomically cuts over only after construction succeeds. The incumbent
@@ -100,44 +103,57 @@ selection is an explicit construction-and-cutover transaction:
 
 ## Demo
 
-The following example uses real package definitions but shows the intended
-Browser behavior rather than a particular control layout.
+The following example shows the intended Browser behavior rather than a
+particular control layout.
 
-1. Open `Humanizer.Core@2.14.1` and name the retained definition **Humanizer**.
-2. Open `Newtonsoft.Json@13.0.3` and name the retained definition **Json.NET**.
-3. Select **Humanizer** again.
+1. Retain **Workspace 1** with `FooPackage` and `BarPackage`, selecting
+   `BarPackage`.
+2. Retain **Workspace 2** with `BazPackage` and `BarPackage`, selecting
+   `BazPackage`.
+3. Activate **Workspace 1**.
 
-The page keeps two retained definitions:
-
-```text
-Workspaces
-
-  Humanizer   Humanizer.Core 2.14.1       Activating...
-  Json.NET    Newtonsoft.Json 13.0.3      Active
-```
-
-While Humanizer is being constructed, Json.NET remains interactive. When the
-candidate is ready, selection and presentation cut over together:
+The page keeps two retained Workspace definitions:
 
 ```text
 Workspaces
 
-  Humanizer   Humanizer.Core 2.14.1       Active
-  Json.NET    Newtonsoft.Json 13.0.3
+  Workspace 1  Activating...
+    FooPackage
+    BarPackage  Selected
+  Workspace 2  Active
+    BazPackage  Selected
+    BarPackage
 ```
 
-The second Humanizer activation has the same retained-definition identity and
-a new realization identity. It does not revive the realization used before
-Json.NET became active.
+`Selected` within Workspace 1 is retained restoration state while Workspace 2
+is active; it does not authorize operations against Workspace 1. While
+Workspace 1 is being constructed, Workspace 2 remains interactive. When the
+candidate is ready, Workspace activation and presentation cut over together:
+
+```text
+Workspaces
+
+  Workspace 1  Active
+    FooPackage
+    BarPackage  Selected
+  Workspace 2
+    BazPackage  Selected
+    BarPackage
+```
+
+Activating Workspace 2 and then Workspace 1 again restores each complete
+package set and its own retained selected package. The second Workspace 1
+activation has the same retained-definition identity and a new realization
+identity. It does not revive Workspace 1's earlier realization.
 
 Neighboring failure case:
 
-1. Json.NET is active.
+1. Workspace 2 is active.
 2. The person selects a retained definition whose package is now unavailable
    from the configured source.
 3. Candidate construction reports the acquisition failure.
 
-Json.NET remains selected and interactive. The failed definition remains
+Workspace 2 remains selected and interactive. The failed definition remains
 available for retry or deletion, and the page does not present an empty
 Workspace as though activation succeeded.
 
@@ -189,6 +205,18 @@ The record must not contain or retain:
 - result models whose validity depends on a realization,
 - retry closures capturing realization-owned state, or
 - any other owner-issued live authority.
+
+### Retained package selection
+
+Each retained Workspace definition may carry one owner-issued package or
+Navigation focus among its complete package membership. This is separate from
+the Browser's selected Workspace identity.
+
+For the active Workspace, complete restoration evaluates that focus into the
+installed Navigation result and exact active package subject. For an inactive
+Workspace, the same focus is only resource-free restoration input. It cannot
+admit package operations, identify a live Scope, or imply that the Workspace
+has a dormant realization.
 
 ### Active selection
 
@@ -247,9 +275,12 @@ At every observable Browser state:
 3. zero or one coordinator realization admits new user operations,
 4. a selected definition and active realization, when present, are explicitly
    associated,
-5. candidates and predecessors are not selectable,
-6. inactive definitions hold no live realization authority, and
-7. presentation derived from a former realization is not installed as current
+5. each definition may retain one package or Navigation focus, but only the
+   active realization's installed selection grants package operation
+   authority,
+6. candidates and predecessors are not selectable,
+7. inactive definitions hold no live realization authority, and
+8. presentation derived from a former realization is not installed as current
    state for a fresh realization.
 
 A page with retained definitions may have no active realization during initial
@@ -434,8 +465,11 @@ replacement by label, URL, package coordinates, or definition equality.
 
 ## Presentation
 
-The retained list presents definitions, not live Workspaces. Active,
-activating, failed activation, and cleanup-failed are explicit statuses.
+The retained list presents Workspace definitions, their resource-free package
+membership and retained package focus, not live dormant Workspaces. Active,
+activating, failed activation, and cleanup-failed are explicit Workspace
+statuses. Package selection is nested within its owning Workspace and is not
+rendered as a peer Workspace row.
 
 The current four-entry presentation bound may remain during migration as a
 Browser UX policy, but it no longer represents four open scopes or four live
@@ -674,8 +708,9 @@ its safety properties in Browser composition. It checks:
 The implementation slices must add Browser contract tests using product-owned
 construction and operation paths. Tests must demonstrate:
 
-- definition A, definition B, then definition A receiving distinct realization
-  identities,
+- multi-package definition A, multi-package definition B, then definition A
+  receiving distinct realization identities while each activation restores
+  the exact package set and retained selected package,
 - a retained committed view that the version-1 URL cannot project restoring
   from complete resource-free owner-issued state rather than a stale URL or
   live application snapshot,
@@ -702,7 +737,8 @@ The first-slice Release gates are:
 The second-slice Release gates add
 `BrowserRetainedWorkspaceActivationTests` and
 `retained-workspace-activation.test.ts`. They demonstrate A/B/A fresh
-realization identity, active-selection no-effect, latest-intent supersession,
+realization identity with exact multi-package membership and retained package
+focus restoration, active-selection no-effect, latest-intent supersession,
 incumbent preservation, lower-ordinal response settlement observation,
 strict format-1 rejection before candidate charge, predecessor drainage and
 detached exactly-once settlement observation, a per-definition deletion
