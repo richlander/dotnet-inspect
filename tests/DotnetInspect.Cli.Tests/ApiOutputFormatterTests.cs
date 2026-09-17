@@ -3280,10 +3280,11 @@ public class ApiOutputFormatterTests
             ClassesWithDocs =
             [
                 new TypeSummaryRow(
-                    Hostile,
-                    Hostile,
-                    Hostile,
-                    "description"),
+                    Text(),
+                    Text(),
+                    Text(),
+                    "description",
+                    Text()),
             ],
         };
         var memberTable = new ApiTypeTableView
@@ -3302,10 +3303,11 @@ public class ApiOutputFormatterTests
             RowsWithDescription =
             [
                 new ApiSurfaceTableRow(
-                    Hostile,
-                    Hostile,
-                    Hostile,
-                    "description"),
+                    Text(),
+                    Text(),
+                    Text(),
+                    "description",
+                    Text()),
             ],
         };
 

@@ -3351,7 +3351,9 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_HealthChecksSection_ForSqlServer_ShowsHealthCheckBuilderApis()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "AspNetCore.HealthChecks.SqlServer", "--namesake-library", "-S", "@Integrations", "--rows", "20");
+            "package", "AspNetCore.HealthChecks.SqlServer",
+            "--library", "HealthChecks.SqlServer.dll",
+            "-S", "@Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Dependency Injection", output);
