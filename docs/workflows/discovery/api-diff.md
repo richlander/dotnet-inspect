@@ -264,9 +264,8 @@ One-sided methods therefore render added or removed native pairs rather than
 disappearing from an intersection-only body diff.
 
 This focused endpoint-confirmation lens must be selected by itself. It does not
-compose with the comparison sections or `-S @All`; select `Changes`,
-`Analysis Diff`, and `Implementation Diff` explicitly when composing those
-views.
+compose with comparison sections. Select `-S @Diff` to compose `Changes`,
+`Analysis Diff`, and `Implementation Diff`.
 
 ## 8. Name-only output
 
