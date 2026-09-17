@@ -14,7 +14,8 @@ public sealed class PackageHouseVersionPopulationRequest
         PackageVersionRange range,
         PackageHouseOperation operation,
         bool includePrerelease = false,
-        PackageHouseRequestAssociation? association = null)
+        PackageHouseRequestAssociation? association = null,
+        bool includeUnlisted = false)
     {
         ArgumentNullException.ThrowIfNull(range);
         ArgumentNullException.ThrowIfNull(operation);
@@ -34,6 +35,7 @@ public sealed class PackageHouseVersionPopulationRequest
         Range = range;
         Operation = operation;
         IncludePrerelease = includePrerelease;
+        IncludeUnlisted = includeUnlisted;
         Association = association;
     }
 
@@ -42,6 +44,8 @@ public sealed class PackageHouseVersionPopulationRequest
     public PackageHouseOperation Operation { get; }
 
     public bool IncludePrerelease { get; }
+
+    public bool IncludeUnlisted { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
 }

@@ -53,6 +53,17 @@ public sealed record PackageVersionDiscoveryContract
             limit: null);
 
     /// <summary>
+    /// Every listed and unlisted version, including prereleases, needed by
+    /// consumers that apply their own domain selection after settlement.
+    /// </summary>
+    public static PackageVersionDiscoveryContract
+        CompleteVersionEnumerationIncludingUnlisted { get; } = new(
+            contractVersion: 1,
+            includePrerelease: true,
+            includeUnlisted: true,
+            limit: null);
+
+    /// <summary>
     /// The complete candidate set required before applying one NuGet
     /// dependency version constraint.
     /// </summary>
@@ -64,7 +75,8 @@ public sealed record PackageVersionDiscoveryContract
             limit: null);
 
     public bool SupportsCompleteVersionEnumeration =>
-        Equals(CompleteVersionEnumeration);
+        Equals(CompleteVersionEnumeration)
+        || Equals(CompleteVersionEnumerationIncludingUnlisted);
 
     public bool SupportsDependencyRangeResolution =>
         Equals(DependencyRangeResolution);

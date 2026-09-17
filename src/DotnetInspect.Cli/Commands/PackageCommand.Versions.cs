@@ -58,7 +58,7 @@ public partial class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
-        if (latest
+        if ((latest || isRange)
             && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
         {
             CommandError.Write(
@@ -81,18 +81,41 @@ public partial class PackageCommand
                     options.IncludePrerelease);
             return WriteVersionSettlement(envelope, packageReference, options);
         }
+        if (isRange)
+        {
+            NuGetFetchOptions fetchOptions =
+                NuGetFetchOptions.FromRequestTimeout(
+                    context.HttpClient.Timeout);
+            var request = new PackageHouseVersionPopulationRequest(
+                range!,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Settle,
+                    fetchOptions.RequestTimeout,
+                    fetchOptions.OperationTimeout),
+                options.IncludePrerelease,
+                includeUnlisted: options.IncludeUnlisted);
+            PackageHouseVersionPopulationResult population =
+                await composition.SettleVersionPopulationAsync(
+                    request,
+                    options.SourceOptions,
+                    log: context.Logger.Log);
+            return WriteVersionPopulationSettlement(
+                population,
+                packageReference,
+                options);
+        }
 
         PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
             packageId,
-            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
-            options.VersionRowSelection is not null || isRange || pinned
+            pinned || options.IncludePrerelease,
+            options.VersionRowSelection is not null || pinned
                 ? null : options.Limit,
             options.SourceOptions,
             context.Logger.Log,
             includeUnlisted: pinned || options.IncludeUnlisted);
 
-        bool requiresCompleteEvidence = isRange
-            || (!pinned && options.SingleVersionQuery);
+        bool requiresCompleteEvidence =
+            !pinned && options.SingleVersionQuery;
         if (discovery.State == PackageVersionDiscoveryState.Failed
             || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
         {
@@ -122,21 +145,6 @@ public partial class PackageCommand
             return 1;
         }
 
-        if (isRange)
-        {
-            try
-            {
-                listings = [.. PackageVersionVector.CreateListingAware(
-                    range!, listings, options.IncludePrerelease)
-                    .Take(options.Limit ?? int.MaxValue)];
-            }
-            catch (ArgumentException exception)
-            {
-                CommandError.Write(exception.Message);
-                return 1;
-            }
-        }
-
         if (discovery.State == PackageVersionDiscoveryState.Partial)
         {
             CommandError.WriteWarning(
@@ -145,6 +153,91 @@ public partial class PackageCommand
         }
 
         return WriteVersionQueryRows(listings, discovery.SourceListings, latest, options);
+    }
+
+    private static int WriteVersionPopulationSettlement(
+        PackageHouseVersionPopulationResult population,
+        string packageReference,
+        InspectionOptions options)
+    {
+        if (population is PackageHouseVersionPopulationResult.Available available)
+        {
+            PackageVersionDiscoveryResult discovery =
+                available.Evidence.Discovery!;
+            IReadOnlyList<PackageVersionInfo> listings =
+            [
+                .. PackageVersionVector.CreateListingAware(
+                        available.Request.Range,
+                        discovery.Listings,
+                        options.IncludePrerelease)
+                    .Take(options.Limit ?? int.MaxValue),
+            ];
+            return WriteVersionQueryRows(
+                listings,
+                discovery.SourceListings,
+                latest: false,
+                options);
+        }
+
+        if (population is PackageHouseVersionPopulationResult.NotFound)
+        {
+            CommandError.Write(
+                $"Package '{packageReference}' not found on eligible configured sources.");
+            return 1;
+        }
+
+        if (population is PackageHouseVersionPopulationResult.NoMatch noMatch)
+        {
+            try
+            {
+                _ = PackageVersionVector.CreateListingAware(
+                        noMatch.Request.Range,
+                        noMatch.Evidence.Discovery!.Listings,
+                        options.IncludePrerelease)
+                    .ToArray();
+            }
+            catch (ArgumentException exception)
+            {
+                CommandError.Write(exception.Message);
+                return 1;
+            }
+        }
+
+        PackageHouseFailure.Authority[] authorityFailures =
+        [
+            .. population.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>(),
+        ];
+        if (authorityFailures.Length > 0)
+        {
+            WriteVersionDiscoveryFailureDetails(
+                population.Request.Range.PackageId,
+                [
+                    .. authorityFailures.Select(failure =>
+                        (failure.Failure.Kind, failure.Failure.Message)),
+                ]);
+            return 1;
+        }
+
+        string reason = population switch
+        {
+            PackageHouseVersionPopulationResult.NoMatch value =>
+                value.Reason.ToString(),
+            PackageHouseVersionPopulationResult.Incomplete value =>
+                value.Reason.ToString(),
+            PackageHouseVersionPopulationResult.Rejected value =>
+                value.Reason.ToString(),
+            PackageHouseVersionPopulationResult.Unavailable value =>
+                value.Reason.ToString(),
+            PackageHouseVersionPopulationResult.Failed value =>
+                value.Reason.ToString(),
+            _ => throw new InvalidOperationException(
+                "Unknown package version population outcome."),
+        };
+        CommandError.Write(
+            $"Package '{population.Request.Range.PackageId}' version discovery failed.",
+            [reason]);
+        return 1;
     }
 
     private static int WriteVersionQueryRows(
