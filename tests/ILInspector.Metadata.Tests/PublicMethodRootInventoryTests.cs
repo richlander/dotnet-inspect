@@ -203,6 +203,22 @@ public sealed class PublicMethodRootInventoryTests
         Assert.Equal(
             [0x06000001],
             bounded.Roots.Select(static root => root.Token));
+
+        PublicMethodRootInventory methodBounded =
+            PublicMethodRootInventoryReader.Read(
+                reader,
+                limits with
+                {
+                    MaximumMethodDefinitions = 1,
+                });
+        Assert.False(methodBounded.IsComplete);
+        Assert.Equal(
+            PublicMethodRootInventoryLimit.MethodDefinitions,
+            methodBounded.Boundary?.Limit);
+        Assert.Equal(
+            1,
+            methodBounded.Receipt.VisitedMethodDefinitions);
+        Assert.Empty(methodBounded.Roots);
     }
 
     [Fact]
@@ -210,7 +226,9 @@ public sealed class PublicMethodRootInventoryTests
     {
         using var image = new PEReader(
             ImmutableArray.Create(
-                BuildOrphanedNestedPublicImage()));
+                BuildMalformedVisibilityImage(
+                    TypeAttributes.NestedPublic,
+                    addDeclaringType: false)));
         MetadataReader reader =
             MetadataFormatAdmission.GetMetadataReader(image);
 
@@ -218,6 +236,50 @@ public sealed class PublicMethodRootInventoryTests
             () => PublicMethodRootInventoryReader.Read(
                 reader,
                 FullLimits));
+    }
+
+    [Theory]
+    [InlineData(TypeAttributes.NestedPrivate, false)]
+    [InlineData(TypeAttributes.NotPublic, true)]
+    public void Read_ContradictoryNonPublicNestingFailsVisibly(
+        TypeAttributes visibility,
+        bool addDeclaringType)
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildMalformedVisibilityImage(
+                    visibility,
+                    addDeclaringType)));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits));
+    }
+
+    [Fact]
+    public void Read_DeepPublicNestingCompletes()
+    {
+        const int Depth = 512;
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildDeepNestedPublicImage(Depth)));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        PublicMethodRootInventory inventory =
+            PublicMethodRootInventoryReader.Read(
+                reader,
+                new(Depth + 2, 1, 1));
+
+        Assert.True(inventory.IsComplete);
+        Assert.Equal(Depth + 2, inventory.Receipt.VisitedTypeDefinitions);
+        Assert.Equal(1, inventory.Receipt.VisitedMethodDefinitions);
+        Assert.Equal(
+            [0x06000001],
+            inventory.Roots.Select(static root => root.Token));
     }
 
     static void AssertBound(
@@ -283,7 +345,9 @@ public sealed class PublicMethodRootInventoryTests
             FixtureCatalog.MetadataPublicMethodRoots
                 .AssemblyPath());
 
-    static byte[] BuildOrphanedNestedPublicImage()
+    static byte[] BuildMalformedVisibilityImage(
+        TypeAttributes visibility,
+        bool addDeclaringType)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -317,6 +381,64 @@ public sealed class PublicMethodRootInventoryTests
                 bodyOffset: 0,
                 parameterList:
                     MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle outer =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                method);
+        TypeDefinitionHandle malformed =
+            metadata.AddTypeDefinition(
+                visibility,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Malformed"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                method);
+        if (addDeclaringType)
+        {
+            metadata.AddNestedType(malformed, outer);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDeepNestedPublicImage(int depth)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DeepNested.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("C7C3D0EF-862D-4AE8-8859-185020193EC6")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DeepNested"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Root"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
         metadata.AddTypeDefinition(
             default,
             default,
@@ -324,14 +446,33 @@ public sealed class PublicMethodRootInventoryTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             method);
-        metadata.AddTypeDefinition(
-            TypeAttributes.NestedPublic,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Orphan"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            method);
+        TypeDefinitionHandle parent =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                method);
+        for (int index = 0; index < depth; index++)
+        {
+            TypeDefinitionHandle nested =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString($"N{index}"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    method);
+            metadata.AddNestedType(nested, parent);
+            parent = nested;
+        }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(

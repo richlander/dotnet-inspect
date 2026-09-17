@@ -16,10 +16,12 @@ The result is detached from the reader and retains the module MVID, exact
 `MetadataMethodAddress` roots in MethodDef-token order, bounded-work counts,
 and any limit that stopped the inventory.
 
-The operation first classifies TypeDefs in TypeDef-token order. Only after that
-phase completes does it visit MethodDefs in MethodDef-token order. This phase
-boundary lets valid uncompressed metadata use a reordered `MethodPtr` table
-without changing root order or bounded prefixes.
+The operation first records and memoizes TypeDef visibility relationships in
+TypeDef-token order. Only after that phase completes does it project each
+MethodDef ownership row once, then retain roots in raw MethodDef-token order.
+This phase boundary lets valid uncompressed metadata use a reordered
+`MethodPtr` table without changing root order or bounded prefixes, without
+repeated reverse ownership searches or repeated enclosing-chain walks.
 
 This is declaration membership, not an API presentation surface. It does not
 apply name, attribute, compiler-generated, `EditorBrowsable`, body-presence,
@@ -49,11 +51,10 @@ ECMA-335 visibility is represented by the
 [`MethodAttributes`](https://learn.microsoft.com/dotnet/api/system.reflection.methodattributes)
 member-access mask and
 [`TypeAttributes`](https://learn.microsoft.com/dotnet/api/system.reflection.typeattributes)
-visibility mask. The existing
-`AssemblyTypeDeclarationInventory.IsPublicDefinition` already treats a local
-type as externally visible only when its complete enclosing chain is public.
-This owner applies the same type rule and the exact `MethodAttributes.Public`
-member rule to MethodDefs.
+visibility mask. Existing Metadata declaration and signature consumers treat a
+local type as externally visible only when its complete enclosing chain is
+public. This owner shares that type classification and applies the exact
+`MethodAttributes.Public` member rule to MethodDefs.
 
 The .NET linker also uses explicit rooted identities to begin reachability, but
 its deployment closure and reflection policy are not transferred here. This
@@ -90,9 +91,11 @@ The caller supplies independent positive limits for:
 - retained roots.
 
 One visited TypeDef is charged before its visibility is evaluated. One visited
-MethodDef is charged before its declaring type and access are evaluated. One
-root is retained only after both visibility conditions succeed. A TypeDef
-boundary ends the first phase before any MethodDef root is observed.
+MethodDef is charged when its declaring-type projection is observed; its access
+is recorded in that same pass. The completed ownership index is then read in
+raw MethodDef-token order without another metadata ownership search. One root
+is retained only after both visibility conditions succeed. A TypeDef or
+MethodDef boundary ends its indexing phase before any root is observed.
 
 Exactly filling a limit is complete. A typed boundary appears only when the
 operation observes one additional type, method, or root. The operation stops
@@ -108,10 +111,12 @@ The Release gates are:
 
 - `Read_ReturnsEveryExactPublicMethodDef`;
 - `Read_RequiresPublicDeclaringTypeChain`;
-- `Read_DoesNotApplyPresentationFilters`; and
+- `Read_DoesNotApplyPresentationFilters`;
 - `Read_ReportsIndependentExactCapacityBounds`;
 - `Read_ReorderedMethodPtrPreservesMethodDefTokenOrder`; and
-- `Read_OrphanedNestedPublicTypeFailsVisibly`.
+- `Read_OrphanedNestedPublicTypeFailsVisibly`;
+- `Read_ContradictoryNonPublicNestingFailsVisibly`; and
+- `Read_DeepPublicNestingCompletes`.
 
 ## Consumer handoff
 

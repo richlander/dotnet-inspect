@@ -147,11 +147,11 @@ public sealed class SignatureSpellability
             if (MetadataFormatAdmission.AdmitImage(pe))
             {
                 var reader = MetadataFormatAdmission.GetMetadataReader(pe);
+                MetadataVisibilityClassification visibility =
+                    MetadataVisibility.ClassifyAll(reader);
                 foreach (var handle in reader.TypeDefinitions)
                 {
-                    if (!MetadataVisibility.IsExternallyVisible(
-                            reader,
-                            handle))
+                    if (!visibility.IsExternallyVisible(handle))
                         types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
                 }
             }

@@ -296,6 +296,8 @@ public static class AssemblyTypeDeclarationInventoryReader
         var declarations = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
         var names = new HashSet<MetadataTypeDefinitionName>();
         int meaningfulPublicTypeCount = 0;
+        MetadataVisibilityClassification visibility =
+            MetadataVisibility.ClassifyAll(reader);
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
             TypeDefinition definition = reader.GetTypeDefinition(handle);
@@ -327,7 +329,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 read.Name, AssemblyTypeDeclarationKind.Definition,
                 GetDefinitionKind(reader, definition),
                 definition.IsPublic,
-                MetadataVisibility.IsExternallyVisible(reader, handle),
+                visibility.IsExternallyVisible(handle),
                 AttributeReader.ReadTypeDiscoveryAttributes(
                     reader, definition.GetCustomAttributes())));
         }

@@ -72,68 +72,146 @@ public static class PublicMethodRootInventoryReader
             MetadataModuleIdentity.ReadVersionId(reader);
         var roots =
             ImmutableArray.CreateBuilder<MetadataMethodAddress>();
-        int visitedTypes = 0;
+        MetadataVisibilityClassification visibility =
+            MetadataVisibility.Classify(
+                reader,
+                limits.MaximumTypeDefinitions);
+        int visitedTypes =
+            visibility.VisitedTypeDefinitions;
         int visitedMethods = 0;
-        int typeCapacity = Math.Min(
-            reader.TypeDefinitions.Count,
-            limits.MaximumTypeDefinitions);
-        var externallyVisibleTypes =
-            new bool[typeCapacity + 1];
-
-        foreach (TypeDefinitionHandle typeHandle
-            in reader.TypeDefinitions)
+        if (!visibility.IsComplete)
         {
-            if (visitedTypes == limits.MaximumTypeDefinitions)
-            {
-                return Result(
-                    PublicMethodRootInventoryLimit.TypeDefinitions,
-                    limits.MaximumTypeDefinitions);
-            }
-
-            visitedTypes++;
-            externallyVisibleTypes[
-                MetadataTokens.GetRowNumber(typeHandle)] =
-                    MetadataVisibility.IsExternallyVisible(
-                        reader,
-                        typeHandle);
+            return Result(
+                PublicMethodRootInventoryLimit.TypeDefinitions,
+                limits.MaximumTypeDefinitions);
         }
 
         int methodDefinitionCount =
             reader.GetTableRowCount(TableIndex.MethodDef);
+        int methodPointerCount =
+            reader.GetTableRowCount(TableIndex.MethodPtr);
+        if (methodPointerCount != 0
+            && methodPointerCount != methodDefinitionCount)
+        {
+            throw new BadImageFormatException(
+                "The MethodPtr table is not a permutation of "
+                    + "the MethodDef table.");
+        }
+
+        if (methodDefinitionCount
+            > limits.MaximumMethodDefinitions)
+        {
+            var observedMethods = new HashSet<int>();
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
+            {
+                MethodDefinitionHandleCollection methods =
+                    reader.GetTypeDefinition(typeHandle)
+                        .GetMethods();
+                if (methods.Count < 0)
+                {
+                    throw new BadImageFormatException(
+                        "The TypeDef MethodList column is not "
+                            + "a non-decreasing range.");
+                }
+
+                foreach (MethodDefinitionHandle methodHandle
+                    in methods)
+                {
+                    int methodRow = ValidateMethodRow(
+                        methodHandle,
+                        methodDefinitionCount);
+                    if (observedMethods.Contains(methodRow))
+                    {
+                        throw new BadImageFormatException(
+                            "A MethodDef has more than one "
+                                + "declaring TypeDef.");
+                    }
+
+                    if (visitedMethods
+                        == limits.MaximumMethodDefinitions)
+                    {
+                        return Result(
+                            PublicMethodRootInventoryLimit
+                                .MethodDefinitions,
+                            limits.MaximumMethodDefinitions);
+                    }
+
+                    visitedMethods++;
+                    observedMethods.Add(methodRow);
+                }
+            }
+
+            throw new BadImageFormatException(
+                "The TypeDef method ranges do not cover the "
+                    + "MethodDef table.");
+        }
+
+        var declaringTypeRows =
+            new int[methodDefinitionCount + 1];
+        var publicMethods =
+            new bool[methodDefinitionCount + 1];
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
+        {
+            int typeRow =
+                MetadataTokens.GetRowNumber(typeHandle);
+            MethodDefinitionHandleCollection methods =
+                reader.GetTypeDefinition(typeHandle)
+                    .GetMethods();
+            if (methods.Count < 0)
+            {
+                throw new BadImageFormatException(
+                    "The TypeDef MethodList column is not a "
+                        + "non-decreasing range.");
+            }
+
+            foreach (MethodDefinitionHandle methodHandle
+                in methods)
+            {
+                visitedMethods++;
+                int methodRow = ValidateMethodRow(
+                    methodHandle,
+                    methodDefinitionCount);
+                if (declaringTypeRows[methodRow] != 0)
+                {
+                    throw new BadImageFormatException(
+                        "A MethodDef has more than one "
+                            + "declaring TypeDef.");
+                }
+
+                declaringTypeRows[methodRow] = typeRow;
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                publicMethods[methodRow] =
+                    (method.Attributes
+                        & MethodAttributes.MemberAccessMask)
+                    == MethodAttributes.Public;
+            }
+        }
+
+        if (visitedMethods != methodDefinitionCount)
+        {
+            throw new BadImageFormatException(
+                "The TypeDef method ranges do not cover the "
+                    + "MethodDef table.");
+        }
+
         for (int methodRow = 1;
             methodRow <= methodDefinitionCount;
             methodRow++)
         {
-            MethodDefinitionHandle methodHandle =
-                MetadataTokens.MethodDefinitionHandle(methodRow);
-            if (visitedMethods
-                == limits.MaximumMethodDefinitions)
-            {
-                return Result(
-                    PublicMethodRootInventoryLimit
-                        .MethodDefinitions,
-                    limits.MaximumMethodDefinitions);
-            }
-
-            visitedMethods++;
-            MethodDefinition method =
-                reader.GetMethodDefinition(methodHandle);
-            TypeDefinitionHandle declaringType =
-                method.GetDeclaringType();
             int declaringTypeRow =
-                MetadataTokens.GetRowNumber(declaringType);
-            if (declaringType.IsNil
-                || declaringTypeRow
-                    >= externallyVisibleTypes.Length)
+                declaringTypeRows[methodRow];
+            if (declaringTypeRow == 0)
             {
                 throw new BadImageFormatException(
-                    "A MethodDef has no valid declaring TypeDef.");
+                    "A MethodDef has no declaring TypeDef.");
             }
 
-            if (!externallyVisibleTypes[declaringTypeRow]
-                || (method.Attributes
-                        & MethodAttributes.MemberAccessMask)
-                    != MethodAttributes.Public)
+            if (!visibility.ExternallyVisibleTypes[
+                    declaringTypeRow]
+                || !publicMethods[methodRow])
             {
                 continue;
             }
@@ -145,6 +223,8 @@ public static class PublicMethodRootInventoryReader
                     limits.MaximumRoots);
             }
 
+            MethodDefinitionHandle methodHandle =
+                MetadataTokens.MethodDefinitionHandle(methodRow);
             roots.Add(
                 new MetadataMethodAddress(
                     moduleVersionId,
@@ -171,5 +251,19 @@ public static class PublicMethodRootInventoryReader
                     visitedMethods,
                     roots.Count),
                 new(limit, maximum));
+
+        static int ValidateMethodRow(
+            MethodDefinitionHandle handle,
+            int methodDefinitionCount)
+        {
+            int row = MetadataTokens.GetRowNumber(handle);
+            if (row < 1 || row > methodDefinitionCount)
+            {
+                throw new BadImageFormatException(
+                    "A TypeDef projects an invalid MethodDef.");
+            }
+
+            return row;
+        }
     }
 }
