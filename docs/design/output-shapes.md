@@ -717,7 +717,7 @@ Release CLI gates cover:
 - caller relationship IL remaining distinct from callee instruction evidence;
 - method-level `cost.callee` evidence retaining a null remote offset;
 - `safety.callee` retaining an explicit unavailable state when the producer has
-  no supported instruction coordinate; and
+  no supported instruction coordinate;
 - exact Facts JSON retaining the typed subject and physical method identities;
   and
 - explicit Facts field and column projections using the lowered row
