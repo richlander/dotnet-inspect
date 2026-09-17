@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
@@ -109,6 +110,22 @@ public sealed class ExactLibraryWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
+                    JsonOutput = true,
+                    Verbosity = Verbosity.Normal,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Verbosity = Verbosity.Detailed,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
                     DocsExplicitlySet = true,
                     ShowDocs = true,
                 },
@@ -121,6 +138,45 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     Tree = true,
                 },
                 out _));
+    }
+
+    [Theory]
+    [InlineData("n")]
+    [InlineData("d")]
+    [Trait("Speed", "Slow")]
+    public async Task RicherJsonVerbosityUsesCompatibilityPath(
+        string verbosity)
+    {
+        string[] arguments =
+        [
+            "type",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--library",
+            "System.Text.Json.dll",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--compact",
+            $"-v:{verbosity}",
+            "-T",
+            "q",
+        ];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed =
+            CommandLineBuilder.PreprocessArgs(arguments, root);
+        var result = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement json = document.RootElement;
+        Assert.True(json.TryGetProperty("types", out JsonElement types));
+        Assert.True(types.GetArrayLength() > 0);
+        Assert.False(json.TryGetProperty("outcome", out _));
     }
 
     [Fact]

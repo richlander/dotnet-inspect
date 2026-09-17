@@ -785,7 +785,9 @@ public static class TypeCommand
                 || new TypeGestureIntent(options.TypeFilter)
                     .SelectsListingCatalog(options.TypeName))
             || options.EffectiveDiscovery
-            || !IsCompleteInspectionOutput(options)
+                || options.Verbosity is not (
+                    Verbosity.Quiet or Verbosity.Minimal)
+                || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
