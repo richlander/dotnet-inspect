@@ -205,6 +205,27 @@ export interface BrowserParameterSurface {
     readonly defaultValue: string | null;
     readonly description: string | null;
 }
+export interface BrowserRetainedWorkspaceActivationFailure {
+    readonly kind: string;
+    readonly message: string;
+}
+export interface BrowserRetainedWorkspaceActivationResultDto {
+    readonly kind: string;
+    readonly retainedDefinitionId: string;
+    readonly activationId: string | null;
+    readonly canonicalPacket: string | null;
+    readonly navigationJson: string | null;
+    readonly predecessorSettlementId: string | null;
+    readonly failedSettlementCount: number;
+    readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
+export interface BrowserRetainedWorkspaceSettlementResultDto {
+    readonly kind: string;
+    readonly settlementId: string;
+    readonly succeeded: boolean | null;
+    readonly reason: string | null;
+    readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
 export interface BrowserTypeSurface {
     readonly id: string;
     readonly definitionId: string;
@@ -292,6 +313,8 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function activateRetainedWorkspace(retainedDefinitionId: string, packet: string): Promise<BrowserRetainedWorkspaceActivationResultDto>;
+export declare function awaitRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResultDto>;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;

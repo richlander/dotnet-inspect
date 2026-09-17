@@ -93,6 +93,8 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "activateRetainedWorkspace"
+  | "awaitRetainedWorkspaceSettlement"
   | "resolveHomeDemo"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
@@ -1115,6 +1117,24 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    activateRetainedWorkspace: valueOperation(
+      "ordinary-catalog-activate-retained-workspace",
+      2,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["activateRetainedWorkspace"]>
+      ) => facades.catalog.activateRetainedWorkspace(...args),
+    ),
+    awaitRetainedWorkspaceSettlement: valueOperation(
+      "ordinary-catalog-await-retained-workspace-settlement",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["awaitRetainedWorkspaceSettlement"]
+        >
+      ) => facades.catalog.awaitRetainedWorkspaceSettlement(...args),
+    ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
       1,
@@ -1372,6 +1392,14 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      activateRetainedWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .activateRetainedWorkspace,
+      ),
+      awaitRetainedWorkspaceSettlement: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .awaitRetainedWorkspaceSettlement,
+      ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,
       ),

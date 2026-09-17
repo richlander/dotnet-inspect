@@ -138,6 +138,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    activateRetainedWorkspace: () =>
+      unexpected("activateRetainedWorkspace"),
+    awaitRetainedWorkspaceSettlement: () =>
+      unexpected("awaitRetainedWorkspaceSettlement"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -247,6 +251,25 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let pruningArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
+  let retainedActivationArguments: readonly unknown[] = [];
+  let retainedSettlementArguments: readonly unknown[] = [];
+  const retainedActivation = {
+    kind: "activated",
+    retainedDefinitionId: "workspace-1",
+    activationId: "activation-1",
+    canonicalPacket: "format-2-packet",
+    navigationJson: "{\"opaque\":true}",
+    predecessorSettlementId: "settlement-1",
+    failedSettlementCount: 0,
+    failure: null,
+  };
+  const retainedSettlement = {
+    kind: "settled",
+    settlementId: "settlement-1",
+    succeeded: true,
+    reason: "Replaced",
+    failure: null,
+  };
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -304,6 +327,16 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
         return { kind: "Requested", reason: "superseded" };
       },
     },
+    catalog: {
+      activateRetainedWorkspace: (...args) => {
+        retainedActivationArguments = args;
+        return contractViolation(Promise.resolve(retainedActivation));
+      },
+      awaitRetainedWorkspaceSettlement: (...args) => {
+        retainedSettlementArguments = args;
+        return contractViolation(Promise.resolve(retainedSettlement));
+      },
+    },
   });
 
   const sync = state.client.package.searchTypes("String", "[]");
@@ -342,6 +375,12 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       "operation-1",
       "superseded",
     );
+  const activated = state.client.catalog.activateRetainedWorkspace(
+    "workspace-1",
+    "format-2-packet",
+  );
+  const settled =
+    state.client.catalog.awaitRetainedWorkspaceSettlement("settlement-1");
   await state.environment.flushAsync();
 
   assert.deepEqual(await sync, searchResult);
@@ -386,6 +425,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "operation-1",
     "superseded",
   ]);
+  assert.deepEqual(await activated, retainedActivation);
+  assert.deepEqual(await settled, retainedSettlement);
+  assert.deepEqual(retainedActivationArguments, [
+    "workspace-1",
+    "format-2-packet",
+  ]);
+  assert.deepEqual(retainedSettlementArguments, ["settlement-1"]);
   assert.equal(cleared, 1);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
@@ -888,6 +934,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "activateRetainedWorkspace",
+      "awaitRetainedWorkspaceSettlement",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "resolveHomeDemo",
@@ -906,7 +954,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 54);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 56);
 
   const state = fixture();
   const groups = [

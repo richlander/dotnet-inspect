@@ -233,6 +233,30 @@ export interface BrowserParameterSurface {
   readonly description: string | null;
 }
 
+export interface BrowserRetainedWorkspaceActivationFailure {
+  readonly kind: string;
+  readonly message: string;
+}
+
+export interface BrowserRetainedWorkspaceActivationResultDto {
+  readonly kind: string;
+  readonly retainedDefinitionId: string;
+  readonly activationId: string | null;
+  readonly canonicalPacket: string | null;
+  readonly navigationJson: string | null;
+  readonly predecessorSettlementId: string | null;
+  readonly failedSettlementCount: number;
+  readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
+
+export interface BrowserRetainedWorkspaceSettlementResultDto {
+  readonly kind: string;
+  readonly settlementId: string;
+  readonly succeeded: boolean | null;
+  readonly reason: string | null;
+  readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
+
 export interface BrowserTypeSurface {
   readonly id: string;
   readonly definitionId: string;
@@ -330,6 +354,8 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "Catalog": {
           readonly "CatalogExports": {
+            readonly "ActivateRetainedWorkspace.451505237": (retainedDefinitionId: string, packet: string) => Promise<string>;
+            readonly "AwaitRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -385,6 +411,30 @@ function $requireManagedExports(): $ManagedExports {
 }
 
 function $validateManagedExports(exports: unknown): asserts exports is $ManagedExports {
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ActivateRetainedWorkspace.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspace.451505237\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "AwaitRetainedWorkspaceSettlement.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.AwaitRetainedWorkspaceSettlement.976702342\u0027 is not callable.");
+    }
+  }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "DotnetInspect");
@@ -492,6 +542,18 @@ export function runEntryPoint(
   args?: string[],
 ): Promise<number> {
   return $requireRuntime().runMain(mainAssemblyName, args);
+}
+
+export async function activateRetainedWorkspace(retainedDefinitionId: string, packet: string): Promise<BrowserRetainedWorkspaceActivationResultDto> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspace.451505237"](retainedDefinitionId, packet);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspaceActivationResultDto;
+}
+
+export async function awaitRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResultDto> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AwaitRetainedWorkspaceSettlement.976702342"](settlementId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspaceSettlementResultDto;
 }
 
 export function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult {

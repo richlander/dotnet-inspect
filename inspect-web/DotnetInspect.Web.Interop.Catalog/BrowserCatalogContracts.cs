@@ -381,6 +381,27 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     string? Packet,
     BrowserWorkspaceShareFailure? Failure);
 
+public sealed record BrowserRetainedWorkspaceActivationFailure(
+    string Kind,
+    string Message);
+
+public sealed record BrowserRetainedWorkspaceActivationResultDto(
+    string Kind,
+    string RetainedDefinitionId,
+    string? ActivationId,
+    string? CanonicalPacket,
+    string? NavigationJson,
+    string? PredecessorSettlementId,
+    int FailedSettlementCount,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
+public sealed record BrowserRetainedWorkspaceSettlementResultDto(
+    string Kind,
+    string SettlementId,
+    bool? Succeeded,
+    string? Reason,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
@@ -389,4 +410,6 @@ public sealed record BrowserWorkspaceShareEncodeResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResultDto))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResultDto))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

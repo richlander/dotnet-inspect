@@ -82,6 +82,8 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "activateRetainedWorkspace"
+  | "awaitRetainedWorkspaceSettlement"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"

@@ -190,7 +190,7 @@ public abstract record CompleteRestorationFailure
 
     public sealed record Cancelled : CompleteRestorationFailure
     {
-        internal Cancelled(string message)
+        public Cancelled(string message)
             : base(message)
         {
         }
