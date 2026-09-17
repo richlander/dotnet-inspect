@@ -46,6 +46,9 @@ public sealed record ConditionalUnionRecord(
 public sealed record ConditionalGenericUnionRecord(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     GenericUnion<JsonElement> Payload);
+public sealed record ConditionalNestedGenericUnionRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    GenericUnion<GenericUnion<JsonElement>> Payload);
 public sealed record ConditionalOpenGenericUnionRecord<T>(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     GenericUnion<T> Payload);
@@ -261,6 +264,18 @@ public static partial class UnionExports
     }
 
     [JSExport]
+    public static string GetConditionalNestedGenericUnionRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalNestedGenericUnionRecord(
+                new GenericUnion<GenericUnion<JsonElement>>(
+                    new GenericUnion<JsonElement>(
+                        document.RootElement.Clone()))),
+            UnionJsonContext.Default.ConditionalNestedGenericUnionRecord);
+    }
+
+    [JSExport]
     public static string GetConditionalOpenGenericUnionRecord()
     {
         using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
@@ -347,6 +362,7 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(ConditionalGenericRecord<JsonElement>))]
 [JsonSerializable(typeof(ConditionalUnionRecord))]
 [JsonSerializable(typeof(ConditionalGenericUnionRecord))]
+[JsonSerializable(typeof(ConditionalNestedGenericUnionRecord))]
 [JsonSerializable(typeof(ConditionalOpenGenericUnionRecord<JsonElement>))]
 [JsonSerializable(typeof(ConditionalJsonElementArrayUnionRecord))]
 [JsonSerializable(typeof(ConcreteArrayRecord<int>))]

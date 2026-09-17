@@ -268,7 +268,10 @@ unsupported. This includes a top-level `JsonElement` case supplied directly or
 through a closed generic union argument, and an open record generic parameter
 flowing through a union case. Nested `JsonElement` values inside an array,
 collection, dictionary, or record do not collapse the member's present-value
-type and therefore do not require the `JsonValue` helper.
+type and therefore do not require the `JsonValue` helper. Finite nesting of the
+same generic union definition remains a closed substitution path and is
+analyzed through every supplied argument; cycle suppression applies only to
+recursive union-case traversal.
 
 A bidirectional record whose serialize and deserialize presence differs still
 fails visibly. Separate input and output declarations are a later

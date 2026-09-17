@@ -360,6 +360,9 @@ public sealed class JsonUnionWireTests
         nameof(UnionExports.GetConditionalGenericUnionRecord),
         "{\"payload\":{\"value\":1}}")]
     [InlineData(
+        nameof(UnionExports.GetConditionalNestedGenericUnionRecord),
+        "{\"payload\":{\"value\":1}}")]
+    [InlineData(
         nameof(UnionExports.GetConditionalOpenGenericUnionRecord),
         "{\"payload\":{\"value\":1}}")]
     public void Emit_RejectsConditionalUnionThatCanCollapseToUnknown(
@@ -372,6 +375,8 @@ public sealed class JsonUnionWireTests
                 UnionExports.GetConditionalUnionRecord(),
             nameof(UnionExports.GetConditionalGenericUnionRecord) =>
                 UnionExports.GetConditionalGenericUnionRecord(),
+            nameof(UnionExports.GetConditionalNestedGenericUnionRecord) =>
+                UnionExports.GetConditionalNestedGenericUnionRecord(),
             _ => UnionExports.GetConditionalOpenGenericUnionRecord(),
         };
         Assert.Equal(expectedPayload, payload);

@@ -106,9 +106,11 @@ static class TsJsonUnionMapper
     {
         if (type.Kind == TypeRefKind.GenericParameter)
         {
+            // A supplied argument is a finite type tree, not a recursive case
+            // edge, even when it instantiates the same union definition.
             return parameterCanMapToUnknown(
                 type.GenericParameterIndex,
-                active);
+                []);
         }
 
         if (type is
