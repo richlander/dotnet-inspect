@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.MetadataRendering;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -109,6 +110,28 @@ internal static class LibraryCoordinateCommandDefinitions
         opts.AddPrintOptionTo(command);
         opts.AddShapeProjectionOptionsTo(command);
         opts.AddNuGetOptionsTo(command);
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                !string.IsNullOrWhiteSpace(
+                    result.GetValue(fileOption))
+                && opts.ParseDiscover(result) is null,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         var acceptedParentOptions = new HashSet<Option>(command.Options);
         command.Validators.Add(result =>
@@ -148,6 +171,17 @@ internal static class LibraryCoordinateCommandDefinitions
                             + "or --file, not both."
                         : "library coordinate requires one exact coordinate or "
                             + "--file <path>.");
+                return 1;
+            }
+
+            if (!CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "IL coordinate",
+                        out RowSelectionIntent<string>? rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
                 return 1;
             }
 
@@ -283,7 +317,10 @@ internal static class LibraryCoordinateCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                CoordinateRowSelection = rowSelection,
+                Rows = rowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions =

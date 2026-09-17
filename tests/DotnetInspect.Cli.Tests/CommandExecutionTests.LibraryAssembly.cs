@@ -2673,7 +2673,7 @@ public partial class CommandExecutionTests
                 path,
                 "--library",
                 TestAssemblyPath,
-                "--rows",
+                "-n",
                 "1",
                 "--jsonl",
                 "--tips",
@@ -2698,6 +2698,57 @@ public partial class CommandExecutionTests
                 $"\"label\":\"{path}:1\"",
                 tail.Output,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCoordinateCommand_FileBareLimitSelectsRows(
+        bool beforeSubcommand)
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            """
+            first 0x06000001+0x1
+            last 0x06000002+0x0
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            string[] args =
+                beforeSubcommand
+                    ?
+                    [
+                        "library", "-n", "1", "coordinate",
+                        "--file", path,
+                        "--library", TestAssemblyPath,
+                        "--jsonl",
+                        "--tips", "q",
+                    ]
+                    :
+                    [
+                        "library", "coordinate",
+                        "--file", path,
+                        "--library", TestAssemblyPath,
+                        "-n", "1",
+                        "--jsonl",
+                        "--tips", "q",
+                    ];
+
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("\"label\":\"first\"", output);
+            Assert.DoesNotContain("\"label\":\"last\"", output);
         }
         finally
         {

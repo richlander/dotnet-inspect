@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Options;
@@ -117,6 +118,11 @@ public record LibraryOptions : IProjectionOptions
     /// Pre-admitted coordinate population for the focus-first file mode.
     /// </summary>
     internal ILCoordinatePopulation? ILCoordinatePopulation { get; init; }
+
+    /// <summary>
+    /// Semantic selection over the ordered coordinate-file rows.
+    /// </summary>
+    internal RowSelectionIntent<string>? CoordinateRowSelection { get; init; }
 
     /// <summary>
     /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.

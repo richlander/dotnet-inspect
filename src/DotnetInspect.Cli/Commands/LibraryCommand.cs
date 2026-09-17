@@ -1,4 +1,5 @@
 using DotnetInspector.Cache;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
@@ -1615,7 +1616,20 @@ public class LibraryCommand
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
-        var visibleRows = RowWindow.Apply(options.Rows, rows);
+        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                options.CoordinateRowSelection,
+                options.Rows,
+                rows,
+                "IL coordinate",
+                failure =>
+                    $"IL coordinate row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<ILCoordinateBatchRow> visibleRows))
+        {
+            return 1;
+        }
 
         // A coordinate that failed to resolve is still a reported row, so it counts; the
         // non-zero exit remains the signal that some coordinate did not resolve.
