@@ -1027,6 +1027,9 @@ representable on non-generated top-level classes and structs, requires an
 available canonical metadata signature shape, rejects out-of-range generic
 parameter references and custom-modified constraint shapes other than the exact
 source-representable `unmanaged` pseudo-constraint encoding,
+rejects property shapes that cannot form a C# property or indexer, rejects
+unrepresented member-signature custom modifiers while retaining authenticated
+read-only by-ref modifier encodings that the product spells explicitly,
 applies `CB_TYPE` before sampling, and chooses a stable hash-ranked set up to the
 remaining global `--compile-cap`. The cap remains a maximum across the complete
 assembly list: a run with fewer eligible methods reports the shorter population

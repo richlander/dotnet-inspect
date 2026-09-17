@@ -586,6 +586,13 @@ public class ApiSignature
     /// </summary>
     public string? StructuralReturnType { get; set; }
 
+    /// <summary>
+    /// Whether custom modifiers in the return type have an exact C# declaration
+    /// spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ReturnTypeCustomModifiersAreRepresentable { get; set; }
+
     [JsonIgnore]
     public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
 
@@ -665,6 +672,13 @@ public class ApiParameter
     /// already supplies the complete selector identity.
     /// </summary>
     public string? StructuralType { get; set; }
+
+    /// <summary>
+    /// Whether custom modifiers in this parameter type have an exact C#
+    /// declaration spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? CustomModifiersAreRepresentable { get; set; }
 
     [JsonIgnore]
     public bool? MatchesDeclaringType { get; set; }
@@ -760,6 +774,13 @@ public class ApiAccessor
     /// <c>modreq(IsExternalInit)</c> here so call-graph selectors match MemberRef.
     /// </summary>
     public string? StructuralReturnType { get; set; }
+
+    /// <summary>
+    /// Whether custom modifiers in this accessor signature have an exact C#
+    /// declaration spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? CustomModifiersAreRepresentable { get; set; }
 
     /// <summary>
     /// Whether this accessor's callable signature corresponds exactly to its

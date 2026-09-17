@@ -1945,6 +1945,11 @@ public static class ApiSurfaceExtractor
                                 }
                                 ? structuralEventNode.StructuralIdentity()
                                 : null,
+                        ReturnTypeCustomModifiersAreRepresentable =
+                            structuralEventNode is { IsDegraded: false }
+                                && CustomModifiersAreRepresentable(
+                                    structuralEventNode,
+                                    allowReadOnlyByRef: false),
                         MemberName = eventName,
                         Accessors = accessorModels
                     },
@@ -3108,10 +3113,23 @@ public static class ApiSurfaceExtractor
 
     internal static bool ResolvesThroughCoreLibrary(
         AssemblyReferenceIdentity reference)
+        => ResolvesThroughCoreLibrary(
+            reference.Name,
+            reference.PublicKeyToken);
+
+    internal static bool ResolvesThroughCoreLibrary(
+        ApiAssemblyIdentity reference)
+        => ResolvesThroughCoreLibrary(
+            reference.Name,
+            reference.PublicKeyToken);
+
+    static bool ResolvesThroughCoreLibrary(
+        string name,
+        string? publicKeyToken)
     {
-        if (reference.PublicKeyToken is not { } token
+        if (publicKeyToken is not { } token
             || !CoreLibraryPublicKeyTokens.TryGetValue(
-                reference.Name,
+                name,
                 out byte[][]? expectedTokens))
         {
             return false;
@@ -3997,6 +4015,10 @@ public static class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                CustomModifiersAreRepresentable =
+                    CustomModifiersAreRepresentable(
+                        paramTypes[i],
+                        allowReadOnlyByRef: modifier == "in"),
                 MatchesDeclaringType =
                     DeclaringTypeMatches(
                         paramTypes[i],
@@ -4077,6 +4099,12 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeCustomModifiersAreRepresentable =
+                CustomModifiersAreRepresentable(
+                    treeSignature.ReturnType,
+                    allowReadOnlyByRef: returnType.StartsWith(
+                        "ref readonly ",
+                        StringComparison.Ordinal)),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnTypeMatchesDeclaringType =
@@ -5207,6 +5235,12 @@ public static class ApiSurfaceExtractor
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeCustomModifiersAreRepresentable =
+                CustomModifiersAreRepresentable(
+                    treeSignature.ReturnType,
+                    allowReadOnlyByRef: returnType.StartsWith(
+                        "ref readonly ",
+                        StringComparison.Ordinal)),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
             ReturnTypeDefinitionReference =
@@ -5389,6 +5423,10 @@ public static class ApiSurfaceExtractor
                 StructuralType = parameterType.HasStructuralPayload
                     ? parameterType.StructuralIdentity()
                     : null,
+                CustomModifiersAreRepresentable =
+                    CustomModifiersAreRepresentable(
+                        parameterType,
+                        allowReadOnlyByRef: modifier == "in"),
                 TypeReferences =
                     [.. parameterType.ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -5504,6 +5542,10 @@ public static class ApiSurfaceExtractor
                 accessor.StructuralReturnType = MethodStructuralReturnType(
                     signature.ReturnType,
                     beforeRetainText);
+                accessor.CustomModifiersAreRepresentable =
+                    !ContainsCustomModifier(signature.ReturnType)
+                    && signature.ParameterTypes.All(
+                        parameter => !ContainsCustomModifier(parameter));
                 if (propertySignature is { } property)
                 {
                     accessor.SignatureMatchesProperty =
@@ -5751,6 +5793,87 @@ public static class ApiSurfaceExtractor
             type = modified.Inner;
 
         return type is PrimitiveTypeNode { Name: "void" };
+    }
+
+    static bool CustomModifiersAreRepresentable(
+        TypeNode type,
+        bool allowReadOnlyByRef)
+    {
+        if (!ContainsCustomModifier(type))
+            return true;
+        if (!allowReadOnlyByRef)
+            return false;
+
+        bool sawByRef = false;
+        int modifierCount = 0;
+        TypeNode current = type;
+        while (true)
+        {
+            if (current is ModifiedTypeNode modified)
+            {
+                if (!modified.IsRequired
+                    || !IsReadOnlyByRefModifier(modified.Modifier))
+                {
+                    return false;
+                }
+                modifierCount++;
+                current = modified.Inner;
+                continue;
+            }
+            if (current is ByRefTypeNode byRef && !sawByRef)
+            {
+                sawByRef = true;
+                current = byRef.ElementType;
+                continue;
+            }
+            break;
+        }
+
+        return sawByRef
+            && modifierCount == 1
+            && !ContainsCustomModifier(current);
+    }
+
+    static bool ContainsCustomModifier(TypeNode type) => type switch
+    {
+        ModifiedTypeNode => true,
+        GenericTypeNode generic =>
+            generic.Arguments.Any(ContainsCustomModifier),
+        SZArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        MDArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        PointerTypeNode pointer =>
+            ContainsCustomModifier(pointer.ElementType),
+        ByRefTypeNode byRef =>
+            ContainsCustomModifier(byRef.ElementType),
+        FunctionPointerTypeNode functionPointer =>
+            functionPointer.ChildTypes.Any(ContainsCustomModifier),
+        PassthroughTypeNode passthrough =>
+            ContainsCustomModifier(passthrough.Inner),
+        _ => false,
+    };
+
+    static bool IsReadOnlyByRefModifier(TypeNode modifier)
+    {
+        ApiTypeReferenceIdentity? reference =
+            modifier.DefinitionReference();
+        if (reference?.DefinitionName is not { } definitionName
+            || definitionName.Segments.Length != 1
+            || !ResolvesThroughCoreLibrary(reference.Assembly))
+        {
+            return false;
+        }
+
+        string name = definitionName.Segments[0];
+        return (definitionName.Namespace
+                    == "System.Runtime.CompilerServices"
+                && name is
+                    "IsReadOnlyAttribute"
+                        or "RequiresLocationAttribute")
+            || (definitionName.Namespace
+                    == "System.Runtime.InteropServices"
+                && name == "InAttribute");
     }
 
     /// <summary>

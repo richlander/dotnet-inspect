@@ -243,6 +243,71 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnrepresentedSignatureCustomModifiersBeforeSampling()
+    {
+        string assemblyPath = CreateCustomModifiedSignatureFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            var target = Assert.Single(selected);
+            Assert.Equal("Good", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_IncludesRepresentedReadOnlyByRefModifiers()
+    {
+        string assemblyPath = CompileFixture("""
+            public static class ReadOnlyByRefFixture
+            {
+                public static ref readonly int Read(in int value)
+                    => ref value;
+            }
+            """);
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+
+            Assert.Equal("Read", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsMalformedPropertyDeclarationsBeforeSampling()
+    {
+        string assemblyPath = CreateMalformedPropertyFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(selected, target => target.Method == "Good");
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method == "get_Item");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnavailableCanonicalSignaturesBeforeSampling()
     {
         string assemblyPath = CreateUnavailableCanonicalSignatureFixture();
@@ -2908,6 +2973,149 @@ public class FidelityCheckGeneratedFilterTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string CreateCustomModifiedSignatureFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "CustomModifiedSignatures.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("CustomModifiedSignatures"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "CustomModifiedSignatures");
+        TypeBuilder modifierType = module.DefineType(
+            "SignatureModifier",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        TypeBuilder fixtureType = module.DefineType(
+            "CustomModifiedSignatureFixture",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+
+        DefineConstantMethod(fixtureType, "Good", typeof(int));
+
+        MethodBuilder modifiedReturn = fixtureType.DefineMethod(
+            "ModifiedReturn",
+            MethodAttributes.Public | MethodAttributes.Static);
+        modifiedReturn.SetSignature(
+            typeof(int),
+            [modifierType],
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator modifiedReturnBody = modifiedReturn.GetILGenerator();
+        modifiedReturnBody.Emit(OpCodes.Ldc_I4_1);
+        modifiedReturnBody.Emit(OpCodes.Ret);
+
+        MethodBuilder optionalModifiedReturn = fixtureType.DefineMethod(
+            "OptionalModifiedReturn",
+            MethodAttributes.Public | MethodAttributes.Static);
+        optionalModifiedReturn.SetSignature(
+            typeof(int),
+            null,
+            [modifierType],
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator optionalModifiedReturnBody =
+            optionalModifiedReturn.GetILGenerator();
+        optionalModifiedReturnBody.Emit(OpCodes.Ldc_I4_1);
+        optionalModifiedReturnBody.Emit(OpCodes.Ret);
+
+        MethodBuilder modifiedParameter = fixtureType.DefineMethod(
+            "ModifiedParameter",
+            MethodAttributes.Public | MethodAttributes.Static);
+        modifiedParameter.SetSignature(
+            typeof(int),
+            null,
+            null,
+            [typeof(int)],
+            [[modifierType]],
+            null);
+        ILGenerator modifiedParameterBody =
+            modifiedParameter.GetILGenerator();
+        modifiedParameterBody.Emit(OpCodes.Ldc_I4_1);
+        modifiedParameterBody.Emit(OpCodes.Ret);
+
+        MethodBuilder modifiedGetter = fixtureType.DefineMethod(
+            "get_ModifiedProperty",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig);
+        modifiedGetter.SetSignature(
+            typeof(int),
+            [modifierType],
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator modifiedGetterBody = modifiedGetter.GetILGenerator();
+        modifiedGetterBody.Emit(OpCodes.Ldc_I4_1);
+        modifiedGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder modifiedProperty = fixtureType.DefineProperty(
+            "ModifiedProperty",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        modifiedProperty.SetGetMethod(modifiedGetter);
+
+        modifierType.CreateType();
+        fixtureType.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static string CreateMalformedPropertyFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "MalformedProperties.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("MalformedProperties"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "MalformedProperties");
+        TypeBuilder fixtureType = module.DefineType(
+            "MalformedPropertyFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+
+        DefineConstantMethod(fixtureType, "Good", typeof(int));
+        MethodBuilder getter = fixtureType.DefineMethod(
+            "get_Item",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator getterBody = getter.GetILGenerator();
+        getterBody.Emit(OpCodes.Ldc_I4_1);
+        getterBody.Emit(OpCodes.Ret);
+        PropertyBuilder property = fixtureType.DefineProperty(
+            "this[]",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        property.SetGetMethod(getter);
+
+        fixtureType.CreateType();
+        assembly.Save(path);
         return path;
     }
 

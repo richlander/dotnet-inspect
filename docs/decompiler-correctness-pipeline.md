@@ -1074,7 +1074,10 @@ identities are exactly representable on non-generated top-level classes and
 structs and whose canonical metadata signature shape is available. Out-of-range
 generic parameter references and custom-modified constraint shapes are
 ineligible rather than identity-degraded, except for the exact
-source-representable `unmanaged` pseudo-constraint encoding. `CB_TYPE`
+source-representable `unmanaged` pseudo-constraint encoding. Property shapes
+must form a valid C# property or indexer, and member-signature custom modifiers
+are ineligible unless they are authenticated read-only by-ref encodings that
+the product spells explicitly. `CB_TYPE`
 filters that population first. Stable
 hash ranking then chooses up to the remaining caller-ordered global
 `--compile-cap` for each assembly. The cap is a maximum, so an input set with

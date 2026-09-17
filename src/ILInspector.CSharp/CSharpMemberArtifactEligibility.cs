@@ -23,6 +23,14 @@ public static class CSharpMemberArtifactEligibility
             || member.SignatureModel is not { } signature
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
+            || !IsPropertyDeclarationRepresentable(member, signature)
+            || signature.ReturnTypeCustomModifiersAreRepresentable != true
+            || signature.Parameters.Any(
+                parameter =>
+                    parameter.CustomModifiersAreRepresentable != true)
+            || signature.Accessors.Any(
+                accessor =>
+                    accessor.CustomModifiersAreRepresentable != true)
             || signature.TypeParameters.Any(parameter => !IsIdentifier(parameter.Name))
             || signature.Parameters.Any(parameter => !IsIdentifier(parameter.Name))
             || !ConstraintsAreRepresentable(type.TypeParameters)
@@ -95,6 +103,28 @@ public static class CSharpMemberArtifactEligibility
             && member.GenericArity == 0
             && signature.TypeParameters.Count == 0
             && IsVoid(signature.ReturnTypeShape);
+    }
+
+    static bool IsPropertyDeclarationRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+    {
+        if (member.Kind != "property")
+            return true;
+
+        if (signature.ReturnTypeShape is null
+            || IsVoid(signature.ReturnTypeShape))
+        {
+            return false;
+        }
+
+        bool isIndexer = signature.MemberName == "this[]";
+        return isIndexer
+            ? signature.Parameters.Count > 0
+                && signature.Parameters.All(
+                    parameter => parameter.Modifier is not
+                        ("ref" or "out" or "in"))
+            : signature.Parameters.Count == 0;
     }
 
     static bool IsOperatorDeclarationRepresentable(
