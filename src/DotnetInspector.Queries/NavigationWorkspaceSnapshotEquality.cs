@@ -215,6 +215,10 @@ internal static class NavigationWorkspaceSnapshotEquality
             && x.DeclarationModifiersAreRepresentable == y.DeclarationModifiersAreRepresentable
             && x.IsReadOnly == y.IsReadOnly && x.IsExplicitInterfaceImplementation == y.IsExplicitInterfaceImplementation
             && x.Name == y.Name && x.StructuralReturnType == y.StructuralReturnType
+            && x.MethodDeclarationHeaderIsRepresentable
+                == y.MethodDeclarationHeaderIsRepresentable
+            && x.SignatureMatchesDeclaration
+                == y.SignatureMatchesDeclaration
             && x.SignatureMatchesProperty == y.SignatureMatchesProperty);
 
     static bool TypeParameter(TypeParameter a, TypeParameter b) =>

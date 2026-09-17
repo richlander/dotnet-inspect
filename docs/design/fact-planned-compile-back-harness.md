@@ -1034,9 +1034,12 @@ an exact C# spelling, rejects MethodDef signature headers whose calling
 convention, instance/explicit-this state, or generic state cannot be preserved
 by a C# declaration, requires an authenticated `System.Object.Finalize`
 MethodImpl body to retain the exact protected virtual reuse-slot destructor
-shape before spelling `~Type()`, and rejects unrepresented member-signature
-custom modifiers while retaining authenticated read-only by-ref modifier
-encodings that the product spells explicitly,
+shape before spelling `~Type()`, requires every represented property or event
+accessor MethodDef to retain exact accessibility and declaration modifiers,
+an exact header, and callable signature correspondence with its declaring row,
+and rejects unrepresented
+member-signature custom modifiers while retaining authenticated read-only
+by-ref modifier encodings that the product spells explicitly,
 applies `CB_TYPE` before sampling, and chooses a stable hash-ranked set up to the
 remaining global `--compile-cap`. The cap remains a maximum across the complete
 assembly list: a run with fewer eligible methods reports the shorter population

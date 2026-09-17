@@ -274,16 +274,9 @@ public static partial class ApiSurfaceExtractor
                 treeSignature.Header.CallingConvention
                     == SignatureCallingConvention.VarArgs,
             MethodDeclarationHeaderIsRepresentable =
-                treeSignature.Header.Kind == SignatureKind.Method
-                && treeSignature.Header.CallingConvention
-                    == SignatureCallingConvention.Default
-                && !treeSignature.Header.HasExplicitThis
-                && treeSignature.Header.IsInstance
-                    == ((method.Attributes & MethodAttributes.Static) == 0)
-                && treeSignature.Header.IsGeneric
-                    == (methodTypeParameters.Count > 0)
-                && treeSignature.GenericParameterCount
-                    == methodTypeParameters.Count,
+                MethodDeclarationHeaderIsRepresentable(
+                    method,
+                    treeSignature),
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
@@ -314,6 +307,24 @@ public static partial class ApiSurfaceExtractor
             Parameters = parameterModels
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+    }
+
+    static bool MethodDeclarationHeaderIsRepresentable(
+        MethodDefinition method,
+        MethodSignature<TypeNode> signature)
+    {
+        int genericParameterCount = method.GetGenericParameters().Count;
+        return signature.Header.Kind == SignatureKind.Method
+            && signature.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && !signature.Header.HasExplicitThis
+            && (signature.Header.RawValue & ReservedSignatureFlag) == 0
+            && signature.Header.IsInstance
+                == ((method.Attributes & MethodAttributes.Static) == 0)
+            && signature.Header.IsGeneric == (genericParameterCount > 0)
+            && signature.GenericParameterCount == genericParameterCount
+            && signature.RequiredParameterCount
+                == signature.ParameterTypes.Length;
     }
 
     static bool? DeclaringTypeMatches(

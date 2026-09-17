@@ -27,6 +27,7 @@ public static class CSharpMemberArtifactEligibility
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
             || !IsPropertyDeclarationRepresentable(member, signature)
+            || !AreAccessorDeclarationsRepresentable(member, signature)
             || signature.ReturnTypeCustomModifiersAreRepresentable != true
             || signature.Parameters.Any(
                 parameter =>
@@ -179,6 +180,19 @@ public static class CSharpMemberArtifactEligibility
             null => false,
         };
     }
+
+    static bool AreAccessorDeclarationsRepresentable(
+        ApiMember member,
+        ApiSignature signature)
+        => member.Kind is not ("property" or "event")
+            || signature.Accessors.Count > 0
+                && signature.Accessors.All(
+                    accessor =>
+                        accessor.AccessibilityIsRepresentable == true
+                        && accessor.DeclarationModifiersMatchProperty == true
+                        && accessor.DeclarationModifiersAreRepresentable == true
+                        && accessor.MethodDeclarationHeaderIsRepresentable == true
+                        && accessor.SignatureMatchesDeclaration == true);
 
     static bool IsOperatorDeclarationRepresentable(
         ApiType type,

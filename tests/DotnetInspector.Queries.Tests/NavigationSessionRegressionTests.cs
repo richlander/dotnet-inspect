@@ -537,6 +537,27 @@ public sealed partial class NavigationSessionTests
         second.SignatureModel.MethodDeclarationHeaderIsRepresentable = false;
         Assert.False(
             NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        first.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        second.SignatureModel.MethodDeclarationHeaderIsRepresentable = true;
+        first.SignatureModel.Accessors =
+        [
+            new ApiAccessor
+            {
+                MethodDeclarationHeaderIsRepresentable = true,
+                SignatureMatchesDeclaration = true,
+            },
+        ];
+        second.SignatureModel.Accessors =
+        [
+            new ApiAccessor
+            {
+                MethodDeclarationHeaderIsRepresentable = true,
+                SignatureMatchesDeclaration = false,
+            },
+        ];
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
     }
 
     [Fact]

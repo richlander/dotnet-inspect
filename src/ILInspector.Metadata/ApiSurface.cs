@@ -799,6 +799,20 @@ public class ApiAccessor
     public bool? CustomModifiersAreRepresentable { get; set; }
 
     /// <summary>
+    /// Whether this accessor MethodDef signature header has an exact C#
+    /// declaration representation. Null means this fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodDeclarationHeaderIsRepresentable { get; set; }
+
+    /// <summary>
+    /// Whether this accessor's callable signature corresponds exactly to its
+    /// declaring property or event. Null means this fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? SignatureMatchesDeclaration { get; set; }
+
+    /// <summary>
     /// Whether this accessor's callable signature corresponds exactly to its
     /// declaring PropertyDef signature. Null on older serialized surfaces.
     /// </summary>

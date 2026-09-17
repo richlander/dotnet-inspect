@@ -524,7 +524,8 @@ public static partial class ApiSurfaceExtractor
         IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork,
-        MethodSignature<TypeNode>? propertySignature = null)
+        MethodSignature<TypeNode>? propertySignature = null,
+        TypeNode? eventType = null)
     {
         bool declarationModifiersMatch =
             AccessorDeclarationModifiersMatchProperty(
@@ -555,6 +556,10 @@ public static partial class ApiSurfaceExtractor
                     provider,
                     context,
                     (TypeNode)new DegradedTypeNode());
+                accessor.MethodDeclarationHeaderIsRepresentable =
+                    MethodDeclarationHeaderIsRepresentable(
+                        method,
+                        signature);
                 accessor.StructuralReturnType = MethodStructuralReturnType(
                     signature.ReturnType,
                     beforeRetainText);
@@ -564,13 +569,27 @@ public static partial class ApiSurfaceExtractor
                         parameter => !ContainsCustomModifier(parameter));
                 if (propertySignature is { } property)
                 {
-                    accessor.SignatureMatchesProperty =
+                    bool signatureMatchesProperty =
                         AccessorSignatureMatchesProperty(
                             accessor.Kind,
                             signature,
                             property,
                             context.TypeParameters.Count,
-                            method.Attributes);
+                            method);
+                    accessor.SignatureMatchesProperty =
+                        signatureMatchesProperty;
+                    accessor.SignatureMatchesDeclaration =
+                        signatureMatchesProperty;
+                }
+                else if (eventType is not null)
+                {
+                    accessor.SignatureMatchesDeclaration =
+                        AccessorSignatureMatchesEvent(
+                            accessor.Kind,
+                            signature,
+                            eventType,
+                            context.TypeParameters.Count,
+                            method);
                 }
                 accessor.IsExplicitInterfaceImplementation =
                     explicitImplementationBodies.Contains(handle)
@@ -660,25 +679,23 @@ public static partial class ApiSurfaceExtractor
         MethodSignature<TypeNode> accessor,
         MethodSignature<TypeNode> property,
         int declaringTypeParameterCount,
-        MethodAttributes accessorAttributes)
+        MethodDefinition accessorMethod)
     {
-        bool methodIsStatic =
-            (accessorAttributes & MethodAttributes.Static) != 0;
-        if (methodIsStatic == accessor.Header.IsInstance
+        if (!MethodDeclarationHeaderIsRepresentable(
+                accessorMethod,
+                accessor)
+            || accessor.Header.IsGeneric
+            || accessor.GenericParameterCount != 0
+            || accessorMethod.GetGenericParameters().Count != 0
             || property.Header.Kind != SignatureKind.Property
             || property.Header.HasExplicitThis
             || property.Header.IsGeneric
             || (property.Header.RawValue & ReservedSignatureFlag) != 0
             || property.GenericParameterCount != 0
             || property.RequiredParameterCount != property.ParameterTypes.Length
-            || accessor.Header.Kind != SignatureKind.Method
-            || accessor.Header.HasExplicitThis
-            || accessor.Header.IsGeneric
-            || (accessor.Header.RawValue & ReservedSignatureFlag) != 0
-            || accessor.GenericParameterCount != 0
-            || accessor.Header.CallingConvention != SignatureCallingConvention.Default
             || accessor.Header.IsInstance != property.Header.IsInstance
-            || accessor.RequiredParameterCount != accessor.ParameterTypes.Length)
+            || ((accessorMethod.Attributes & MethodAttributes.Static) != 0)
+                == property.Header.IsInstance)
         {
             return false;
         }
@@ -709,6 +726,26 @@ public static partial class ApiSurfaceExtractor
             _ => false,
         };
     }
+
+    static bool AccessorSignatureMatchesEvent(
+        string kind,
+        MethodSignature<TypeNode> accessor,
+        TypeNode eventType,
+        int declaringTypeParameterCount,
+        MethodDefinition accessorMethod)
+        => MethodDeclarationHeaderIsRepresentable(
+                accessorMethod,
+                accessor)
+            && !accessor.Header.IsGeneric
+            && accessor.GenericParameterCount == 0
+            && accessorMethod.GetGenericParameters().Count == 0
+            && kind is "add" or "remove"
+            && IsVoidReturn(accessor.ReturnType)
+            && accessor.ParameterTypes.Length == 1
+            && SignatureTypeMatches(
+                accessor.ParameterTypes[0],
+                eventType,
+                declaringTypeParameterCount);
 
     static bool SignatureTypesMatch(
         ImmutableArray<TypeNode> left,

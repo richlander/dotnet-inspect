@@ -1918,7 +1918,8 @@ public static partial class ApiSurfaceExtractor
                     typeContext,
                     explicitImplementationBodies,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    eventType: structuralEventNode);
 
                 string eventName = DecodeString(
                     reader,

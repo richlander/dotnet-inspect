@@ -1082,7 +1082,10 @@ spelling are ineligible. MethodDef signature headers are also ineligible when
 their calling convention, instance/explicit-this state, or generic state cannot
 be preserved by a C# declaration. An authenticated
 `System.Object.Finalize` MethodImpl is rendered as `~Type()` only when its body
-retains the exact protected virtual reuse-slot destructor shape.
+retains the exact protected virtual reuse-slot destructor shape. Every
+represented property or event accessor MethodDef must retain exact
+accessibility and declaration modifiers, an exact header, and callable-signature
+correspondence with its declaring row.
 Member-signature custom modifiers are ineligible unless they are authenticated
 read-only by-ref encodings that the product spells explicitly. `CB_TYPE`
 filters that population first. Stable

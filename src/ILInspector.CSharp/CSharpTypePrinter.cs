@@ -1131,6 +1131,10 @@ public sealed class CSharpTypePrinter
                 accessor.IsExplicitInterfaceImplementation,
             Name = accessor.Name,
             StructuralReturnType = accessor.StructuralReturnType,
+            MethodDeclarationHeaderIsRepresentable =
+                accessor.MethodDeclarationHeaderIsRepresentable,
+            SignatureMatchesDeclaration =
+                accessor.SignatureMatchesDeclaration,
             SignatureMatchesProperty = accessor.SignatureMatchesProperty,
         };
     }

@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
@@ -292,6 +293,49 @@ public class FidelityCheckGeneratedFilterTests
         string assemblyPath = CreateMalformedPropertyFixture();
         try
         {
+            ApiType type = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "MalformedPropertyFixture");
+            AssertAccessorFacts("this[]", expected: true);
+            AssertAccessorFacts("Vararg", expected: false);
+            AssertAccessorFacts("GoodEvent", expected: true);
+            AssertAccessorFacts("VarargEvent", expected: false);
+
+            void AssertAccessorFacts(string name, bool expected)
+            {
+                List<ApiAccessor> accessors = Assert.Single(
+                        type.Members,
+                        member => member.Name == name)
+                    .SignatureModel!
+                    .Accessors;
+                Assert.NotEmpty(accessors);
+                if (expected)
+                {
+                    Assert.All(
+                        accessors,
+                        accessor =>
+                        {
+                            Assert.True(
+                                accessor
+                                    .MethodDeclarationHeaderIsRepresentable);
+                            Assert.True(
+                                accessor.SignatureMatchesDeclaration);
+                        });
+                }
+                else
+                {
+                    Assert.Contains(
+                        accessors,
+                        accessor =>
+                            accessor.MethodDeclarationHeaderIsRepresentable
+                                != true
+                            || accessor.SignatureMatchesDeclaration != true);
+                }
+            }
+
             var selected = FidelityCheck.SelectReturnToSenderTargets(
                 [assemblyPath],
                 cap: int.MaxValue);
@@ -300,11 +344,20 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Contains(
                 selected,
                 target => target.Method == "get_Item");
+            Assert.Contains(
+                selected,
+                target => target.Method == "add_GoodEvent");
+            Assert.Contains(
+                selected,
+                target => target.Method == "remove_GoodEvent");
             Assert.DoesNotContain(
                 selected,
                 target => target.Method is
                     "get_BadIndexer"
-                    or "get_Ordinary");
+                    or "get_Ordinary"
+                    or "get_Vararg"
+                    or "add_VarargEvent"
+                    or "remove_VarargEvent");
         }
         finally
         {
@@ -3201,6 +3254,7 @@ public class FidelityCheckGeneratedFilterTests
         PropertyBuilder validIndexer = fixtureType.DefineProperty(
             "Item",
             PropertyAttributes.None,
+            CallingConventions.HasThis,
             typeof(int),
             [typeof(int)]);
         validIndexer.SetGetMethod(validIndexerGetter);
@@ -3219,6 +3273,7 @@ public class FidelityCheckGeneratedFilterTests
         PropertyBuilder malformedIndexer = fixtureType.DefineProperty(
             "this[]",
             PropertyAttributes.None,
+            CallingConventions.HasThis,
             typeof(int),
             Type.EmptyTypes);
         malformedIndexer.SetGetMethod(malformedIndexerGetter);
@@ -3240,9 +3295,72 @@ public class FidelityCheckGeneratedFilterTests
         PropertyBuilder ordinary = fixtureType.DefineProperty(
             "Ordinary",
             PropertyAttributes.None,
+            CallingConventions.HasThis,
             typeof(int),
             [typeof(int)]);
         ordinary.SetGetMethod(ordinaryGetter);
+
+        MethodBuilder varargGetter = fixtureType.DefineMethod(
+            "get_Vararg",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            CallingConventions.HasThis | CallingConventions.VarArgs,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator varargGetterBody = varargGetter.GetILGenerator();
+        varargGetterBody.Emit(OpCodes.Ldc_I4_1);
+        varargGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder varargProperty = fixtureType.DefineProperty(
+            "Vararg",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(int),
+            Type.EmptyTypes);
+        varargProperty.SetGetMethod(varargGetter);
+
+        const MethodAttributes eventAccessorAttributes =
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        MethodBuilder goodAdder = fixtureType.DefineMethod(
+            "add_GoodEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        goodAdder.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder goodRemover = fixtureType.DefineMethod(
+            "remove_GoodEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        goodRemover.GetILGenerator().Emit(OpCodes.Ret);
+        EventBuilder goodEvent = fixtureType.DefineEvent(
+            "GoodEvent",
+            EventAttributes.None,
+            typeof(Action));
+        goodEvent.SetAddOnMethod(goodAdder);
+        goodEvent.SetRemoveOnMethod(goodRemover);
+
+        MethodBuilder varargAdder = fixtureType.DefineMethod(
+            "add_VarargEvent",
+            eventAccessorAttributes,
+            CallingConventions.HasThis | CallingConventions.VarArgs,
+            typeof(void),
+            [typeof(Action)]);
+        varargAdder.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder varargRemover = fixtureType.DefineMethod(
+            "remove_VarargEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        varargRemover.GetILGenerator().Emit(OpCodes.Ret);
+        EventBuilder varargEvent = fixtureType.DefineEvent(
+            "VarargEvent",
+            EventAttributes.None,
+            typeof(Action));
+        varargEvent.SetAddOnMethod(varargAdder);
+        varargEvent.SetRemoveOnMethod(varargRemover);
 
         fixtureType.CreateType();
         assembly.Save(path);
