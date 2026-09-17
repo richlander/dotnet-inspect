@@ -1065,6 +1065,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_TabularUnknownFieldDoesNotPublishRowsBeforeFailure()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            "--tsv",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
+    }
+
+    [Fact]
     public async Task Member_LibraryNetmoduleExactMemberPreservesExecutionAndDiscovery()
     {
         string path = Path.Combine(

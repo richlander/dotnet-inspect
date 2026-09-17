@@ -51,6 +51,8 @@ by this adoption.
 
 Related docs:
 
+- [Inspection graph modes](inspection-graph-modes.md) defines the target split
+  between subject-local Graph operations and top-level Graph questions.
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
@@ -1124,6 +1126,18 @@ Because the CLI is stateless, source and focus selectors must be repeated when
 changing operations. In the target subject-owned Diff family, `--history`
 makes the mode change explicit without conflating endpoint and temporal
 content contracts. The diagram describes axes, not positional argument grammar.
+
+### Graph operation placement
+
+Graph uses the operation rule. `package graph`, `library graph`, `type graph`,
+and `member graph` are local single-seed operations over an already selected
+subject. Top-level `graph` hosts graph questions without one selected local
+subject.
+
+InspectionGraph-backed root modes construct or reopen the Workspace used for
+single-seed, peer-seed, induced-set, or path questions. Another root Graph mode
+may retain its producer-owned request, result, and rendering contracts when
+command placement is the only shared concern.
 
 ### Selection / discovery
 
