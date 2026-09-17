@@ -24,6 +24,7 @@ namespace Target
         public static void Leaf()
         {
         }
+
     }
 
     // Generic target surfaces (#1339). A cross-assembly caller graph rooted at the open
@@ -128,5 +129,24 @@ namespace Target
             VarargArg third,
             __arglist) =>
             required;
+    }
+
+    public static class RootPathApi
+    {
+        public static void RootPathUse()
+        {
+        }
+
+        public static void AccessorPathUse()
+        {
+        }
+
+        public static void UnreachablePathUse()
+        {
+        }
+
+        public static void PublicPathUse()
+        {
+        }
     }
 }
