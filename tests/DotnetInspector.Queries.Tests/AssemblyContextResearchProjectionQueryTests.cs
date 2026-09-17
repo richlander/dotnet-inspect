@@ -190,6 +190,41 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 [coordinate]);
         Assert.Empty(ambiguousIds);
         Assert.Contains("matched 2", ambiguousFailure, StringComparison.Ordinal);
+
+        AssemblyMemberCalleeEvidenceCoordinate laterCoordinate =
+            new(
+                ResearchEvidenceLocation.ForInstruction(
+                    coordinate.Location.Method,
+                    9),
+                coordinate.Kind);
+        var sourceOrderDiffersFromIlOrder = new AnnotatedSourceDocument(
+            "ab",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 1)],
+                    Provenance:
+                        new AnnotatedSourceNodeProvenance([9])),
+                new AnnotatedSourceNode(
+                    1,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(1, 1)],
+                    Provenance:
+                        new AnnotatedSourceNodeProvenance(
+                            [coordinate.Location.ILOffset!.Value])),
+            ],
+            [],
+            [],
+            []);
+        (int[] reorderedIds, string? reorderedFailure) =
+            AssemblyContextMemberProjectionQuery.FindEvidenceNodes(
+                sourceOrderDiffersFromIlOrder,
+                [coordinate, laterCoordinate]);
+        Assert.Null(reorderedFailure);
+        Assert.Equal([0, 1], reorderedIds);
     }
 
     [Fact]

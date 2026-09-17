@@ -385,6 +385,45 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     })),
     /unavailable despite exact serialized correspondence/,
   );
+  const reverseSourceOrder = createAnnotatedSourceViewerModel(
+    calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      coordinates: [
+        {
+          ilOffset: 2,
+          kind: "Localloc",
+        },
+        {
+          ilOffset: 9,
+          kind: "Localloc",
+        },
+      ],
+      document: {
+        ...sampleCalleeDocument,
+        text: `${sampleCalleeDocument.text}; stackalloc byte[2]`,
+        nodes: [
+          {
+            id: 0,
+            kind: "StackAllocationExpression",
+            medium: "CSharp",
+            spans: [{
+              start: sampleCalleeDocument.text.length + 2,
+              length: 18,
+            }],
+            provenance: {
+              il_offsets: [9],
+            },
+          },
+          {
+            ...sampleCalleeDocument.nodes[0],
+            id: 1,
+          },
+        ],
+      },
+      nodeIds: [0, 1],
+    }),
+  );
+  assert.deepEqual(reverseSourceOrder.findingEvidence[0]?.nodeIds, [0, 1]);
   assert.throws(
     () => createAnnotatedSourceViewerModel({
       ...calleeEvidenceResult(),

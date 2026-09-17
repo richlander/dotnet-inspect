@@ -549,7 +549,7 @@ public static class AssemblyContextMemberProjectionQuery
             }
             nodeIds.Add(matches[0].Id);
         }
-        return ([.. nodeIds.Distinct()], null);
+        return ([.. nodeIds.Distinct().Order()], null);
     }
 
     static string EvidenceNodeKind(CallSiteEvidenceKind kind) =>
