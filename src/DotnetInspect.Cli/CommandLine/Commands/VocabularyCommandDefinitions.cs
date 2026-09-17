@@ -79,7 +79,7 @@ public static class VocabularyCommandDefinitions
             result => opts.ParseDiscover(result) is null,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return command;

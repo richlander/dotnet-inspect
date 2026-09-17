@@ -70,7 +70,7 @@ public static class EcosystemCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return command;

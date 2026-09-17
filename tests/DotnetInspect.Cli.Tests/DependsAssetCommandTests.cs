@@ -35,6 +35,32 @@ public sealed class DependsAssetCommandTests
         FixtureCatalog.RestoredProjectDependencyFacts.ProjectDirectory();
 
     [Fact]
+    public async Task TypeEnvelopeRejectsRenderedLineSelectionBeforeAcquisition()
+    {
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "No.Such.Type",
+            "--platform",
+            "System.Private.CoreLib",
+            "--envelope",
+            "-n",
+            "1",
+            "--lines",
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
+        Assert.DoesNotContain(
+            "not found",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void AssetProjectionPublishesItsSettledSemanticContentAndEvidence()
     {
         var summary = new DependencyInspectionSummary(

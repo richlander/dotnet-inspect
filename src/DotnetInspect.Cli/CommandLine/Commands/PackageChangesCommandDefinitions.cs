@@ -178,6 +178,8 @@ public static class PackageChangesCommandDefinitions
                 opts.Markdown,
                 opts.PlainText,
                 opts.Limit,
+                opts.Head,
+                opts.Tail,
                 opts.Lines,
                 opts.TailLines,
                 opts.Verbose,
@@ -251,7 +253,7 @@ public static class PackageChangesCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return command;

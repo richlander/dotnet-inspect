@@ -186,7 +186,7 @@ public static class SearchCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
         return findCommand;
     }
@@ -356,7 +356,7 @@ public static class SearchCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return implCommand;
@@ -539,7 +539,7 @@ public static class SearchCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return extCommand;
@@ -997,7 +997,7 @@ public static class SearchCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         return dependsCommand;

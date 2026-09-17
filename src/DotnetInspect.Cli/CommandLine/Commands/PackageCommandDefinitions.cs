@@ -137,7 +137,7 @@ public static class PackageCommandDefinitions
                 || result.GetValue(versionsWithFeedOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         var queryCommand = CreatePackageQueryCommand(
@@ -327,6 +327,8 @@ public static class PackageCommandDefinitions
                 opts.Rows,
                 opts.Head,
                 opts.Tail,
+                opts.Lines,
+                opts.TailLines,
                 opts.Fields,
                 opts.Columns,
                 opts.Discover,
@@ -504,7 +506,7 @@ public static class PackageCommandDefinitions
             _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,

@@ -146,12 +146,6 @@ internal static class CliRowSelectionCommandRegistry
         ParseResult parseResult,
         IReadOnlyList<string> arguments)
     {
-        if (Adoptions.TryGetValue(
-                parseResult.CommandResult.Command,
-                out CliRowSelectionCommandAdoption? adoption)
-            && adoption.IsActive(parseResult))
-            return true;
-
         bool hasExplicitLineUnit =
             arguments.Any(
                 static argument =>
@@ -162,6 +156,19 @@ internal static class CliRowSelectionCommandRegistry
                     || argument.StartsWith(
                         "--tail-lines=",
                         StringComparison.Ordinal));
+        if (Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out CliRowSelectionCommandAdoption? adoption)
+            && adoption.IsActive(parseResult)
+            && (adoption.Capabilities
+                    != CliRowSelectionCapabilities.Lines
+                || parseResult.GetResult(adoption.Bindings.Limit)
+                    is { Implicit: false }
+                || hasExplicitLineUnit))
+        {
+            return true;
+        }
+
         if (hasExplicitLineUnit
             && TryGetActiveAdoption(parseResult, out _))
         {

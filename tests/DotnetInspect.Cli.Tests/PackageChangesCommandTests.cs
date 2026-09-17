@@ -71,6 +71,25 @@ public sealed class PackageChangesCommandTests
     }
 
     [Theory]
+    [InlineData("--head")]
+    [InlineData("--lines --tail")]
+    public void ParserAcceptsDeclaredDirectionGrammar(string direction)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "-n",
+            "1",
+            .. direction.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
     [InlineData(
         "package activity --ecosystem aspire --table",
         "--table is not supported with package activity")]

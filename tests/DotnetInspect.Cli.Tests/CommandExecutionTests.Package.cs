@@ -22,6 +22,50 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task PackageDocumentDestinations_HonorExplicitLineSelection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.LineDestination",
+            "README.md",
+            "readme");
+        string outputPath = Path.Combine(tempDir, "package-info.md");
+        try
+        {
+            string[] arguments =
+            [
+                "package",
+                packagePath,
+                "-S",
+                "Package Info",
+                "--lines",
+                "-n",
+                "1",
+                "--tips",
+                "q",
+            ];
+            var stdout = await RunAppInDirectoryAsync(tempDir, arguments);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments, "--out", outputPath]);
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Equal(stdout.Output, File.ReadAllText(outputPath));
+            Assert.Single(
+                stdout.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_ConcatenatedValuesPreserveImplicitFileRouting()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

@@ -367,7 +367,7 @@ public class SharedOptions
                         || result.GetResult(Tail) is { Implicit: false }),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    resolveOutputFormat(result),
+                    IsJsonDocumentOutput(result, resolveOutputFormat),
                     lowering));
     }
 
@@ -714,6 +714,15 @@ public class SharedOptions
 
         return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
     }
+
+    public bool IsJsonDocumentOutput(
+        ParseResult parseResult,
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null) =>
+        (resolveOutputFormat is null
+            ? ResolveFormat(parseResult)
+            : resolveOutputFormat(parseResult)) == OutputFormat.Json
+        || IsExplicitTrue(parseResult, Envelope)
+        || IsExplicitTrue(parseResult, JsonArray);
 
     /// <summary>
     /// Returns true when --mermaid is combined with --markdown (embedded mermaid in markdown).
