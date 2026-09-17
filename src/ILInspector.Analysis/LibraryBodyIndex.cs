@@ -381,7 +381,7 @@ public sealed class LibraryBodyIndex
                                     _rawOpportunities,
                                     _suppressedOpportunityTokens,
                                     reachByToken,
-                                    MethodMap)
+                                    DeclaredMethodMap)
                                 .Select(OptimizationOpportunityAnalysis
                                     .AddFallbackMetadata),
                         ]
@@ -424,10 +424,11 @@ public sealed class LibraryBodyIndex
                             ClassifyExactCallTargets(
                                 Path,
                                 _physicalDirectCalls,
+                                DeclaredMethodMap,
                                 MethodMap),
                             _allocationOccurrences,
                             _scopeExcludedOpportunityTokens,
-                            MethodMap)
+                            DeclaredMethodMap)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
                                 .Contains(
@@ -465,7 +466,7 @@ public sealed class LibraryBodyIndex
             Methods,
             _physicalDirectCalls,
             maxDepth: 1,
-            MethodMap);
+            DeclaredMethodMap);
 
     Dictionary<int, int> RootReachByToken
     {
@@ -485,7 +486,8 @@ public sealed class LibraryBodyIndex
     static ImmutableArray<DirectCall> ClassifyExactCallTargets(
         string path,
         ImmutableArray<DirectCall> calls,
-        MethodDefinitionMap methodMap)
+        MethodDefinitionMap declarationMap,
+        MethodDefinitionMap bodyMap)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
@@ -494,8 +496,11 @@ public sealed class LibraryBodyIndex
         [
             .. calls.Select(call =>
             {
-                int targetToken = methodMap.Resolve(call);
-                bool exact = targetToken != 0 && call.Kind switch
+                int targetToken =
+                    declarationMap.Resolve(call);
+                bool exact =
+                    bodyMap.ContainsToken(targetToken)
+                    && call.Kind switch
                 {
                     CallKind.Call or CallKind.NewObject => true,
                     CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
@@ -790,7 +795,7 @@ public sealed class LibraryBodyIndex
         => DirectCalls.Any(call =>
             call.Kind == CallKind.NewObject
             && call.InLoop
-            && MethodMap.Resolve(call)
+            && DeclaredMethodMap.Resolve(call)
                 == constructor.MetadataToken);
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
@@ -1068,9 +1073,8 @@ public sealed class LibraryBodyIndex
     }
 
     /// <summary>
-    /// Token/signature resolution over definitions with bodies. Consumers that
-    /// need declaration identity, including bodiless targets, use
-    /// <see cref="DeclaredMethodMap"/>.
+    /// Membership map for definitions with analyzable bodies. Correspondence
+    /// always resolves through <see cref="DeclaredMethodMap"/> first.
     /// </summary>
     readonly string? _moduleName;
 
@@ -1680,7 +1684,7 @@ public sealed class LibraryBodyIndex
             count,
             scope,
             maxDepth: 64,
-            MethodMap);
+            DeclaredMethodMap);
 
     /// <summary>
     /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.

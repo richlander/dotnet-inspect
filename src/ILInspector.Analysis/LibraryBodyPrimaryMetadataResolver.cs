@@ -952,12 +952,32 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 methodDefinition.DecodeSignature(
                     decoder,
                     GenericScope.Empty);
+            int typeParameterCount =
+                typeDefinition.GetGenericParameters()
+                    .Count;
+            int methodParameterCount =
+                methodDefinition.GetGenericParameters()
+                    .Count;
+            if (SignatureTypeFacts.IsMalformed(
+                    signature.ReturnType,
+                    typeParameterCount,
+                    methodParameterCount)
+                || signature.ParameterTypes.Any(
+                    parameter =>
+                        SignatureTypeFacts.IsMalformed(
+                            parameter,
+                            typeParameterCount,
+                            methodParameterCount)))
+            {
+                throw new BadImageFormatException(
+                    "A same-image target signature contains an "
+                        + "unsupported or malformed type.");
+            }
             if (!MethodDefinitionMap.SignatureMatches(
                     signature.ParameterTypes,
                     signature.ReturnType,
-                    typeDefinition.GetGenericParameters()
-                        .Count,
-                    methodDefinition.GetGenericParameters().Count,
+                    typeParameterCount,
+                    methodParameterCount,
                     (methodDefinition.Attributes
                         & MethodAttributes.Static) != 0,
                     signature.Header.RawValue,

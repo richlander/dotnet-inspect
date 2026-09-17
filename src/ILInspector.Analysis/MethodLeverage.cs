@@ -70,6 +70,8 @@ public static class MethodLeverageRanking
         {
             int caller = call.Caller.MetadataToken;
             int callee = methodMap.Resolve(call);
+            if (!methodTokens.Contains(callee))
+                callee = 0;
 
             fanout[caller] = fanout.GetValueOrDefault(caller) + 1;
             if (call.InLoop)

@@ -469,6 +469,89 @@ public partial class LibraryBodyIndexTests
 
     [Fact]
     public void
+        SameImageCalls_LiteralPlusSegmentPreservesGenericArity()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget
+                    .LiteralPlusConstructedAttributeOnly,
+            localTypeName:
+                "Outer`1+Target`1");
+        string path = Path.Combine(
+            "artifacts",
+            $"analysis-literal-plus-arity-{Guid.NewGuid():N}.dll");
+        try
+        {
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(path);
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                candidate =>
+                    candidate.Caller.Name
+                        == "CallsLiteralPlusConstructed");
+
+            Assert.True(
+                LibraryBodyIndex.HasUnsafeEvidence(
+                    path,
+                    ImmutableArray.Create(image)));
+            Assert.Equal(
+                CallerUnsafeMode.Explicit,
+                call.TargetCallerUnsafeMode);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
+        TopLeverage_DoesNotResolveAgainstBodyOnlySubset()
+    {
+        byte[] image = BuildMemorySafetyContractImage(
+            [2],
+            includePointerSignature: false,
+            callTarget:
+                MemorySafetyCallTarget
+                    .BodyBodilessAmbiguousLocalTypeReferenceAttributeOnly);
+        string path = Path.Combine(
+            "artifacts",
+            $"analysis-body-bodiless-ambiguity-{Guid.NewGuid():N}.dll");
+        try
+        {
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(path);
+            MethodIdentity target = Assert.Single(
+                index.Methods,
+                method =>
+                    method.Name == "AttributeOnly");
+            MethodLeverage leverage = Assert.Single(
+                index.TopLeverage(
+                    count: 1,
+                    scope: method =>
+                        method.MetadataToken
+                            == target.MetadataToken));
+
+            Assert.Equal(
+                0,
+                leverage.DirectCallerCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
         BuildCallTree_ClassifiesModuleAliasBodilessCallee()
     {
         byte[] image = BuildMemorySafetyContractImage(
@@ -568,6 +651,8 @@ public partial class LibraryBodyIndexTests
         ModuleReferenceAttributeOnly,
         ModuleReferenceBodilessAttributeOnly,
         AmbiguousLocalTypeReferenceAttributeOnly,
+        BodyBodilessAmbiguousLocalTypeReferenceAttributeOnly,
+        LiteralPlusConstructedAttributeOnly,
         AssemblyReferenceAttributeOnly,
         ExternalSameNameAttributeOnly,
         MethodDefinitionParentVarArgAttributeOnly,

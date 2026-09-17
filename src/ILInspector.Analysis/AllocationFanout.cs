@@ -46,12 +46,16 @@ public static class AllocationFanout
         if (directCalls.IsDefault)
             throw new ArgumentException("Call census must be initialized.", nameof(directCalls));
 
+        var methodTokens = methods
+            .Select(static method => method.MetadataToken)
+            .ToHashSet();
         var edgesByCaller = directCalls
             .Where(IsInvocation)
             .Select(call =>
             {
                 int targetToken = methodMap.Resolve(call);
-                if (excludedMethodTokens?.Contains(
+                if (!methodTokens.Contains(targetToken)
+                    || excludedMethodTokens?.Contains(
                         targetToken) == true)
                 {
                     targetToken = 0;

@@ -66,6 +66,9 @@ public static class CallerLoopEvidenceAnalysis
                 .Where(static edge =>
                     edge.CalleeToken != 0
                     && edge.Call.Caller.MetadataToken != edge.CalleeToken)
+                .Where(edge =>
+                    methodByToken.ContainsKey(
+                        edge.CalleeToken))
                 .OrderBy(edge => EdgeKey(edge.Call, methodByToken[edge.CalleeToken]), StringComparer.Ordinal)
                 .GroupBy(static edge => edge.CalleeToken)
                 .ToImmutableDictionary(
@@ -76,7 +79,10 @@ public static class CallerLoopEvidenceAnalysis
         var edges = directCalls
             .Where(IsInvocation)
             .Select(call => new GraphEdge(call, methodMap.Resolve(call)))
-            .Where(static edge => edge.CalleeToken != 0)
+            .Where(edge =>
+                edge.CalleeToken != 0
+                && methodByToken.ContainsKey(
+                    edge.CalleeToken))
             .OrderBy(edge => EdgeKey(edge.Call, methodByToken[edge.CalleeToken]), StringComparer.Ordinal)
             .ToArray();
         var adjacency = edges

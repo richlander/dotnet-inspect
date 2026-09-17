@@ -54,16 +54,47 @@ internal sealed class MethodDefinitionMap
             && _signatureComparer.CanResolveToCurrentModule(call.Callee.DeclaringType);
 
     public int Resolve(DirectCall call)
-        => Resolve(
+    {
+        if (!TryGetDeclaringTypeParameterCount(
+                call.Caller.DeclaringType,
+                out int callerTypeParameterCount)
+            || SignatureTypeFacts.IsMalformed(
+                call.Callee.DeclaringType,
+                callerTypeParameterCount,
+                call.Caller.GenericArity))
+        {
+            return 0;
+        }
+        return ResolveCore(
             call.CalleeDefinitionToken,
             call.Callee);
+    }
 
     public int Resolve(
         int calleeDefinitionToken,
         MemberRef callee)
     {
-        if (_methodTokens.Contains(calleeDefinitionToken))
+        if (SignatureTypeFacts.IsMalformed(
+                callee.DeclaringType,
+                typeParameterCount: 0,
+                methodParameterCount: 0))
+        {
+            return 0;
+        }
+        return ResolveCore(
+            calleeDefinitionToken,
+            callee);
+    }
+
+    int ResolveCore(
+        int calleeDefinitionToken,
+        MemberRef callee)
+    {
+        if (_methodTokens.Contains(
+                calleeDefinitionToken))
+        {
             return calleeDefinitionToken;
+        }
         if (callee.Kind == MemberKind.Unsupported
             || !_signatureComparer.CanResolveToCurrentModule(
                 callee.DeclaringType))
@@ -210,20 +241,51 @@ internal sealed class MethodDefinitionMap
             ? type.ElementType ?? type
             : type;
 
-    static bool TryGetDeclaringTypeParameterCount(
+    internal static bool TryGetDeclaringTypeParameterCount(
         TypeRef type,
         out int count)
     {
         count = 0;
-        foreach (MetadataNameComponent component
-            in MetadataNameArity.EnumerateComponents(
-                Definition(type).Name,
-                dotIsBoundary: false))
+        TypeRef definition = Definition(type);
+        ImmutableArray<string> segments =
+            definition.Resolution?.Type.Segments
+                ?? [];
+        if (segments.IsDefaultOrEmpty)
         {
-            if (component.Arity > int.MaxValue - count)
+            return AddArity(
+                definition.Name,
+                plusIsBoundary: true,
+                ref count);
+        }
+
+        foreach (string segment in segments)
+        {
+            if (!AddArity(
+                    segment,
+                    plusIsBoundary: false,
+                    ref count))
+            {
                 return false;
-            count += component.Arity;
+            }
         }
         return true;
+
+        static bool AddArity(
+            string name,
+            bool plusIsBoundary,
+            ref int count)
+        {
+            foreach (MetadataNameComponent component
+                in MetadataNameArity.EnumerateComponents(
+                    name,
+                    dotIsBoundary: false,
+                    plusIsBoundary))
+            {
+                if (component.Arity > int.MaxValue - count)
+                    return false;
+                count += component.Arity;
+            }
+            return true;
+        }
     }
 }

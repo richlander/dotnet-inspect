@@ -216,10 +216,18 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 string name = ReadPresenceString(
                     member.Name,
                     workBudget);
+                if (!MethodDefinitionMap
+                    .TryGetDeclaringTypeParameterCount(
+                        declaring,
+                        out int typeParameterCount))
+                {
+                    throw new BadImageFormatException(
+                        "The declaring type has invalid generic arity.");
+                }
                 ThrowIfMalformedPresenceSignature(
                     declaring,
                     signature,
-                    int.MaxValue,
+                    typeParameterCount,
                     scope);
                 ImmutableArray<TypeRef> typeArguments =
                     declaring.Kind
