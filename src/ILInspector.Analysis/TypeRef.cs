@@ -193,6 +193,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                         Rank = Rank,
                         ArraySizes = ArraySizes,
                         ArrayLowerBounds = ArrayLowerBounds,
+                        RawTypeKind = RawTypeKind,
                     };
             }
             case TypeRefKind.GenericInstance:
