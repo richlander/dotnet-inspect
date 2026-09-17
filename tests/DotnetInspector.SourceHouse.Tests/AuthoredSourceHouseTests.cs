@@ -1187,6 +1187,83 @@ public sealed class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
+        DeadlineDuringFinalChecksumRejection_IsIncomplete()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+        const int sourceLength = 16 * 1024 * 1024;
+        var source = new SourceHouseCapabilityOutcome.Available(
+            new byte[sourceLength]);
+
+        for (int attemptNumber = 0; attemptNumber < 3; attemptNumber++)
+        {
+            DateTimeOffset deadline =
+                DateTimeOffset.UtcNow.AddMilliseconds(500);
+            LibraryOperationLease operation = library.IssueOperation();
+            SourceHouseOutcome outcome =
+                await SourceHouse.ExecuteAuthoredAsync(
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [
+                            Capability(
+                                "final-mismatch",
+                                SourceHouseCapabilityCategory.Local,
+                                (_, _, token) =>
+                                {
+                                    DateTimeOffset returnAt =
+                                        deadline.AddMilliseconds(-1);
+                                    TimeSpan sleep =
+                                        returnAt - DateTimeOffset.UtcNow
+                                            - TimeSpan.FromMilliseconds(50);
+                                    if (sleep > TimeSpan.Zero)
+                                        Thread.Sleep(sleep);
+                                    while (DateTimeOffset.UtcNow < returnAt)
+                                        Thread.SpinWait(64);
+                                    token.ThrowIfCancellationRequested();
+                                    return ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(source);
+                                }),
+                        ],
+                        Limits(maximumSourceBytes: 32 * 1024 * 1024),
+                        deadline),
+                    operation,
+                    TestContext.Current.CancellationToken);
+            AssertOperationSettled(
+                operation,
+                library.Reference.ApiAssembly);
+
+            SourceHouseSourceAttempt? attempt =
+                outcome.AuthoredAttempt.SourceAttempts.SingleOrDefault();
+            if (attempt?.ChecksumVerification
+                != SourceChecksumVerification.Mismatch)
+            {
+                continue;
+            }
+
+            SourceHouseOutcome.Incomplete incomplete =
+                Assert.IsType<SourceHouseOutcome.Incomplete>(outcome);
+            Assert.Equal(
+                SourceHouseIncompleteBoundary.Deadline,
+                incomplete.Boundary);
+            Assert.Equal(
+                SourceHouseSourceAttemptKind.Rejected,
+                attempt.Kind);
+            Assert.NotNull(incomplete.AuthoredAttempt.Mapping);
+            Assert.Equal(1, incomplete.Work.CandidateAttempts);
+            Assert.Equal(sourceLength, incomplete.Work.SourceBytesObserved);
+            return;
+        }
+
+        Assert.Fail(
+            "Scheduling expired before source verification in every attempt.");
+    }
+
+    [Fact]
+    public async Task
         DeadlineDuringCapability_CancelsSuppliedTokenAndReturnsIncomplete()
     {
         RealAsset asset = MemberSlicingAsset();

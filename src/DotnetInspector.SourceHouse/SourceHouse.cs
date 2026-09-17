@@ -1284,6 +1284,17 @@ public static class SourceHouse
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DeadlineExpired(request.Plan))
+        {
+            return Incomplete(
+                SourceHouseIncompleteBoundary.Deadline,
+                prepared.PdbContribution,
+                Charge(),
+                prepared.Mapping,
+                attempts);
+        }
+
         if (observedFailure is not null)
         {
             return Failed(
