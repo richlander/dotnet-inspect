@@ -747,6 +747,26 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    gate is owned by Deep Inspect and the focused pre-merge selection.
    Existing rewrite conservation, pending-swap and scope boundaries apply;
    the same shared pipeline serves CLI and Browser/Wasm.
+   Exact pointer storage also materializes when its complete pointer type
+   passes the shared explicit-type spelling gate and every producer already
+   has that same type. Pointee identity and pointer depth remain part of
+   storage identity; no pointer conversion, native-integer conversion,
+   allocation movement, or lifetime proof is inferred. Existing explicit
+   conversions are preserved. Managed references, pinned storage, and
+   function-pointer storage remain outside this admission, as do unspellable
+   or out-of-scope pointer shapes and incomplete copy components.
+   Microsoft.CodeAnalysis 5.0.0
+   `System.IO.Hashing.XxHash128.HashLengthOver240` motivates the
+   stack-allocation boundary, alongside the retained pointer arithmetic in
+   `XxHashShared.Accumulate512Inlined`. `ExactPointerSlotMaterializationTests`
+   gates the real hash witness, exact pointer identity, producer preservation,
+   atomic copies, and compiler-produced reads, mutation, and stack allocation.
+   Its slow native-RTS gate requires seven Exact fixture outcomes with the
+   compile-back floor disabled, including the indirect compound assignment
+   enabled by the existing raiser consuming the typed pointer local.
+   Admission cases are PR-fast; Deep Inspect
+   and the focused pre-merge selection own the slow gate.
+   The unchanged shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
