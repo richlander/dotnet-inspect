@@ -201,10 +201,14 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, the planned `package P@A..B --count --envelope` serializes the
-version-count operation's envelope; it does not count envelope members or
-force a different inspection. A row window already bound into a semantic
-plan is likewise not an instruction to slice serialized JSON.
+For example, `package P@A..B --count --envelope` serializes the package
+version-population operation's complete envelope. Available Content contains
+the population Document and its requested typed Count component; it does not
+count envelope members, replace the Document with a scalar, or force a second
+inspection. Ordinary `--count`, including `--count --json`, projects that same
+component to the existing scalar output. A row window already bound into a
+semantic Count plan selects the counted population cohort; it is not an
+instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
