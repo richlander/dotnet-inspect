@@ -358,6 +358,61 @@ registration IDs are typed definition failures matching
 `WorkspacePlan.ValidateRegistrations`; overlap among different arms remains
 valid.
 
+An Exact Library `coordinate` is one closed object. Package origin uses
+property order `kind`, `id`, `version`, `library`; Platform origin uses `kind`,
+`family`, `library`. `library` is the existing long-form
+`PortableLibraryIdentity` object:
+
+```json
+{
+  "kind": "exactLibrary",
+  "coordinate": {
+    "kind": "package",
+    "id": "system.text.json",
+    "version": "10.0.0",
+    "library": {
+      "name": "System.Text.Json",
+      "version": "10.0.0.0",
+      "culture": null,
+      "publicKeyToken": "cc7b13ffcd2ddd51"
+    }
+  }
+}
+```
+
+A Platform coordinate replaces `id` and `version` with `family`, whose exact
+value is `DotNetRuntime` or `AspNetCore`. Project- and Local-origin exact
+Library registrations are valid in-process values but have no reopenable
+portable source coordinate, so the definition codec rejects them as
+non-projectable rather than recording assembly identity alone.
+
+An Ecosystem `declaration` uses property order `id`, `namespaceRoots`,
+`corePackages`, `populations`. Namespace roots and canonical unversioned
+Package IDs remain in owner-issued order. Population objects use `kind`
+`exactLibrary`, `platform`, or `packagePrefix`; their payload is respectively
+the same `coordinate` object above, one `family`, or one `prefix`.
+
+```json
+{
+  "kind": "ecosystem",
+  "declaration": {
+    "id": "ecosystem.platform",
+    "namespaceRoots": ["System"],
+    "corePackages": [],
+    "populations": [
+      {
+        "kind": "platform",
+        "family": "DotNetRuntime"
+      }
+    ]
+  }
+}
+```
+
+The registration object property order is `kind`, then its one payload.
+Definition JSON remains the readable authoring form; packet format 3 below
+defines the corresponding compact tuples.
+
 An Ecosystem declaration's optional
 `EcosystemIntegrationScannerBinding` is executable in-process capability, not
 portable data. A scanner-free declaration can use the schema-version-3
@@ -460,26 +515,12 @@ packet family therefore requires representation for:
 - the context, target, focus, view, query, and Navigation state separately
   owned by existing scenario composition.
 
-This requirement does not mutate packet formats 1 and 2. Packet format 3 adds
-one ordered registration vector beside the coordinate and context tables. It
-transposes schema-version-3 registration arms one-for-one without
-deduplication, reordering, expansion, or display-text reconstruction.
-
-Format 3 permits empty coordinate and context tables only when its registration
-vector is nonempty. In that case active focus and selected context are both
-`null`, and the view table contains only the leading Workspace state.
-Registrations are not coordinate tabs, do not receive per-registration view
-states, and cannot become focus through an integer slot. When contexts are
-present, selected context retains format 2's exact index semantics.
-
-Packet-to-record transposition creates one schema-version-3 Workspace with the
-exact ordered registration vector. Record-to-packet projection validates the
-complete composition and emits the same vector. Format 3 retains the existing
-encoded, decoded, depth, and JSON-value limits and adds a maximum of 24
-registration entries; a valid longer definition is `NonProjectable`. Until the
-format-3 codec exists, schema-version-3 input is `UnsupportedVersion`, and
-direct definitions using an unrepresentable arm fail Share visibly rather than
-dropping it.
+This requirement does not mutate packet formats 1 and 2.
+[Packet format 3](#packet-format-3) pins the registration vector, arm
+encodings, nullable selected context, complete schema-version-3 peer
+composition, and canonical property order. Until that codec exists,
+schema-version-3 input is `UnsupportedVersion`, and direct definitions using an
+unrepresentable arm fail Share visibly rather than dropping it.
 
 ### Relationship to typed inventory
 
@@ -616,17 +657,18 @@ presets, and scenarios are separate records. A **group catalog** defines named
 assembly groups: the product ships the catalog of well-known groups (the
 `:Platform` family), and a bundle may ship a catalog of curated custom groups
 that several workspace definitions reuse. A **workspace definition** describes
-only one workspace and its contexts; it subscribes to groups by reference and
-defines none (with the one self-containment exception noted under `groups`
-below). A **scenario** composes optional references to a workspace, query
-preset, view preset, and navigation preset. Record kinds are declared, never
-inferred from shape: every record carries a required `kind` discriminator.
+only one Workspace and its ordered contexts and registrations; it subscribes
+to groups by reference and defines none (with the one self-containment
+exception noted under `groups` below). A **scenario** composes optional
+references to a workspace, query preset, view preset, and navigation preset.
+Record kinds are declared, never inferred from shape: every record carries a
+required `kind` discriminator.
 
-The vocabulary is deliberate: **catalogs define groups; workspaces declare
-contexts; a context subscribes to groups.** A context is a binding-consistent
-set of assemblies in scope, and holding a single library (Markout, say) is
-perfectly ordinary — which is why the schema says `contexts`, not
-`contextGroups`, even though each context lowers to one runtime
+The vocabulary is deliberate: **catalogs define groups; Workspaces declare
+contexts and registrations; a context subscribes to groups.** A context is a
+binding-consistent set of assemblies in scope, and holding a single library
+(Markout, say) is perfectly ordinary — which is why the schema says `contexts`,
+not `contextGroups`, even though each context lowers to one runtime
 `AssemblyContextGroup` and the bundle contract's prose calls these
 "context-group definitions". The runtime type keeps its name; the schema
 drops "group" so the word means exactly one thing here: a named entry in a
@@ -766,9 +808,9 @@ Field semantics:
   whose `schemaVersion` they do not understand. There is no unversioned
   form.
 - `kind` — required record discriminator: `catalog`, `workspace`, `query`,
-  `view`, `navigation`, or `scenario`. (The member-coordinate `kind` under
-  [Member coordinates](#member-coordinates) is a distinct field one nesting
-  level down; the two never share a slot.)
+  `view`, `navigation`, or `scenario`. (Member-coordinate and registration
+  `kind` fields are distinct nested discriminators; they never share the record
+  slot.)
 - Record and nested-object shapes are closed. Unknown properties are typed load
   failures at every level rather than ignored extension data; otherwise a typo
   such as `versoin` would silently turn an intended pin into a floating
@@ -1266,6 +1308,26 @@ references use one schema version. Catalog entries reached through that
 workspace use the same version. Version-1 and version-2 records never compose
 directly in one scenario, because that would let a legacy view token enter a
 canonical-ID composition.
+
+Schema version 3 preserves that same-version rule. Its group-catalog, query,
+navigation, view, and scenario records use the schema-version-2 fields with
+`schemaVersion` equal to `3`. The Workspace record adds required ordered
+`registrations` and permits empty `contexts` under the combined nonempty
+invariant above.
+
+Version 3 adds exactly one registration-only peer composition:
+
+- navigation has `tabs: []` and `focus: null`;
+- view has exactly one leading Workspace state with `navigation: null` and a
+  Workspace subject;
+- scenario omits `context`, references that Workspace/navigation/view trio, and
+  may reference only queries valid for the leading Workspace state; and
+- no group catalog is required unless another referenced record uses one.
+
+When the Workspace has contexts, all navigation, view, selected-context, query,
+and catalog validation retains version 2's semantics. A version-3 scenario
+references only version-3 peers, including any version-3 catalog entries.
+Transposition never emits a mixed version-2/version-3 graph.
 
 Version-1 preparation preserves one unchanged source-identified plan for its
 existing consumers. A workspace-free scenario remains on its existing source-
@@ -2048,14 +2110,144 @@ invalid subject, retained context, facet, query, or cross-record relationship
 is `InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a
 field.
 
-#### Unsupported earlier versions
+#### Packet format 3
 
-Complete Workspace restoration accepts only schema version 2 and canonical
-packet format 2. A schema-version-1 definition composition or canonical
-format-1 packet returns `UnsupportedVersion` before any Workspace, Root, Scope,
-reader, session, lease, acquisition, Registry resolution, query execution, or
-Navigation operation exists. Complete restoration does not lower, migrate,
-adapt, or partially interpret either earlier representation.
+Format 3 is the registration-bearing extension of format 2. It adds required
+top-level `r`, permits `x` to be `null`, and otherwise preserves format 2's
+coordinate, context, query, and view semantics. This registration-only packet
+is a complete canonical fixed vector:
+
+```json
+{
+  "f": 3,
+  "t": [],
+  "g": [],
+  "r": [
+    ["p", "Microsoft.Extensions."]
+  ],
+  "a": null,
+  "x": null,
+  "v": [
+    {
+      "t": null,
+      "u": {
+        "k": "workspace"
+      }
+    }
+  ]
+}
+```
+
+The top-level property order is `f`, `t`, `g`, `r`, `a`, `x`, optional `q`,
+then `v`. `f` is the exact integer `3`. `r` is required even when empty. `t`,
+`g`, `a`, `q`, and `v` otherwise retain format 2's spelling, ordering, and
+semantics.
+
+`x` is `null` exactly when `g` is empty. When `g` is nonempty, `x` is one exact
+context index under format 2's rules. `t` and `g` may both be empty only when
+`r` is nonempty. A registration-only packet has `a: null`, `x: null`, no query
+table unless the leading Workspace state references a Workspace-compatible
+query, and exactly one leading Workspace view row. When `t` is nonempty, `v`
+again has that leading row followed by one row per coordinate-table entry.
+Transposition maps `x: null` to an omitted version-3 scenario `context`,
+`t: []` to version-3 navigation `tabs: []`, and `a: null` to its `focus: null`.
+The reverse projection requires exactly that peer composition; it never
+invents a selected context for a registration-only Workspace.
+
+`r` is the ordered registration table. Entries are not sorted or deduplicated:
+canonical order is the Workspace definition's authored order, and duplicate
+identity is invalid. Each entry is one closed tuple:
+
+```text
+Exact Library  ["l", exact-library-coordinate]
+Package Prefix ["p", prefix]
+Ecosystem      ["e", id, namespace-roots, core-packages, populations]
+```
+
+`exact-library-coordinate` has one of these forms:
+
+```text
+Package  ["p", package-id, exact-version, portable-library-identity]
+Platform ["t", platform-family, portable-library-identity]
+```
+
+`portable-library-identity` is format 2's exact four-slot
+`[name,version,culture,publicKeyToken]` tuple. `package-id` and
+`exact-version` use format 1's normalized Package scalar grammar.
+`platform-family` is exactly `DotNetRuntime` or `AspNetCore`, matching the
+owner-issued `PlatformFamily` names. Project- and Local-origin exact Library
+registrations have no reopenable portable source coordinate and are
+`NonProjectable`; format 3 does not encode them as assembly identities alone.
+
+The Ecosystem tuple contains the exact
+`WorkspaceEcosystemRegistrationDeclaration` in owner order:
+
+- `id` is the canonical `ecosystem.*` lower registration identity;
+- `namespace-roots` is its ordered string array;
+- `core-packages` is its ordered array of canonical unversioned Package IDs;
+  and
+- `populations` is its ordered array of closed population tuples.
+
+Population tuples are:
+
+```text
+Exact Library  ["l", exact-library-coordinate]
+Platform       ["t", platform-family]
+Package Prefix ["p", prefix]
+```
+
+An Ecosystem tuple carries no scanner slot. A declaration with non-null
+`EcosystemIntegrationScannerBinding` is `NonProjectable` before packet writing
+until the Integration owner supplies the separately scoped portable vocabulary
+defined above. The encoder refuses before writing; it never omits the binding
+and then emits the remaining fields as an apparently complete Ecosystem.
+
+All registration strings retain their owner-issued canonical spelling and the
+packet scalar escaping rules. The Ecosystem's three internal arrays preserve
+declaration order. Unknown tuple tags, wrong arity, null where a scalar or array
+is required, duplicate registration identity, duplicate owner-forbidden
+Ecosystem content, unsupported exact-Library source arms, and noncanonical
+Package, prefix, family, Library, or Ecosystem identity are invalid packet
+shape.
+
+Format 3 retains format 2's 32 KiB encoded text, 24 KiB decoded UTF-8 JSON,
+nesting-depth 24, 2048 JSON-value, 12-coordinate, 24-context, view-state, and
+query-state limits. It adds at most 24 top-level registration entries. Nested
+Ecosystem content remains bounded by the outer byte, depth, and JSON-value
+limits and by its owner's declaration validation. A valid definition outside
+those packet limits is `NonProjectable`.
+
+Packet-to-record transposition creates one complete schema-version-3
+workspace, navigation, view, scenario, and needed query and catalog records.
+The peer records use their schema-version-2 shapes with version `3`, as defined
+under [Schema-version composition](#schema-version-composition). The Workspace
+record receives the exact `r` vector and an empty context array when `g` is
+empty. Record-to-packet projection validates the complete version-3 composition
+before writing the fixed property order and exact tuples above.
+
+The .NET and TypeScript codec gates use the canonical JSON above plus fixed
+vectors for Package- and Platform-origin Exact Libraries, a scanner-free
+Ecosystem containing all three population arms, mixed contexts and
+registrations, `x: null` registration-only state, non-null `x` with contexts,
+all malformed tuple cases, scanner-bearing non-projectability, and every outer
+limit. Each accepted vector must satisfy byte-identical
+packet -> records -> packet output in both implementations.
+
+#### Version admission
+
+The current implementation accepts only schema version 2 and canonical packet
+format 2. Until the format-3 adoption slice lands, schema-version-3 definition
+compositions and format-3 packets return `UnsupportedVersion`. The target
+restoration dispatcher accepts exact version-2/format-2 and
+version-3/format-3 pairs through separate typed branches. It never combines a
+version-2 record with a version-3 peer or accepts a packet/record version
+mismatch.
+
+A schema-version-1 definition composition or canonical format-1 packet returns
+`UnsupportedVersion` before any Workspace, Root, Scope, reader, session, lease,
+acquisition, Registry resolution, query execution, or Navigation operation
+exists. Complete restoration does not lower, migrate, adapt, or partially
+interpret an unsupported representation.
 
 This boundary does not delete independent version-1 consumers. Registry
 preparation and the shared packet codec may continue to expose version-1 APIs
@@ -2066,18 +2258,20 @@ definition versions remain `InvalidDefinitionSet`.
 
 Workspace-free scenarios remain outside complete Workspace restoration and
 continue through their source or query owner. Current-format workspace-backed
-definitions require the complete schema-version-2 composition, including the
-view/navigation pair and leading Workspace state.
+definitions require one complete same-version composition: version 2 uses its
+existing view/navigation pair and leading Workspace state; version 3 uses those
+same peer shapes at version 3 plus the Workspace registration vector.
 
 ### Complete restoration
 
 Complete restoration first classifies one workspace-backed definition or
-packet. Only schema version 2 and canonical packet format 2 continue to
-resource-free construction input and prepare an independent host-owned
-Workspace. Each such Workspace is constructed solely from its own definition;
-no other Workspace or Workspace definition participates. Earlier versions
-return `UnsupportedVersion` before construction. Workspace-free scenarios
-remain outside this operation and execute through their source or query owner.
+packet. The current implementation continues only schema version 2 and
+canonical packet format 2. The target version dispatcher also continues exact
+schema-version-3/packet-format-3 input through its separate branch. Each such
+Workspace is constructed solely from its own definition; no other Workspace or
+Workspace definition participates. Unsupported versions return
+`UnsupportedVersion` before construction. Workspace-free scenarios remain
+outside this operation and execute through their source or query owner.
 
 This operation applies to workspace-backed saved definitions, share packets,
 Browser history, workspace-backed product demos, Spotlight package selections
@@ -2110,10 +2304,12 @@ One restoration attempt proceeds in this order:
    candidate construction. A newer restoration or explicit host intent
    supersedes every remaining phase of the older attempt.
 2. Perform bounded format dispatch and strict decode. Canonical packet format
-   2 produces one closed schema-version-2 composition plan. Packet format 1 or
-   a schema-version-1 definition composition returns `UnsupportedVersion` now,
-   before any Workspace, Root, Scope, reader, session, lease, acquisition,
-   Registry resolution, query execution, or Navigation operation exists.
+   2 produces one closed schema-version-2 composition plan; format 3 produces
+   one closed schema-version-3 composition plan after its adoption slice lands.
+   Packet format 1, schema version 1, or any unsupported or mismatched version
+   returns `UnsupportedVersion` before any Workspace, Root, Scope, reader,
+   session, lease, acquisition, Registry resolution, query execution, or
+   Navigation operation exists.
 3. Resolve syntax, Registry IDs, Platform/package pruning,
    and complete context, Root, and registration construction intent into one
    immutable `WorkspacePlan` and restoration recipe. Packet tuples match their
@@ -2140,9 +2336,10 @@ One restoration attempt proceeds in this order:
    that its owner keeps explicit or capability-gated. Membership, subject
    focus, and traversal-derived realization remain separate.
 6. Project the complete Workspace. A packet-sourced exact result retains its
-   canonical packet. Other projectable Workspaces emit canonical format 2.
-   A valid definition beyond packet grammar or bounds is `NonProjectable` but
-   remains installable; malformed Workspace state or writer failure is
+   canonical packet. Other projectable schema-version-2 Workspaces emit
+   canonical format 2; schema-version-3 Workspaces emit canonical format 3.
+   A valid definition beyond its packet grammar or bounds is `NonProjectable`
+   but remains installable; malformed Workspace state or writer failure is
    `ProjectionFailed`.
 7. Return one immutable `CompleteWorkspaceActivation` containing the exact
    prepared Workspace identity, complete snapshot, request basis, projection
