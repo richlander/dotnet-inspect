@@ -18,6 +18,8 @@ public sealed class BrowserFrameworkDeclarationActivationTests
     const string PlatformVersionText = "10.0.10";
     const string PackageVersion = "10.0.0";
     const string ReferencePackage = "microsoft.netcore.app.ref";
+    const string RuntimePackage =
+        "microsoft.netcore.app.runtime.linux-x64";
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;
 
     [Fact]
@@ -93,6 +95,61 @@ public sealed class BrowserFrameworkDeclarationActivationTests
         Assert.Single(effect.Surface.Assemblies);
         Assert.IsType<ExactLibrarySourceCoordinate.Platform>(
             effect.Coordinate);
+    }
+
+    [Fact]
+    public async Task WholeFamilyPlatformContextSettlesExactType()
+    {
+        await using Scenario scenario =
+            await CreateScenarioAsync(wholeFamily: true);
+        using WorkspaceRealizationOperationLease operation =
+            await EnterAsync(scenario.Host);
+        TypeDeclarationLocatorResult.Evaluated result =
+            await LocateAsync(
+                operation.Workspace,
+                Name("System.Text.Json", "JsonSerializer"));
+        TypeDeclarationLocatorCandidate framework =
+            Assert.Single(
+                Assert.Single(result.Answers).Candidates,
+                candidate => candidate.Coordinate
+                    is ExactLibrarySourceCoordinate.Platform);
+        var origin = Assert.IsType<WorkspaceDeclarationOrigin.ContextLoad>(
+            framework.Observation.Origin);
+        var realized = Assert.IsType<RealizedMemberCoordinate.Platform>(
+            origin.Realized);
+        Assert.Null(realized.Assembly);
+
+        BrowserFrameworkDeclarationAction action =
+            Assert.IsType<
+                BrowserFrameworkDeclarationActionPublication.Published>(
+                    Assert.Single(
+                        (await scenario.Activation.PublishAsync(
+                            Authority(scenario.Activation, 1),
+                            operation,
+                            Basis(operation, 1),
+                            result,
+                            [
+                                new
+                                    BrowserFrameworkDeclarationDestination
+                                        .Type(framework),
+                            ],
+                            [scenario.PlatformContext])).Actions)).Action;
+
+        var settled = Assert.IsType<
+            BrowserFrameworkDeclarationActivationResult.Settled>(
+                await scenario.Activation.ActivateAsync(
+                    action,
+                    TestContext.Current.CancellationToken));
+        var effect = Assert.IsType<
+            BrowserFrameworkDeclarationEffect.Type>(settled.Effect);
+        Assert.Same(framework.Observation, effect.Observation);
+        Assert.Equal(framework.Name, effect.Name);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            effect.SelectedType.DefinitionId);
+        Assert.Equal(
+            "System.Text.Json",
+            effect.SelectedType.AssemblyName);
     }
 
     [Fact]
@@ -734,7 +791,8 @@ public sealed class BrowserFrameworkDeclarationActivationTests
         return new(action, scenario.Activation, authority);
     }
 
-    static async Task<Scenario> CreateScenarioAsync()
+    static async Task<Scenario> CreateScenarioAsync(
+        bool wholeFamily = false)
     {
         var host = new BrowserWorkspaceRealizationHost();
         var activation =
@@ -754,6 +812,15 @@ public sealed class BrowserFrameworkDeclarationActivationTests
                 sourceClient.Source.Producer.Key,
                 File.OpenRead(ReferencePackageAsset()),
                 TestContext.Current.CancellationToken);
+            if (wholeFamily)
+            {
+                await store.CommitAsync(
+                    RuntimePackage,
+                    PlatformVersionText,
+                    NuGetCache.GetSourceKey(NuGetOrg.Url),
+                    File.OpenRead(RuntimePackageAsset()),
+                    TestContext.Current.CancellationToken);
+            }
             await store.CommitAsync(
                 "System.Text.Json",
                 PackageVersion,
@@ -793,8 +860,25 @@ public sealed class BrowserFrameworkDeclarationActivationTests
             using (WorkspaceRealizationConstructionLease construction =
                 prepared.Candidate.EnterConstruction())
             {
-                platform =
-                    await WorkspaceReferenceDeclarationLoader.LoadAsync(
+                platform = wholeFamily
+                    ? await WorkspaceContextLoader
+                        .LoadDeclarationContextAsync(
+                            construction.Workspace,
+                            new WorkspaceContextInput
+                            {
+                                Framework = Framework,
+                                RuntimeIdentifier = "linux-x64",
+                                Members =
+                                [
+                                    WorkspaceMemberCoordinate.Platform(
+                                        "runtime",
+                                        version: PlatformVersionText,
+                                        framework: Framework),
+                                ],
+                            },
+                            options,
+                            TestContext.Current.CancellationToken)
+                    : await WorkspaceReferenceDeclarationLoader.LoadAsync(
                             construction.Workspace,
                             referenceSource,
                             referenceCoordinate,
@@ -926,6 +1010,13 @@ public sealed class BrowserFrameworkDeclarationActivationTests
             "RealAssets",
             "FrameworkActivation",
             "system.text.json.10.0.0.nupkg");
+
+    static string RuntimePackageAsset() =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "FrameworkActivation",
+            "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg");
 
     sealed class Scenario(
         BrowserWorkspaceRealizationHost host,

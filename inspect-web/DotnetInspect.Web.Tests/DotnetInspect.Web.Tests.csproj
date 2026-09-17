@@ -40,6 +40,9 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref\10.0.10\microsoft.netcore.app.ref.10.0.10.nupkg"
       Link="RealAssets\FrameworkActivation\microsoft.netcore.app.ref.10.0.10.nupkg"
       CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\10.0.10\microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
+      Link="RealAssets\FrameworkActivation\microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
+      CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json\10.0.0\system.text.json.10.0.0.nupkg"
       Link="RealAssets\FrameworkActivation\system.text.json.10.0.0.nupkg"
       CopyToOutputDirectory="PreserveNewest" />

@@ -123,6 +123,11 @@ Platform version, target framework, and view. Those values remain separate
 observation and realization evidence. Coordinate equality therefore cannot
 replace the complete association.
 
+A whole-family Platform acquisition intentionally has no assembly-name filter.
+Its admitted declaration observations and participants still carry exact
+assembly identity, so activation binds through that identity rather than
+requiring an acquisition filter that the source owner did not issue.
+
 The Browser composition that admits the framework context owns this
 result-local join. The reverse locator continues to return detached discovery
 evidence and does not expose its private Metadata access or turn a candidate

@@ -809,11 +809,11 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
                         is not RealizedMemberCoordinate.Platform
                             liveCoordinate
                     || !Equals(liveCoordinate, observedCoordinate)
-                    || liveCoordinate.Assembly is null
-                    || !string.Equals(
-                        liveCoordinate.Assembly,
-                        observation.AssemblyIdentity.Name,
-                        StringComparison.OrdinalIgnoreCase))
+                    || (liveCoordinate.Assembly is not null
+                        && !string.Equals(
+                            liveCoordinate.Assembly,
+                            observation.AssemblyIdentity.Name,
+                            StringComparison.OrdinalIgnoreCase)))
                 {
                     return (
                         null,
