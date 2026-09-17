@@ -30,7 +30,7 @@ public sealed class WorkspacePackageDescriptor
         Coordinate = binding.Coordinate;
         PackageId = binding.Root.PackageId;
         PackageVersion = binding.Root.PackageVersion;
-        RequestedTargetFramework = binding.Root.RequestedTargetFramework;
+        RequestedTargetFramework = binding.CompileTargetFramework;
         SelectedTargetFramework = binding.Root.AssetSelection.TargetFramework;
         TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
         RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;

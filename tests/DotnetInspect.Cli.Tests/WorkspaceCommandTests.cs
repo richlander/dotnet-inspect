@@ -1034,8 +1034,17 @@ public sealed class WorkspaceCommandTests
             captured.ExitCode == 0,
             $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
         using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Single(
+        JsonElement entry = Assert.Single(
             document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            Framework,
+            entry.GetProperty("requested_target_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            entry.GetProperty("selected_target_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            entry.GetProperty("effective_target_framework").GetString());
         Assert.Equal(encoded, captured.Error.Trim());
     }
 
@@ -1082,8 +1091,7 @@ public sealed class WorkspaceCommandTests
         await AddPackageAsync(
             store,
             PackageId,
-            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly),
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly));
         WorkspaceSharePacket packet = CreatePacket(
             (PackageId, Version, olderFramework),
             (PackageId, Version, Framework));
@@ -1103,6 +1111,11 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains($"requested {olderFramework}", captured.Output);
         Assert.Contains($"requested {Framework}", captured.Output);
+        Assert.Equal(
+            2,
+            captured.Output.Split(
+                $"selected {olderFramework}",
+                StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

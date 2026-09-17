@@ -336,7 +336,7 @@ public sealed class CompleteRestorationExecutionTests
             Assert.Single(
                 activated.Workspace.Snapshot.Scope.Packages).Occurrence.Package;
         Assert.Equal("net10.0", packageDescriptor.Coordinate.Framework);
-        Assert.Equal("net9.0", packageDescriptor.RequestedTargetFramework);
+        Assert.Equal("net10.0", packageDescriptor.RequestedTargetFramework);
         Assert.Equal("net9.0", packageDescriptor.SelectedTargetFramework);
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
