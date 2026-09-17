@@ -55,11 +55,21 @@ public static class FidelityRemarks
                 exceptionFactFailure);
         }
 
+        foreach (var cause in function.LocalNameImportCauses)
+            yield return cause;
         var consumedMembers = new List<ConsumedMemberEvidence>();
         var reportedMethods = new HashSet<MethodRef>();
         var reportedFields = new HashSet<FieldRef>();
         foreach (var node in function.Descendants.Prepend(function))
         {
+            var localNameImportCauses = node switch
+            {
+                Lambda lambda => lambda.LocalNameImportCauses,
+                LocalFunctionStatement localFunction => localFunction.LocalNameImportCauses,
+                _ => [],
+            };
+            foreach (var cause in localNameImportCauses)
+                yield return cause;
             consumedMembers.Clear();
             reportedMethods.Clear();
             reportedFields.Clear();
