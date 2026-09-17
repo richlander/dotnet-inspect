@@ -86,32 +86,39 @@ ownership contracts.
 | PlatformHouse | Exact platform-target and platform-source settlement, cleanup, receipts, and atomic Platform-origin Library ownership transfer |
 | PackageHouse | Exact or selecting package settlement, package-source acquisition and cleanup, receipts, and Package-origin ownership transfer |
 
-The Houses remain independent even when one Ecosystem operation selects both.
-The consuming service delegates each child demand through that domain's
-owner-issued request and capability plan, then retains the corresponding
-outcome and receipt. It cannot reinterpret a package coordinate as a platform
-target, infer Platform membership from package identity, or use one House's
-success as the other House's settlement.
+The Houses remain independent even when one product flow presents both under
+the same Ecosystem. Each actual operation uses that domain's owner-issued
+request and capability plan and retains the corresponding outcome and receipt.
+Composition cannot reinterpret a package coordinate as a platform target,
+infer Platform membership from package identity, or use one House's success as
+the other House's settlement.
 
 The initial `.NET` and `ASP.NET Core` special loaders delegate their
 source-native populations to PlatformHouse. Their ordinary package-prefix
-populations continue through the separate generic bounded package operation
-and PackageHouse. Those independently settled results compose only at the
-consuming Ecosystem operation and later Workspace admission boundary. This
+registrations remain inert relevance for already admitted Package occurrences.
+When a separately selected bounded package operation produces a PackageHouse
+receipt and Workspace admits the resulting Package-origin Libraries, the
+prefix may relate those occurrences to the Ecosystem. It does not initiate that
+operation or admission. The Package-origin and Platform-origin relations
+compose only in the consuming Ecosystem or Navigation result. This
 clarification changes no current loading or admission behavior.
 
 ```text
-.NET Ecosystem registration
-  -> ordinary PackagePrefix("System.") population
-     -> bounded package operation
-        -> PackageHouse outcome and receipt
-        -> Package-origin Libraries
-  -> special runtime population
-     -> Ecosystem Population Loading
-        -> PlatformHouse outcome and receipt
-        -> Platform-origin Libraries
-  -> Ecosystem operation composition
+independently selected package operation
+  -> PackageHouse outcome and receipt
   -> ordinary Workspace admission
+  -> Package-origin Library occurrence
+  -> inert PackagePrefix("System.") supplies .NET Ecosystem relation
+
+selected .NET special runtime population
+  -> Ecosystem Population Loading
+  -> PlatformHouse outcome and receipt
+  -> ordinary Workspace admission
+  -> Platform-origin Library occurrence
+  -> exact .NET Ecosystem relation
+
+Workspace or Navigation result
+  -> presents both source-distinct populations under the .NET Ecosystem
 ```
 
 ## User experience
