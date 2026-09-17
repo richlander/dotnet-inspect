@@ -105,7 +105,7 @@ internal static class LibraryCoordinateCommandDefinitions
         var acceptedParentOptions = new HashSet<Option>(command.Options);
         command.Validators.Add(result =>
         {
-            if (result.GetValue(parentSourceArgument) is { Length: > 0 })
+            if (result.GetResult(parentSourceArgument) is { Tokens.Count: > 0 })
             {
                 result.AddError(
                     "A Library inspection source cannot precede library coordinate; "

@@ -2113,6 +2113,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_RejectsEmptyParentPositionalSource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "",
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "A Library inspection source cannot precede library coordinate",
+            error);
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_RejectsParentSourceOption()
     {
         string parentPackage = Path.Combine(
