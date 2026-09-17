@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -157,6 +158,13 @@ public sealed record DependencyInspectionPruningSummary(
             Failed: 0);
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(DependencyInspectionRestoredTraversalFailure.Outcome),
+    "outcome")]
+[JsonDerivedType(
+    typeof(DependencyInspectionRestoredTraversalFailure.Graph),
+    "graph")]
 public abstract record DependencyInspectionRestoredTraversalFailure
 {
     private DependencyInspectionRestoredTraversalFailure()
@@ -191,6 +199,10 @@ public sealed record DependencyInspectionTraversalFailure(
     ImmutableArray<int> AffectedRootOccurrences,
     DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Evidence), "evidence")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Traversal), "traversal")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Pruning), "pruning")]
 public abstract record DependencyInspectionFailure
 {
     private DependencyInspectionFailure()
@@ -207,6 +219,16 @@ public abstract record DependencyInspectionFailure
         DependencyInspectionFailure;
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Inventory),
+    "inventory")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Prerequisite),
+    "prerequisite")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Candidate),
+    "candidate")]
 public abstract record DependencyInspectionPruningFailure
 {
     private DependencyInspectionPruningFailure()

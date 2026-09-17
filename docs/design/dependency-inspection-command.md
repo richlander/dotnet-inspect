@@ -742,9 +742,10 @@ baseline consumer to understand `TEvidence`.
 
 ### Concrete evidence value
 
-The typed Content, evidence Document, root-occurrence currency, and
-same-execution association are implemented. The complete evidence capture
-request, generated serialization, and host adoption remain proposed.
+The typed Content, evidence Document, root-occurrence currency,
+same-execution association, and closed generated serialization are
+implemented. The complete evidence capture request and host adoption remain
+proposed.
 
 The dependency service issues one named settled Document:
 
@@ -773,6 +774,14 @@ baseline root and graph facts do not become a synthetic package input. A
 zero-root `PackageInputs` outcome is therefore a complete empty package
 evidence value only when baseline Content establishes that no admitted root was
 applicable.
+
+Package-source provenance uses
+`PackageDependencyEvidenceSourceIdentity`, not the runtime
+`PackageSourceResultIdentity`. It retains credential-free producer identity,
+inert display, transport kind, and a one-based document-local association.
+The association correlates prefix completion, admitted roots, and failures
+without serializing the opaque caller association or granting acquisition
+authority.
 
 The wrapper is a Document rather than another Outcome. Package-root rejection,
 phase unavailability, incomplete evidence, and typed producer failure already
@@ -890,7 +899,7 @@ pathological fixtures. They cover:
   recapture; and
 - exact `asset-dependencies` version `1` framing for baseline and enriched
   forms, rejection of a missing or mismatched registration, and round-trip of
-  both concrete source-generated serializers; and
+  both concrete source-generated serializers;
 - parsed-wire equality for existing `DependsAssetDocument` JSON with and
   without the sidecar, including selected-section presence and row windows;
   rejection of standalone asset-mode `--envelope`; and

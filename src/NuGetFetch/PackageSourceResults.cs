@@ -3,6 +3,7 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using InertText;
 
 namespace NuGetFetch;
@@ -43,6 +44,7 @@ public enum PackageListingState
 /// <summary>
 /// A validated, normalized NuGet package coordinate.
 /// </summary>
+[JsonConverter(typeof(PackageSourceCoordinateJsonConverter))]
 public sealed record PackageSourceCoordinate
 {
     private PackageSourceCoordinate(string packageId, string version)

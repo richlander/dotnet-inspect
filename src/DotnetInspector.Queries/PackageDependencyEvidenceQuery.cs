@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using InertText;
@@ -96,6 +97,23 @@ public abstract record PackageDependencyEvidenceInput
 }
 
 /// <summary>One typed upstream failure for a root that could not be admitted.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(PackageDependencyEvidenceRootFailure.Package), "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.AuthoredProject),
+    "authored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.PackageProfile),
+    "package-profile")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.Acquisition),
+    "acquisition")]
 public abstract record PackageDependencyEvidenceRootFailure
 {
     private PackageDependencyEvidenceRootFailure()
@@ -124,7 +142,8 @@ public abstract record PackageDependencyEvidenceRootFailure
         InertString? SourceLabel = null) : PackageDependencyEvidenceRootFailure;
 
     public sealed record PackageProfile(
-        PackageSourceResultIdentity Source,
+        PackageDependencyEvidenceSourceIdentity Source,
+        [property: JsonPropertyName("profile_kind")]
         PackageProfileFailureKind Kind,
         PackageManifestFailureReason? ManifestFailureReason,
         PackageSourceCoordinate? Coordinate,
@@ -149,12 +168,124 @@ public enum PackageDependencyEvidenceAcquisitionFailureReason
     AcquisitionFailed,
 }
 
+/// <summary>
+/// Portable, authority-free identity for one package source used by this
+/// evidence document.
+/// </summary>
+public sealed record PackageDependencyEvidenceSourceIdentity
+{
+    public PackageDependencyEvidenceSourceIdentity(
+        int association,
+        string producerKey,
+        string portableProducerKey,
+        PackageSourceKind transportKind,
+        InertString producerDisplay)
+        : this(
+            association,
+            producerKey,
+            portableProducerKey,
+            transportKind,
+            producerDisplay,
+            runtimeAssociation: null)
+    {
+        if (association < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(association),
+                association,
+                "A package evidence source association must be one-based.");
+        }
+    }
+
+    private PackageDependencyEvidenceSourceIdentity(
+        int association,
+        string producerKey,
+        string portableProducerKey,
+        PackageSourceKind transportKind,
+        InertString producerDisplay,
+        PackageSourceAssociation? runtimeAssociation)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(association);
+        ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+        if (!PackageProducerIdentity.IsCanonicalPortableKey(
+                portableProducerKey))
+        {
+            throw new ArgumentException(
+                "A package evidence source requires a canonical portable producer key.",
+                nameof(portableProducerKey));
+        }
+        if (!Enum.IsDefined(transportKind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(transportKind),
+                transportKind,
+                "Unknown package source transport kind.");
+        }
+
+        Association = association;
+        ProducerKey = producerKey;
+        PortableProducerKey = portableProducerKey;
+        TransportKind = transportKind;
+        ProducerDisplay = producerDisplay;
+        RuntimeAssociation = runtimeAssociation;
+    }
+
+    public int Association { get; }
+
+    public string ProducerKey { get; }
+
+    public string PortableProducerKey { get; }
+
+    public PackageSourceKind TransportKind { get; }
+
+    public InertString ProducerDisplay { get; }
+
+    [JsonIgnore]
+    internal PackageSourceAssociation? RuntimeAssociation { get; }
+
+    internal static PackageDependencyEvidenceSourceIdentity Create(
+        PackageSourceResultIdentity source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new PackageDependencyEvidenceSourceIdentity(
+            association: 0,
+            source.Producer.Key,
+            source.Producer.PortableKey,
+            source.TransportKind,
+            source.Producer.Display,
+            source.Association);
+    }
+
+    internal PackageDependencyEvidenceSourceIdentity WithAssociation(
+        int association) =>
+        new(
+            association,
+            ProducerKey,
+            PortableProducerKey,
+            TransportKind,
+            ProducerDisplay,
+            RuntimeAssociation);
+
+    /// <summary>
+    /// Reports whether this live outcome source came from
+    /// <paramref name="association"/>. A deserialized source has no runtime
+    /// association and returns <see langword="false"/>.
+    /// </summary>
+    public bool MatchesRuntimeAssociation(
+        PackageSourceAssociation association)
+    {
+        ArgumentNullException.ThrowIfNull(association);
+        return RuntimeAssociation is not null
+            && ReferenceEquals(RuntimeAssociation, association);
+    }
+}
+
 /// <summary>Typed terminal accounting retained from one package-prefix query.</summary>
 public sealed record PackageDependencyEvidencePackagePrefixCompletion
 {
     public PackageDependencyEvidencePackagePrefixCompletion(
         InertString prefix,
-        PackageSourceResultIdentity source,
+        PackageDependencyEvidenceSourceIdentity source,
         int candidates,
         int matches,
         int failures,
@@ -181,7 +312,7 @@ public sealed record PackageDependencyEvidencePackagePrefixCompletion
 
     public InertString Prefix { get; }
 
-    public PackageSourceResultIdentity Source { get; }
+    public PackageDependencyEvidenceSourceIdentity Source { get; }
 
     public int Candidates { get; }
 
@@ -230,10 +361,22 @@ public sealed record PackageDependencyEvidenceRequest
     public bool IsTruncated { get; }
 
     public PackageDependencyEvidencePackagePrefixCompletion?
-        PackagePrefixCompletion { get; }
+        PackagePrefixCompletion
+    { get; }
 }
 
 /// <summary>Stable owner-issued identity for one admitted package input root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(PackageDependencyEvidenceRootIdentity.Package), "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.AuthoredProject),
+    "authored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
 public abstract record PackageDependencyEvidenceRootIdentity
 {
     private PackageDependencyEvidenceRootIdentity()
@@ -255,6 +398,20 @@ public abstract record PackageDependencyEvidenceRootIdentity
 }
 
 /// <summary>Identity trust, content provenance, and acquisition form for one admitted root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.AuthoredProject),
+    "authored-project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceRootProvenance.RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
 public abstract record PackageDependencyEvidenceRootProvenance
 {
     private PackageDependencyEvidenceRootProvenance()
@@ -262,7 +419,7 @@ public abstract record PackageDependencyEvidenceRootProvenance
     }
 
     public abstract PackageDependencyEvidenceAcquisitionForm AcquisitionForm
-        { get; init; }
+    { get; init; }
 
     public abstract InertString? SourceLabel { get; init; }
 
@@ -270,7 +427,7 @@ public abstract record PackageDependencyEvidenceRootProvenance
         PackageDependencyEvidenceAcquisitionForm AcquisitionForm,
         PackageManifestIdentityProvenance IdentityProvenance,
         InertString? SourceLabel,
-        PackageSourceResultIdentity? Source) :
+        PackageDependencyEvidenceSourceIdentity? Source) :
         PackageDependencyEvidenceRootProvenance;
 
     public sealed record RestoredProject(
@@ -301,6 +458,7 @@ public enum PackageDependencyFrameworkScopeKind
 /// <summary>
 /// Framework identity for matching plus inert source spelling for presentation.
 /// </summary>
+[JsonConverter(typeof(PackageDependencyFrameworkScopeIdentityJsonConverter))]
 public sealed record PackageDependencyFrameworkScopeIdentity
 {
     private readonly string? _opaqueIdentity;
@@ -359,6 +517,16 @@ public sealed record PackageDependencyFrameworkScopeIdentity
 }
 
 /// <summary>Stable identity for one normalized logical declaration group.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.AuthoredProject),
+    "authored-project")]
 public abstract record PackageDependencyEvidenceGroupIdentity
 {
     private PackageDependencyEvidenceGroupIdentity()
@@ -382,6 +550,21 @@ public abstract record PackageDependencyEvidenceGroupIdentity
 }
 
 /// <summary>One owner-issued occurrence contributing to a logical declaration group.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.AuthoredProjectTarget),
+    "authored-project-target")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceGroupOccurrence
+            .AuthoredProjectDeclaration),
+    "authored-project-declaration")]
 public abstract record PackageDependencyEvidenceGroupOccurrence
 {
     private PackageDependencyEvidenceGroupOccurrence()
@@ -447,6 +630,28 @@ public sealed record PackageDependencyEvidenceGroup(
     ImmutableArray<PackageDependencyEvidenceDeclaration> Declarations);
 
 /// <summary>A typed reason one declaration projection is incomplete or failed.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceDeclarationFailure
+            .ConflictingPackageDeclaration),
+    "conflicting-package-declaration")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceDeclarationFailure
+            .InvalidPackageDeclaration),
+    "invalid-package-declaration")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure.AuthoredProject),
+    "authored-project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceDeclarationFailure
+            .AuthoredProjectUnresolvedSyntax),
+    "authored-project-unresolved-syntax")]
 public abstract record PackageDependencyEvidenceDeclarationFailure
 {
     private PackageDependencyEvidenceDeclarationFailure()
@@ -484,6 +689,19 @@ public abstract record PackageDependencyEvidenceDeclarationFailure
 }
 
 /// <summary>The closed normalized declaration projection for one root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.NotApplicable),
+    "not-applicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceDeclarationResult
 {
     private PackageDependencyEvidenceDeclarationResult()
@@ -548,6 +766,14 @@ public sealed record PackageDependencyEvidenceSelection(
     InertString? SelectedFramework);
 
 /// <summary>Stable provider-issued identity for one resolved package node.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidencePackageIdentity.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidencePackageIdentity.RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
 public abstract record PackageDependencyEvidencePackageIdentity
 {
     private PackageDependencyEvidencePackageIdentity()
@@ -564,6 +790,21 @@ public abstract record PackageDependencyEvidencePackageIdentity
 }
 
 /// <summary>The closed parent identity of one produced package relationship.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Root),
+    "root")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Project),
+    "project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceRelationshipParentIdentity
+            .RuntimeDependencyLibrary),
+    "runtime-dependency-library")]
 public abstract record PackageDependencyEvidenceRelationshipParentIdentity
 {
     private PackageDependencyEvidenceRelationshipParentIdentity()
@@ -585,6 +826,15 @@ public abstract record PackageDependencyEvidenceRelationshipParentIdentity
 }
 
 /// <summary>Stable provider-issued identity for one produced relationship.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipIdentity.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceRelationshipIdentity
+            .RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
 public abstract record PackageDependencyEvidenceRelationshipIdentity
 {
     private PackageDependencyEvidenceRelationshipIdentity()
@@ -625,6 +875,15 @@ public sealed record PackageDependencyEvidenceRelationship(
     PackageDependencyEvidenceDeclarationIdentity? DeclarationAssociation);
 
 /// <summary>A typed provider failure retained by the relationship phase.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipFailure.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceRelationshipFailure
+            .RuntimeDependencyManifest),
+    "runtime-dependency-manifest")]
 public abstract record PackageDependencyEvidenceRelationshipFailure
 {
     private PackageDependencyEvidenceRelationshipFailure()
@@ -640,6 +899,19 @@ public abstract record PackageDependencyEvidenceRelationshipFailure
 }
 
 /// <summary>The additive produced-relationship state for one normalized root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.NotApplicable),
+    "not-applicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceRelationshipResult
 {
     private PackageDependencyEvidenceRelationshipResult()
@@ -672,13 +944,13 @@ public abstract record PackageDependencyEvidenceRelationshipResult
         }
 
         public ImmutableArray<PackageDependencyEvidenceResolvedPackage> Packages
-            { get; }
+        { get; }
 
         public ImmutableArray<PackageDependencyEvidenceRelationship> Relationships
-            { get; }
+        { get; }
 
         public ImmutableArray<PackageDependencyEvidenceRelationshipFailure> Failures
-            { get; }
+        { get; }
 
         public PackageDependencyEvidencePhaseCompletion Completion { get; }
 
@@ -702,6 +974,15 @@ public enum PackageDependencyEvidenceProcessingObservation
 }
 
 /// <summary>A typed failure to associate processing evidence with its input and target.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingFailure.Association),
+    "association")]
+[JsonDerivedType(
+    typeof(
+        PackageDependencyEvidenceProcessingFailure
+            .RestoredProjectPackagePruning),
+    "restored-project-package-pruning")]
 public abstract record PackageDependencyEvidenceProcessingFailure
 {
     private PackageDependencyEvidenceProcessingFailure()
@@ -718,6 +999,19 @@ public abstract record PackageDependencyEvidenceProcessingFailure
 }
 
 /// <summary>The positive processing-evidence state for one normalized root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.NotApplicable),
+    "not-applicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceProcessingResult
 {
     private PackageDependencyEvidenceProcessingResult()
@@ -748,10 +1042,11 @@ public abstract record PackageDependencyEvidenceProcessingResult
         }
 
         public ImmutableArray<PackageDependencyEvidenceProcessingObservation>
-            Observations { get; }
+            Observations
+        { get; }
 
         public ImmutableArray<PackageDependencyEvidenceProcessingFailure> Failures
-            { get; }
+        { get; }
 
         public PackageDependencyEvidencePhaseCompletion Completion { get; }
 
@@ -1076,12 +1371,12 @@ public static class PackageDependencyEvidenceQuery
     }
 
     /// <summary>Contains package-profile failure text before it reaches a sink.</summary>
-    public static PackageDependencyEvidenceRootFailure.PackageProfile
+    internal static PackageDependencyEvidenceRootFailure.PackageProfile
         CreatePackageProfileFailure(PackageProfileFailure failure)
     {
         ArgumentNullException.ThrowIfNull(failure);
         return new PackageDependencyEvidenceRootFailure.PackageProfile(
-            failure.Source,
+            PackageDependencyEvidenceSourceIdentity.Create(failure.Source),
             failure.Kind,
             failure.ManifestFailureReason,
             CreateEstablishedPackageProfileCoordinate(failure),
@@ -1119,7 +1414,7 @@ public static class PackageDependencyEvidenceQuery
                 TextPolicy.Field,
                 summary.Prefix,
                 PackageManifestFactsQuery.MaxScalarCharacters),
-            summary.Source,
+            PackageDependencyEvidenceSourceIdentity.Create(summary.Source),
             summary.Candidates,
             summary.Matches,
             summary.Failures,
@@ -1185,13 +1480,17 @@ public static class PackageDependencyEvidenceQuery
             }
         }
 
+        EvidenceSourceAssociations sourceAssociations =
+            CreateEvidenceSourceAssociations(request);
         var roots =
             ImmutableArray.CreateBuilder<PackageDependencyEvidenceRoot>(
                 request.Roots.Length);
         var failedRoots =
             ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>(
                 request.FailedRoots.Length);
-        failedRoots.AddRange(request.FailedRoots);
+        failedRoots.AddRange(
+            request.FailedRoots.Select(failure =>
+                NormalizeSource(failure, sourceAssociations)));
         foreach (PackageDependencyEvidenceInput input in request.Roots)
         {
             if (input is PackageDependencyEvidenceInput.AuthoredProject
@@ -1228,7 +1527,7 @@ public static class PackageDependencyEvidenceQuery
                 continue;
             }
 
-            roots.Add(ProjectRoot(input));
+            roots.Add(ProjectRoot(input, sourceAssociations));
         }
 
         ImmutableArray<PackageDependencyEvidenceRoot> admittedRoots =
@@ -1251,7 +1550,11 @@ public static class PackageDependencyEvidenceQuery
                 request.RejectedRootCount,
                 allFailedRoots.Length,
                 request.IsTruncated,
-                request.PackagePrefixCompletion),
+                request.PackagePrefixCompletion is null
+                    ? null
+                    : NormalizeSource(
+                        request.PackagePrefixCompletion,
+                        sourceAssociations)),
             SummarizePhases(admittedRoots));
     }
 
@@ -1279,9 +1582,9 @@ public static class PackageDependencyEvidenceQuery
         }
 
         if (left.Declaration is not PackageDependencyEvidenceDeclarationResult.Available
-                { IsComplete: true } leftDeclaration
+            { IsComplete: true } leftDeclaration
             || right.Declaration is not PackageDependencyEvidenceDeclarationResult.Available
-                { IsComplete: true } rightDeclaration)
+            { IsComplete: true } rightDeclaration)
         {
             PackageDependencyEvidenceComparisonResult notComparable =
                 new PackageDependencyEvidenceComparisonResult.NotComparable(
@@ -1312,12 +1615,57 @@ public static class PackageDependencyEvidenceQuery
             selectedScoped);
     }
 
+    private static EvidenceSourceAssociations CreateEvidenceSourceAssociations(
+        PackageDependencyEvidenceRequest request)
+    {
+        var associations = new EvidenceSourceAssociations();
+        if (request.PackagePrefixCompletion is { } completion)
+            associations.Reserve(completion.Source);
+        foreach (PackageDependencyEvidenceInput.Package package in
+            request.Roots.OfType<PackageDependencyEvidenceInput.Package>())
+        {
+            if (package.Source is not null)
+                associations.Reserve(package.Source);
+        }
+        foreach (PackageDependencyEvidenceRootFailure.PackageProfile profile in
+            request.FailedRoots.OfType<
+                PackageDependencyEvidenceRootFailure.PackageProfile>())
+        {
+            associations.Reserve(profile.Source);
+        }
+
+        return associations;
+    }
+
+    private static PackageDependencyEvidenceRootFailure NormalizeSource(
+        PackageDependencyEvidenceRootFailure failure,
+        EvidenceSourceAssociations associations) =>
+        failure is PackageDependencyEvidenceRootFailure.PackageProfile profile
+            ? profile with
+            {
+                Source = associations.Project(profile.Source),
+            }
+            : failure;
+
+    private static PackageDependencyEvidencePackagePrefixCompletion
+        NormalizeSource(
+            PackageDependencyEvidencePackagePrefixCompletion completion,
+            EvidenceSourceAssociations associations) =>
+            new(
+                completion.Prefix,
+                associations.Project(completion.Source),
+                completion.Candidates,
+                completion.Matches,
+                completion.Failures,
+                completion.TruncationReason);
+
     private static PackageDependencyEvidenceRoot ProjectRoot(
-        PackageDependencyEvidenceInput input) =>
+        PackageDependencyEvidenceInput input,
+        EvidenceSourceAssociations sourceAssociations) =>
         input switch
         {
             PackageDependencyEvidenceInput.Package package =>
-                ProjectPackage(package),
+                ProjectPackage(package, sourceAssociations),
             PackageDependencyEvidenceInput.RestoredProject restored =>
                 ProjectRestoredProject(restored),
             PackageDependencyEvidenceInput.AuthoredProject authored =>
@@ -1328,8 +1676,67 @@ public static class PackageDependencyEvidenceQuery
                 "Unknown package dependency evidence input."),
         };
 
+    private sealed class EvidenceSourceAssociations
+    {
+        private readonly Dictionary<PackageSourceAssociation, int> _ordinals =
+            new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<int, int> _portableOrdinals = [];
+        private int _nextOrdinal;
+
+        public void Reserve(PackageSourceResultIdentity source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            Reserve(source.Association);
+        }
+
+        public void Reserve(PackageDependencyEvidenceSourceIdentity source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (source.RuntimeAssociation is { } association)
+                Reserve(association);
+            else
+                Reserve(source.Association);
+        }
+
+        public PackageDependencyEvidenceSourceIdentity Project(
+            PackageSourceResultIdentity source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            return PackageDependencyEvidenceSourceIdentity.Create(source)
+                .WithAssociation(Reserve(source.Association));
+        }
+
+        public PackageDependencyEvidenceSourceIdentity Project(
+            PackageDependencyEvidenceSourceIdentity source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            return source.RuntimeAssociation is { } association
+                ? source.WithAssociation(Reserve(association))
+                : source.WithAssociation(Reserve(source.Association));
+        }
+
+        private int Reserve(PackageSourceAssociation association)
+        {
+            if (_ordinals.TryGetValue(association, out int ordinal))
+                return ordinal;
+            ordinal = ++_nextOrdinal;
+            _ordinals.Add(association, ordinal);
+            return ordinal;
+        }
+
+        private int Reserve(int association)
+        {
+            if (_portableOrdinals.TryGetValue(association, out int ordinal))
+                return ordinal;
+            ordinal = ++_nextOrdinal;
+            _portableOrdinals.Add(association, ordinal);
+            return ordinal;
+        }
+    }
+
     private static PackageDependencyEvidenceRoot ProjectPackage(
-        PackageDependencyEvidenceInput.Package input)
+        PackageDependencyEvidenceInput.Package input,
+        EvidenceSourceAssociations sourceAssociations)
     {
         ArgumentNullException.ThrowIfNull(input.Manifest);
         ArgumentNullException.ThrowIfNull(input.Groups);
@@ -1348,7 +1755,9 @@ public static class PackageDependencyEvidenceQuery
                 input.AcquisitionForm,
                 input.Manifest.IdentityProvenance,
                 input.SourceLabel,
-                input.Source),
+                input.Source is null
+                    ? null
+                    : sourceAssociations.Project(input.Source)),
             new InertString(
                 TextPolicy.Field,
                 input.Manifest.Coordinate.PackageId,
@@ -1706,7 +2115,7 @@ public static class PackageDependencyEvidenceQuery
             selectedGroup = groups.Single(group =>
                 group.SourceOccurrences.Any(occurrence =>
                     occurrence is PackageDependencyEvidenceGroupOccurrence.Package
-                        { SourceIndex: var sourceIndex }
+                    { SourceIndex: var sourceIndex }
                     && sourceIndex == index));
             selectedOccurrence =
                 new PackageDependencyEvidenceGroupOccurrence.Package(index);
@@ -2576,10 +2985,10 @@ public static class PackageDependencyEvidenceQuery
         public string OrderKey { get; }
 
         public List<PackageDependencyEvidenceGroupOccurrence> SourceOccurrences
-            { get; } = [];
+        { get; } = [];
 
         public List<AuthoredProjectPackageDeclaration> Declarations
-            { get; } = [];
+        { get; } = [];
 
         public void AddSourceSpelling(InertString sourceSpelling)
         {
@@ -2668,7 +3077,7 @@ public static class PackageDependencyEvidenceQuery
                     notApplicableDeclarations++;
                     break;
                 case PackageDependencyEvidenceDeclarationResult.Available
-                    { IsComplete: true }:
+                { IsComplete: true }:
                     completeDeclarations++;
                     break;
                 case PackageDependencyEvidenceDeclarationResult.Available:
@@ -2691,7 +3100,7 @@ public static class PackageDependencyEvidenceQuery
                     notApplicableRelationships++;
                     break;
                 case PackageDependencyEvidenceRelationshipResult.Available
-                    { IsComplete: true }:
+                { IsComplete: true }:
                     completeRelationships++;
                     break;
                 case PackageDependencyEvidenceRelationshipResult.Available:
@@ -2714,7 +3123,7 @@ public static class PackageDependencyEvidenceQuery
                     notApplicableProcessing++;
                     break;
                 case PackageDependencyEvidenceProcessingResult.Available
-                    { IsComplete: true }:
+                { IsComplete: true }:
                     completeProcessing++;
                     break;
                 case PackageDependencyEvidenceProcessingResult.Available:

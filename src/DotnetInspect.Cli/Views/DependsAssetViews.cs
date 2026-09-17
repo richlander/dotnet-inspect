@@ -220,7 +220,7 @@ public sealed class DependsRootView
                 DependencyEvidenceViewText.Optional(evidence?.PackageVersion),
             IdentityTrustText = DependencyEvidenceViewText.Optional(
                 evidence?.IdentityProvenance?.ToString()),
-            ProducerText = evidence?.Source?.Producer.Display,
+            ProducerText = evidence?.Source?.ProducerDisplay,
             SourceAssociation = evidence?.Source is { } source
                 ? tokens.Project(source)?.Association
                 : null,

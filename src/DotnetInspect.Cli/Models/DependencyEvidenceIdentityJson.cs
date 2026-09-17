@@ -76,10 +76,10 @@ public sealed record DependencyEvidenceRootIdentityJson
     public DependencyEvidencePackageCoordinateJson? Package { get; init; }
 
     public DependencyEvidenceRestoredSelectionIdentityJson? RestoredProject
-        { get; init; }
+    { get; init; }
 
     public DependencyEvidenceAuthoredProjectIdentityJson? AuthoredProject
-        { get; init; }
+    { get; init; }
 
     internal static DependencyEvidenceRootIdentityJson Create(
         PackageDependencyEvidenceRootIdentity identity) =>
@@ -128,7 +128,7 @@ public sealed record DependencyEvidencePackageGroupIdentityJson
 public sealed record DependencyEvidenceRestoredGroupIdentityJson
 {
     public required DependencyEvidenceRestoredSelectionIdentityJson Selection
-        { get; init; }
+    { get; init; }
 
     public required string PivotIdentity { get; init; }
 }
@@ -311,7 +311,7 @@ public sealed record DependencyEvidenceDeclarationIdentityJson
 public sealed record DependencyEvidencePackageNodeIdentityJson
 {
     public required DependencyEvidenceRestoredSelectionIdentityJson Selection
-        { get; init; }
+    { get; init; }
 
     public required DependencyEvidencePackageCoordinateJson Coordinate { get; init; }
 
@@ -330,7 +330,7 @@ public sealed record DependencyEvidencePackageNodeIdentityJson
 public sealed record DependencyEvidenceProjectNodeIdentityJson
 {
     public required DependencyEvidenceRestoredSelectionIdentityJson Selection
-        { get; init; }
+    { get; init; }
 
     public required string SourceIdentity { get; init; }
 }
@@ -386,7 +386,7 @@ public sealed record DependencyEvidenceEdgeIdentityJson
     public required DependencyEvidenceGraphParentIdentityJson Parent { get; init; }
 
     public required DependencyEvidencePackageNodeIdentityJson Dependency
-        { get; init; }
+    { get; init; }
 
     internal static DependencyEvidenceEdgeIdentityJson Create(
         RestoredProjectEdgeIdentity identity) =>
@@ -433,9 +433,13 @@ internal sealed class DependencyEvidenceSourceTokens
 {
     private readonly Dictionary<PackageSourceAssociation, int> _tokens =
         new(AssociationComparer.Instance);
+    private readonly Dictionary<int, int> _evidenceTokens = [];
+    private readonly List<PackageDependencyEvidenceSourceIdentity>
+        _evidenceSources = [];
     private readonly Dictionary<
         PackageAcquisitionCandidateCorrespondence,
         int> _candidateTokens = [];
+    private int _nextToken;
 
     private DependencyEvidenceSourceTokens()
     {
@@ -453,11 +457,22 @@ internal sealed class DependencyEvidenceSourceTokens
             ]);
     }
 
+    internal static DependencyEvidenceSourceTokens Create() => new();
+
     internal static DependencyEvidenceSourceTokens Create(
         IEnumerable<PackageSourceResultIdentity?> sources)
     {
         var tokens = new DependencyEvidenceSourceTokens();
         foreach (PackageSourceResultIdentity? source in sources)
+            tokens.Reserve(source);
+        return tokens;
+    }
+
+    internal static DependencyEvidenceSourceTokens Create(
+        IEnumerable<PackageDependencyEvidenceSourceIdentity?> sources)
+    {
+        var tokens = new DependencyEvidenceSourceTokens();
+        foreach (PackageDependencyEvidenceSourceIdentity? source in sources)
             tokens.Reserve(source);
         return tokens;
     }
@@ -474,12 +489,29 @@ internal sealed class DependencyEvidenceSourceTokens
                 TransportKind = source.TransportKind,
             };
 
+    public DependencyEvidenceSourceIdentityJson? Project(
+        PackageDependencyEvidenceSourceIdentity? source) =>
+        source is null
+            ? null
+            : new DependencyEvidenceSourceIdentityJson
+            {
+                Association = Reserve(source),
+                ProducerKey = source.ProducerKey,
+                ProducerDisplay = source.ProducerDisplay,
+                TransportKind = source.TransportKind,
+            };
+
     internal int ProjectAssociation(PackageSourceAssociation association)
     {
         ArgumentNullException.ThrowIfNull(association);
         if (_tokens.TryGetValue(association, out int token))
             return token;
-        token = _tokens.Count + 1;
+        PackageDependencyEvidenceSourceIdentity? evidence =
+            _evidenceSources.FirstOrDefault(source =>
+                source.MatchesRuntimeAssociation(association));
+        token = evidence is null
+            ? ++_nextToken
+            : _evidenceTokens[evidence.Association];
         _tokens[association] = token;
         return token;
     }
@@ -495,14 +527,33 @@ internal sealed class DependencyEvidenceSourceTokens
         return token;
     }
 
-    private int Reserve(PackageSourceResultIdentity? source)
+    internal int Reserve(PackageSourceResultIdentity? source)
     {
         if (source is null)
             return 0;
-        if (_tokens.TryGetValue(source.Association, out int token))
+        return ProjectAssociation(source.Association);
+    }
+
+    internal int Reserve(
+        PackageDependencyEvidenceSourceIdentity? source)
+    {
+        if (source is null)
+            return 0;
+        if (_evidenceTokens.TryGetValue(source.Association, out int token))
             return token;
-        token = _tokens.Count + 1;
-        _tokens[source.Association] = token;
+        token = 0;
+        foreach (KeyValuePair<PackageSourceAssociation, int> runtime in
+            _tokens)
+        {
+            if (!source.MatchesRuntimeAssociation(runtime.Key))
+                continue;
+            token = runtime.Value;
+            break;
+        }
+        if (token == 0)
+            token = ++_nextToken;
+        _evidenceTokens[source.Association] = token;
+        _evidenceSources.Add(source);
         return token;
     }
 

@@ -625,28 +625,29 @@ internal static class DependencyGraphOutputAdapter
                 : null);
     }
 
-    private static IEnumerable<PackageSourceResultIdentity?>
-        EnumeratePackageSources(DependencyGraphDocument document)
+    private static void ReservePackageSources(
+        DependencyGraphDocument document,
+        DependencyEvidenceSourceTokens tokens)
     {
         foreach (DependencyGraphPackageProjection projection in
                  document.PackageProjections)
         {
-            yield return DependsAssetDocument.PackageSource(
-                projection.Evidence);
+            tokens.Reserve(
+                DependsAssetDocument.PackageSource(projection.Evidence));
             if (projection.Candidate is { } candidate)
             {
                 foreach (PackageAcquisitionAuthorityEvidence authority in
                          candidate.Authorities)
                 {
-                    yield return authority.Observation?.Source;
+                    tokens.Reserve(authority.Observation?.Source);
                 }
             }
-
             foreach (PackageAuthorityFailure diagnostic in
                      projection.Diagnostics)
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                        ?? diagnostic.SourceFailure?.Source);
             }
             foreach (PackageAuthorityFailure diagnostic in
                      document.Edges
@@ -659,8 +660,9 @@ internal static class DependencyGraphOutputAdapter
                                 ? []
                                 : edge.PackageDiagnostics))
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                                ?? diagnostic.SourceFailure?.Source);
             }
         }
     }
@@ -669,8 +671,8 @@ internal static class DependencyGraphOutputAdapter
         DependencyGraphDocument document)
     {
         DependencyEvidenceSourceTokens tokens =
-            DependencyEvidenceSourceTokens.Create(
-                EnumeratePackageSources(document));
+            DependencyEvidenceSourceTokens.Create();
+        ReservePackageSources(document, tokens);
         foreach (DependencyGraphPackageProjection projection in
                  document.PackageProjections)
         {

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using UntrustedDocuments;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -245,6 +246,10 @@ public readonly record struct RestoredProjectProjectNodeIdentity(
     string SourceIdentity);
 
 /// <summary>The closed set of graph-edge parents: the root, a package node, or a project node.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Root), "root")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Package), "package")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Project), "project")]
 public abstract record RestoredProjectGraphParentIdentity
 {
     private RestoredProjectGraphParentIdentity()

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -28,16 +29,38 @@ public enum DependencyGraphResolutionState
     Rejected,
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Type), "type")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Library), "library")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Package), "package")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.RestoredRoot), "restored-root")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.RestoredProject),
+    "restored-project")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.RestoredPackage),
+    "restored-package")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageBoundary),
+    "package-boundary")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageFailure),
+    "package-failure")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageBudget),
+    "package-budget")]
 public abstract record DependencyGraphNodeIdentity
 {
     private DependencyGraphNodeIdentity()
     {
     }
 
+    [JsonIgnore]
     public abstract DependencyGraphNodeKind Kind { get; }
 
     public sealed record Type(string Name) : DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Type;
     }
@@ -45,6 +68,7 @@ public abstract record DependencyGraphNodeIdentity
     public sealed record Library(ManagedMetadataIdentity Identity) :
         DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Library;
     }
@@ -52,6 +76,7 @@ public abstract record DependencyGraphNodeIdentity
     public sealed record Package(string Id, string Version) :
         DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.Package;
     }
@@ -59,6 +84,7 @@ public abstract record DependencyGraphNodeIdentity
     public sealed record RestoredRoot(RestoredProjectRootIdentity Identity) :
         DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredRoot;
     }
@@ -67,6 +93,7 @@ public abstract record DependencyGraphNodeIdentity
         RestoredProjectProjectNodeIdentity Identity) :
         DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredProject;
     }
@@ -75,6 +102,7 @@ public abstract record DependencyGraphNodeIdentity
         RestoredProjectPackageNodeIdentity Identity) :
         DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.RestoredPackage;
     }
@@ -85,6 +113,7 @@ public abstract record DependencyGraphNodeIdentity
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageBoundary;
     }
@@ -95,6 +124,7 @@ public abstract record DependencyGraphNodeIdentity
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageFailure;
     }
@@ -105,6 +135,7 @@ public abstract record DependencyGraphNodeIdentity
         string PackageId,
         string VersionConstraint) : DependencyGraphNodeIdentity
     {
+        [JsonIgnore]
         public override DependencyGraphNodeKind Kind =>
             DependencyGraphNodeKind.PackageBudget;
     }
@@ -152,6 +183,22 @@ public sealed record DependencyGraphPackageProjection(
     int? RootOccurrence,
     ImmutableArray<PackageAuthorityFailure> Diagnostics);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.AssemblyReference),
+    "assembly-reference")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.PackageVersionConstraint),
+    "package-version-constraint")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.PackageDeclaration),
+    "package-declaration")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.RestoredProjectRelationship),
+    "restored-project-relationship")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.RestoredPackageRelationship),
+    "restored-package-relationship")]
 public abstract record DependencyGraphEvidenceIdentity
 {
     private DependencyGraphEvidenceIdentity()
@@ -194,7 +241,11 @@ public sealed record DependencyGraphEdge(
     int? TargetPackageProjectionId = null,
     PackageDependencyTraversalEdgeEmissionAuthority? PackageEmissionAuthority =
         null,
-    ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default);
+    ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default)
+{
+    public ImmutableArray<PackageAuthorityFailure> PackageDiagnostics
+    { get; init; } = PackageDiagnostics.IsDefault ? [] : PackageDiagnostics;
+}
 
 public sealed record DependencyGraphDocument(
     ImmutableArray<DependencyGraphRootOccurrence> Roots,
