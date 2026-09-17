@@ -941,21 +941,9 @@ public sealed class WorkspaceCommandTests
             store,
             secondPackageId,
             ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
-            $$"""
-            {
-              "f": 1,
-              "t": [
-                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null],
-                ["{{secondPackageId}}", "{{Version}}", "{{Framework}}", null]
-              ],
-              "g": [[0], [1]],
-              "a": 0,
-              "x": 0,
-              "v": "api"
-            }
-            """,
-            TestContext.Current.CancellationToken);
+        WorkspaceSharePacket packet = CreatePacket(
+            (PackageId, Version, Framework),
+            (secondPackageId, Version, Framework));
         using var client = new HttpClient(new FailingHandler());
 
         var captured = await ConsoleCapture.RunAsync(
@@ -990,21 +978,9 @@ public sealed class WorkspaceCommandTests
             store,
             PackageId,
             ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
-            $$"""
-            {
-              "f": 1,
-              "t": [
-                ["{{PackageId}}", null, "{{Framework}}", null],
-                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
-              ],
-              "g": [[0], [1]],
-              "a": 0,
-              "x": 0,
-              "v": "api"
-            }
-            """,
-            TestContext.Current.CancellationToken);
+        WorkspaceSharePacket packet = CreatePacket(
+            (PackageId, null, Framework),
+            (PackageId, Version, Framework));
         string encoded = WorkspaceSharePacketCodec.Encode(packet);
         using var client = new HttpClient(new VersionListingHandler());
 
@@ -1058,13 +1034,22 @@ public sealed class WorkspaceCommandTests
             captured.ExitCode == 0,
             $"Output: {captured.Output}{Environment.NewLine}Error: {captured.Error}");
         using JsonDocument document = JsonDocument.Parse(captured.Output);
-        Assert.Single(
+        JsonElement entry = Assert.Single(
             document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            Framework,
+            entry.GetProperty("requested_target_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            entry.GetProperty("selected_target_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            entry.GetProperty("effective_target_framework").GetString());
         Assert.Equal(encoded, captured.Error.Trim());
     }
 
     [Fact]
-    public async Task PacketRoute_RejectsGroupConstructionIntent()
+    public async Task PacketRoute_RejectsUnsupportedLegacyFormat()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
             """
@@ -1092,7 +1077,7 @@ public sealed class WorkspaceCommandTests
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
-        Assert.Contains("group subscriptions", captured.Error);
+        Assert.Contains("requires packet format 2", captured.Error);
     }
 
     [Fact]
@@ -1106,23 +1091,10 @@ public sealed class WorkspaceCommandTests
         await AddPackageAsync(
             store,
             PackageId,
-            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly),
-            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
-            $$"""
-            {
-              "f": 1,
-              "t": [
-                ["{{PackageId}}", "{{Version}}", "{{olderFramework}}", null],
-                ["{{PackageId}}", "{{Version}}", "{{Framework}}", null]
-              ],
-              "g": [[0], [1]],
-              "a": 0,
-              "x": 0,
-              "v": "api"
-            }
-            """,
-            TestContext.Current.CancellationToken);
+            ($"lib/{olderFramework}/DotnetInspect.Cli.Tests.dll", assembly));
+        WorkspaceSharePacket packet = CreatePacket(
+            (PackageId, Version, olderFramework),
+            (PackageId, Version, Framework));
         using var client = new HttpClient(new FailingHandler());
 
         var captured = await ConsoleCapture.RunAsync(
@@ -1139,6 +1111,11 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(0, captured.ExitCode);
         Assert.Contains($"requested {olderFramework}", captured.Output);
         Assert.Contains($"requested {Framework}", captured.Output);
+        Assert.Equal(
+            2,
+            captured.Output.Split(
+                $"selected {olderFramework}",
+                StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -1789,17 +1766,77 @@ public sealed class WorkspaceCommandTests
     };
 
     static WorkspaceSharePacket CreatePacket(string packageId) =>
-        WorkspaceSharePacketCodec.ParseJson(
-            $$"""
-            {
-              "f": 1,
-              "t": [["{{packageId}}", "{{Version}}", "{{Framework}}", null]],
-              "g": [[0]],
-              "a": 0,
-              "x": 0,
-              "v": "api"
-            }
-            """);
+        CreatePacket((packageId, Version, Framework));
+
+    static WorkspaceSharePacket CreatePacket(
+        params (string Id, string? Version, string Framework)[] packages)
+    {
+        var registry = new InspectionDefinitionRegistry();
+        WorkspaceContextDefinition[] contexts =
+        [
+            .. packages.Select((package, index) =>
+                new WorkspaceContextDefinition(
+                    $"context-{index}",
+                    framework: package.Framework,
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            package.Id,
+                            package.Version,
+                            package.Framework),
+                    ])),
+        ];
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            contexts));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                .. packages.Select((package, index) =>
+                    new NavigationTabDefinition(
+                        $"package-{index}",
+                        coordinate:
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                package.Id,
+                                package.Version,
+                                package.Framework))),
+            ],
+            "package-0"));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                .. packages.Select((_, index) =>
+                    new CommittedViewStateDefinition(
+                        $"package-{index}",
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        facet: "package.overview")),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            context: "context-0",
+            view: "view",
+            navigation: "navigation"));
+        var prepared = Assert.IsType<
+            InspectionDefinitionScenarioPreparationResult.Version2>(
+                registry.PrepareScenario("scenario"));
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                prepared.Definitions,
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            projection.Succeeded,
+            projection.Failure?.Message);
+        return Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+    }
 
     static async Task AddPackageAsync(
         InMemoryPackageStore store, string packageId,
