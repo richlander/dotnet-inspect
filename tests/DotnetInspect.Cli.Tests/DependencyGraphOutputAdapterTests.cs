@@ -689,7 +689,8 @@ public sealed class DependencyGraphOutputAdapterTests
                         PackageDependencyResolutionState.Unavailable,
                         Ordinal: 0),
                 ],
-                []));
+                []),
+            Diagnostics: []);
 
         DependencyGraphEdgeRow row = Assert.Single(
             DependencyGraphOutputAdapter.EdgeRows(
