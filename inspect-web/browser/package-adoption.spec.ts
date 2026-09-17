@@ -979,7 +979,9 @@ test.describe("Package Query website over real Wasm", () => {
     );
     await toolFacet.click();
     await expect(toolFacet).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(".query-facet-disclosure").nth(1))
+    await expect(page.locator(".query-facet-disclosure", {
+      hasText: "Candidate bound K:",
+    }))
       .toContainText("Candidate bound K: 20");
 
     await input.fill("Azure.*");
