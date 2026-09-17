@@ -23,6 +23,12 @@ internal enum CliLineSelectionDirection
     Tail
 }
 
+internal enum CliRowSelectionDefaultUnit
+{
+    SemanticRows,
+    RenderedLines
+}
+
 internal sealed class CliLineSelectionIntent
 {
     public CliLineSelectionIntent(
@@ -145,7 +151,9 @@ internal static class CliRowSelectionLowerer
         TOrderOperand>(
         IReadOnlyList<CliRowSelectionOccurrence<TOrderOperand>>
             occurrences,
-        CliRowSelectionCapabilities capabilities)
+        CliRowSelectionCapabilities capabilities,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
         where TOrderOperand : notnull
     {
         ArgumentNullException.ThrowIfNull(occurrences);
@@ -171,7 +179,8 @@ internal static class CliRowSelectionLowerer
         CliRowSelectionFailure? capabilityFailure =
             FindCapabilityFailure(
                 ordered,
-                capabilities);
+                capabilities,
+                defaultUnit);
         if (capabilityFailure is not null)
         {
             return CliRowSelectionLoweringResult<TOrderOperand>.Failed(
@@ -179,7 +188,7 @@ internal static class CliRowSelectionLowerer
         }
 
         return CliRowSelectionLoweringResult<TOrderOperand>.Success(
-            Build(ordered));
+            Build(ordered, defaultUnit));
     }
 
     private static ParsedOccurrence<TOrderOperand>[] ParseAndOrder<
@@ -522,10 +531,12 @@ internal static class CliRowSelectionLowerer
     private static CliRowSelectionFailure? FindCapabilityFailure<
         TOrderOperand>(
         IReadOnlyList<ParsedOccurrence<TOrderOperand>> ordered,
-        CliRowSelectionCapabilities capabilities)
+        CliRowSelectionCapabilities capabilities,
+        CliRowSelectionDefaultUnit defaultUnit)
         where TOrderOperand : notnull
     {
-        bool lineSelection = false;
+        bool lineSelection =
+            defaultUnit == CliRowSelectionDefaultUnit.RenderedLines;
         for (int index = 0; index < ordered.Count; index++)
         {
             CliRowSelectionOccurrenceKind kind =
@@ -590,14 +601,16 @@ internal static class CliRowSelectionLowerer
 
     private static CliRowSelectionLowering<TOrderOperand> Build<
         TOrderOperand>(
-        IReadOnlyList<ParsedOccurrence<TOrderOperand>> ordered)
+        IReadOnlyList<ParsedOccurrence<TOrderOperand>> ordered,
+        CliRowSelectionDefaultUnit defaultUnit)
         where TOrderOperand : notnull
     {
         ParsedOccurrence<TOrderOperand>? count = null;
         ParsedOccurrence<TOrderOperand>? top = null;
         ParsedOccurrence<TOrderOperand>? order = null;
         bool tail = false;
-        bool lines = false;
+        bool lines =
+            defaultUnit == CliRowSelectionDefaultUnit.RenderedLines;
 
         for (int index = 0; index < ordered.Count; index++)
         {
@@ -667,7 +680,7 @@ internal static class CliRowSelectionLowerer
         }
 
         CliLineSelectionIntent? lineIntent =
-            lines
+            lines && count is not null
                 ? new(
                     count!.Value.Count,
                     tail
