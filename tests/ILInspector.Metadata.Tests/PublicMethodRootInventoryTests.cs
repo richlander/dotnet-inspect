@@ -316,6 +316,21 @@ public sealed class PublicMethodRootInventoryTests
     }
 
     [Fact]
+    public void Read_UnobservableNestedClassRowFailsVisibly()
+    {
+        using var image = new PEReader(
+            ImmutableArray.Create(
+                BuildUnobservableNestedClassImage()));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PublicMethodRootInventoryReader.Read(
+                reader,
+                FullLimits));
+    }
+
+    [Fact]
     public void Read_InvalidMethodAccessFailsInCompleteAndBoundedScans()
     {
         using (var completeImage = new PEReader(
@@ -620,6 +635,65 @@ public sealed class PublicMethodRootInventoryTests
                 MetadataTokens.MethodDefinitionHandle(1));
         metadata.AddNestedType(first, second);
         metadata.AddNestedType(second, first);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildUnobservableNestedClassImage()
+    {
+        MetadataBuilder metadata =
+            CreateRelationshipMetadata(
+                "UnobservableNestedClass");
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Root"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        TypeDefinitionHandle hiddenParent =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("HiddenParent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                method);
+        TypeDefinitionHandle hiddenChild =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("HiddenChild"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                method);
+        TypeDefinitionHandle otherParent =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("OtherParent"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle otherChild =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("OtherChild"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddNestedType(otherChild, otherParent);
+        metadata.AddNestedType(hiddenChild, hiddenParent);
         return Serialize(metadata);
     }
 

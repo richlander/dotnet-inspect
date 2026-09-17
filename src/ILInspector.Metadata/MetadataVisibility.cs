@@ -70,6 +70,10 @@ internal static class MetadataVisibility
                 IsComplete: false);
         }
 
+        ValidateNestedTypeProjection(
+            reader,
+            declaringTypes);
+
         var externallyVisible = new bool[typeCount + 1];
         var states = new byte[typeCount + 1];
         var path = new int[typeCount];
@@ -120,4 +124,60 @@ internal static class MetadataVisibility
     internal static MetadataVisibilityClassification ClassifyAll(
         MetadataReader reader) =>
         Classify(reader, int.MaxValue);
+
+    static void ValidateNestedTypeProjection(
+        MetadataReader reader,
+        int[] declaringTypes)
+    {
+        int typeCount = declaringTypes.Length - 1;
+        int physicalNestedRows =
+            reader.GetTableRowCount(TableIndex.NestedClass);
+        var observedNestedTypes =
+            new bool[typeCount + 1];
+        int observedNestedRows = 0;
+
+        for (int parentRow = 1;
+            parentRow <= typeCount;
+            parentRow++)
+        {
+            TypeDefinition parent =
+                reader.GetTypeDefinition(
+                    MetadataTokens.TypeDefinitionHandle(
+                        parentRow));
+            foreach (TypeDefinitionHandle nested
+                in parent.GetNestedTypes())
+            {
+                observedNestedRows++;
+                int nestedRow =
+                    MetadataTokens.GetRowNumber(nested);
+                if (nestedRow <= 0
+                    || nestedRow > typeCount)
+                {
+                    throw new BadImageFormatException(
+                        "A nested-type relationship has an "
+                            + "invalid nested type.");
+                }
+
+                if (observedNestedTypes[nestedRow])
+                {
+                    throw new BadImageFormatException(
+                        "A type has multiple declaring types.");
+                }
+
+                observedNestedTypes[nestedRow] = true;
+                if (declaringTypes[nestedRow] != parentRow)
+                {
+                    throw new BadImageFormatException(
+                        "The NestedClass table cannot be "
+                            + "observed consistently.");
+                }
+            }
+        }
+
+        if (observedNestedRows != physicalNestedRows)
+        {
+            throw new BadImageFormatException(
+                "The NestedClass table has unobservable rows.");
+        }
+    }
 }

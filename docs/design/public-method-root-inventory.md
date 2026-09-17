@@ -17,11 +17,13 @@ The result is detached from the reader and retains the module MVID, exact
 and any limit that stopped the inventory.
 
 The operation first records and memoizes TypeDef visibility relationships in
-TypeDef-token order. Only after that phase completes does it project each
-MethodDef ownership row once, then retain roots in raw MethodDef-token order.
-This phase boundary lets valid uncompressed metadata use a reordered
-`MethodPtr` table without changing root order or bounded prefixes, without
-repeated reverse ownership searches or repeated enclosing-chain walks.
+TypeDef-token order, then proves that SRM's forward and reverse nested-type
+projections agree and account for every physical `NestedClass` row. Only after
+that phase completes does it project each MethodDef ownership row once, then
+retain roots in raw MethodDef-token order. This phase boundary lets valid
+uncompressed metadata use a reordered `MethodPtr` table without changing root
+order or bounded prefixes, without repeated reverse ownership searches or
+repeated enclosing-chain walks.
 
 This is declaration membership, not an API presentation surface. It does not
 apply name, attribute, compiler-generated, `EditorBrowsable`, body-presence,
@@ -107,7 +109,9 @@ Its receipt reports visited types, visited methods, and retained roots.
 Malformed visibility or ownership rows encountered by the bounded scan remain
 visible metadata-read failures; a limit is never used as a success-shaped
 substitute for an observed invalid row. Windows Metadata remains unsupported
-under the repository-wide admission contract.
+under the repository-wide admission contract. A complete visibility phase also
+rejects a `NestedClass` table whose physical rows cannot all be observed
+consistently through SRM's relationship projections.
 
 The Release gates are:
 
@@ -121,6 +125,7 @@ The Release gates are:
 - `Read_DeepPublicNestingCompletes`;
 - `Read_ParentAfterChildNestingCompletes`;
 - `Read_NestedTypeCycleFailsVisibly`;
+- `Read_UnobservableNestedClassRowFailsVisibly`;
 - `Read_InvalidMethodAccessFailsInCompleteAndBoundedScans`; and
 - `Read_MalformedMethodOwnershipFailsVisibly`.
 
