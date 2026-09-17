@@ -48,6 +48,11 @@ retained production consumer is Inspect Web activation
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+The definition-first role of the `workspace` command, portable
+Workspace-to-Workspace transformations, and noun-command packet consumption are
+specified by
+[Definition-first Workspace interchange](#definition-first-workspace-interchange)
+under [#7379](https://github.com/richlander/dotnet-inspect/issues/7379).
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -109,9 +114,9 @@ Adjacent owners remain independent:
 - [CLI Workspace Sharing](cli-workspace-sharing.md) owns the public
   `--share` gesture, its use of an inspection command's already-resolved
   semantic state, terminal packet/URL output, refusal behavior, and
-  command-by-command adoption. It consumes this owner's scenario records and
-  typed packet-projection outcome rather than defining another Workspace or
-  packet grammar.
+  command-by-command adoption. It consumes this owner's definition-first
+  `workspace` role, records, and typed packet-projection outcomes rather than
+  defining another Workspace or packet grammar.
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
@@ -163,10 +168,15 @@ Navigation effect authority remain separate owner-issued currencies.
    `AssemblyContextGroup`.
 5. **The URL share packet is a terse projection of one scenario
    composition**, produced and consumed through the product transposition
-   layer. CLI inspection commands may request that projection through the
-   separately owned [`--share` contract](cli-workspace-sharing.md); Inspect Web
-   consumes it for restoration. The visible query is a human-readable courtesy
-   label; the peer definition records are always canonical.
+   layer. The `workspace` command authors or transforms the portable Workspace
+   definition under
+   [Definition-first Workspace interchange](#definition-first-workspace-interchange).
+   CLI inspection commands consume that Workspace context, retain their own
+   subject/query grammar, and may request a derived scenario projection through
+   the separately owned [`--share` contract](cli-workspace-sharing.md).
+   Inspect Web consumes the packet for restoration. The visible query is a
+   human-readable courtesy label; the peer definition records are always
+   canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable source contract. Version 2 uses
    one explicit Workspace state, one ordered state per open coordinate, one
@@ -182,6 +192,331 @@ Navigation effect authority remain separate owner-issued currencies.
    non-projectable Workspace may become the host's active realization under
    current authority. Retention, candidate cutover, and predecessor drainage
    remain host and realization-coordinator concerns.
+
+## Definition-first Workspace interchange
+
+The durable Workspace is a portable definition. The `workspace` command
+authors or transforms that definition and produces its canonical packet or
+URL. A live Workspace is temporary execution authority that may be used only to
+derive owner-issued facts represented in the resulting portable definition.
+
+This is the normative owner and exact claim for #7379. Supporting designs have
+separate roles:
+
+- [Inspection Plan Projections](inspection-plan-projections.md) supplies the
+  resolved inspection basis that a noun command may compose into a scenario.
+- [CLI Workspace Sharing](cli-workspace-sharing.md) supplies the common
+  noun-command `--share` gesture and visible refusal contract.
+- [Workspace top-level inventory](workspace-top-level-inventory.md) supplies
+  one typed observation over an admitted live Workspace.
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  supplies realization, authority, publication, drainage, and disposal.
+
+The conventional analogy is an MSBuild project definition versus its evaluated
+in-process model: the durable declaration can be exchanged and evaluated
+again, while evaluation state and acquired resources remain local. Browser URL
+state supplies a second analogy for composing durable Workspace and view intent
+without serializing rendered results. These analogies support the separation;
+they do not transfer another system's schema or lifecycle.
+
+The current CLI does not satisfy this target. It constructs one ephemeral
+realization, renders the typed top-level inventory, optionally enters Package
+Navigation, and exits. Direct registration construction is non-projectable, and
+the current packet grammar cannot represent every supported top-level
+registration.
+
+### Definition, plan, and realization
+
+The three Workspace forms sit at different altitudes:
+
+```text
+portable Workspace definition
+    durable authoring, interchange, and restoration intent
+             |
+             v
+WorkspacePlan plus owner-specific preparation
+    resource-free invocation intent derived for one host operation
+             |
+             v
+live Workspace realization
+    process-local acquired content, revisions, authority, and lifetime
+```
+
+The portable definition is the user-visible Workspace value. A canonical
+packet is its bounded interchange projection, optionally composed with
+portable query, view, and Navigation state into a scenario. `WorkspacePlan` is
+an invocation currency derived from that definition; it is not a substitute
+portable representation. A live Workspace realizes the plan for one process
+and never becomes packet payload.
+
+Direct CLI inputs first construct one complete portable definition. Package
+membership, Exact Library registrations, Package Prefix registrations, and
+Ecosystem registrations cannot remain split between a projectable definition
+and host-only construction arguments. This owner may then:
+
+1. project that definition directly to a packet;
+2. lower it to a plan and restoration or transformation recipe; or
+3. return a typed non-projectable result when the current packet version cannot
+   preserve the complete definition.
+
+Successful direct authoring does not use
+`NoRetainedDefinitionProjection` as its target state. That reason remains valid
+for an independently obtained live Workspace whose host truly retained no
+portable basis.
+
+### The `workspace` command
+
+The `workspace` command transforms portable Workspace state:
+
+```text
+direct definition inputs | packet | URL
+                   |
+                   v
+      validated portable definition
+                   |
+       +-----------+-----------+
+       |                       |
+       v                       v
+resource-free transform   authorized realization
+       |                       |
+       |             owner-issued portable facts
+       +-----------+-----------+
+                   |
+                   v
+        derived portable definition
+                   |
+                   v
+            packet or URL
+```
+
+A transformation may normalize, compose, filter, or enrich a definition. The
+durable result is the derived definition and its canonical packet projection,
+not the temporary realization or an inventory of runtime objects. A host may
+also render a summary or typed inventory, but that observation does not replace
+the portable output.
+
+Exact CLI option spelling, stdout/stderr placement, and whether packet or URL
+is the default scalar belong to CLI adoption. The semantic command must
+nevertheless make its durable result available without requiring the user to
+hand-author packet JSON.
+
+The command does not own Library, Type, Member, or other noun inspection
+queries. Users do not restate those subjects through a second Workspace
+grammar.
+
+### Realization-backed portable transformation
+
+Definition-first does not mean realization-free. `workspace` may acquire and
+realize content when a transformation requires facts unavailable in the
+resource-free definition, provided all of the following hold:
+
+1. The transformation names the owner-issued portable fact it will add,
+   remove, or replace.
+2. Realization uses the exact input definition and ordinary source,
+   authorization, target, and lifetime owners.
+3. The derived fact has a canonical representation in the output definition.
+4. The output contains no acquired bytes, live readers, result rows,
+   diagnostics, authorization, credentials, occurrence identities,
+   correspondence receipts, or host-lifetime state.
+5. Failure to obtain a complete portable result is visible and emits no
+   unchanged or partially enriched success packet.
+
+The transformation result retains an exact association among the input
+definition, the owner-issued evidence used during realization, and the derived
+definition. That association is process-local construction proof; only the
+derived portable facts cross the packet boundary.
+
+“Make Package dependencies explicit/top-level” is the motivating
+realization-backed transformation:
+
+1. Start from a definition containing one or more Package roots and target
+   declarations.
+2. Realize the selected roots under ordinary source authorization.
+3. Ask the dependency owner for the selected operation's owner-issued portable
+   Package coordinates.
+4. Add those coordinates as explicit top-level Workspace members under the
+   Workspace duplicate and order policy.
+5. Emit a derived definition and packet.
+
+The packet carries Package coordinates and targets, not nuspec XML, graph
+nodes, edges, traversal diagnostics, acquired archives, or cached resolution.
+Dependency selection, direct-versus-transitive policy, ordering, and failure
+remain with the dependency operation that supplies the portable coordinates.
+This owner governs only their insertion into the derived definition and the
+all-or-nothing portable outcome.
+
+### Noun-command consumption and derived scenarios
+
+An inspection command consumes a Workspace packet or URL as aggregate location
+context while retaining its own subject and query grammar. Conceptually:
+
+```console
+packet=$(dotnet-inspect workspace ... --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+```
+
+The exact packet-input option spelling belongs to command adoption. The Type
+name remains the `type` command's subject; Library and Member selection
+similarly remain with their noun commands. Supplying a Workspace packet does
+not make those commands multi-subject or move their query grammar into
+`workspace`.
+
+Appending noun-command Share may produce a **derived scenario packet**:
+
+```console
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet" \
+  --share packet
+```
+
+That packet preserves the input Workspace definition and adds only the
+projectable owner-issued subject, context, facet, query, or Navigation state
+resolved by the noun command. Bounded acquisition may establish an exact
+portable identity, but inspected content and query results do not enter the
+packet. If the command's semantic selection cannot be represented faithfully,
+the existing CLI Workspace Sharing refusal contract applies.
+
+### Packet completeness
+
+A packet emitted by `workspace` must represent the complete supported portable
+definition, not only the subset needed by the current Browser tab model. The
+packet family therefore requires representation for:
+
+- direct Package and named-group context members;
+- Exact Library registrations;
+- Package Prefix registrations;
+- Ecosystem registrations; and
+- the context, target, focus, view, query, and Navigation state separately
+  owned by existing scenario composition.
+
+This requirement does not select the next wire property names or mutate packet
+formats 1 and 2. This owner must introduce a versioned canonical projection
+whose validation, capacity, migration, and Browser support cover the new
+definition arms. Until that version exists, direct definitions using an
+unrepresentable arm fail Share visibly rather than dropping it.
+
+### Relationship to typed inventory
+
+`WorkspaceTopLevelInventoryOperation` remains the shared typed answer for
+observing one admitted realization. It is useful to Inspect Web, diagnostics,
+transformation previews, and verification that a realized definition produced
+the expected Package occurrences and inert registrations.
+
+It is not the durable Workspace itself. The target CLI does not:
+
+- treat a transient inventory document as the authored Workspace;
+- make direct definition input non-projectable merely because inventory
+  required realization;
+- use `workspace --active-package` as the long-term route to Library, Type, or
+  Member inspection; or
+- serialize inventory rows as a packet.
+
+Existing CLI inventory and `--active-package` behavior are transitional. They
+may be retired only after the definition-first command and equivalent
+packet-context noun-command paths exist.
+
+### CLI mockup
+
+The target mockup uses real Package and registration intent. Final option
+spelling and output streams belong to CLI adoption.
+
+Author a portable Workspace:
+
+```console
+$ dotnet-inspect workspace \
+    --package System.Text.Json@10.0.0 \
+    --tfm net10.0 \
+    --register-library \
+      System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
+    --register-package-prefix Microsoft.Extensions. \
+    --register-ecosystem aspire \
+    --share packet
+ey...
+```
+
+Enrich it by making Package dependencies explicit:
+
+```console
+$ dotnet-inspect workspace \
+    --packet ey... \
+    --make-package-dependencies-explicit \
+    --share packet
+ey...derived...
+```
+
+Inspect a Type within that aggregate context and share the derived scenario:
+
+```console
+$ dotnet-inspect type System.Text.Json.JsonSerializer \
+    --workspace ey...derived... \
+    --share url
+https://dotnet-inspect.net/?w=ey...scenario...
+```
+
+The neighboring registration-only case also emits a packet; it does not need
+Package acquisition merely to survive process exit.
+
+### Adoption and evidence
+
+Implementation proceeds in focused slices:
+
+1. **Contract correction.** Lock this owner and align CLI Workspace Sharing,
+   command cardinality, and typed inventory boundaries.
+2. **Complete packet projection.** Extend the versioned definition/packet
+   family for Package membership and every supported registration arm, with
+   canonical .NET/TypeScript round trips and visible unsupported-version
+   behavior.
+3. **Definition-first `workspace`.** Build direct inputs into one portable
+   definition, support packet/URL input, and emit packet/URL output without
+   realization when no transformation needs it.
+4. **Portable enrichment.** Add one real realization-backed transformation,
+   “make Package dependencies explicit/top-level,” using a nuget.org package
+   with deterministic direct dependencies and proving that no graph result
+   enters the packet.
+5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
+   `type`, then `library` and `member`, one command at a time.
+6. **Transitional retirement.** Remove `workspace --active-package` and any
+   duplicate noun-inspection path only after the corresponding packet-context
+   noun command is available.
+7. **Inspect Web completion.** Restore and present complete definition packets,
+   including registrations and derived scenarios, through the same Definitions
+   owner.
+
+Required evidence includes:
+
+- exact canonical round trips for Package, Exact Library, Package Prefix, and
+  Ecosystem-only definitions;
+- direct-input and packet-input semantic equivalence;
+- no-acquisition packet authoring for resource-free definitions;
+- realization-backed dependency promotion with deterministic portable output;
+- visible all-or-nothing failure when enrichment is incomplete or
+  non-projectable;
+- noun-command input preserving the exact Workspace definition while adding
+  only its own projectable scenario state;
+- Browser/Wasm restoration of each newly projectable arm; and
+- migration gates proving transitional `workspace` noun behavior is removed
+  only after equivalent noun-command adoption.
+
+These are finite definition, projection, and transformation contracts. They
+introduce no new concurrent lifecycle or replacement currency, so no new TLA+
+model is required. Existing realization and restoration models continue to
+govern any temporary live Workspace.
+
+### Non-claims
+
+This design does not:
+
+- serialize CLI argv, command names, rendered output, inspection results,
+  acquired artifacts, credentials, or live Workspace state;
+- define dependency traversal or Package resolution policy;
+- make a packet source authorization;
+- give `workspace` a second Library, Type, Member, or query language;
+- require realization for resource-free authoring or prohibit it for portable
+  enrichment;
+- make every noun-command operation immediately projectable; or
+- preserve transitional CLI behavior solely for compatibility.
 
 ## The definition schema
 
