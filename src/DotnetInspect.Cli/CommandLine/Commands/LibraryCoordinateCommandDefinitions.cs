@@ -93,6 +93,7 @@ internal static class LibraryCoordinateCommandDefinitions
         command.Options.Add(opts.Columns);
         command.Options.Add(opts.Fields);
         command.Options.Add(opts.Schema);
+        command.Options.Add(opts.Tree);
         opts.AddCountOptionTo(command);
         opts.AddPrintOptionTo(command);
         opts.AddShapeProjectionOptionsTo(command);
@@ -173,6 +174,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Effective = parseResult.GetValue(opts.Effective),
+                Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
                 SelectDefault = selectDefault,
                 SelectExplicitlySet = hasExplicitSelect,

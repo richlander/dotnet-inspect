@@ -1975,6 +1975,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_TreeDiscoveryMatchesLegacyILOffset()
+    {
+        var legacy = await RunAppAsync(
+            "library",
+            "--il-offset",
+            "0x06000001+0x0",
+            "-D",
+            "--schema",
+            "--tree",
+            "--tips",
+            "q");
+        var child = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "-D",
+            "--schema",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(legacy.Exit, child.Exit);
+        Assert.Equal(legacy.Output, child.Output);
+        Assert.Equal(legacy.Error, child.Error);
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_HelpShowsFocusAndNamedSources()
     {
         var parent = await RunAppAsync("library", "--help");
