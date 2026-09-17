@@ -99,6 +99,31 @@ public class ReturnMergePassTests
         Assert.IsType<Branch>(Assert.Single(defaultArm.Children));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StructuredTransferBeforeReturnTail_DoesNotReceiveClonedTail(bool useContinue)
+    {
+        var (function, transferBlock) = BuildStructuredTransferReturnTailCandidate(useContinue);
+
+        new ReturnMergePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Collection(
+            transferBlock.Children,
+            statement => Assert.IsType<StoreLocal>(statement),
+            statement =>
+            {
+                if (useContinue)
+                    Assert.IsType<Continue>(statement);
+                else
+                    Assert.IsType<Break>(statement);
+            });
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Block>(),
+            block => block.StartOffset == 0x0005);
+    }
+
     static (IrFunction Function, Block DefaultArm) BuildMixedReturnTailCandidate(int conditionalPredecessors)
     {
         var body = new BlockContainer();
@@ -158,5 +183,43 @@ public class ReturnMergePassTests
             new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+    }
+
+    static (IrFunction Function, Block TransferBlock) BuildStructuredTransferReturnTailCandidate(
+        bool useContinue)
+    {
+        var loopBody = new BlockContainer();
+
+        var first = new Block(0x0000);
+        first.Add(new Branch(0x0005));
+        loopBody.Add(first);
+
+        var second = new Block(0x0001);
+        second.Add(new Branch(0x0005));
+        loopBody.Add(second);
+
+        var transfer = new Block(0x0003);
+        transfer.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+        transfer.Add(useContinue ? new Continue() : new Break());
+        loopBody.Add(transfer);
+
+        var merge = new Block(0x0005);
+        merge.Add(new Return(new Constant(1, Int32)));
+        loopBody.Add(merge);
+
+        var entry = new Block(0x0010);
+        entry.Add(new DoWhileLoop(
+            loopBody,
+            new Constant(false, TypeRef.CoreLib("System", "Boolean"))));
+        entry.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(entry);
+        return (new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body), transfer);
     }
 }
