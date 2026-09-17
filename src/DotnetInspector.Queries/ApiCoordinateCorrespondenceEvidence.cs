@@ -78,18 +78,19 @@ static class ApiCoordinateCorrespondenceEvidenceProjector
         ArgumentNullException.ThrowIfNull(result);
 
         CoordinateLibraryPairingEvidence pairing = result.LibraryPairing.Detach();
-        ApiCoordinateDeclarationEvidence source = Declaration(
+        ApiCoordinateDeclarationEvidence source =
+            ApiCoordinateDeclarationEvidenceProjector.Project(
             result.Source,
             result.SourceKind,
-            pairing.Source,
+            result.LibraryPairing.Before,
             result.SourceBinding?.Declaration);
         ApiCoordinateDeclarationEvidence? destination =
             result.Destination is { } destinationSubject
             && result.Correspondence?.Target is { } target
-                ? Declaration(
+                ? ApiCoordinateDeclarationEvidenceProjector.Project(
                     destinationSubject,
                     target.Kind,
-                    FindLibrary(destinationSubject, result.LibraryPairing.After),
+                    result.LibraryPairing.After,
                     target)
                 : null;
 
@@ -104,10 +105,14 @@ static class ApiCoordinateCorrespondenceEvidenceProjector
             result.Failure);
     }
 
-    static ApiCoordinateDeclarationEvidence Declaration(
+}
+
+static class ApiCoordinateDeclarationEvidenceProjector
+{
+    internal static ApiCoordinateDeclarationEvidence Project(
         StructuralSubjectIdentity subject,
         ApiDeclarationKind kind,
-        CoordinateApiLibraryEvidence library,
+        CoordinatePackageObservation observation,
         ApiDeclarationReference? declaration)
     {
         (MetadataTypeDefinitionName declaringType, MemberAnchor? member) =
@@ -120,8 +125,19 @@ static class ApiCoordinateCorrespondenceEvidenceProjector
                 _ => throw new InvalidOperationException(
                     "An API coordinate must identify a Type or Member."),
             };
-        return new(library, declaringType, kind, member, declaration);
+        return new(
+            FindLibrary(subject, observation),
+            declaringType,
+            kind,
+            member,
+            declaration);
     }
+
+    internal static ApiCoordinateDeclarationEvidence Project(
+        StructuralSubjectIdentity subject,
+        ApiDeclarationKind kind,
+        CoordinatePackageObservation observation) =>
+        Project(subject, kind, observation, null);
 
     static CoordinateApiLibraryEvidence FindLibrary(
         StructuralSubjectIdentity subject,

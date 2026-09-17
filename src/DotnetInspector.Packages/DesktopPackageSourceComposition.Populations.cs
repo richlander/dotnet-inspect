@@ -10,7 +10,8 @@ public sealed partial class DesktopPackageSourceComposition
         SettleVersionPopulationAsync(
             PackageHouseVersionPopulationRequest request,
             NuGetSourceOptions? sourceOptions = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         PackageSourceOperationLease? sourceOperation =
@@ -30,7 +31,8 @@ public sealed partial class DesktopPackageSourceComposition
             var house = new PackageHouse(
                 new SinglePackageAuthorization(
                     request.Range.PackageId,
-                    authorization));
+                    authorization),
+                log: log);
             Task<PackageHouseVersionPopulationResult> execution =
                 house.SettleVersionPopulationAsync(
                     request,

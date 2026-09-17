@@ -36,7 +36,7 @@ public sealed record ApiCoordinateSourceSelectionFailure(
     ApiSurfaceProjectionTruncation? Truncation = null,
     MemberTargetDiagnosticKind? MemberDiagnostic = null);
 
-/// <summary>A detached source selection, not a destination correspondence claim.</summary>
+/// <summary>A live source selection, not a destination correspondence claim.</summary>
 public sealed class ApiCoordinateSourceSelectionResult
 {
     internal ApiCoordinateSourceSelectionResult(
@@ -64,6 +64,11 @@ public sealed class ApiCoordinateSourceSelectionResult
     public ApiCoordinateSourceSelectionFailure? Failure { get; }
     public ImmutableArray<ExactTypeApiInspectionFailure> InspectionFailures { get; }
     public MemberTargetKind? MemberKind { get; }
+
+    /// <summary>Projects this result to resource-free evidence.</summary>
+    public ApiCoordinateSourceSelectionEvidence Detach(
+        CoordinatePackageObservation source) =>
+        ApiCoordinateSourceSelectionEvidenceProjector.Project(this, source);
 }
 
 /// <summary>Resolves a user selector once, solely in its observed source Package.</summary>
@@ -76,6 +81,29 @@ public static class ApiCoordinateSourceSelectionQuery
         InspectionWorkspace workspace,
         CoordinatePackageObservation source,
         ApiCoordinateMatchRequest request,
+        ApiSurfaceProjectionLimits? limits = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return await ExecuteSourceAsync(
+            workspace,
+            source,
+            new ApiCoordinateSourceSelectionRequest(
+                request.PackageId,
+                request.SourceVersion,
+                request.Type,
+                request.Member,
+                request.Library,
+                request.IncludeAll),
+            limits,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async ValueTask<ApiCoordinateSourceSelectionResult>
+        ExecuteSourceAsync(
+        InspectionWorkspace workspace,
+        CoordinatePackageObservation source,
+        ApiCoordinateSourceSelectionRequest request,
         ApiSurfaceProjectionLimits? limits = null,
         CancellationToken cancellationToken = default)
     {
@@ -114,7 +142,7 @@ public static class ApiCoordinateSourceSelectionQuery
     static ApiCoordinateSourceSelectionResult Select(
         PackageAssemblyContextRealization realization,
         CoordinatePackageObservation source,
-        ApiCoordinateMatchRequest request,
+        ApiCoordinateSourceSelectionRequest request,
         ApiSurfaceProjectionLimits limits,
         CancellationToken cancellationToken)
     {

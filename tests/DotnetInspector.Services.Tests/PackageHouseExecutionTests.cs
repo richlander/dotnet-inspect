@@ -161,6 +161,44 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task VersionPopulationCanIncludeUnlistedDiscovery()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                "1.0.0..2.0.0",
+                includeUnlisted: true);
+
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.True(request.IncludeUnlisted);
+        Assert.Same(
+            PackageVersionDiscoveryContract
+                .CompleteVersionEnumerationIncludingUnlisted,
+            available.Evidence.Discovery!.Contract);
+        Assert.True(
+            available.Evidence.Discovery.Contract
+                .SupportsCompleteVersionEnumeration);
+        Assert.All(
+            environment.Clients,
+            client =>
+            {
+                Assert.Equal(1, client.VersionRequests);
+                Assert.Equal(0, client.PayloadRequests);
+            });
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task VersionPopulationCellRequiresItsExactVectorAddress()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -2383,7 +2421,8 @@ public sealed partial class PackageHouseExecutionTests
     private static PackageHouseVersionPopulationRequest PopulationRequest(
         string endpoints,
         bool includePrerelease = false,
-        TimeSpan? operationTimeout = null)
+        TimeSpan? operationTimeout = null,
+        bool includeUnlisted = false)
     {
         Assert.True(
             PackageVersionRange.TryParse(
@@ -2396,7 +2435,8 @@ public sealed partial class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Settle,
                 operationTimeout: operationTimeout),
-            includePrerelease);
+            includePrerelease,
+            includeUnlisted: includeUnlisted);
     }
 
     private static string[] VersionPopulation(int count) =>

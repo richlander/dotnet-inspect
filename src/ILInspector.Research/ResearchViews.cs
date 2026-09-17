@@ -23,7 +23,8 @@ public static partial class ResearchViews
         string? Detail,
         string Conditionality,
         FindingCensusReceipt? CensusReceipt = null,
-        FindingInstanceKey? InstanceKey = null);
+        FindingInstanceKey? InstanceKey = null,
+        ResearchFindingEvidence? Evidence = null);
 
     public sealed record AnnotatedSourceFactIdentity
     {
@@ -1274,7 +1275,9 @@ public static partial class ResearchViews
             fact.Detail,
             fact.Conditionality.ToString(),
             facts.Receipt,
-            fact.Entry.Key));
+            fact.Entry.Key,
+            ResearchFindingEvidence.Project(
+                fact.Entry.Finding.Payload)));
         var headerRows = headerFacts.Select(fact => new FactRow(
             member,
             ILOffset: null,

@@ -180,7 +180,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
+| `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -643,6 +643,7 @@ dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
+dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
@@ -930,6 +931,12 @@ dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
   --where "Cluster=3"
+
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  --where "Cluster=3" \
+  -S "Public Root Paths"
 ```
 
 The drill-down names every source member, source token, target member, target
@@ -938,6 +945,16 @@ cluster. Use source and target identities for ordinary `member` inspection.
 Use the evidence token with the IL offset for `library coordinate`, because a
 compiler-generated physical body can differ from the attributed source member.
 The cluster remains structural evidence rather than a source-inlining verdict.
+
+`Public Root Paths` traces the selected cluster's exact consumer methods back
+to exhaustive public MethodDef roots in the consumer library. Each row reports
+one deterministic shortest local static path, its public root and destination
+tokens, and physical IL receipts for every logical step. The section must be
+named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
+from defaults, bare `-S`, and wildcard section selection. A complete empty
+section means no public root has a local static path to the selected use sites.
+If pair, public-root, or path analysis is incomplete, retained positive paths
+are still rendered and the command exits nonzero instead of asserting absence.
 
 ```bash
 dotnet-inspect member "<SourceType>" \
