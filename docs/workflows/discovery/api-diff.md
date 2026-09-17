@@ -87,7 +87,7 @@ What new APIs were added in System.Text.Json 10.0.0?
 ```
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --additive -v:q -n 15
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --additive -v:q -n 15 --lines
 ```
 
 ```expect
@@ -174,7 +174,7 @@ identity and identify the producer in the `Mechanism` column:
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   -S "Implementation Diff" \
-  -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30
+  -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30 --lines
 ```
 
 ```expect
@@ -348,7 +348,7 @@ grep -oE '[0-9]+ breaking'
 ### 11a. NuGet 8 to 10
 
 ```bash
-dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15
+dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15 --lines
 ```
 
 ```expect
@@ -363,7 +363,7 @@ What changed in the platform System.Text.Json assembly between .NET 8 and the .N
 ```
 
 ```bash
-dotnet-inspect diff --platform System.Text.Json@8.0.0..11.0.0 -v:q -n 15
+dotnet-inspect diff --platform System.Text.Json@8.0.0..11.0.0 -v:q -n 15 --lines
 ```
 
 ```expect

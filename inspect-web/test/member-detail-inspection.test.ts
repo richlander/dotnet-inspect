@@ -137,6 +137,7 @@ function annotatedResult(): AnnotatedSourceResult {
   return {
     document,
     viewerCatalog: sampleViewerCatalog,
+    findingEvidence: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };

@@ -754,8 +754,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 PackageCompileAssetSelector.Evaluate(
                     payload.Content,
                     coordinate.PackageId,
-                    request.TargetContext!.RequestedFramework,
-                    request.TargetContext.RuntimeIdentifier);
+                    request.TargetContext?.RequestedFramework is null
+                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    request.TargetContext?.RequestedFramework,
+                    request.TargetContext?.RuntimeIdentifier);
             var realization =
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,

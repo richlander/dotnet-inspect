@@ -430,7 +430,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
+    public void PackageRootBinding_CompatibleEmptyGroupSelectsItsCompileSlice()
     {
         var payload = new AcquiredPackageSourcePayload(
             PackageSourceCoordinate.Create("compatible.empty", "1.0.0"),
@@ -450,11 +450,11 @@ public sealed class PackageAssemblyContextRealizationTests
                 "net9.0");
 
         Assert.Equal("net9.0", binding.Coordinate.Framework);
-        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal("net8.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             binding.Root.AssetSelection.Status);
-        Assert.Equal("net6.0", binding.Root.AssetSelection.TargetFramework);
+        Assert.Equal("net8.0", binding.Root.AssetSelection.TargetFramework);
         Assert.Empty(binding.Root.AssetSelection.Assets);
         Assert.Equal(
             ["lib/net6.0/Compatible.Empty.dll"],
@@ -463,12 +463,12 @@ public sealed class PackageAssemblyContextRealizationTests
             binding.CreateReacquisitionRequest();
         Assert.Equal("net9.0", reacquisition.Coordinate.Framework);
         Assert.Equal("net9.0", reacquisition.CompileTargetFramework);
-        Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
+        Assert.Equal("net8.0", reacquisition.SelectionTargetFramework);
         Assert.True(reacquisition.UsesCompatibleImplementationSelection);
     }
 
     [Fact]
-    public void CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection()
+    public void CompatibleEmptyGroup_ReacquisitionPreservesCompileSlice()
     {
         var payload = new AcquiredPackageSourcePayload(
             PackageSourceCoordinate.Create("compatible.reacquired", "1.0.0"),
@@ -495,7 +495,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 PackageRootAcquisition.BindReacquired(request, payload)).Binding;
 
         Assert.Equal("net9.0", request.CompileTargetFramework);
-        Assert.Equal("net6.0", request.SelectionTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             reopened.Root.AssetSelection.Status);
@@ -507,7 +507,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void ResolvedPackageRootBinding_CompatibleEmptyGroupSuppressesCompileFallback()
+    public void ResolvedPackageRootBinding_CompatibleEmptyGroupSelectsItsCompileSlice()
     {
         var payload = new AcquiredPackagePayload(
             new ResolvedPackageCoordinate(
@@ -533,10 +533,11 @@ public sealed class PackageAssemblyContextRealizationTests
                 "net9.0");
 
         Assert.Equal("net9.0", binding.Coordinate.Framework);
-        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal("net8.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             binding.Root.AssetSelection.Status);
+        Assert.Equal("net8.0", binding.Root.AssetSelection.TargetFramework);
         Assert.Empty(binding.Root.AssetSelection.Assets);
         Assert.Equal(
             ["lib/net6.0/Compatible.Empty.dll"],
@@ -641,7 +642,9 @@ public sealed class PackageAssemblyContextRealizationTests
         var payload = new AcquiredPackageSourcePayload(
             coordinate,
             new InMemoryPackageContent(
-                Archive(("lib/net11.0/Immutable.dll", [0x01])),
+                Archive(
+                    ("lib/net11.0/Immutable.dll", [0x01]),
+                    ("ref/net6.0/_._", [])),
                 fromCache: false,
                 producerKey: "tests"),
             "tests",
@@ -658,16 +661,35 @@ public sealed class PackageAssemblyContextRealizationTests
         IList<string> frameworks =
             Assert.IsAssignableFrom<IList<string>>(
                 binding.Root.AssetSelection.AvailableTargetFrameworks);
+        IList<string> emptyFrameworks =
+            Assert.IsAssignableFrom<IList<string>>(
+                binding.Root.AssetSelection.ExplicitEmptyTargetFrameworks);
+        IList<PackageCompileAssetSlice> slices =
+            Assert.IsAssignableFrom<IList<PackageCompileAssetSlice>>(
+                binding.Root.AssetSelection.AvailableSlices);
+        IList<PackageCompileAsset> sliceCandidates =
+            Assert.IsAssignableFrom<IList<PackageCompileAsset>>(
+                slices[0].CandidateAssets);
 
         Assert.True(assets.IsReadOnly);
         Assert.True(implementationAssets.IsReadOnly);
         Assert.True(frameworks.IsReadOnly);
+        Assert.True(emptyFrameworks.IsReadOnly);
+        Assert.True(slices.IsReadOnly);
+        Assert.True(sliceCandidates.IsReadOnly);
+        Assert.Equal(["net6.0"], emptyFrameworks);
         Assert.Throws<NotSupportedException>(
             () => assets.Add(assets[0]));
         Assert.Throws<NotSupportedException>(
             () => implementationAssets.Add(implementationAssets[0]));
         Assert.Throws<NotSupportedException>(
             () => frameworks.Add(frameworks[0]));
+        Assert.Throws<NotSupportedException>(
+            () => emptyFrameworks.Add(emptyFrameworks[0]));
+        Assert.Throws<NotSupportedException>(
+            () => slices.Add(slices[0]));
+        Assert.Throws<NotSupportedException>(
+            () => sliceCandidates.Add(sliceCandidates[0]));
     }
 
     [Fact]
@@ -977,6 +999,14 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             Framework,
             "linux-x64");
+        PackageCompileAssetSlice slice =
+            Assert.Single(package.AssetSelection.AvailableSlices);
+        Assert.Equal(
+            [
+                "lib/net11.0/Rid.Sample.dll",
+                "lib/net11.0/shadow/Rid.Sample.dll",
+            ],
+            slice.CandidateAssets.Select(asset => asset.Path));
         await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(

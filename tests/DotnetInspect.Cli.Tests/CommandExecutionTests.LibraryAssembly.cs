@@ -1727,7 +1727,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.CommandLine.dll", "--package", "System.CommandLine",
-            "-S", "SourceLink: Files", "--tips", "q", "-n", "18");
+            "-S", "SourceLink: Files", "--tips", "q", "-n", "18", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1798,6 +1798,74 @@ public partial class CommandExecutionTests
         Assert.Equal(legacy.Exit, child.Exit);
         Assert.Equal(legacy.Output, child.Output);
         Assert.Equal(legacy.Error, child.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCoordinateCommand_BareCountRequiresItemUnit(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ?
+                [
+                    "library", "-n", "1", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "--tips", "q",
+                ]
+                :
+                [
+                    "library", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "-n", "1",
+                    "--tips", "q",
+                ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "add --lines to select rendered lines",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCoordinateCommand_ExplicitLinesAcceptsCountPlacement(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ?
+                [
+                    "library", "-n", "1", "--lines", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "--tips", "q",
+                ]
+                :
+                [
+                    "library", "coordinate",
+                    "0x06000001+0x0",
+                    "--platform", "System.Text.Json",
+                    "-n", "1", "--lines",
+                    "--tips", "q",
+                ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
     }
 
     [Fact]
@@ -3641,7 +3709,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "*", "-n", "8", "--tips", "q");
+            "-S", "*", "-n", "8", "--lines", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("IL coordinate sections require", error);
