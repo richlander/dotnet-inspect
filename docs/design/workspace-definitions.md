@@ -453,6 +453,12 @@ definition, the owner-issued evidence used during realization, and the derived
 definition. That association is process-local construction proof; only the
 derived portable facts cross the packet boundary.
 
+[Portable Package-coordinate replacement](portable-coordinate-replacement.md)
+specializes this boundary under #7466: it consumes a correlated Navigation
+replacement outcome to derive the selected coordinate's portable state without
+changing unrelated intent. Its active-descendant schema prerequisite and
+CLI/Browser adoption remain explicit follow-ups.
+
 “Make Package dependencies explicit/top-level” is the motivating
 realization-backed transformation. Here **top-level** means an explicit direct
 member of an existing Workspace context, not a global member outside contexts:

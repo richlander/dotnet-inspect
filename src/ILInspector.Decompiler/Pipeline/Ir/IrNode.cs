@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Pipeline;
 public abstract class IrNode
 {
     List<IrNode> _children = [];
+    int[] _retainedSourceOffsets = [];
 
     public IrNode? Parent { get; private set; }
 
@@ -28,6 +29,11 @@ public abstract class IrNode
     /// offset) and the C# view (via the node that printed a line).
     /// </summary>
     public int SourceOffset { get; private set; } = -1;
+
+    internal IEnumerable<int> ProvenanceOffsets =>
+        SourceOffset >= 0
+            ? _retainedSourceOffsets.Prepend(SourceOffset)
+            : _retainedSourceOffsets;
 
     /// <summary>Records the originating IL offset. Stamped at import; idempotent.</summary>
     public void SetSourceOffset(int offset) => SourceOffset = offset;
@@ -53,6 +59,24 @@ public abstract class IrNode
         {
             SourceOffset = from.SourceOffset;
             OwnsSourceLabel = from.OwnsSourceLabel;
+        }
+    }
+
+    /// <summary>
+    /// Retains every imported offset from a consumed node without changing this
+    /// node's primary source-label ownership.
+    /// </summary>
+    internal void RetainProvenance(IrNode from)
+    {
+        foreach (int offset in from.ProvenanceOffsets)
+        {
+            if (offset < 0
+                || offset == SourceOffset
+                || _retainedSourceOffsets.Contains(offset))
+            {
+                continue;
+            }
+            _retainedSourceOffsets = [.. _retainedSourceOffsets, offset];
         }
     }
 

@@ -55,6 +55,7 @@ internal enum PackageQueryPredicateKind
     Prefix,
     Prerelease,
     NoDependencies,
+    DependencyTarget,
     Depends,
     Downloads,
     License,
@@ -122,6 +123,7 @@ internal sealed class PackageQueryVocabulary
     internal const string VocabularyIdentity = "package-query/v1";
     internal const string PopulationFamily = "population";
     internal const string PrereleaseFamily = "prerelease";
+    internal const string DependencyTargetFamily = "dependency-target";
     internal const string DownloadsFamily = "downloads";
     internal const string ToolFormatFamily = "tool-format";
     internal const string CandidatesDimension = "candidates";
@@ -290,11 +292,27 @@ internal sealed class PackageQueryVocabulary
             Evidence(scope),
             Evidence(explanation),
             terms,
+            DependencyTarget(resolved.Terms),
             maximumCandidates,
             maximumMatches,
             includePrerelease,
             selection,
             input);
+    }
+
+    private static PackageQueryDependencyTarget DependencyTarget(
+        IReadOnlyList<PortableQueryResolvedTerm<PackageQueryPredicate>> terms)
+    {
+        PortableQueryResolvedTerm<PackageQueryPredicate>? target =
+            terms.SingleOrDefault(term =>
+                term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependencyTarget);
+        return target?.Predicate.Text is { } framework
+            && !framework.Equals(
+                PackageQuery.DependencyTargetAllValue,
+                StringComparison.Ordinal)
+                ? PackageQueryDependencyTarget.ForTargetFramework(framework)
+                : PackageQueryDependencyTarget.All;
     }
 
     private static RowSelectionIntentOperation<string> ToRowSelectionOperation(

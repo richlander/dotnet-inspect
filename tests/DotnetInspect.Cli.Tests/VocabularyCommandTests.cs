@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
@@ -100,7 +101,7 @@ public sealed class VocabularyCommandTests
     }
 
     [Fact]
-    public async Task Command_DiscoveryListsOnlySections()
+    public async Task Command_DiscoveryListsAuthoredCatalog()
     {
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
@@ -110,12 +111,55 @@ public sealed class VocabularyCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("| Accessibility | section |", result.Output);
-        Assert.DoesNotContain("| category |", result.Output);
+        Assert.Equal(
+            """
+            | Name | Kind |
+            | ---- | ---- |
+            | @API | category |
+            | @Decompiler | category |
+            | @Vocabulary | category |
+            | Accessibility | section |
+            | C# Body Kinds | section |
+            | C# Style Choices | section |
+            | C# Style Tiers | section |
+            | Vocabulary Sections | section |
+            """,
+            result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(
+        SectionCategoryNames.Api,
+        "Accessibility")]
+    [InlineData(
+        SectionCategoryNames.Decompiler,
+        "C# Body Kinds|C# Style Choices|C# Style Tiers")]
+    [InlineData(
+        SectionCategoryNames.Vocabulary,
+        "Accessibility|C# Body Kinds|C# Style Choices|C# Style Tiers|Vocabulary Sections")]
+    public async Task Command_DiscoveryDrillsIntoAuthoredCategory(
+        string category,
+        string expectedNames)
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Discover = [category],
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            expectedNames.Split('|'),
+            result.Output.Split('\n')
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal)
+                    && !line.StartsWith("| Name ", StringComparison.Ordinal)
+                    && !line.StartsWith("| ---- ", StringComparison.Ordinal))
+                .Select(line => line.Split('|', StringSplitOptions.TrimEntries)[1]));
     }
 
     [Fact]
-    public async Task Command_CategorySelectorIsNoLongerAccepted()
+    public async Task Command_DecompilerCategorySelectsAuthoredSections()
     {
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
@@ -123,10 +167,63 @@ public sealed class VocabularyCommandTests
                 Select = ["@Decompiler"],
             })));
 
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            [
+                "C# Body Kinds",
+                "C# Style Choices",
+                "C# Style Tiers",
+            ],
+            result.Output.Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line => line[3..]));
+        Assert.DoesNotContain("## Accessibility", result.Output);
+        Assert.DoesNotContain("## Vocabulary Sections", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_VocabularyCategoryComposesEverySectionAlphabetically()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [SectionCategoryNames.Vocabulary],
+                JsonOutput = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            [
+                "api.accessibility",
+                "csharp.body-kinds",
+                "csharp.style-choices",
+                "csharp.style-tiers",
+                "vocabulary.sections",
+            ],
+            document.RootElement.GetProperty("sections")
+                .EnumerateArray()
+                .Select(section => section.GetProperty("id").GetString()));
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("@Default")]
+    [InlineData("@Hidden")]
+    public async Task Command_ComputedCategoryPolesAreRejected(string selector)
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [selector],
+            })));
+
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Select value '@Decompiler' not found.",
+            $"Select value '{selector}' not found.",
             result.Error);
     }
 
@@ -239,9 +336,9 @@ public sealed class VocabularyCommandTests
             $"""
             | Section | Count |
             | ------- | ----- |
-            | C# Style Tiers | {tiers.Values.Length} |
-            | C# Style Choices | {choices.Values.Length} |
             | C# Body Kinds | {bodyKinds.Values.Length} |
+            | C# Style Choices | {choices.Values.Length} |
+            | C# Style Tiers | {tiers.Values.Length} |
             """,
             result.Output.Trim());
     }
@@ -513,6 +610,46 @@ public sealed class VocabularyCommandTests
         Assert.Equal(0, head.ExitCode);
         Assert.Empty(head.Error);
         Assert.Equal(expectedIds[..2], TsvValues(head.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitLinesClipRenderedTsv()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "2",
+            "--lines",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            2,
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task CommandLine_LinesRejectCompleteJson()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "-n",
+            "2",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
     }
 
     [Fact]

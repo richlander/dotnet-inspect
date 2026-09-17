@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Instructions;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -42,6 +43,18 @@ public readonly record struct LocalSlotScope(int StartOffset, int EndOffset)
 }
 
 /// <summary>
+/// One exact Portable PDB LocalVariable/LocalScope association. Row identities
+/// remain distinct even when names, slots, and ranges are equal.
+/// </summary>
+public sealed record PdbLocalDeclaration(
+    int VariableRowId,
+    int ScopeRowId,
+    int SlotIndex,
+    string Name,
+    LocalSlotScope Scope,
+    LocalVariableAttributes Attributes);
+
+/// <summary>
 /// A method body as plain data: no metadata handles, no lifetime — safe to
 /// hold after its <see cref="MetadataSource"/> is disposed.
 /// </summary>
@@ -61,6 +74,9 @@ public sealed record MethodBody(
     internal ImmutableArray<DecompilerExceptionClauseImport>
         ExceptionClauseImports
     { get; init; } = [];
+
+    public ImmutableArray<PdbLocalDeclaration> LocalDeclarations { get; init; } = [];
+    public bool LocalDeclarationsAreComplete { get; init; } = true;
 
     /// <summary>
     /// Per local slot, whether the portable PDB scoped the local to something

@@ -363,6 +363,12 @@ public class QueryDiscoveryTests
                     == PackageQuery.LicenseTermKey)
                 .GetProperty("values").EnumerateArray()
                 .Select(value => value.GetString()));
+        Assert.Equal(
+            "all or NuGet target framework",
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.DependencyTargetTermKey)
+                .GetProperty("value_kind").GetString());
     }
 
     [Fact]

@@ -37,6 +37,14 @@ public static class SectionCategoryNames
     public const string Project = "@Project";
 
     /// <summary>
+    /// Product-owned query vocabularies. This is the vocabulary command's base category.
+    /// </summary>
+    public const string Vocabulary = "@Vocabulary";
+
+    /// <summary>Vocabularies consumed by API type and member queries.</summary>
+    public const string Api = "@API";
+
+    /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
     /// member scope. Members that are also ordinary command evidence remain cross-listed in their
     /// base category.

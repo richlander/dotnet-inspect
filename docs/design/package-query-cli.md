@@ -46,7 +46,8 @@ Package-content evaluation is product-gated to at most 20 candidates.
 canary.
 
 CLI and Browser now consume the same first production vocabulary:
-`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
+`dependencies=none`, `dependency-target=all|<tfm>`,
+`depends=<package-id>`, `downloads=10k|100k|1m`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
 `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
@@ -122,8 +123,9 @@ The production inspection vocabulary is:
 
 | Term | Value | Tier | Meaning |
 | --- | --- | --- | --- |
-| `dependencies` | `none` | nuspec | No declared dependencies in any group |
-| `depends` | NuGet package ID | nuspec | Direct dependency declared in any group |
+| `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
+| `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
+| `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
@@ -143,6 +145,10 @@ The CLI spells inspection terms through the existing predicate grammar:
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "downloads=1m"
+
+dotnet-inspect package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
@@ -167,11 +173,22 @@ collapse, matching the canonical codec; both CLI and Browser receive the same
 typed planning rejection for a twenty-third inspection term.
 
 `depends` uses NuGet package-ID comparison semantics and matches a direct
-dependency declared in any nuspec dependency group. It does not select a
-target-framework group, evaluate version-range satisfiability, or traverse
-transitively. A matching package's evidence names every distinct observed
-dependency spelling and declared range, subject to the bounded evidence
-preview.
+dependency. Without `dependency-target`, or with
+`dependency-target=all`, dependency predicates inspect every nuspec group.
+`all` is Package Query scope rather than a target-framework identity and is
+distinct from a manifest's real `any` group.
+
+`dependency-target=<tfm>` canonicalizes the requested NuGet target and uses
+the dependency-group owner's compatible selection. The plan and evidence
+retain the requested target and selected manifest group separately. A selected
+empty group and a manifest with no dependency groups satisfy
+`dependencies=none`; no matching target framework does not. The target term
+requires at least one `depends` or `dependencies` term, applies to all such
+terms in the query, and does not traverse, resolve version ranges, or select
+package assets.
+
+Matching dependency evidence identifies each declaration's manifest group,
+package ID, and declared range, subject to the bounded evidence preview.
 
 `license=any` matches any recognized nuspec `<license>` declaration or legacy
 `<licenseUrl>`. Named values are a closed product vocabulary, not arbitrary
@@ -190,11 +207,13 @@ manifest request. Nuspec terms acquire manifests but no package archive;
 manifest predicates run before archive acquisition.
 
 `PackageQueryTests` gates vocabulary shape, complete intent retention,
-resolution, composition, evidence, candidate/match completion, and the
-search-metadata/no-manifest boundary. Its license cases gate `any`, exact SPDX
-identity, the `OSMFEULA.*` nuspec filename pattern, and zero package-content
-acquisition. `PackageQueryCliTests` gates discovery, term spelling, Head/Count
-behavior, acquisition authorization, and output parity.
+resolution, dependency-target default and canonical binding, compatible group
+selection, selected-empty/no-groups/no-match behavior, license identity,
+candidate/match completion, and the search-metadata/no-manifest boundary. Its
+license cases gate `any`, exact SPDX identity, the `OSMFEULA.*` nuspec filename
+pattern, and zero package-content acquisition. `PackageQueryCliTests` gates
+discovery, term spelling, Head/Count behavior, acquisition authorization, and
+output parity.
 
 ## CLI term binding
 
