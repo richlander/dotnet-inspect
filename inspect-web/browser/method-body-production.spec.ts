@@ -34,9 +34,16 @@ test.describe("published Method Body comparison transport", () => {
         const cancellation = source.cancelMethodBodyComparison(
           "method-body-production-not-active", "user",
         );
-        const surface = await packages.queryPackage(
+        const loadResult = await packages.queryPackage(
           "Microsoft.Extensions.Primitives", "10.0.0", "net10.0",
         );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "Package version settlement did not produce a surface.",
+          );
+        }
         const type = surface.types.find(
           candidate =>
             candidate.definitionId
@@ -152,9 +159,16 @@ test.describe("published Method Body comparison transport", () => {
       const evidence = await page.evaluate(async () => {
         const packages = await import("/inspect-web-package.js");
         const source = await import("/inspect-web-source.js");
-        const surface = await packages.queryPackage(
+        const loadResult = await packages.queryPackage(
           "InspectWeb.MethodBodyFixtures", "1.0.0", "net11.0",
         );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "Package version settlement did not produce a surface.",
+          );
+        }
         const type = surface.types.find(candidate =>
           candidate.definitionId === "InspectWeb.MethodBodyFixtures.Left");
         const member = type?.api.find(candidate =>

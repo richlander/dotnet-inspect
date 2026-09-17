@@ -8,6 +8,7 @@ import {
   createRuntimePackageModel,
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
+  PackageVersionSettlementError,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
   runtimeAssemblyIsResident,
@@ -18,6 +19,7 @@ import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
   BrowserPackageSurface,
+  BrowserPackageVersionSettlementInspection,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
 
@@ -207,6 +209,48 @@ test("NuGet package models retain the product-issued icon descriptor", () => {
   assert.deepEqual(model.icon, icon);
 });
 
+test("NuGet package models retain the complete version settlement baseline", () => {
+  const versionSettlement = {
+    content: {
+      kind: "Settled",
+      result: {
+        request: {
+          packageId: "system.text.json",
+          version: "8.0.5",
+        },
+        coordinate: {
+          packageId: "system.text.json",
+          version: "8.0.5",
+        },
+        includePrerelease: false,
+        freshness: null,
+        listings: [],
+        sourceListings: [],
+      },
+      failure: null,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-version-settlement/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [{
+      code: "package-version-settlement.source-failure",
+      severity: "Warning",
+      summary: "A neighboring source was unavailable.",
+      correspondence: null,
+    }],
+  } satisfies BrowserPackageVersionSettlementInspection;
+
+  const model = createNuGetPackageModel(
+    packageSurface(),
+    versionSettlement);
+
+  assert.deepEqual(model.versionSettlement, versionSettlement);
+});
+
 test("graph-only implementation bodies select, switch, and clear", () => {
   const overload = {
     ...createAppMemberSurface(memberSurface()),
@@ -321,7 +365,37 @@ function acquisitionDependencies(
   overrides: Partial<PackageAcquisitionDependencies> = {},
 ): PackageAcquisitionDependencies {
   return {
-    queryPackage: async () => packageSurface(),
+    queryPackage: async () => ({
+      versionSettlement: {
+        content: {
+          kind: "Settled",
+          result: {
+            request: {
+              packageId: "example.package",
+              version: "1.2.3",
+            },
+            coordinate: {
+              packageId: "example.package",
+              version: "1.2.3",
+            },
+            includePrerelease: false,
+            freshness: null,
+            listings: [],
+            sourceListings: [],
+          },
+          failure: null,
+        },
+        share: {
+          kind: "NonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "package-version-settlement/share",
+          reason: "No canonical Workspace share projection.",
+        },
+        diagnostics: [],
+      },
+      surface: packageSurface(),
+    }),
     loadRuntimePack: async () => JSON.stringify(
       runtimeSurface("corelib", "System.Private.CoreLib", "System.Object")),
     loadRuntimePackAssembly: async () => JSON.stringify(
@@ -384,7 +458,10 @@ test("missing exact Root capability never falls back to coordinate opening", asy
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackage: async () => {
       coordinateCalls++;
-      return packageSurface();
+      return acquisitionDependencies().queryPackage(
+        "Example.Package",
+        "1.2.3",
+        "net10.0");
     },
   }));
 
@@ -395,6 +472,56 @@ test("missing exact Root capability never falls back to coordinate opening", asy
     rootRequest: "owner-issued-root-request",
   }), /Exact package Root opening is unavailable/);
   assert.equal(coordinateCalls, 0);
+});
+
+test("NotSettled package loads preserve the complete shared baseline", async () => {
+  const versionSettlement = {
+    content: {
+      kind: "NotSettled",
+      result: null,
+      failure: {
+        request: {
+          packageId: "system.text.json",
+          version: null,
+        },
+        kind: "NoMatch",
+        reason: "No listed version satisfies the stable policy.",
+        operationTimedOut: false,
+        authorityFailures: [{
+          authority: "nuget.org",
+          kind: "Unavailable",
+          message: "Registration evidence was unavailable.",
+          timeoutKind: null,
+        }],
+      },
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-version-settlement/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  } satisfies BrowserPackageVersionSettlementInspection;
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackage: async () => ({
+      versionSettlement,
+      surface: null,
+    }),
+  }));
+
+  await assert.rejects(
+    acquisition.loadPackage({
+      packageId: "System.Text.Json",
+      version: "latest",
+      framework: "net10.0",
+    }),
+    error => {
+      assert.ok(error instanceof PackageVersionSettlementError);
+      assert.deepEqual(error.inspection, versionSettlement);
+      return true;
+    });
 });
 
 test("exact Root opening failure remains visible without coordinate retry", async () => {
