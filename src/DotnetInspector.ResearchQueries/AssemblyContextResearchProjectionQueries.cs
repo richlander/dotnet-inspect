@@ -7,6 +7,7 @@ using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Inspector.Findings;
 
 namespace DotnetInspector.Queries;
 
@@ -36,6 +37,7 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool AnnotatedSource = false,
     bool SourceDocument = false,
     bool FactRows = false,
+    bool FindingEvidence = false,
     bool InvocationDestinations = false,
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
@@ -68,10 +70,30 @@ public sealed record AssemblyMemberInvocationDestination(
     int NodeId,
     CallGraphNode Target);
 
+/// <summary>
+/// One method-qualified instruction coordinate supporting a caller-side Finding.
+/// </summary>
+public sealed record AssemblyMemberCalleeEvidenceCoordinate(
+    ResearchEvidenceLocation Location,
+    CallSiteEvidenceKind Kind);
+
+/// <summary>
+/// One exact Finding instance joined to its physical callee document and source nodes.
+/// </summary>
+public sealed record AssemblyMemberFindingEvidence(
+    int FactId,
+    FindingInstanceKey InstanceKey,
+    MethodIdentity Member,
+    IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> Coordinates,
+    AnnotatedSourceDocument? SourceDocument,
+    IReadOnlyList<int> NodeIds,
+    string? UnavailableReason);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
+    IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations);
 
 /// <summary>
@@ -194,6 +216,13 @@ public static class AssemblyContextMemberProjectionQuery
                 "Invocation destinations require a source document.",
                 nameof(request));
         }
+        if (request.FindingEvidence
+            && (!request.SourceDocument || !request.FactRows))
+        {
+            throw new ArgumentException(
+                "Finding evidence requires Facts rows and a source document.",
+                nameof(request));
+        }
     }
 
     static AssemblyMemberProjection Project(
@@ -233,6 +262,8 @@ public static class AssemblyContextMemberProjectionQuery
                     subject,
                     snapshot,
                     resolver);
+            ResearchAssemblyContext? assembly =
+                index is null ? null : ResearchAssemblyContext.Create(index);
             ResearchViews.MemberProjectionResult projection =
                 ResearchViews.ProjectMember(
                     new ResearchViews.MemberProjectionRequest(
@@ -251,7 +282,17 @@ public static class AssemblyContextMemberProjectionQuery
                         request.PrinterOptions,
                         CaretFocus: null,
                         request.SourceDocument,
-                        index is null ? null : ResearchAssemblyContext.Create(index)));
+                        assembly));
+            IReadOnlyList<AssemblyMemberFindingEvidence>? findingEvidence =
+                request.FindingEvidence
+                    ? assembly is null
+                        ? null
+                        : ProjectFindingEvidence(
+                            source,
+                            projection,
+                            assembly,
+                            request.PrinterOptions)
+                    : null;
             IReadOnlyList<AssemblyMemberInvocationDestination> destinations =
                 request.InvocationDestinations
                     && index is not null
@@ -262,6 +303,7 @@ public static class AssemblyContextMemberProjectionQuery
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
+                findingEvidence,
                 destinations);
             resolver.ValidateForPublication();
             return result;
@@ -274,6 +316,255 @@ public static class AssemblyContextMemberProjectionQuery
             index?.ReleaseCallGraphCaches();
         }
     }
+
+    static IReadOnlyList<AssemblyMemberFindingEvidence> ProjectFindingEvidence(
+        MetadataSource source,
+        ResearchViews.MemberProjectionResult projection,
+        ResearchAssemblyContext assembly,
+        PrinterOptions? printerOptions)
+    {
+        if (projection.Facts is not { } facts
+            || projection.SourceDocumentFactIdentities is not { } identities)
+        {
+            throw new InvalidOperationException(
+                "Callee evidence requires one Finding census projected through Facts and Annotated Source.");
+        }
+
+        Dictionary<FindingInstanceKey, int> factIdsByInstance =
+            identities.ToDictionary(
+                identity => identity.InstanceKey,
+                identity => identity.FactId);
+        var calleeProjections =
+            new Dictionary<MethodIdentity, CalleeSourceProjection>();
+        var result = new List<AssemblyMemberFindingEvidence>();
+        foreach (ResearchViews.FactRow fact in facts)
+        {
+            if (fact.Id is not ("semantics.callee" or "safety.callee")
+                || fact.InstanceKey is not { } instanceKey
+                || fact.Evidence is not { } evidence)
+            {
+                continue;
+            }
+            if (!factIdsByInstance.TryGetValue(instanceKey, out int factId))
+            {
+                throw new InvalidOperationException(
+                    $"Callee evidence Finding instance {instanceKey} has no Annotated Source fact identity.");
+            }
+            if (evidence.State == ResearchFindingEvidenceState.Method)
+            {
+                throw new InvalidOperationException(
+                    $"Instruction-level Finding '{fact.Id}' carried method-only evidence.");
+            }
+
+            IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> coordinates =
+                EvidenceCoordinates(fact.Id, evidence, assembly);
+            if (evidence.State == ResearchFindingEvidenceState.InstructionUnavailable)
+            {
+                result.Add(new AssemblyMemberFindingEvidence(
+                    factId,
+                    instanceKey,
+                    evidence.Subject,
+                    coordinates,
+                    SourceDocument: null,
+                    NodeIds: [],
+                    "Research reported no instruction coordinates for this callee evidence."));
+                continue;
+            }
+
+            CalleeSourceProjection callee = ProjectCalleeSource(
+                source,
+                assembly,
+                evidence.Subject,
+                printerOptions,
+                calleeProjections);
+            if (callee.Document is null)
+            {
+                result.Add(new AssemblyMemberFindingEvidence(
+                    factId,
+                    instanceKey,
+                    evidence.Subject,
+                    coordinates,
+                    SourceDocument: null,
+                    NodeIds: [],
+                    callee.Failure
+                        ?? "The callee source document was unavailable."));
+                continue;
+            }
+
+            (int[] NodeIds, string? Failure) correspondence =
+                FindEvidenceNodes(callee.Document, coordinates);
+            result.Add(new AssemblyMemberFindingEvidence(
+                factId,
+                instanceKey,
+                evidence.Subject,
+                coordinates,
+                callee.Document,
+                correspondence.Failure is null
+                    ? correspondence.NodeIds
+                    : [],
+                correspondence.Failure));
+        }
+        return result;
+    }
+
+    static IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> EvidenceCoordinates(
+        string descriptor,
+        ResearchFindingEvidence evidence,
+        ResearchAssemblyContext assembly)
+    {
+        var coordinates =
+            new List<AssemblyMemberCalleeEvidenceCoordinate>(
+                evidence.Locations.Length);
+        foreach (ResearchEvidenceLocation location in evidence.Locations)
+        {
+            if (location.Admit(evidence.Subject)
+                is ResearchEvidenceLocationAdmission.Rejected rejected)
+            {
+                throw new InvalidOperationException(
+                    $"Callee evidence location for '{descriptor}' names "
+                        + $"'{rejected.Location.Method}' instead of "
+                        + $"'{rejected.ExpectedMethod}'.");
+            }
+            if (location.ILOffset is not int)
+            {
+                throw new InvalidOperationException(
+                    $"Instruction-level Finding '{descriptor}' carried a method-only location.");
+            }
+
+            CallSiteEvidenceKind kind = descriptor switch
+            {
+                "semantics.callee" =>
+                    CallSiteEvidenceKind.ExceptionConstruction,
+                "safety.callee" => SafetyEvidenceKind(
+                    assembly,
+                    evidence.Subject,
+                    location),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(descriptor),
+                    descriptor,
+                    "Unsupported callee evidence descriptor."),
+            };
+            coordinates.Add(new AssemblyMemberCalleeEvidenceCoordinate(
+                location,
+                kind));
+        }
+        return coordinates;
+    }
+
+    static CallSiteEvidenceKind SafetyEvidenceKind(
+        ResearchAssemblyContext assembly,
+        MethodIdentity subject,
+        ResearchEvidenceLocation location)
+    {
+        CallSiteEvidenceKind[] kinds =
+        [
+            .. assembly.UnsafeEvidenceByToken
+                .GetValueOrDefault(subject.MetadataToken, [])
+                .Where(item =>
+                    item.ILOffset is int offset
+                    && ResearchEvidenceLocation.ForInstruction(
+                        item.Member,
+                        offset) == location)
+                .Select(SafetyEvidenceKind)
+                .Where(static kind => kind is not null)
+                .Select(static kind => kind!.Value)
+                .Distinct(),
+        ];
+        return kinds.Length == 1
+            ? kinds[0]
+            : throw new InvalidOperationException(
+                $"Safety evidence at IL_{location.ILOffset:X4} in "
+                    + $"'{subject}' mapped to {kinds.Length} supported evidence kinds.");
+    }
+
+    static CallSiteEvidenceKind? SafetyEvidenceKind(UnsafeEvidence evidence) =>
+        (evidence.Detail, evidence.Kind) switch
+        {
+            ("localloc", "opcode") => CallSiteEvidenceKind.Localloc,
+            (_, "calli") => CallSiteEvidenceKind.Calli,
+            _ => null,
+        };
+
+    static CalleeSourceProjection ProjectCalleeSource(
+        MetadataSource source,
+        ResearchAssemblyContext assembly,
+        MethodIdentity callee,
+        PrinterOptions? printerOptions,
+        IDictionary<MethodIdentity, CalleeSourceProjection> cache)
+    {
+        if (cache.TryGetValue(callee, out CalleeSourceProjection? existing))
+            return existing;
+
+        ResearchViews.MemberProjectionResult projected =
+            ResearchViews.ProjectMember(
+                new ResearchViews.MemberProjectionRequest(
+                    source,
+                    callee.DeclaringType.ToQualifiedDisplayString(),
+                    callee.Name,
+                    MethodToken: callee.MetadataToken,
+                    PrinterOptions: printerOptions,
+                    SourceDocument: true,
+                    Assembly: assembly));
+        var created = new CalleeSourceProjection(
+            projected.SourceDocument,
+            projected.SourceDocumentFailure?.Diagnostics.Count > 0
+                ? string.Join(
+                    "; ",
+                    projected.SourceDocumentFailure.Diagnostics.Select(
+                        diagnostic => diagnostic.ToString()))
+                : projected.SourceDocument is null
+                    ? "The callee source document was unavailable."
+                    : null);
+        cache.Add(callee, created);
+        return created;
+    }
+
+    internal static (int[] NodeIds, string? Failure) FindEvidenceNodes(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> coordinates)
+    {
+        var nodeIds = new List<int>();
+        foreach (AssemblyMemberCalleeEvidenceCoordinate coordinate in coordinates)
+        {
+            int ilOffset = coordinate.Location.ILOffset
+                ?? throw new InvalidOperationException(
+                    "Callee evidence correspondence requires an instruction offset.");
+            string expectedKind = EvidenceNodeKind(coordinate.Kind);
+            AnnotatedSourceNode[] matches =
+            [
+                .. document.Nodes.Where(node =>
+                    node.Medium == SourceLineKind.CSharp
+                    && string.Equals(
+                        node.Kind,
+                        expectedKind,
+                        StringComparison.Ordinal)
+                    && node.Provenance?.IlOffsets.Contains(ilOffset) == true),
+            ];
+            if (matches.Length != 1)
+            {
+                return (
+                    [],
+                    $"Callee evidence at IL_{ilOffset:X4} matched "
+                        + $"{matches.Length} product-issued {expectedKind} nodes.");
+            }
+            nodeIds.Add(matches[0].Id);
+        }
+        return ([.. nodeIds.Distinct()], null);
+    }
+
+    static string EvidenceNodeKind(CallSiteEvidenceKind kind) =>
+        kind switch
+        {
+            CallSiteEvidenceKind.ExceptionConstruction =>
+                "ObjectCreationExpression",
+            CallSiteEvidenceKind.Localloc => "StackAllocationExpression",
+            CallSiteEvidenceKind.Calli => "IndirectInvocationExpression",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
+    sealed record CalleeSourceProjection(
+        AnnotatedSourceDocument? Document,
+        string? Failure);
 
     static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
         LibraryBodyIndex index,

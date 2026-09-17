@@ -37,6 +37,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             invocationDestinations = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             destinationUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceFindingEvidence[]?
+            findingEvidence = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            findingEvidenceUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -77,7 +82,16 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             defaultFindingIds,
             supportedMedia,
             invocationLikeNodeKinds,
-            NotProjected,
+            findingEvidence is null
+                ? findingEvidenceUnavailableReason
+                    == BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    ? NotProjected
+                    : new BrowserAnnotatedSourceCapabilityAvailability(
+                        Available: false,
+                        findingEvidenceUnavailableReason)
+                : new BrowserAnnotatedSourceCapabilityAvailability(
+                    Available: true,
+                    UnavailableReason: null),
             invocationDestinations is null
                 ? destinationUnavailableReason
                     == BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected

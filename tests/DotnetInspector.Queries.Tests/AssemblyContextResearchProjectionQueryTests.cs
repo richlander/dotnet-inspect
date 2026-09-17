@@ -82,6 +82,116 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.Contains(document.Facts, fact => fact.Descriptor == "alloc.box");
     }
 
+    [Theory]
+    [InlineData(
+        nameof(ResearchProjectionProbe.InvokeStackAllocation),
+        "safety.callee",
+        CallSiteEvidenceKind.Localloc,
+        "StackAllocationExpression",
+        "stackalloc")]
+    [InlineData(
+        nameof(ResearchProjectionProbe.InvokeFunctionPointer),
+        "safety.callee",
+        CallSiteEvidenceKind.Calli,
+        "IndirectInvocationExpression",
+        "callback")]
+    [InlineData(
+        nameof(ResearchProjectionProbe.InvokeThrowing),
+        "semantics.callee",
+        CallSiteEvidenceKind.ExceptionConstruction,
+        "ObjectCreationExpression",
+        "InvalidOperationException")]
+    public async Task MemberProjection_MapsCalleeInstructionEvidenceToExactSource(
+        string member,
+        string descriptor,
+        CallSiteEvidenceKind kind,
+        string nodeKind,
+        string expectedText)
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                FindingEvidenceRequest(member)));
+
+        AssemblyMemberFindingEvidence evidence = Assert.Single(
+            Assert.IsAssignableFrom<IReadOnlyList<AssemblyMemberFindingEvidence>>(
+                projection.FindingEvidence),
+            candidate =>
+                projection.Projection.SourceDocument!.Facts[candidate.FactId]
+                    .Descriptor == descriptor);
+        AssemblyMemberCalleeEvidenceCoordinate coordinate =
+            Assert.Single(evidence.Coordinates);
+        Assert.Equal(kind, coordinate.Kind);
+        Assert.Equal(evidence.Member, coordinate.Location.Method);
+        Assert.Null(evidence.UnavailableReason);
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(evidence.SourceDocument);
+        AnnotatedSourceNode node =
+            Assert.Single(evidence.NodeIds.Select(id => document.Nodes[id]));
+        Assert.Equal(nodeKind, node.Kind);
+        Assert.Equal(SourceLineKind.CSharp, node.Medium);
+        Assert.Contains(expectedText, NodeText(document, node), StringComparison.Ordinal);
+        Assert.Contains(
+            projection.Projection.SourceDocumentFactIdentities!,
+            identity =>
+                identity.FactId == evidence.FactId
+                && identity.InstanceKey == evidence.InstanceKey);
+    }
+
+    [Fact]
+    public async Task CalleeEvidenceCorrespondence_ReportsZeroAndAmbiguousNodes()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                FindingEvidenceRequest(
+                    nameof(ResearchProjectionProbe.InvokeStackAllocation))));
+        AssemblyMemberCalleeEvidenceCoordinate coordinate = Assert.Single(
+            Assert.Single(projection.FindingEvidence!).Coordinates);
+
+        (int[] missingIds, string? missingFailure) =
+            AssemblyContextMemberProjectionQuery.FindEvidenceNodes(
+                new AnnotatedSourceDocument("", [], [], [], []),
+                [coordinate]);
+        Assert.Empty(missingIds);
+        Assert.Contains("matched 0", missingFailure, StringComparison.Ordinal);
+
+        var provenance = new AnnotatedSourceNodeProvenance(
+            [coordinate.Location.ILOffset!.Value]);
+        var ambiguous = new AnnotatedSourceDocument(
+            "ab",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 1)],
+                    Provenance: provenance),
+                new AnnotatedSourceNode(
+                    1,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(1, 1)],
+                    Provenance: provenance),
+            ],
+            [],
+            [],
+            []);
+        (int[] ambiguousIds, string? ambiguousFailure) =
+            AssemblyContextMemberProjectionQuery.FindEvidenceNodes(
+                ambiguous,
+                [coordinate]);
+        Assert.Empty(ambiguousIds);
+        Assert.Contains("matched 2", ambiguousFailure, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task MemberProjection_MapsAnInvocationNodeToItsTypedCallee()
     {
@@ -286,6 +396,25 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 }));
 
         Assert.Contains("source document", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberProjection_RequiresFactsAndSourceForFindingEvidence()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeStackAllocation)) with
+                {
+                    FactRows = false,
+                    FindingEvidence = true,
+                }));
+
+        Assert.Contains("Facts rows and a source document", error.Message);
     }
 
     [Fact]
@@ -532,6 +661,22 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         {
             MethodToken = method.MetadataToken,
             InvocationDestinations = true,
+        };
+    }
+
+    static AssemblyContextMemberProjectionRequest FindingEvidenceRequest(
+        string member)
+    {
+        MethodInfo method = typeof(ResearchProjectionProbe).GetMethod(
+            member,
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Missing callee-evidence probe {member}.");
+        return Request(member) with
+        {
+            MethodToken = method.MetadataToken,
+            FactRows = true,
+            FindingEvidence = true,
         };
     }
 
@@ -786,6 +931,31 @@ public static class ResearchProjectionProbe
     public static int InvokeLocal(int value) => LocalCallee(value);
 
     public static int LocalCallee(int value) => value + 1;
+
+    public static int InvokeStackAllocation(int value) =>
+        StackAllocationCallee(value);
+
+    static int StackAllocationCallee(int value)
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = value;
+        return values[0];
+    }
+
+    public static unsafe int InvokeFunctionPointer(
+        delegate*<int, int> callback,
+        int value) =>
+        FunctionPointerCallee(callback, value);
+
+    static unsafe int FunctionPointerCallee(
+        delegate*<int, int> callback,
+        int value) =>
+        callback(value);
+
+    public static void InvokeThrowing() => ThrowingCallee();
+
+    static void ThrowingCallee() =>
+        throw new InvalidOperationException("callee evidence");
 
     public static int InvokeExternal(int value) => Math.Abs(value);
 

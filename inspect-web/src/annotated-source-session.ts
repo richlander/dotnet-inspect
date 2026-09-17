@@ -13,14 +13,22 @@ import type {
 import type {
   BrowserAnnotatedSource,
   BrowserAnnotatedSourceCapabilityAvailability,
+  BrowserAnnotatedSourceFindingEvidence,
   BrowserAnnotatedSourceInvocationDestination,
   BrowserAnnotatedSourceViewerCatalog,
 } from "./facades/inspect-web-source.d.ts";
 
 // The generated facade intentionally leaves the annotated document graph unknown.
 // This narrows that field to the product-owned model enforced by validateDocument.
-export interface AnnotatedSourceResult extends Omit<BrowserAnnotatedSource, "document"> {
+export interface AnnotatedSourceFindingEvidence
+  extends Omit<BrowserAnnotatedSourceFindingEvidence, "document"> {
+  document: AnnotatedSourceDocument | null;
+}
+
+export interface AnnotatedSourceResult
+  extends Omit<BrowserAnnotatedSource, "document" | "findingEvidence"> {
   document: AnnotatedSourceDocument;
+  findingEvidence: readonly AnnotatedSourceFindingEvidence[];
 }
 
 type AnnotatedSurface = "embedded" | "modal";
@@ -80,6 +88,9 @@ export interface AnnotatedSourceViewerModel {
   invocationLikeNodeKinds: ReadonlySet<string>;
   invocationDestinations:
     readonly BrowserAnnotatedSourceInvocationDestination[];
+  findingEvidence: readonly AnnotatedSourceFindingEvidence[];
+  findingEvidenceByFactId:
+    ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
 }
 
 export interface IndexedInvocationDestination {
@@ -141,6 +152,8 @@ export function createAnnotatedSourceViewerModel(
   );
   const invocationDestinations =
     validateInvocationDestinations(result.document, result.viewerCatalog);
+  const findingEvidence =
+    validateFindingEvidence(result.document, result);
 
   return {
     result,
@@ -153,6 +166,9 @@ export function createAnnotatedSourceViewerModel(
     invocationLikeNodeKinds:
       new Set(result.viewerCatalog.invocationLikeNodeKinds),
     invocationDestinations,
+    findingEvidence,
+    findingEvidenceByFactId:
+      new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
   };
 }
 
@@ -169,6 +185,13 @@ export function invocationDestinationForNode(
         index,
         destination: model.invocationDestinations[index]!,
       };
+}
+
+export function findingEvidenceForFact(
+  model: AnnotatedSourceViewerModel,
+  factId: number,
+): AnnotatedSourceFindingEvidence | null {
+  return model.findingEvidenceByFactId.get(factId) ?? null;
 }
 
 export function createEmbeddedSession(
@@ -628,9 +651,113 @@ function validateInvocationDestinations(
   });
 }
 
+function validateFindingEvidence(
+  callerDocument: AnnotatedSourceDocument,
+  result: AnnotatedSourceResult,
+): readonly AnnotatedSourceFindingEvidence[] {
+  const evidenceRows = result.findingEvidence;
+  if (!result.viewerCatalog.findingEvidence.available
+    && evidenceRows.length > 0) {
+    throw new TypeError(
+      "Unavailable Annotated Source Finding evidence cannot carry rows.");
+  }
+  const factIds = new Set<number>();
+  const instanceKeys = new Set<number>();
+  const validated = evidenceRows.map((evidence, index) => {
+    if (!Number.isSafeInteger(evidence.factId)
+      || !Number.isSafeInteger(evidence.instanceKey)
+      || evidence.instanceKey <= 0
+      || factIds.has(evidence.factId)
+      || instanceKeys.has(evidence.instanceKey)) {
+      throw new TypeError(
+        `Annotated Source Finding evidence ${index} has an invalid or duplicate identity.`);
+    }
+    const fact = callerDocument.facts[evidence.factId];
+    if (!fact
+      || fact.origin !== "Body"
+      || (fact.descriptor !== "semantics.callee"
+        && fact.descriptor !== "safety.callee")) {
+      throw new TypeError(
+        `Annotated Source Finding evidence ${index} does not name an instruction-level callee Finding.`);
+    }
+    if (!nonEmptyString(evidence.member)) {
+      throw new TypeError(
+        `Annotated Source Finding evidence ${index} has no callee member.`);
+    }
+    validateCallGraphTarget(evidence.target, `Finding evidence ${index}`);
+    validateCalleeEvidenceTarget(evidence.target, index);
+    if (!isEvidenceCoordinates(evidence.coordinates)
+      || !isEvidenceNodeIds(evidence.nodeIds)
+      || new Set(evidence.nodeIds).size !== evidence.nodeIds.length) {
+      throw new TypeError(
+        `Annotated Source Finding evidence ${index} has invalid coordinates or node ids.`);
+    }
+
+    const unavailable = nonEmptyString(evidence.unavailableReason);
+    if (unavailable) {
+      if (evidence.nodeIds.length > 0) {
+        throw new TypeError(
+          `Unavailable Annotated Source Finding evidence ${index} cannot carry node ids.`);
+      }
+      if (evidence.document !== null) validateDocument(evidence.document);
+    } else {
+      if (evidence.document === null
+        || evidence.coordinates.length === 0
+        || evidence.nodeIds.length === 0) {
+        throw new TypeError(
+          `Available Annotated Source Finding evidence ${index} requires a document, coordinates, and node ids.`);
+      }
+      validateDocument(evidence.document);
+      const matchedNodeIds: number[] = [];
+      for (const coordinate of evidence.coordinates) {
+        const expectedKind = evidenceNodeKind(coordinate.kind);
+        const matches = evidence.document.nodes.filter(node =>
+          node.medium === "CSharp"
+          && node.kind === expectedKind
+          && node.provenance?.il_offsets.includes(coordinate.ilOffset) === true);
+        if (matches.length !== 1) {
+          throw new TypeError(
+            `Annotated Source Finding evidence ${index} coordinate IL_${coordinate.ilOffset.toString(16).toUpperCase().padStart(4, "0")} matches ${matches.length} ${expectedKind} nodes.`);
+        }
+        matchedNodeIds.push(matches[0]!.id);
+      }
+      const expectedNodeIds = uniqueSorted(matchedNodeIds);
+      if (evidence.nodeIds.length !== expectedNodeIds.length
+        || evidence.nodeIds.some((nodeId, nodeIndex) =>
+          nodeId !== expectedNodeIds[nodeIndex])) {
+        throw new TypeError(
+          `Annotated Source Finding evidence ${index} node ids do not equal its exact coordinate matches.`);
+      }
+    }
+    factIds.add(evidence.factId);
+    instanceKeys.add(evidence.instanceKey);
+    return evidence;
+  });
+  if (result.viewerCatalog.findingEvidence.available) {
+    const eligibleFactIds = callerDocument.facts
+      .filter(fact =>
+        fact.origin === "Body"
+        && (fact.descriptor === "semantics.callee"
+          || fact.descriptor === "safety.callee"))
+      .map(fact => fact.id);
+    if (eligibleFactIds.some(factId => !factIds.has(factId))) {
+      throw new TypeError(
+        "Annotated Source Finding evidence does not cover every instruction-level callee Finding.");
+    }
+  }
+  return validated;
+}
+
 function validateDestinationTarget(
   target: BrowserAnnotatedSourceInvocationDestination["target"],
   index: number,
+): void {
+  validateCallGraphTarget(target, `destination ${index}`);
+}
+
+function validateCallGraphTarget(
+  target: BrowserAnnotatedSourceInvocationDestination["target"],
+  label: string,
 ): void {
   if (!target
     || !nonEmptyString(target.id)
@@ -643,7 +770,72 @@ function validateDestinationTarget(
     || !Number.isSafeInteger(target.genericArity)
     || target.genericArity < 0) {
     throw new TypeError(
-      `Annotated Source destination ${index} has an invalid typed target.`);
+      `Annotated Source ${label} has an invalid typed target.`);
+  }
+}
+
+function validateCalleeEvidenceTarget(
+  target: BrowserAnnotatedSourceInvocationDestination["target"],
+  index: number,
+): void {
+  if (!nonEmptyString(target.typeDefinitionId)
+    || !nonEmptyString(target.returnType)
+    || !Number.isSafeInteger(target.metadataToken)
+    || target.metadataToken === null
+    || (target.metadataToken & 0xFF000000) !== 0x06000000
+    || target.kind !== "method") {
+    throw new TypeError(
+      `Annotated Source Finding evidence ${index} has an incomplete callee target.`);
+  }
+}
+
+function isEvidenceKind(value: unknown): boolean {
+  return value === "ExceptionConstruction"
+    || value === "Localloc"
+    || value === "Calli";
+}
+
+function isEvidenceCoordinates(
+  value: unknown,
+): value is AnnotatedSourceFindingEvidence["coordinates"] {
+  if (!Array.isArray(value)) return false;
+  const coordinates: unknown[] = value;
+  return coordinates.every(coordinate => {
+    if (typeof coordinate !== "object"
+      || coordinate === null
+      || Array.isArray(coordinate)) {
+      return false;
+    }
+    const ilOffset: unknown = Reflect.get(coordinate, "ilOffset");
+    const kind: unknown = Reflect.get(coordinate, "kind");
+    return typeof ilOffset === "number"
+      && Number.isSafeInteger(ilOffset)
+      && ilOffset >= 0
+      && isEvidenceKind(kind);
+  });
+}
+
+function isEvidenceNodeIds(value: unknown): value is readonly number[] {
+  if (!Array.isArray(value)) return false;
+  const nodeIds: unknown[] = value;
+  return nodeIds.every(nodeId =>
+    Number.isSafeInteger(nodeId)
+      && typeof nodeId === "number"
+      && nodeId >= 0);
+}
+
+function evidenceNodeKind(
+  kind: AnnotatedSourceFindingEvidence["coordinates"][number]["kind"],
+): string {
+  switch (kind) {
+    case "ExceptionConstruction":
+      return "ObjectCreationExpression";
+    case "Localloc":
+      return "StackAllocationExpression";
+    case "Calli":
+      return "IndirectInvocationExpression";
+    default:
+      throw new TypeError(`Unknown callee evidence kind '${String(kind)}'.`);
   }
 }
 
