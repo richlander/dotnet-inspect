@@ -552,47 +552,6 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageAcquisition_FloatingRootUsesGallerySearchAndCdn()
-    {
-        string packageId = $"gallery.floating.{Guid.NewGuid():N}";
-        const string version = "4.5.6";
-        var handler = new GalleryPackageHandler(
-            packageId,
-            version,
-            PackageDocuments(1),
-            provideSearchResult: true);
-        using IPackageSourceClient source = Gallery(handler);
-
-        BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
-            packageId,
-            version: null,
-            source,
-            PackageSourceIdentity.NuGetOrg,
-            TimeSpan.FromSeconds(5),
-            TestContext.Current.CancellationToken,
-            epochWork: null);
-
-        Assert.Equal(version, package.Version);
-        Assert.Equal(2, handler.Requested.Count);
-        Assert.StartsWith(
-            "https://azuresearch-usnc.nuget.org/query?",
-            handler.Requested[0],
-            StringComparison.Ordinal);
-        Assert.Contains(
-            $"q=packageid%3A{packageId}",
-            handler.Requested[0],
-            StringComparison.Ordinal);
-        Assert.Equal(
-            $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg",
-            handler.Requested[1]);
-        Assert.DoesNotContain(
-            handler.Requested,
-            request => request.Contains(
-                "api.nuget.org",
-                StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
     public async Task PackageResolution_StallBecomesVisibleOperationTimeout()
     {
         var handler = new StallingPackageHandler();

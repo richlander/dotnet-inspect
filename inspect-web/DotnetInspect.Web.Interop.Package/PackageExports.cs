@@ -45,11 +45,11 @@ public static partial class PackageExports
         string version,
         string targetFramework)
     {
-        BrowserPackageSurface surface =
+        BrowserPackageLoadResult result =
             await PackageSurfaceAsync(packageId, version, targetFramework);
         return JsonSerializer.Serialize(
-            surface,
-            BrowserPackageJsonContext.Default.BrowserPackageSurface);
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
     }
 
     [JSExport]
@@ -89,19 +89,38 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageSurface);
     }
 
-    static async Task<BrowserPackageSurface> PackageSurfaceAsync(
+    static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(
         string packageId,
         string version,
         string targetFramework)
     {
+        BrowserPackageAcquisitionResult result =
+            await BrowserPackageWorkspace.AcquireWithSettlementAsync(
+                packageId,
+                version);
+        if (result is BrowserPackageAcquisitionResult.NotSettled notSettled)
+        {
+            return new(
+                BrowserPackageWireProjection.Project(
+                    notSettled.VersionSettlement),
+                Surface: null);
+        }
+
+        BrowserPackageAcquisition acquisition =
+            ((BrowserPackageAcquisitionResult.Acquired)result).Acquisition;
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
-                packageId,
-                version,
-                targetFramework);
+                acquisition.Package,
+                targetFramework,
+                CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
-        return BrowserPackageWireProjection.Project(
-            BrowserPackageSurfaceProjection.ProjectSurface(scope, scope.Coordinates[0]));
+        return new(
+            BrowserPackageWireProjection.Project(
+                acquisition.VersionSettlement),
+            BrowserPackageWireProjection.Project(
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    scope,
+                    scope.Coordinates[0])));
     }
 
     /// <summary>

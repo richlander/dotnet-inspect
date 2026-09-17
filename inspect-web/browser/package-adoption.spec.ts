@@ -14,6 +14,7 @@ import type {
   BrowserAssemblyReferenceResult as AssemblyReferenceResult,
   BrowserPackageCacheStats as CacheStats,
   BrowserPackageDependencies as PackageDependencies,
+  BrowserPackageLoadResult as PackageLoadResult,
   BrowserPackageSurface as PackageSurface,
   BrowserWorkspacePackageOccurrence as OccurrenceRow,
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
@@ -466,7 +467,7 @@ declare global {
         packageId: string,
         version: string,
         framework: string,
-      ): Promise<PackageSurface>;
+      ): Promise<PackageLoadResult>;
       cacheStats(): Promise<CacheStats>;
       queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
@@ -555,6 +556,10 @@ async function boot(page: Page): Promise<void> {
 }
 
 function driver(page: Page): {
+  queryPackageResult(
+    fixture: FixtureCoordinate,
+    framework?: string,
+  ): Promise<PackageLoadResult>;
   queryPackage(fixture: FixtureCoordinate, framework?: string): Promise<PackageSurface>;
   queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
   cacheStats(): Promise<CacheStats>;
@@ -564,19 +569,33 @@ function driver(page: Page): {
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
 } {
+  const requireSurface = (result: PackageLoadResult): PackageSurface => {
+    if (result.surface === null) {
+      throw new Error(
+        result.versionSettlement.content.failure?.reason
+          ?? "Package version settlement did not produce a surface.");
+    }
+    return result.surface;
+  };
   return {
-    queryPackage: (fixture, framework = fixtureFramework) =>
+    queryPackageResult: (fixture, framework = fixtureFramework) =>
       page.evaluate(
         ({ packageId, version: ver, framework: tfm }) =>
           window.__adoption!.queryPackage(packageId, ver, tfm),
         { packageId: fixture.packageId, version: fixture.version, framework },
       ),
+    queryPackage: async (fixture, framework = fixtureFramework) =>
+      requireSurface(await page.evaluate(
+        ({ packageId, version: ver, framework: tfm }) =>
+          window.__adoption!.queryPackage(packageId, ver, tfm),
+        { packageId: fixture.packageId, version: fixture.version, framework },
+      )),
     queryCoordinate: (packageId, pkgVersion, framework) =>
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm }) =>
           window.__adoption!.queryPackage(id, ver, tfm),
         { packageId, version: pkgVersion, framework },
-      ),
+      ).then(requireSurface),
     cacheStats: () => page.evaluate(() => window.__adoption!.cacheStats()),
     queryOccurrences: workspace =>
       page.evaluate(
@@ -1513,7 +1532,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     const engine = driver(page);
 
     // Ordinary singleton opening yields healthy evidence.
-    const opened = await engine.queryPackage(healthy);
+    const openedResult = await engine.queryPackageResult(healthy);
+    const opened = openedResult.surface;
+    expect(opened).not.toBeNull();
+    if (opened === null) {
+      throw new Error("Exact package settlement did not produce a surface.");
+    }
     expect(opened.package).toBe(healthy.packageId);
     expect(opened.version).toBe(version);
     expect(opened.activeFramework).toBe(fixtureFramework);
@@ -1521,6 +1545,38 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(opened.types.length).toBeGreaterThan(0);
     expect(opened.types.some(type => type.name === healthyTypeName)).toBe(true);
     expect(opened.inspectionErrors.length).toBe(0);
+    expect(openedResult.versionSettlement.content.kind).toBe("Settled");
+    expect(openedResult.versionSettlement.content.result?.request).toEqual({
+      packageId: healthy.packageId.toLowerCase(),
+      version,
+    });
+    expect(openedResult.versionSettlement.content.result?.coordinate).toEqual({
+      packageId: healthy.packageId.toLowerCase(),
+      version,
+    });
+    expect(openedResult.versionSettlement.share.kind).toBe("NonProjectable");
+    expect(openedResult.versionSettlement.diagnostics).toEqual([]);
+
+    // A terminal settlement failure crosses the same generated facade and
+    // Worker boundary as typed Content rather than becoming a managed fault.
+    const missingResult = await engine.queryPackageResult({
+      ...healthy,
+      packageId: "InspectWeb.PackageVersionSettlement.Missing",
+      version: "latest",
+    });
+    expect(missingResult.surface).toBeNull();
+    expect(missingResult.versionSettlement.content.kind).toBe("NotSettled");
+    expect(missingResult.versionSettlement.content.result).toBeNull();
+    expect(missingResult.versionSettlement.content.failure?.request).toEqual({
+      packageId: "inspectweb.packageversionsettlement.missing",
+      version: null,
+    });
+    expect(missingResult.versionSettlement.content.failure?.kind).toBe("NotFound");
+    expect(
+      missingResult.versionSettlement.content.failure?.reason.length,
+    ).toBeGreaterThan(0);
+    expect(missingResult.versionSettlement.share.kind).toBe("NonProjectable");
+    expect(missingResult.versionSettlement.diagnostics).toEqual([]);
 
     // A repeated request for the same coordinate joins the retained scope: no
     // new workspace entry, and the archive was fetched exactly once.

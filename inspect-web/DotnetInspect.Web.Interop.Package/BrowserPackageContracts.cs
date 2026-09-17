@@ -64,6 +64,65 @@ public sealed record BrowserPackageSurface(
     string[] InspectionErrors,
     string? InspectionError);
 
+public sealed record BrowserPackageLoadResult(
+    BrowserPackageVersionSettlementInspection VersionSettlement,
+    BrowserPackageSurface? Surface);
+
+public sealed record BrowserPackageVersionSettlementInspection(
+    BrowserPackageVersionSettlementOutcome Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageVersionSettlementOutcomeKind>))]
+public enum BrowserPackageVersionSettlementOutcomeKind
+{
+    Settled,
+    NotSettled,
+}
+
+public sealed record BrowserPackageVersionSettlementOutcome(
+    BrowserPackageVersionSettlementOutcomeKind Kind,
+    BrowserPackageVersionSettlementResult? Result,
+    BrowserPackageVersionSettlementFailure? Failure);
+
+public sealed record BrowserPackageVersionSettlementRequest(
+    string PackageId,
+    string? Version);
+
+public sealed record BrowserPackageVersionSettlementCoordinate(
+    string PackageId,
+    string Version);
+
+public sealed record BrowserPackageVersionSettlementResult(
+    BrowserPackageVersionSettlementRequest Request,
+    BrowserPackageVersionSettlementCoordinate Coordinate,
+    bool IncludePrerelease,
+    string? Freshness,
+    BrowserPackageVersionSettlementListing[] Listings,
+    BrowserPackageVersionSettlementSourceListing[] SourceListings);
+
+public sealed record BrowserPackageVersionSettlementListing(
+    string Version,
+    bool Listed);
+
+public sealed record BrowserPackageVersionSettlementSourceListing(
+    string Version,
+    string Feed,
+    bool Listed);
+
+public sealed record BrowserPackageVersionSettlementFailure(
+    BrowserPackageVersionSettlementRequest Request,
+    string Kind,
+    string Reason,
+    bool OperationTimedOut,
+    BrowserPackageVersionSettlementAuthorityFailure[] AuthorityFailures);
+
+public sealed record BrowserPackageVersionSettlementAuthorityFailure(
+    string Authority,
+    string Kind,
+    string Message,
+    string? TimeoutKind);
+
 /// <summary>
 /// One bounded embedded package icon. <see cref="Base64"/> contains only bytes admitted by
 /// <c>PackageIconQuery</c>; the Browser host never transports the deprecated remote icon URL.
@@ -1075,6 +1134,7 @@ public sealed record BrowserPackageVersions(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
+[JsonSerializable(typeof(BrowserPackageLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
