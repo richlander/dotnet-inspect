@@ -343,11 +343,14 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>` and ordinary single-Library API `diff` additionally
-support the presence-only `--envelope` service-output selector. It implies
-JSON; unprojected `--json` emits the same Content without the service frame.
-Asset-mode `depends`, other Diff modes, Discover, Count, and other commands
-have not adopted this transport.
+Positional `depends <type>`, ordinary single-Library API `diff`, and online
+package range-version population support the presence-only `--envelope`
+service-output selector. It implies JSON. For `depends` and API Diff,
+unprojected `--json` emits the same Content without the service frame. Package
+version `--json` remains an explicit row projection; `--envelope` instead
+exposes the complete directed population Document, Share, and diagnostics.
+Asset-mode `depends`, other Diff modes, and other commands have not adopted
+this transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -404,11 +407,21 @@ dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 dotnet-inspect package System.Text.Json
 dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+Online range-version population is metadata-only: it enumerates versions
+without acquiring a package payload. `--count` projects the version Count as a
+scalar, including with `--json`; `--count --envelope` emits the complete
+population envelope with both the directed version Document and typed Count
+component. `--preview`, `--include-unlisted`, configured source options, and
+`--versions-with-feed` remain semantic population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
