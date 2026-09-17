@@ -18,6 +18,10 @@ namespace DotnetInspect.Cli.Tests;
 public class LibraryIntegrationQueryTests
 {
     const string AspirePredicate = "ecosystem=ecosystem.aspire";
+    const string AspireConceptPredicate =
+        "integration=integration.aspire";
+    const string DependencyInjectionPredicate =
+        "integration=integration.dependency-injection";
 
     public LibraryIntegrationQueryTests() => NuGetCache.Initialize("dotnet-inspect");
 
@@ -28,6 +32,10 @@ public class LibraryIntegrationQueryTests
     [InlineData("ecosystem=ecosystem.microsoft-extensions", "no CLI Integration query binding")]
     [InlineData("ecosystem!=ecosystem.aspire", "supports only =")]
     [InlineData("ecosystem>=ecosystem.aspire", "supports only =")]
+    [InlineData("integration=aspire", "canonical Integration concept ID")]
+    [InlineData("integration=integration.Aspire", "Unknown Integration concept")]
+    [InlineData("integration=integration.missing", "Unknown Integration concept")]
+    [InlineData("integration!=integration.aspire", "supports only =")]
     public async Task InvalidPredicateFailsBeforeSourceResolution(string predicate, string message)
     {
         var result = await RunAsync(
@@ -62,7 +70,7 @@ public class LibraryIntegrationQueryTests
             ["library", "--platform", "DoesNotExist", "--where", AspirePredicate,
              "--top", "1", "--count", "--offline"];
         if (discoveryMode is not null)
-            args.AddRange(["-D", "Integration: Aspire", discoveryMode]);
+            args.AddRange(["-D", "Integrations", discoveryMode]);
 
         var result = await RunAsync([.. args]);
         Assert.Equal(1, result.ExitCode);
@@ -116,11 +124,15 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var full = await RunAsync("library", path, "-S", "Integration: Aspire", format);
-            var narrowed = await RunAsync("library", path, "-S", "Integration: Aspire",
+            var byConcept = await RunAsync(
+                "library", path, "-S", "Integrations",
+                "--where", AspireConceptPredicate, format);
+            var byEcosystem = await RunAsync(
+                "library", path, "-S", "Integrations",
                 "--where", AspirePredicate, format);
-            Assert.True(narrowed.ExitCode == 0, narrowed.Error);
-            Assert.Equal(full.Output, narrowed.Output);
+            Assert.True(byConcept.ExitCode == 0, byConcept.Error);
+            Assert.True(byEcosystem.ExitCode == 0, byEcosystem.Error);
+            Assert.Equal(byConcept.Output, byEcosystem.Output);
         });
     }
 
@@ -131,21 +143,26 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var result = await RunAsync("library", path, "-S", "Integration: Aspire",
+            var result = await RunAsync("library", path, "-S", "Integrations",
                 "--where", AspirePredicate, format, "--rows", "1");
             Assert.True(result.ExitCode == 0, result.Error);
             var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             if (format == "--jsonl")
             {
                 using var row = JsonDocument.Parse(Assert.Single(lines));
-                Assert.Contains("Sample", row.RootElement.GetProperty("api").GetString());
+                Assert.Equal(
+                    "Aspire",
+                    row.RootElement.GetProperty("integration").GetString());
+                Assert.Contains(
+                    "Sample",
+                    row.RootElement.GetProperty("symbol").GetString());
             }
             else
             {
                 Assert.Equal(2, lines.Length);
                 Assert.Equal(lines[0].Split('\t').Length, lines[1].Split('\t').Length);
             }
-            var count = await RunAsync("library", path, "-S", "Integration: Aspire",
+            var count = await RunAsync("library", path, "-S", "Integrations",
                 "--where", AspirePredicate, "--rows", "1", "--count");
             Assert.Equal(0, count.ExitCode);
             Assert.Equal("1", count.Output.Trim());
@@ -157,8 +174,11 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var result = await RunAsync("library", path, "-S", "Integration: Dependency Injection",
-                "--where", AspirePredicate, "--count");
+            var result = await RunAsync(
+                "library", path, "-S", "Integrations",
+                "--where", AspirePredicate,
+                "--where", DependencyInjectionPredicate,
+                "--count");
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.Equal("0", result.Output.Trim());
         });
@@ -173,15 +193,18 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var result = await RunAsync("library", path, "-S", "Integration: Dependency Injection",
-                "--where", AspirePredicate, format);
+            var result = await RunAsync(
+                "library", path, "-S", "Integrations",
+                "--where", AspirePredicate,
+                "--where", DependencyInjectionPredicate,
+                format);
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.DoesNotContain("AddPublicThing", result.Output);
             if (format == "--json")
             {
                 using var json = JsonDocument.Parse(result.Output);
                 Assert.False(json.RootElement.TryGetProperty("dependency_injection", out _));
-                Assert.Equal(2, json.RootElement.GetProperty("aspire").GetArrayLength());
+                Assert.False(json.RootElement.TryGetProperty("aspire", out _));
             }
             else
             {
@@ -197,8 +220,8 @@ public class LibraryIntegrationQueryTests
     {
         await WithImageAsync(EcosystemIntegrationScannerTests.BuildCloudClientAssembly(), async path =>
         {
-            var full = await RunAsync("library", path, "-S", "Integration: Opportunities", "--json");
-            var narrowed = await RunAsync("library", path, "-S", "Integration: Opportunities",
+            var full = await RunAsync("library", path, "-S", "Integration Opportunities", "--json");
+            var narrowed = await RunAsync("library", path, "-S", "Integration Opportunities",
                 "--where", AspirePredicate, "--json");
             Assert.True(full.ExitCode == 0, full.Error);
             Assert.True(narrowed.ExitCode == 0, narrowed.Error);
@@ -212,13 +235,13 @@ public class LibraryIntegrationQueryTests
                 fullRows.Where(row => row.GetProperty("integration").GetString() == "Aspire")
                     .Select(row => row.GetRawText()),
                 queryRows.Select(row => row.GetRawText()));
-            var rowResult = await RunAsync("library", path, "-S", "Integration: Opportunities",
+            var rowResult = await RunAsync("library", path, "-S", "Integration Opportunities",
                 "--where", AspirePredicate, "--jsonl", "--rows", "1", "--columns", "Integration;API");
             Assert.True(rowResult.ExitCode == 0, rowResult.Error);
             using var rowJson = JsonDocument.Parse(rowResult.Output);
             Assert.Equal("Aspire", rowJson.RootElement.GetProperty("integration").GetString());
             Assert.Equal(2, rowJson.RootElement.EnumerateObject().Count());
-            var count = await RunAsync("library", path, "-S", "Integration: Opportunities",
+            var count = await RunAsync("library", path, "-S", "Integration Opportunities",
                 "--where", AspirePredicate, "--count");
             Assert.Equal(0, count.ExitCode);
             Assert.Equal(queryRows.Length.ToString(), count.Output.Trim());
@@ -272,7 +295,7 @@ public class LibraryIntegrationQueryTests
             var options = new LibraryOptions
             {
                 IntegrationQuery = AspireQuery(),
-                IncludeSections = ["Integration: Aspire"],
+                IncludeSections = [IntegrationSectionNames.Integrations],
                 Count = true,
             };
             Assert.Same(rejected, inspection.AssemblyIntegrationsEntry);
@@ -290,7 +313,7 @@ public class LibraryIntegrationQueryTests
             var full = await RunAsync("library", path, "-S", "Integrations", "--json");
             Assert.Equal(0, full.ExitCode);
             Assert.Contains("AddPublicThing", full.Output);
-            var narrowed = await RunAsync("library", path, "-S", "Integration: Aspire",
+            var narrowed = await RunAsync("library", path, "-S", "Integrations",
                 "--where", AspirePredicate, "--count");
             Assert.True(narrowed.ExitCode == 0, narrowed.Error);
             Assert.Equal("0", narrowed.Output.Trim());
@@ -303,7 +326,7 @@ public class LibraryIntegrationQueryTests
         var result = await RunAsync("library", "/missing/query.dll", "-S", "References",
             "--where", AspirePredicate, "--json");
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("targets Integrations", result.Error);
+        Assert.Contains("predicates target Integrations", result.Error);
         Assert.Empty(result.Output);
     }
 
@@ -320,7 +343,7 @@ public class LibraryIntegrationQueryTests
             ["library", "/missing/query.dll", "--where", AspirePredicate,
              operation, "/missing/query-operation", "--json"];
         if (discoveryMode is not null)
-            args.AddRange(["-D", "Integration: Aspire", discoveryMode]);
+            args.AddRange(["-D", "Integrations", discoveryMode]);
         var result = await RunAsync([.. args]);
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("not coordinate or extraction operations", result.Error);
@@ -331,11 +354,13 @@ public class LibraryIntegrationQueryTests
     public async Task StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget()
     {
         var result = await RunAsync("library", "/missing/query.dll",
-            "-D", "Integration: Aspire", "--where", AspirePredicate, "--schema", "--json");
+            "-D", "Integrations", "--where", AspirePredicate, "--schema", "--json");
         Assert.True(result.ExitCode == 0, result.Error);
         using var json = JsonDocument.Parse(result.Output);
-        Assert.Contains(json.RootElement.EnumerateArray(),
-            field => field.GetProperty("name").GetString() == "API");
+        Assert.Equal(
+            ["Integration", "Kind", "Shape", "Symbol"],
+            json.RootElement.EnumerateArray()
+                .Select(field => field.GetProperty("name").GetString()));
         Assert.DoesNotContain("Integration Scan", result.Output);
     }
 
@@ -345,7 +370,7 @@ public class LibraryIntegrationQueryTests
         await WithFixtureAsync(false, async path =>
         {
             await File.WriteAllBytesAsync(path, [0]);
-            var result = await RunAsync("library", path, "-S", "Integration: Aspire",
+            var result = await RunAsync("library", path, "-S", "Integrations",
                 "--where", AspirePredicate, "--count");
             Assert.Equal(1, result.ExitCode);
             Assert.NotEmpty(result.Error);
@@ -371,14 +396,14 @@ public class LibraryIntegrationQueryTests
                     """);
             }
             var result = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integration: Aspire", "--where", AspirePredicate, "--json", "--offline");
+                "-S", "Integrations", "--where", AspirePredicate, "--json", "--offline");
             Assert.True(result.ExitCode == 0, result.Error);
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal(2, json.RootElement.GetArrayLength());
             Assert.All(json.RootElement.EnumerateArray(), library =>
                 Assert.Equal(2, library.GetProperty("aspire").GetArrayLength()));
             var jsonl = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integration: Aspire", "--where", AspirePredicate, "--jsonl", "--offline");
+                "-S", "Integrations", "--where", AspirePredicate, "--jsonl", "--offline");
             Assert.Equal(1, jsonl.ExitCode);
             Assert.Contains("requires exactly one table shape", jsonl.Error);
             Assert.Empty(jsonl.Output);
