@@ -719,6 +719,7 @@ public static class IrImporter
             ExceptionClauseImports = method.Body.ExceptionClauseImports,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
+            LocalDeclarations = method.Body.LocalDeclarations,
             MemorySafetyMode = source.MemorySafetyMode,
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
@@ -748,9 +749,13 @@ public static class IrImporter
             var block = new Block(leader);
             container.Add(block);
             if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope, state, trace))
+            {
+                ScopedLocalImport.Apply(function, method.Body);
                 return function;  // honest stop already recorded
+            }
         }
 
+        ScopedLocalImport.Apply(function, method.Body);
         ResolveTypeInfo(source, function);
         RecordUnsupportedTypeDiagnostics(function);
         if (IrInvariants.Enabled)

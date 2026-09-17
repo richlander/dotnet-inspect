@@ -198,6 +198,28 @@ internal sealed partial class ClassicInverseAccountant
             return Failure("generic output binding exhausted the planning budget");
         if (_planning.TypeBinding.Failure is { } bindingFailure)
             return ClassicInverseDecision.FailWith(ClassicInverseFailureKind.InvalidCorrelation, bindingFailure);
+        var nestedScopes = _request.ExecutionBody.LocalDeclaredInNestedScope.IsDefaultOrEmpty
+            ? null
+            : ImmutableArray.CreateBuilder<bool>(locals.Length);
+        var localBindings = _request.ExecutionBody.LocalDeclarationBindings.IsDefaultOrEmpty
+            ? null
+            : ImmutableArray.CreateBuilder<PdbLocalDeclaration?>(locals.Length);
+        for (int i = 0; i < locals.Length && (nestedScopes is not null || localBindings is not null); i++)
+        {
+            nestedScopes?.Add(false);
+            localBindings?.Add(null);
+        }
+        foreach ((int source, int target) in _candidate.LocalRemap)
+        {
+            if ((uint)target >= (uint)locals.Length)
+                continue;
+            if (nestedScopes is not null
+                && (uint)source < (uint)_request.ExecutionBody.LocalDeclaredInNestedScope.Length)
+                nestedScopes[target] = _request.ExecutionBody.LocalDeclaredInNestedScope[source];
+            if (localBindings is not null
+                && (uint)source < (uint)_request.ExecutionBody.LocalDeclarationBindings.Length)
+                localBindings[target] = _request.ExecutionBody.LocalDeclarationBindings[source];
+        }
         var plan = new ClassicInversePlan(
             _candidate.Recipe,
             blueprint,
@@ -209,7 +231,9 @@ internal sealed partial class ClassicInverseAccountant
             [.. _rawRegions],
             [.. _realizations],
             [.. _ancestors],
-            _planning.TypeBinding.Arguments);
+            _planning.TypeBinding.Arguments,
+            nestedScopes?.MoveToImmutable() ?? [],
+            localBindings?.MoveToImmutable() ?? []);
         return new ClassicInverseDecision.Reconstruct(plan);
     }
 
