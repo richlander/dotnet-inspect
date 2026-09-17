@@ -285,10 +285,12 @@ these package-backed adoptions.
 The Inspect Web package exports preserve each shared envelope as an identifiable
 wire value alongside the existing Browser presentation. A Sections-owned
 source-generated JSON context serializes the exact owner-issued Content into
-`JsonElement`; the Browser projection carries that value with the unchanged
-Share outcome and diagnostic sequence. Serialization occurs from the detached
-Content and therefore neither retains nor reopens the immutable image borrowed
-by the CLI streaming form.
+`JsonElement`; the Browser projection lowers the envelope into
+Analysis-facade-local wire records that preserve every Share field and the
+ordered diagnostic fields without source-generating product-owned types at the
+JSExport boundary. Serialization occurs from the detached Content and therefore
+neither retains nor reopens the immutable image borrowed by the CLI streaming
+form.
 
 The section catalog binds each member of the family to its owning query
 definition by object identity and owns a separate group-query registry because

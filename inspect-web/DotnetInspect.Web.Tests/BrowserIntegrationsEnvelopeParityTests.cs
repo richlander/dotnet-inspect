@@ -70,7 +70,7 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
 
         AssertEnvelope(
             integrationsTerminal,
-            Assert.IsType<InspectionEnvelope<JsonElement>>(
+            Assert.IsType<BrowserAnalysisInspectionEnvelope>(
                 integrations.Inspection),
             JsonSerializer.SerializeToElement(
                 integrationsTerminal.Content,
@@ -78,7 +78,7 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
                     .AssemblyIntegrationsEntry));
         AssertEnvelope(
             opportunitiesTerminal,
-            Assert.IsType<InspectionEnvelope<JsonElement>>(
+            Assert.IsType<BrowserAnalysisInspectionEnvelope>(
                 opportunities.Inspection),
             JsonSerializer.SerializeToElement(
                 opportunitiesTerminal.Content,
@@ -88,32 +88,60 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
 
     static void AssertEnvelope<TContent>(
         InspectionEnvelope<TContent> expected,
-        InspectionEnvelope<JsonElement> actual,
+        BrowserAnalysisInspectionEnvelope actual,
         JsonElement expectedContent)
     {
         Assert.True(
             JsonElement.DeepEquals(expectedContent, actual.Content),
             "Browser Content differed from the shared service terminal.");
-        Assert.Equal(expected.Share, actual.Share);
+        AssertShare(expected.Share, actual.Share);
         Assert.Equal(expected.Diagnostics.Length, actual.Diagnostics.Length);
         for (int index = 0; index < expected.Diagnostics.Length; index++)
         {
             InspectionDiagnostic expectedDiagnostic =
                 expected.Diagnostics[index];
-            InspectionDiagnostic actualDiagnostic =
+            BrowserAnalysisInspectionDiagnostic actualDiagnostic =
                 actual.Diagnostics[index];
             Assert.Equal(
                 expectedDiagnostic.Code,
                 actualDiagnostic.Code);
             Assert.Equal(
-                expectedDiagnostic.Severity,
-                actualDiagnostic.Severity);
+                expectedDiagnostic.Severity.ToString(),
+                actualDiagnostic.Severity.ToString());
             Assert.Equal(
                 expectedDiagnostic.Summary.ToString(),
                 actualDiagnostic.Summary.ToString());
             Assert.Equal(
                 expectedDiagnostic.Correspondence?.ToString(),
                 actualDiagnostic.Correspondence?.ToString());
+        }
+    }
+
+    static void AssertShare(
+        InspectionShare expected,
+        BrowserAnalysisInspectionShare actual)
+    {
+        switch (expected)
+        {
+            case InspectionShare.Available available:
+                Assert.Equal("available", actual.Kind);
+                Assert.Equal(available.FullUrl, actual.FullUrl);
+                Assert.Equal(available.Packet, actual.Packet);
+                Assert.Null(actual.Path);
+                Assert.Null(actual.Reason);
+                break;
+            case InspectionShare.NonProjectable nonProjectable:
+                Assert.Equal("nonProjectable", actual.Kind);
+                Assert.Null(actual.FullUrl);
+                Assert.Null(actual.Packet);
+                Assert.Equal(nonProjectable.Path, actual.Path);
+                Assert.Equal(
+                    nonProjectable.Reason.ToString(),
+                    actual.Reason);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown inspection Share outcome.");
         }
     }
 }

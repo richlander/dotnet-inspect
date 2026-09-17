@@ -1,10 +1,6 @@
 import { dotnet } from "./runtime-loader.js";
 
-declare const inertStringBrand: unique symbol;
-
-export type InertString = string & {
-  readonly [inertStringBrand]: "InertString";
-};
+export type BrowserAnalysisInspectionDiagnosticSeverity = number;
 
 export type BrowserCloneCandidateAnalysisBlockerKind = "MetadataReadFailure" | "MethodLimit" | "SeedUnsupported" | "SeedProductionLimit" | "SeedProductionFailure" | "CandidateProductionLimit" | "CandidateProductionFailure" | number;
 
@@ -32,8 +28,6 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 
-export type InspectionDiagnosticSeverity = number;
-
 export type JsonValueKind = number;
 
 export interface BrowserAllocationFact {
@@ -48,6 +42,27 @@ export interface BrowserAllocationFact {
   readonly inLoop: boolean;
   readonly estimatedSizeBytes: number | null;
   readonly detail: string | null;
+}
+
+export interface BrowserAnalysisInspectionDiagnostic {
+  readonly code: string;
+  readonly severity: BrowserAnalysisInspectionDiagnosticSeverity;
+  readonly summary: string;
+  readonly correspondence: string | null;
+}
+
+export interface BrowserAnalysisInspectionEnvelope {
+  readonly content: unknown;
+  readonly share: BrowserAnalysisInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserAnalysisInspectionDiagnostic>;
+}
+
+export interface BrowserAnalysisInspectionShare {
+  readonly kind: string;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
 }
 
 export interface BrowserCallFact {
@@ -355,7 +370,7 @@ export interface BrowserPackageIntegrations {
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
-  readonly inspection: InspectionEnvelope<unknown> | null;
+  readonly inspection: BrowserAnalysisInspectionEnvelope | null;
 }
 
 export interface BrowserPackageOpportunities {
@@ -367,7 +382,7 @@ export interface BrowserPackageOpportunities {
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
-  readonly inspection: InspectionEnvelope<unknown> | null;
+  readonly inspection: BrowserAnalysisInspectionEnvelope | null;
 }
 
 export interface BrowserPackagePerformance {
@@ -408,24 +423,6 @@ export interface BrowserSafetyFact {
   readonly operation: string;
   readonly requirement: string;
   readonly evidence: string;
-}
-
-export interface InspectionDiagnostic {
-  readonly code: string;
-  readonly severity: InspectionDiagnosticSeverity;
-  readonly summary: InertString;
-  readonly correspondence: InertString | null;
-}
-
-export interface InspectionEnvelope<T0> {
-  readonly content: T0;
-  readonly share: InspectionShare;
-  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
-}
-
-export interface InspectionShare {
-  readonly fullUrl: string | null;
-  readonly packet: string | null;
 }
 
 type $ManagedExports = {

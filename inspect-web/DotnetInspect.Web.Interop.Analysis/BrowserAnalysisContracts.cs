@@ -1,8 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Sections;
-
 namespace DotnetInspect.Web.Interop.Analysis;
 
 /// <summary>
@@ -29,6 +27,31 @@ public enum BrowserCompileLibraryStatus
     InvalidImplementationAssets,
 }
 
+public sealed record BrowserAnalysisInspectionEnvelope(
+    JsonElement Content,
+    BrowserAnalysisInspectionShare Share,
+    BrowserAnalysisInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserAnalysisInspectionShare(
+    string Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public enum BrowserAnalysisInspectionDiagnosticSeverity
+{
+    Information,
+    Warning,
+    Error,
+}
+
+public sealed record BrowserAnalysisInspectionDiagnostic(
+    string Code,
+    BrowserAnalysisInspectionDiagnosticSeverity Severity,
+    string Summary,
+    string? Correspondence);
+
 /// <summary>
 /// Ecosystem integration evidence for one workspace, carried exactly as
 /// <c>AssemblyContextIntegrationsQuery</c> produced it: one group per package/version/framework,
@@ -45,7 +68,7 @@ public sealed record BrowserPackageIntegrations(
     string? InspectionError,
     BrowserCompileLibraryAvailability CompileLibrary)
 {
-    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+    public BrowserAnalysisInspectionEnvelope? Inspection { get; init; }
 }
 
 public sealed record BrowserIntegrationCategory(
@@ -69,7 +92,7 @@ public sealed record BrowserPackageOpportunities(
     string? InspectionError,
     BrowserCompileLibraryAvailability CompileLibrary)
 {
-    public InspectionEnvelope<JsonElement>? Inspection { get; init; }
+    public BrowserAnalysisInspectionEnvelope? Inspection { get; init; }
 }
 
 public sealed record BrowserOpportunityCategory(
@@ -177,9 +200,7 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
-[JsonSerializable(
-    typeof(InspectionEnvelope<JsonElement>),
-    TypeInfoPropertyName = "JsonInspectionEnvelope")]
+[JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]
 [JsonSerializable(typeof(BrowserCloneCandidateResult))]
