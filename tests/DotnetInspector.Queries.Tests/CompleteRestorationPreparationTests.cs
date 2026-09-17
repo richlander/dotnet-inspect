@@ -45,6 +45,86 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
+    public void ContextBearingVersion3WithEmptyNavigation_IsRejectedBeforeConstruction()
+    {
+        string[] records =
+        [
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "workspace",
+              "id": "workspace",
+              "contexts": [
+                {
+                  "name": "context",
+                  "members": [
+                    {
+                      "kind": "package",
+                      "id": "System.Text.Json",
+                      "version": "10.0.0"
+                    }
+                  ]
+                }
+              ],
+              "registrations": []
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "navigation",
+              "id": "navigation",
+              "tabs": [],
+              "focus": null
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "view",
+              "id": "view",
+              "states": [
+                {
+                  "navigation": null,
+                  "subject": {
+                    "kind": "workspace"
+                  }
+                }
+              ]
+            }
+            """,
+            """
+            {
+              "schemaVersion": 3,
+              "kind": "scenario",
+              "id": "scenario",
+              "workspace": "workspace",
+              "context": "context",
+              "view": "view",
+              "navigation": "navigation"
+            }
+            """,
+        ];
+        var registry = new InspectionDefinitionRegistry();
+        foreach (string record in records)
+            registry.Add(InspectionDefinitionJson.Parse(record));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        var invalid =
+            Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+                failed.Failure);
+        Assert.Contains(
+            "requires at least one tab",
+            invalid.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Version2Definition_PreparesExactWorkspacePlanBeforeConstruction()
     {
         InspectionDefinitionRegistry registry = Version2Registry();

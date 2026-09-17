@@ -896,6 +896,12 @@ public sealed class InspectionDefinitionRegistry
             throw new InspectionDefinitionException(
                 $"Scenario '{scenario.Id}' must reference committed navigation and view together.");
         }
+        if (workspace is { Contexts.Count: > 0 }
+            && navigation is { Tabs.Count: 0 })
+        {
+            throw new InspectionDefinitionException(
+                $"Committed navigation '{navigation.Id}' requires at least one tab when workspace '{workspace.Id}' has contexts.");
+        }
         if (navigation is not null && view is not null)
             ValidateCommittedView(navigation, view);
 
