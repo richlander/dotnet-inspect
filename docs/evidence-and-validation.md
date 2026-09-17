@@ -83,6 +83,15 @@ path actually occurred. Do not use it as a general trace, log, telemetry bag,
 or place to move completion, failure, provenance, or other facts required to
 interpret baseline Content.
 
+Host-visible capture and complete evidence-envelope delivery are Debug-only.
+An agent may rely on evidence only when it is invoking a Debug build and the
+resolved operation explicitly advertises its evidence gesture. Do not expect
+the published or Release CLI to accept `--evidence-envelope`, and do not treat
+the absence of evidence in those builds as an inspection failure. The
+service-owned types, evidence-enabled entry point, and serializers remain
+configuration-neutral so their semantics can be gated in Release; the Debug
+host registration and delivery path do not.
+
 Before adding an evidence field, name the question it answers:
 
 1. What plausible wrong result or execution does this value distinguish?
@@ -122,6 +131,33 @@ explains or validates its construction. A regression gate should assert both
 the expected baseline and the decisive evidence field. Avoid snapshotting an
 entire envelope when a smaller assertion over the relevant typed state proves
 the claim.
+
+### Reference implementation pattern
+
+The executable reference pattern is
+[`EvidenceInspectionEnvelopeAdoptionPatternTests.cs`](../tests/DotnetInspector.Sections.Tests/EvidenceInspectionEnvelopeAdoptionPatternTests.cs)
+with its Debug-only host adapter in
+[`DebugEvidenceEnvelopeHostPattern.Debug.cs`](../tests/DotnetInspector.Sections.Tests/DebugEvidenceEnvelopeHostPattern.Debug.cs).
+The test harness is the pattern's production host; it is not a retail CLI
+surface.
+
+The pattern separates three responsibilities:
+
+1. The ordinary service entry point executes without an evidence collector.
+2. The evidence-enabled service entry point supplies a collector before the
+   same core execution, then composes the unchanged baseline and settled
+   evidence into `EvidenceInspectionEnvelope<TContent, TEvidence>`.
+3. The host adapter file is enclosed by `#if DEBUG`; only that adapter chooses
+   the evidence-enabled entry point. Release compilation retains the service
+   contract and tests but has no host adapter to invoke it.
+
+This is the preferred split for adopters. Do not put the shared evidence type,
+serializer, or correctness tests behind `#if DEBUG`, because that would make
+the contract least testable in the configuration that owns correctness gates.
+Do put option or export registration, destination handling, and the host branch
+that requests capture behind the Debug boundary. Resolve capture intent before
+execution, use the enriched value's `Inspection` as the ordinary result, and
+never run the operation a second time to obtain evidence.
 
 ## Asserted properties name their gate
 

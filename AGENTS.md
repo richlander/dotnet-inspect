@@ -367,9 +367,9 @@ goal or an owned boundary or contract requires, and add only evidence that
 proves it. Inherit existing platform contracts unless a new dependency, API,
 or design calls one into question. Detailed practices live in
 [`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). During
-command development, use typed evidence envelopes only for supplemental facts
-that answer a named diagnosis or validation question; never treat static data
-or one-run timing as runtime proof. Three rules are load-bearing everywhere:
+command development, expose typed evidence envelopes only through Debug hosts
+and only for supplemental facts that answer a named diagnosis or validation question;
+never treat static data or one-run timing as runtime proof. Three rules are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only

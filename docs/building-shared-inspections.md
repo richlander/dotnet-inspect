@@ -193,9 +193,13 @@ define a distinct evidence-enabled entry point returning
 failure, provenance, and interpretation facts in baseline Content or ordinary
 Diagnostics. Each evidence field must answer one named question; do not collect
 speculative metrics, and do not treat static counts or one invocation's timing
-as runtime proof. Follow
+as runtime proof. Keep the service contract and correctness gates
+configuration-neutral, but compile host registration and capture selection only
+in Debug builds. Agents may rely on the result only when that Debug host
+explicitly advertises the gesture. Follow
 [Use evidence envelopes during command development](evidence-and-validation.md#use-evidence-envelopes-during-command-development)
-for the command-family evidence patterns and measurement boundary.
+for the executable reference pattern, command-family evidence patterns, and
+measurement boundary.
 
 ### Publish typed diagnostics
 
