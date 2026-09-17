@@ -190,6 +190,12 @@ public static class WorkspaceCommandDefinitions
                     Tfm = tfm,
                     Packet = packet,
                     OrderedRegistrations = orderedRegistrations,
+                    RegisteredLibraries =
+                        parseResult.GetValue(registerLibraryOption) ?? [],
+                    RegisteredPackagePrefixes =
+                        parseResult.GetValue(registerPackagePrefixOption) ?? [],
+                    RegisteredEcosystems =
+                        parseResult.GetValue(registerEcosystemOption) ?? [],
                     InventoryKinds = inventoryKinds,
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
@@ -203,6 +209,13 @@ public static class WorkspaceCommandDefinitions
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),
+                    HasExplicitLimitOrDirection =
+                        parseResult.GetResult(opts.Limit)
+                            is { Implicit: false }
+                        || parseResult.GetResult(opts.Head)
+                            is { Implicit: false }
+                        || parseResult.GetResult(opts.Tail)
+                            is { Implicit: false },
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =

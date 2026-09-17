@@ -1287,6 +1287,36 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task CommandLineInventory_PreservesGroupedRegistrationOrder()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--register-package-prefix",
+            "Zeta.",
+            "--register-library",
+            "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+            "--json",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement[] entries =
+        [
+            .. document.RootElement.GetProperty("entries").EnumerateArray(),
+        ];
+        Assert.Equal(
+            ["exactLibrary", "packagePrefix"],
+            entries.Select(entry => entry.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
     public async Task RegistrationOnlyShare_AuthorsUrlWithoutAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -1451,6 +1481,9 @@ public sealed class WorkspaceCommandTests
 
     [Theory]
     [InlineData("--rows", "1")]
+    [InlineData("-n", "0")]
+    [InlineData("--head", null)]
+    [InlineData("--tail", null)]
     [InlineData("--count", null)]
     [InlineData("--no-headers", null)]
     public async Task CommandLineShare_RejectsInventoryRowControls(

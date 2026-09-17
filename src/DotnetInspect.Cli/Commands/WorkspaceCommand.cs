@@ -89,7 +89,10 @@ public static class WorkspaceCommand
 
         WorkspacePlan plan;
         WorkspaceMemberCoordinate[] directMembers = [];
-        if (!TryCreateRegistrations(options, out var registrations))
+        if (!TryCreateRegistrations(
+                options,
+                preserveAuthoredOrder: false,
+                out var registrations))
             return 1;
         if (options.Packages.Length != 0
             && !InspectionGraphCommand.TryCreateMembers(
@@ -346,7 +349,10 @@ public static class WorkspaceCommand
             }
             else
             {
-                if (!TryCreateRegistrations(options, out var registrations)
+                if (!TryCreateRegistrations(
+                        options,
+                        preserveAuthoredOrder: true,
+                        out var registrations)
                     || !InspectionGraphCommand.TryCreateMembers(
                         options.Packages,
                         out WorkspaceMemberCoordinate[] directMembers))
@@ -621,13 +627,14 @@ public static class WorkspaceCommand
 
     static bool TryCreateRegistrations(
         WorkspaceOptions options,
+        bool preserveAuthoredOrder,
         out ImmutableArray<WorkspaceRegistration> registrations)
     {
         var builder = ImmutableArray.CreateBuilder<WorkspaceRegistration>();
         try
         {
             foreach (WorkspaceRegistrationInput input
-                in GetRegistrationInputs(options))
+                in GetRegistrationInputs(options, preserveAuthoredOrder))
             {
                 switch (input.Kind)
                 {
@@ -664,9 +671,11 @@ public static class WorkspaceCommand
     }
 
     static IEnumerable<WorkspaceRegistrationInput> GetRegistrationInputs(
-        WorkspaceOptions options)
+        WorkspaceOptions options,
+        bool preserveAuthoredOrder)
     {
-        if (options.OrderedRegistrations.Length != 0)
+        if (preserveAuthoredOrder
+            && options.OrderedRegistrations.Length != 0)
         {
             foreach (WorkspaceRegistrationInput input
                 in options.OrderedRegistrations)
@@ -1616,6 +1625,7 @@ public static class WorkspaceCommand
         if (options.ShareFormat is not null
             && (options.Count
                 || options.Rows is not null
+                || options.HasExplicitLimitOrDirection
                 || options.NoHeader))
         {
             return "--share emits one portable Workspace definition and "
