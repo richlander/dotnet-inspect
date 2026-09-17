@@ -84,7 +84,12 @@ An unchanged occurrence preserves its exact active subject, retained path, and
 inspector request while rebuilding facts. A Package-only retained path is an
 exact retention, not a fallback.
 
-The operation result retains native correspondence evidence. Its serialized
+Before leaving admitted source access, the producer uses the correspondence
+owner's `Detach()` projection. Its retention result carries Package descriptors,
+`CoordinateLibraryPairingEvidence`, and `ApiCoordinateCorrespondenceEvidence`,
+not the live matching results or Package observations. Navigation's own exact
+destination initialization remains its existing detached protocol currency.
+The operation result retains that native correspondence evidence. Its serialized
 consumer outcome also carries the retention disposition, explanation, and
 Library/Type/Member correspondence statuses; a host need not infer why a lower
 context was truncated or turn a refused route into an absence verdict.
@@ -313,7 +318,7 @@ The coordinate-replacement Release gates are in
 | Destination Registry unavailable/failed outcomes retain the destination-bound exact request without recommendation substitution | `ExactInspectorNonSuccessKeepsDestinationRequest` |
 | An unchanged coordinate retains the exact active Type and inspector; a Package-only path remains exact beneath an active Package or Workspace | `UnchangedCoordinateRetainsExactTypeAndInspector`, `PackageOnlyContextIsAnExactPath` |
 | A dangling forwarder stops before Member matching and retains native unbound-route evidence | `UnresolvedForwarderDoesNotUseMemberEvidence` |
-| A resolved Type whose strict profile changed falls back to its paired Library without retaining lower context; exact Type/Member neighbors retain their inspector | `StrictTypeCorrespondenceControlsMemberRetention` |
+| A resolved Type whose strict profile changed falls back to its paired Library without retaining lower context; exact Type/Member neighbors retain their inspector, and detached evidence remains readable after Workspace close | `StrictTypeCorrespondenceControlsMemberRetention` |
 | Pre-admission cancellation still submits and consumes the original correlated Scope settlement | `PreCancelledRequestSettlesAndCanComplete` |
 | Rejected Scope and retired-source preparation failures publish the complete current membership rather than stale successful content | `RejectedScopeUsesCompleteNewerSnapshot`, `RetiredSourceFailureStillSettlesCurrentMembership` |
 

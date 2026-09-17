@@ -35,6 +35,12 @@ public sealed record CoordinateLibraryPairingFailure(
     CandidateOpenFailure? ImageFailure = null,
     PackageCompileAsset? Asset = null);
 
+/// <summary>Resource-free evidence for one Package Library.</summary>
+public sealed record CoordinateApiLibraryEvidence(
+    WorkspacePackageDescriptor Package,
+    PackageCompileAsset? Asset,
+    NavigationAssemblyIdentity Assembly);
+
 /// <summary>One selected API asset and its exact, resource-free Library identity.</summary>
 public sealed class CoordinateApiLibraryObservation
 {
@@ -51,6 +57,9 @@ public sealed class CoordinateApiLibraryObservation
     public StructuralSubjectIdentity.LibrarySubject Subject { get; }
     public PackageCompileAsset Asset { get; }
     public AssemblyReferenceIdentity Assembly { get; }
+
+    internal CoordinateApiLibraryEvidence Detach() =>
+        new(Subject.Package.Descriptor, Asset, Subject.Identity);
 }
 
 /// <summary>
@@ -126,6 +135,57 @@ public sealed class CoordinateLibraryPairingResult
     public ImmutableArray<CoordinateApiLibraryObservation> Candidates { get; }
     public CoordinateLibraryPairingFailure? Failure { get; }
     public CoordinateApiLibraryObservation? Destination =>
+        Status == CoordinateLibraryPairingStatus.Exact ? Candidates[0] : null;
+
+    internal CoordinateLibraryPairingEvidence Detach()
+    {
+        CoordinateApiLibraryObservation? source =
+            Before.Libraries.FirstOrDefault(candidate =>
+                ReferenceEquals(
+                    candidate.Subject.Identity.Registration,
+                    Source.Identity.Registration));
+        return new(
+            new(
+                Source.Package.Descriptor,
+                source?.Asset,
+                Source.Identity),
+            Before.Occurrence.Package,
+            After.Occurrence.Package,
+            Status,
+            [.. Candidates.Select(candidate => candidate.Detach())],
+            Failure);
+    }
+}
+
+/// <summary>
+/// Resource-free directional Library-pairing evidence. It retains no
+/// Workspace-local subject or Package observation.
+/// </summary>
+public sealed class CoordinateLibraryPairingEvidence
+{
+    internal CoordinateLibraryPairingEvidence(
+        CoordinateApiLibraryEvidence source,
+        WorkspacePackageDescriptor before,
+        WorkspacePackageDescriptor after,
+        CoordinateLibraryPairingStatus status,
+        ImmutableArray<CoordinateApiLibraryEvidence> candidates,
+        CoordinateLibraryPairingFailure? failure)
+    {
+        Source = source;
+        Before = before;
+        After = after;
+        Status = status;
+        Candidates = candidates;
+        Failure = failure;
+    }
+
+    public CoordinateApiLibraryEvidence Source { get; }
+    public WorkspacePackageDescriptor Before { get; }
+    public WorkspacePackageDescriptor After { get; }
+    public CoordinateLibraryPairingStatus Status { get; }
+    public ImmutableArray<CoordinateApiLibraryEvidence> Candidates { get; }
+    public CoordinateLibraryPairingFailure? Failure { get; }
+    public CoordinateApiLibraryEvidence? Destination =>
         Status == CoordinateLibraryPairingStatus.Exact ? Candidates[0] : null;
 }
 

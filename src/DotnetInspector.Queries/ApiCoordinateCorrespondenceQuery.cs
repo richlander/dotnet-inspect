@@ -33,14 +33,15 @@ public sealed record ApiCoordinateCorrespondenceFailure(
     CandidateOpenFailure? ImageFailure = null);
 
 /// <summary>
-/// Detached evidence for one source declaration through an exact destination
-/// entry Library and, when forwarded, its actual defining Library.
+/// Live result for one source declaration through an exact destination entry
+/// Library and, when forwarded, its actual defining Library.
 /// </summary>
 public sealed class ApiCoordinateCorrespondenceResult
 {
     internal ApiCoordinateCorrespondenceResult(
         ApiCoordinateCorrespondenceStatus status,
         StructuralSubjectIdentity source,
+        ApiDeclarationKind sourceKind,
         CoordinateLibraryPairingResult libraryPairing,
         ApiDeclarationBindingResult? sourceBinding = null,
         CoordinateTypeResolutionEvidence? resolution = null,
@@ -50,6 +51,7 @@ public sealed class ApiCoordinateCorrespondenceResult
     {
         Status = status;
         Source = source;
+        SourceKind = sourceKind;
         LibraryPairing = libraryPairing;
         SourceBinding = sourceBinding;
         Resolution = resolution;
@@ -60,12 +62,20 @@ public sealed class ApiCoordinateCorrespondenceResult
 
     public ApiCoordinateCorrespondenceStatus Status { get; }
     public StructuralSubjectIdentity Source { get; }
+    public ApiDeclarationKind SourceKind { get; }
     public CoordinateLibraryPairingResult LibraryPairing { get; }
     public ApiDeclarationBindingResult? SourceBinding { get; }
     public CoordinateTypeResolutionEvidence? Resolution { get; }
     public ApiDeclarationCorrespondenceResult? Correspondence { get; }
     public StructuralSubjectIdentity? Destination { get; }
     public ApiCoordinateCorrespondenceFailure? Failure { get; }
+
+    /// <summary>
+    /// Projects the completed result before its Workspace closes. The returned
+    /// evidence retains no Workspace-local subject or Package observation.
+    /// </summary>
+    public ApiCoordinateCorrespondenceEvidence Detach() =>
+        ApiCoordinateCorrespondenceEvidenceProjector.Project(this);
 }
 
 /// <summary>
@@ -168,6 +178,7 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         cancellationToken.ThrowIfCancellationRequested();
+        ApiDeclarationKind sourceKind = member?.Kind ?? ApiDeclarationKind.Type;
 
         CoordinateLibraryPairingResult pairing =
             CoordinateLibraryPairingQuery.Execute(sourceLibrary, before, after);
@@ -185,6 +196,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 PairingStatus(pairing.Status),
                 source,
+                sourceKind,
                 pairing);
         }
 
@@ -270,6 +282,7 @@ public static class ApiCoordinateCorrespondenceQuery
                 return new(
                     SourceBindingStatus(binding.Status),
                     source,
+                    sourceKind,
                     pairing,
                     sourceBinding: binding);
             }
@@ -288,6 +301,7 @@ public static class ApiCoordinateCorrespondenceQuery
                 return new(
                     PairingStatus(pairing.Status),
                     source,
+                    sourceKind,
                     pairing,
                     sourceBinding: binding);
             }
@@ -300,6 +314,7 @@ public static class ApiCoordinateCorrespondenceQuery
                     (destinationRealization, innerToken) =>
                         ValueTask.FromResult(ExecutePinned(
                             source,
+                            sourceKind,
                             declaringType,
                             pairing,
                             binding,
@@ -341,6 +356,7 @@ public static class ApiCoordinateCorrespondenceQuery
             new(
                 status,
                 source,
+                sourceKind,
                 libraryPairing,
                 sourceBinding: sourceBinding,
                 failure: new(
@@ -349,6 +365,7 @@ public static class ApiCoordinateCorrespondenceQuery
 
     static ApiCoordinateCorrespondenceResult ExecutePinned(
         StructuralSubjectIdentity source,
+        ApiDeclarationKind sourceKind,
         MetadataTypeDefinitionName declaringType,
         CoordinateLibraryPairingResult pairing,
         ApiDeclarationBindingResult sourceBinding,
@@ -391,6 +408,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ApiCoordinateCorrespondenceStatus.Failed,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -401,6 +419,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ApiCoordinateCorrespondenceStatus.Refused,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -412,6 +431,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 ResolutionStatus(outcome),
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached);
@@ -457,6 +477,7 @@ public static class ApiCoordinateCorrespondenceQuery
             return new(
                 DeclarationStatus(correspondence.Status),
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 detached,
@@ -505,6 +526,7 @@ public static class ApiCoordinateCorrespondenceQuery
         return new(
             ApiCoordinateCorrespondenceStatus.Exact,
             source,
+            sourceKind,
             pairing,
             sourceBinding,
             detached,
@@ -520,6 +542,7 @@ public static class ApiCoordinateCorrespondenceQuery
             new(
                 status,
                 source,
+                sourceKind,
                 pairing,
                 sourceBinding,
                 resolutionEvidence,

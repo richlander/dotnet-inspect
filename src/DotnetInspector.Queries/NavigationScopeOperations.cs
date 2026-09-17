@@ -35,19 +35,19 @@ public sealed class NavigationCoordinateRetentionResult
         if (!Enum.IsDefined(disposition))
             throw new ArgumentOutOfRangeException(nameof(disposition));
 
-        Source = source;
-        Destination = destination;
+        Source = source.Occurrence.Package;
+        Destination = destination.Occurrence.Package;
         Disposition = disposition;
         Initialization = initialization;
         Detail = detail;
-        LibraryPairing = libraryPairing;
-        TypeCorrespondence = typeCorrespondence;
-        MemberCorrespondence = memberCorrespondence;
+        LibraryPairing = libraryPairing?.Detach();
+        TypeCorrespondence = typeCorrespondence?.Detach();
+        MemberCorrespondence = memberCorrespondence?.Detach();
     }
 
-    public CoordinatePackageObservation Source { get; }
+    public WorkspacePackageDescriptor Source { get; }
 
-    public CoordinatePackageObservation Destination { get; }
+    public WorkspacePackageDescriptor Destination { get; }
 
     public NavigationCoordinateRetentionDisposition Disposition { get; }
 
@@ -55,11 +55,11 @@ public sealed class NavigationCoordinateRetentionResult
 
     public string Detail { get; }
 
-    public CoordinateLibraryPairingResult? LibraryPairing { get; }
+    public CoordinateLibraryPairingEvidence? LibraryPairing { get; }
 
-    public ApiCoordinateCorrespondenceResult? TypeCorrespondence { get; }
+    public ApiCoordinateCorrespondenceEvidence? TypeCorrespondence { get; }
 
-    public ApiCoordinateCorrespondenceResult? MemberCorrespondence { get; }
+    public ApiCoordinateCorrespondenceEvidence? MemberCorrespondence { get; }
 }
 
 /// <summary>

@@ -92,6 +92,10 @@ public sealed class NavigationCoordinateReplacementTests
             Assert.Equal(NavigationLensBasisKind.ExactRequest,
                 completed.State.Snapshot.LensOutcome.Basis);
         }
+        await workspace.CloseAsync();
+        Assert.Equal("1.0.0", retention.Source.PackageVersion);
+        Assert.Equal("2.0.0", retention.Destination.PackageVersion);
+        Assert.Equal(changedType, retention.TypeCorrespondence.IsCompleteDestinationAbsence);
     }
 
     [Theory]
@@ -203,10 +207,7 @@ public sealed class NavigationCoordinateReplacementTests
         }
         Assert.Equal(
             "Avalonia.Markup",
-            retention.LibraryPairing!.Before.Libraries.Single(
-                library =>
-                    library.Subject
-                        == retention.LibraryPairing.Source).Assembly.Name);
+            retention.LibraryPairing!.Source.Assembly.Assembly.Name);
         StructuralSubjectIdentity retainedSubject =
             retention.Initialization.Subject!;
         StructuralSubjectIdentity.LibrarySubject definingLibrary =
@@ -220,11 +221,9 @@ public sealed class NavigationCoordinateReplacementTests
             };
         Assert.Equal(
             "Avalonia.Base",
-            Assert.Single(
-                    retention.Destination.Libraries,
-                    library =>
-                        library.Subject == definingLibrary)
-                .Assembly.Name);
+            definingLibrary.Identity.Assembly.Name);
+        Assert.Same(definingLibrary.Identity.Registration,
+            retention.TypeCorrespondence.Destination!.Library.Assembly.Registration);
         Assert.Equal(
             member
                 ? StructuralSubjectKind.Member
@@ -252,10 +251,11 @@ public sealed class NavigationCoordinateReplacementTests
             completed.State.Snapshot.Packages,
             package => package.Version == "11.3.14");
 
+        WorkspacePackageOccurrenceDescriptor old = prepared.Scope.FindPackageOccurrence(source)!;
         ArtifactRootResult<bool> retired =
             await workspace.ExecutePackageRootQueryAsync(
-                retention.Source.Correspondence,
-                retention.Source.Generation,
+                Assert.IsType<PackageArtifactRootCorrespondence>(old.Occurrence.Correspondence),
+                Assert.IsType<ArtifactRootRealizationStatus.Ready>(old.Realization.Status).Generation,
                 (_, _) => ValueTask.FromResult(true),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -393,12 +393,7 @@ public sealed class NavigationCoordinateReplacementTests
             completed.State.Snapshot.ActiveSubject.Kind);
         Assert.Equal(
             "Avalonia.Base",
-            Assert.Single(
-                    retention.Destination.Libraries,
-                    library =>
-                        library.Subject
-                            == retention.Initialization.Context!.Type!.Library)
-                .Assembly.Name);
+            retention.Initialization.Context!.Type!.Library.Identity.Assembly.Name);
         Assert.Equal(
             NavigationLensBasisKind.Recommendation,
             completed.State.Snapshot.LensOutcome.Basis);
@@ -452,22 +447,14 @@ public sealed class NavigationCoordinateReplacementTests
             completed.Result.Consumer.Outcome.CoordinateRetention.Detail);
         Assert.Equal(
             "Avalonia.Base",
-            Assert.Single(
-                    retention.Destination.Libraries,
-                    library =>
-                        library.Subject
-                            == ((StructuralSubjectIdentity.TypeSubject)
-                                retention.TypeCorrespondence.Destination!)
-                                .Library)
-                .Assembly.Name);
+            retention.TypeCorrespondence.Destination!.Library.Assembly.Assembly.Name);
         Assert.Equal(
             "Avalonia.Markup",
-            Assert.Single(
-                    retention.Destination.Libraries,
-                    library =>
-                        library.Subject
-                            == retention.Initialization.Subject)
-                .Assembly.Name);
+            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+                retention.Initialization.Subject).Identity.Assembly.Name);
+        Assert.Same(retention.LibraryPairing!.Destination!.Assembly.Registration,
+            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+                retention.Initialization.Subject).Identity.Registration);
         Assert.Null(retention.Initialization.Context!.Type);
         Assert.Equal(
             StructuralSubjectKind.Library,
@@ -517,12 +504,7 @@ public sealed class NavigationCoordinateReplacementTests
         Assert.Equal(activeKind, completed.State.Snapshot.ActiveSubject.Kind);
         Assert.Equal(
             "Avalonia.Base",
-            Assert.Single(
-                    retention.Destination.Libraries,
-                    library =>
-                        library.Subject
-                            == retention.Initialization.Context!.Type!.Library)
-                .Assembly.Name);
+            retention.Initialization.Context!.Type!.Library.Identity.Assembly.Name);
         Assert.Equal(
             facet,
             completed.State.Snapshot.LensOutcome.Request!.Facet);
