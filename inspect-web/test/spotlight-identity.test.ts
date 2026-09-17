@@ -3153,7 +3153,7 @@ test("home demos execute typed results and commit canonical navigation", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*const requestedLibraryLens = loc\.libraryLens \|\| "overview";[\s\S]*?state\.libraryLens = requestedLibraryLens;/);
   const engineDemo =
     appSource.match(/async function runEngineHomeDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
@@ -5995,6 +5995,9 @@ test("Package and Library Overview share the named identity frame", () => {
   const renderOverview =
     appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderLibraryOverview/)?.[0]
     ?? "";
+  const renderLibraryInventory =
+    appSource.match(/function renderLibraryInventoryHtml\([\s\S]*?\n}\n\nfunction renderPackageOverview/)?.[0]
+    ?? "";
   assert.match(appSource,
     /const overviewWorkingSurface =[\s\S]*activeScope === "package" && state\.packageLens === "overview"[\s\S]*activeScope === "library" && state\.libraryLens === "overview"/);
   assert.match(appSource,
@@ -6005,12 +6008,14 @@ test("Package and Library Overview share the named identity frame", () => {
     /return packageLensBody\(\);/);
   assert.match(renderOverview,
     /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
-  assert.match(renderOverview,
+  assert.match(renderLibraryInventory,
     /platformLibrarySelectHtml\(\)/);
   assert.match(renderOverview,
     /const libraries = packageLibraries\(\)/);
-  assert.match(renderOverview,
+  assert.match(renderLibraryInventory,
     /data-lib-scope=[\s\S]*No managed libraries were admitted/);
+  assert.match(renderOverview,
+    /renderLibraryInventoryHtml\(pkg, libraries\)/);
   assert.match(renderOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =
