@@ -224,6 +224,11 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
+                "M:DotnetInspector.Sections.AssemblyIntegrationsInspection.ExecuteAndReleaseAsync",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
                 "M:DotnetInspector.Sections.AssemblyIntegrationOpportunitiesInspection.ExecuteAndReleaseAsync",
                 StringComparison.Ordinal));
     }
