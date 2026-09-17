@@ -255,6 +255,28 @@ their required composition prerequisites without traversing an edge, including
 when those producers emit no relationship for the seed. Every result carries
 the request and a typed depth-bound limit.
 
+The target request generalizes finite `MaxDepth` into one typed depth intent:
+
+```text
+InspectionGraphNeighborhoodDepth
+  Finite(MaxDepth: non-negative integer)
+  Complete
+```
+
+`Finite` preserves the current request and typed depth-bound behavior.
+`Complete` follows admitted relationships until no new semantic edge is
+reachable within the request's finite subject population and producer-owned
+expansion authority. It is not an infinite budget: relationship-specific node,
+edge, acquisition, and work limits remain authoritative. Reaching one before
+closure returns the partial graph with its typed limit and incomplete status;
+it never reports complete traversal.
+
+The resulting document retains the depth intent. A finite request records
+`queries.neighborhood-depth-bound`; a complete request records
+`queries.neighborhood-complete` only when closure is reached. The first
+implementation adds a `Complete` construction path without changing the
+meaning of existing finite constructors.
+
 ### Member seed
 
 The current `member -S "Call Graph"` path is the worked example. The member is
@@ -498,6 +520,10 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 - unsupported seed/relation combinations fail with guidance;
 - failures admitted by each selected relationship's producer policy remain
   visible in every mode, as do traversal limits; and
+- a complete-depth request over a finite cyclic relationship population
+  terminates at semantic closure without duplicating nodes or edges;
+- a complete-depth request stopped by an owner work limit is incomplete and
+  never records `queries.neighborhood-complete`;
 - the same evidence has identical identity and direction across modes.
 
 ## Non-goals
@@ -506,4 +532,5 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 - Replacing relationship-specific admission with one generic containment walk.
 - Conflating acquisition scope, graph focus, subject lens, and grouping.
 - Requiring peer-seed or induced modes before further single-seed improvements.
-- Unbounded whole-program closure.
+- Unbounded whole-program closure. Complete neighborhood depth remains inside
+  one finite admitted subject population and every producer-owned work limit.

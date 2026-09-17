@@ -472,6 +472,15 @@ receive the remaining bound before doing that work. A later row or line limit
 does not authorize early termination of graph acquisition because it cannot
 predict which logical edges survive graph ordering.
 
+The selected-Type `type graph` adapter maps an explicit positive `--depth N` to
+`InspectionGraphNeighborhoodDepth.Finite(N)` and omission to
+`InspectionGraphNeighborhoodDepth.Complete`. Complete depth reaches semantic
+closure only within the finite admitted search population and every
+relationship-owner node, edge, acquisition, and work limit. A hit limit returns
+typed incomplete content; it does not substitute an arbitrary depth or claim
+closure. This preserves the current omitted-depth Dependency meaning without
+introducing unbounded whole-program traversal.
+
 For fixed graph evidence such as `project.assets.json`, omitted depth means the
 complete selected restored graph already present in the asset. It never means
 opening every resolved package. In that case depth bounds graph admission over
@@ -1456,6 +1465,7 @@ targeted Debug-build probe.
 | `type graph` source options remain search scopes; bare `--platform` selects all Platform frameworks; valued `--platform <library>` selects one Platform library; TFM-only input refines the implicit Platform default without suppressing it; `graph dependencies` options become asset roots; route-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`; bare `--platform`; valued `--platform System.Private.CoreLib`; repeatable `--platform-library`; `--extensions`; `--aspnetcore`; `--tfm net10.0` with no explicit source; explicit source plus `--tfm`; and rejected cross-route gestures. |
 | Selected-Type migration preserves subject, relationship/evidence facts, scope, traversal, participant completion/rejection and provenance, row-selection outcomes, typed failures, exit status, and output-format classes while intentionally replacing the `TypeDependencySectionResult` JSON/envelope with `TypeDependencyGraphContent` and Dependency structural discovery with Graph discovery. | Fixed-fixture before/after Release contracts for text, Markdown, table, JSON, envelope, and structural discovery; machine fixtures assert complete `Graph`, ordered `Participants`, and `RowSelection`, including two relationships with only the second selected and typed strict-window failure; missing, ambiguous, and unavailable cases assert typed Outcome with null Graph and preserved participants; envelope fixtures assert result kind `type-graph` schema version 1; obsolete selected-Type section and field names reject with discovery guidance. |
 | Type Graph effective discovery is a new bounded capability rather than a claimed old/new migration surface. | Target-only Release gate for effective Graph discovery plus a current-command guard proving selected-Type `depends -D --effective` remains rejected until retirement. |
+| Omitted selected-Type depth retains complete traversal semantics while explicit positive depth remains finite. | Release fixtures compare depthless `depends` and `type graph` over a finite cyclic hierarchy, assert identical closure and completion, then inject an owner work limit and assert partial topology plus typed incompleteness without `queries.neighborhood-complete`; explicit depths 1 and 2 retain current boundaries. |
 | One `type graph` subject resolves to one owner-issued seed or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
