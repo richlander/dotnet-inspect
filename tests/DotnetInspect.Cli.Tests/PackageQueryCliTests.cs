@@ -860,6 +860,31 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task SelectedJsonRetainsPresentationContractOnFailure()
+    {
+        using var source = Source(out var fixture);
+        fixture.SearchFails = true;
+        PackageQueryOptions options =
+            Options(PackageQuery.VerifiedFacetId) with
+            {
+                Tabular = false,
+                Tsv = false,
+                JsonOutput = true,
+                CompactJson = true,
+                SelectExplicitlySet = true,
+            };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageQueryCommand.ExecuteAsync(options, source, null));
+
+        Assert.Equal(1, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.EnumerateObject());
+        Assert.Contains("Package Query completion", result.Error);
+    }
+
+    [Fact]
     public async Task SemanticHead_PreservesALaterCandidateFailure()
     {
         using var source = Source(out var fixture);

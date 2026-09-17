@@ -29,6 +29,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
+    public bool SelectExplicitlySet { get; init; }
 
     internal bool IsContentJson =>
         JsonOutput
@@ -36,7 +37,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         && !Count
         && Columns is null
         && Fields is null
-        && !Tree;
+        && !Tree
+        && !SelectExplicitlySet;
 
     private static ImmutableArray<PackageQueryFacetDescriptor> CliFacets { get; } =
     [

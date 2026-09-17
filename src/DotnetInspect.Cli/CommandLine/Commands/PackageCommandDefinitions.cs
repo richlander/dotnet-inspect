@@ -538,6 +538,7 @@ public static class PackageCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                SelectExplicitlySet = select is not null,
             };
             return await PackageQueryCommand.ExecuteAsync(
                 options,
