@@ -518,16 +518,15 @@ public static class TypeCommand
                         effectiveOptions.MemberFilter);
                     if (tabularProjection)
                     {
-                        // Capture output so we can warn when a requested column produced no data
-                        // (e.g. a column not shown at this verbosity).
-                        var sw = new StringWriter { NewLine = "\n" };
+                            // Hold the rendered artifact until typed projection diagnostics confirm
+                            // that the command can publish it with a successful exit.
+                            var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
-                        ProjectionDiagnostics.DiagnoseRendered(effectiveOptions.Fields ?? effectiveOptions.Columns, rendered);
                         Console.Out.Write(rendered);
                     }
                     else
