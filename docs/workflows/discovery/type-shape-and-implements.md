@@ -39,7 +39,7 @@ What does the Command type look like? Show its shape.
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --shape --markdown -v:q -n 30
+  --shape --markdown -v:q -n 30 --lines
 ```
 
 ```expect
@@ -61,7 +61,7 @@ Tips:
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer \
-  --shape --markdown -v:q -n 20
+  --shape --markdown -v:q -n 20 --lines
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Methods
 
 ```bash
 dotnet-inspect type System.Text.Json JsonElement \
-  --shape --markdown -v:q -n 20
+  --shape --markdown -v:q -n 20 --lines
 ```
 
 ```expect
@@ -97,7 +97,7 @@ What interfaces does WebApplication implement?
 
 ```bash
 dotnet-inspect type Microsoft.AspNetCore.Builder.WebApplication \
-  --shape --markdown -v:q -n 30
+  --shape --markdown -v:q -n 30 --lines
 ```
 
 ```expect
@@ -346,7 +346,7 @@ What interfaces does Command implement, and what other types implement those int
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --shape --markdown -v:q -n 15
+  --shape --markdown -v:q -n 15 --lines
 ```
 
 ```expect
