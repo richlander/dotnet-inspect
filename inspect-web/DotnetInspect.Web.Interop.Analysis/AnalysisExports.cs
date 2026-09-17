@@ -283,16 +283,16 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
-        AssemblyIntegrationsEntry result =
+        InspectionEnvelope<AssemblyIntegrationsEntry> inspection =
             scope.UseMetadataParticipant(
                 participant,
-                AssemblyContextIntegrationsQuery.ExecuteParticipant);
+                AssemblyIntegrationsInspection.Execute);
 
         return CreateIntegrations(
             coordinate.PackageId,
             coordinate.Version,
             coordinate.Framework,
-            [result],
+            [inspection.Content],
             compileLibrary);
     }
 
