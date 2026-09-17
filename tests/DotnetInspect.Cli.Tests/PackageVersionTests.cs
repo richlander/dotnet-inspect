@@ -582,6 +582,37 @@ public class PackageVersionTests
     }
 
     [Theory]
+    [InlineData("--version", null)]
+    [InlineData("--version", "1.0.0")]
+    [InlineData("--latest-version", null)]
+    public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition(
+        string exactSelector,
+        string? exactValue)
+    {
+        string[] exactArgs = exactValue is null
+            ? [exactSelector]
+            : [exactSelector, exactValue];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "package",
+                "ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0",
+                "--count",
+                .. exactArgs,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "range --count cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("--version", "2.0.10")]
     [InlineData("--version=2.0.10", null)]
     public async Task Versions_ValuedSingularSelectorConflictsBeforeAcquisition(

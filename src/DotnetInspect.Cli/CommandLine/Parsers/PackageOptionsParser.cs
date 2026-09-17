@@ -146,14 +146,19 @@ public static class PackageOptionsParser
         bool selectsVersionPopulation =
             showPluralVersions
             || countRange;
-        if ((showVersionList && showVersionsWithFeed)
-            || (showPluralVersions
-                && (hasExplicitVersionSelector
-                    || showLatestVersion)))
+        if (showVersionList && showVersionsWithFeed)
         {
             return new InvalidArguments(
                 "--versions and --versions-with-feed cannot be combined "
                 + "with each other, --version, or --latest-version.");
+        }
+        if (selectsVersionPopulation
+            && (hasExplicitVersionSelector
+                || showLatestVersion))
+        {
+            return new InvalidArguments(
+                "--versions, --versions-with-feed, and range --count "
+                + "cannot be combined with --version or --latest-version.");
         }
 
         bool showVersions =
