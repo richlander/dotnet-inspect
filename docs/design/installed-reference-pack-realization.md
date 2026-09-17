@@ -324,5 +324,6 @@ PlatformFamilyTarget(
 and a complete reference realization returns immutable snapshots of both
 assemblies plus one authoritative `PlatformSourceContribution.Realization`.
 Removing or replacing the files afterward does not change the returned live
-value. Requesting a complete implementation population still has no installed
-adapter in this slice and cannot be presented as supported.
+value. This reference-source slice does not own implementation populations;
+PlatformHouse's installed execution adapter materializes the separately owned
+manifest-defined implementation closure under #7339.
