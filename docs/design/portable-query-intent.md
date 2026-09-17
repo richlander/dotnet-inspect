@@ -2,12 +2,14 @@
 
 ## Status
 
-**Implemented substrate; production adoption pending.**
+**Implemented substrate and first vocabulary; sharing adoption pending.**
 `DotnetInspector.QueryEngine` carries the intent type, identity texts, semantic
 orders, canonical payload codec, vocabulary abstraction, and atomic resolver
 under the existing `DotnetInspector.PortableQueries` namespace. The Release
-gates in [Required gates](#required-gates) enforce that substrate. No production
-vocabulary binds an intent yet; Package Query is the first planned adopter.
+gates in [Required gates](#required-gates) enforce that substrate. Package Query
+now supplies the first production vocabulary and both CLI and Browser lower
+through it. Definitions record binding, packet projection, and share-link
+restoration remain work under #6971.
 
 This is **slice 1 of 2** under
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971). It owns the
@@ -40,33 +42,28 @@ typed bindings     owner-issued identities, accessors, comparers
 executable plan    RowSelectionPlan, PackageQueryPlan, and their peers
 ```
 
-Three consumers need this layer and none of them has it:
+Three consumers motivate this layer and are at different adoption stages:
 
-- **Inspect Web `/query`** stores no request in the URL, so a package query
-  cannot be shared, saved, or demonstrated.
+- **Inspect Web `/query`** executes the shared Package Query intent but stores no
+  request in the URL, so a package query cannot yet be shared, saved, or
+  demonstrated from its canonical request.
 - **The share packet** reserves a delegation slot with nothing to fill it.
   [Workspace definitions](workspace-definitions.md) packet format 2 defines its
   `q` table as `[queryId, payload]`. Portable Query Payload now supplies the one
   closed payload shape and canonical codec: `queryId` names the vocabulary and
   `payload` carries the intent's four serializable parts. Together they identify
-  one canonical `PortableQueryIntent`. Vocabulary resolution, Workspace
-  Definitions record binding, and query-bearing packet adoption remain work
-  under #6971.
+  one canonical `PortableQueryIntent`. Workspace Definitions record binding and
+  query-bearing packet adoption remain work under #6971.
 
-  **The slot alone is not sufficient for a package query.** Format 2 permits a
-  query reference from its leading coordinate-free Workspace state or from a
-  per-coordinate view entry, rejects an unreferenced query-table entry,
-  requires one view state per coordinate tuple, and rejects empty contexts.
-  The leading state must request Workspace, so a package query with no
-  coordinate still has nowhere valid to attach. A coordinate-free Package
-  attachment is therefore a **Workspace Definitions-owned composition point**,
-  not something either slice may specify, and its adoption is a counted step
-  on the path to a working `/query` share link rather than an implied
-  consequence of landing the codec. Workspace Definitions' format-2
-  composition gate separately round-trips a Workspace-compatible query on the
-  leading state and proves that this does not admit a Package query there.
-- **The CLI** spells Package Query facets as `--where "facet=<opaque id>"`, one
-  pseudo-field whose value is a product ID checked by string comparison.
+  **The slot alone is not sufficient for a package query.** Format 2 rejects
+  empty contexts, so it cannot represent a query-only package-discovery
+  scenario. Workspace Definitions now specifies a format-3 query-only
+  composition: the leading null-navigation row carries one coordinate-free
+  primary query without pretending that the Workspace subject is query input.
+  Its implementation is a counted step on the path to a working `/query` share
+  link rather than an implied consequence of landing the codec.
+- **The CLI** lowers Package Query `--where` terms through the same vocabulary.
+  Packet emission and replay of that intent remain pending.
 
 Supporting owners retain their contracts:
 
