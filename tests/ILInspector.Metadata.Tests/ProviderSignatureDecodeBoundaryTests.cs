@@ -1607,7 +1607,13 @@ public class ProviderSignatureDecodeBoundaryTests
                 "s_cumulativeSignatureBytes",
             ],
             StringComparer.Ordinal);
-        if (tryIndex != 8
+        int reservationOffset =
+            IsStructuralWorkReservation(
+                body.Statements[3],
+                "blobLength")
+                ? 1
+                : 0;
+        if (tryIndex != 8 + reservationOffset
             || !IsRejectingComparisonStatement(
                 body.Statements[0],
                 SyntaxKind.GreaterThanOrEqualExpression,
@@ -1622,17 +1628,17 @@ public class ProviderSignatureDecodeBoundaryTests
                 reader,
                 receiver.Identifier.ValueText)
             || !IsRejectingComparisonStatement(
-                body.Statements[3],
+                body.Statements[3 + reservationOffset],
                 SyntaxKind.GreaterThanExpression,
                 "blobLength",
                 "MaxSignatureBlobLength")
             || !IsRejectingComparisonStatement(
-                body.Statements[4],
+                body.Statements[4 + reservationOffset],
                 SyntaxKind.GreaterThanExpression,
                 "s_cumulativeSignatureBytes + blobLength",
                 "MaxCumulativeSignatureBytes")
             || !IsRejectingPrescanStatement(
-                body.Statements[5],
+                body.Statements[5 + reservationOffset],
                 receiver.Identifier.ValueText)
             || !HasImmediatelyPrecedingCounterIncrements(guardedTry)
             || !HasExactCounterCleanup(finallyBlock)
@@ -1652,6 +1658,24 @@ public class ProviderSignatureDecodeBoundaryTests
 
         return true;
     }
+
+    static bool IsStructuralWorkReservation(
+        StatementSyntax statement,
+        string charge)
+        => statement is ExpressionStatementSyntax
+            {
+                Expression: InvocationExpressionSyntax
+                {
+                    Expression: IdentifierNameSyntax
+                    {
+                        Identifier.ValueText: "ReserveStructuralWork"
+                    },
+                    ArgumentList.Arguments.Count: 1
+                } invocation
+            }
+            && Equivalent(
+                invocation.ArgumentList.Arguments[0].Expression,
+                SyntaxFactory.ParseExpression(charge));
 
     static bool IsRejectingComparisonStatement(
         StatementSyntax statement,

@@ -18,28 +18,42 @@ namespace DotnetInspect.Web.Interop.Package
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
-                    .. PackageQuery.Facets.Select(facet =>
-                        new BrowserPackageQueryFacetDescriptor(
-                            facet.Id,
-                            facet.Label,
-                            facet.Summary,
-                            facet.Weight,
-                            facet.Tier switch
+                    .. PackageQuery.Terms
+                        .Where(term =>
+                            term.Role == PackageQueryTermRole.Inspection)
+                        .SelectMany(term => term.Options.Select(option =>
+                        new BrowserPackageQueryPresetDescriptor(
+                            term.Key,
+                            PortableQueryModel.TextOf(
+                                PortableQueryOperator.Equal),
+                            option.Value,
+                            option.Label,
+                            option.Summary,
+                            term.Weight,
+                            term.Tier switch
                             {
-                                PackageQueryFacetTier.Nuspec =>
-                                    BrowserPackageQueryFacetTier.Nuspec,
-                                PackageQueryFacetTier.PackageContent =>
-                                    BrowserPackageQueryFacetTier.PackageContent,
+                                PackageQueryAcquisitionTier.Nuspec =>
+                                    BrowserPackageQueryAcquisitionTier.Nuspec,
+                                PackageQueryAcquisitionTier.PackageContent =>
+                                    BrowserPackageQueryAcquisitionTier.PackageContent,
+                                PackageQueryAcquisitionTier.SearchMetadata =>
+                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
                                 _ => throw new InvalidOperationException(
-                                    "Unknown package-query facet tier."),
+                                    "Unknown package-query term tier."),
                             },
-                            facet.SelectionGroupId,
-                            facet.CombinesWithinSelectionGroup,
-                            facet.DisplayGroupId,
-                            facet.DisplayGroupLabel)),
+                            term.SelectionGroupId,
+                            term.CombinesWithinSelectionGroup,
+                            term.ReplacementGroupId,
+                            term.DisplayGroupId,
+                            term.DisplayGroupLabel))),
                 ],
                 [
-                    .. PackageQuery.Terms.Select(term =>
+                    .. PackageQuery.Terms
+                        .Where(term =>
+                            term.Role == PackageQueryTermRole.Inspection
+                            && term.ControlKind
+                                == PackageQueryTermControlKind.Input)
+                        .Select(term =>
                         new BrowserPackageQueryTermDescriptor(
                             term.Key,
                             term.Label,
@@ -47,10 +61,12 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Weight,
                             term.Tier switch
                             {
-                                PackageQueryFacetTier.Nuspec =>
-                                    BrowserPackageQueryFacetTier.Nuspec,
-                                PackageQueryFacetTier.PackageContent =>
-                                    BrowserPackageQueryFacetTier.PackageContent,
+                                PackageQueryAcquisitionTier.Nuspec =>
+                                    BrowserPackageQueryAcquisitionTier.Nuspec,
+                                PackageQueryAcquisitionTier.PackageContent =>
+                                    BrowserPackageQueryAcquisitionTier.PackageContent,
+                                PackageQueryAcquisitionTier.SearchMetadata =>
+                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
@@ -61,18 +77,20 @@ namespace DotnetInspect.Web.Interop.Package
 
         internal static PackageQueryPlanResult Plan(
             string text,
-            string[] facetIds,
             IReadOnlyCollection<PortableQueryTerm>? terms,
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
-                facetIds,
                 terms,
                 maximumCandidates,
                 maximumMatches,
-                includePrerelease);
+                includePrerelease,
+                RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(maximumMatches),
+                ]));
 
         internal static bool TryCreateTerms(
             BrowserPackageQueryTerm[] wireTerms,
@@ -102,7 +120,7 @@ namespace DotnetInspect.Web.Interop.Package
 
         internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
-            string[] facetIds,
+            PortableQueryTerm[] terms,
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease,
@@ -112,7 +130,7 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
             => await ExecuteAsync(
                 prefix,
-                facetIds,
+                terms,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease,
@@ -124,7 +142,7 @@ namespace DotnetInspect.Web.Interop.Package
 
         internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
-            string[] facetIds,
+            PortableQueryTerm[] terms,
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease,
@@ -134,13 +152,12 @@ namespace DotnetInspect.Web.Interop.Package
             CancellationToken cancellationToken,
             BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
-            ArgumentNullException.ThrowIfNull(facetIds);
+            ArgumentNullException.ThrowIfNull(terms);
             ArgumentNullException.ThrowIfNull(emit);
 
             PackageQueryPlanResult planResult = Plan(
                 prefix,
-                facetIds,
-                terms: null,
+                terms,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease);
@@ -267,7 +284,7 @@ namespace DotnetInspect.Web.Interop.Package
             {
                 PackageAssemblyEvaluationOutcome.Matched { SelectedAsset: { } selected } matched =>
                     new(BrowserPackageQueryEventKind.Match,
-                        new(id, version, BrowserPackageQueryFacetTier.Assembly,
+                        new(id, version, BrowserPackageQueryAcquisitionTier.Assembly,
                             [
                                 new("selected-assembly",
                                     $"{selected.Asset.Path}: {matched.Evidence.Occurrences.Length} literal uses; "
@@ -494,12 +511,12 @@ namespace DotnetInspect.Web.Interop.Package
                         match.Value.Package.Version,
                         match.Value.Tier switch
                         {
-                            PackageQueryFacetTier.SearchMetadata =>
-                                BrowserPackageQueryFacetTier.SearchMetadata,
-                            PackageQueryFacetTier.Nuspec =>
-                                BrowserPackageQueryFacetTier.Nuspec,
-                            PackageQueryFacetTier.PackageContent =>
-                                BrowserPackageQueryFacetTier.PackageContent,
+                            PackageQueryAcquisitionTier.SearchMetadata =>
+                                BrowserPackageQueryAcquisitionTier.SearchMetadata,
+                            PackageQueryAcquisitionTier.Nuspec =>
+                                BrowserPackageQueryAcquisitionTier.Nuspec,
+                            PackageQueryAcquisitionTier.PackageContent =>
+                                BrowserPackageQueryAcquisitionTier.PackageContent,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query match tier."),
                         },
@@ -723,7 +740,7 @@ namespace DotnetInspect.Web.Interop.Package
                 Row: new BrowserPackageQueryRow(
                     "",
                     "",
-                    BrowserPackageQueryFacetTier.SearchMetadata,
+                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
                     [
                         new BrowserPackageQueryEvidence(
                             "",
@@ -791,7 +808,6 @@ public static partial class PackageExports
     public static async Task<string> RunPackageQuery(
         string operationId,
         string prefix,
-        string facetIdsJson,
         string termsJson,
         int maximumCandidates,
         int maximumMatches,
@@ -800,9 +816,6 @@ public static partial class PackageExports
         JSObject eventSink)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
-        string[] facetIds = JsonSerializer.Deserialize(
-            facetIdsJson,
-            BrowserPackageJsonContext.Default.StringArray) ?? [];
         BrowserPackageQueryTerm[] wireTerms = JsonSerializer.Deserialize(
             termsJson,
             BrowserPackageJsonContext.Default.BrowserPackageQueryTermArray) ?? [];
@@ -819,7 +832,6 @@ public static partial class PackageExports
         PackageQueryPlanResult planResult =
             BrowserPackageQueryOperations.Plan(
                 prefix,
-                facetIds,
                 terms,
                 maximumCandidates,
                 maximumMatches,

@@ -2204,7 +2204,7 @@ test("query header omits scope buttons and preserves navigation focus across wid
     if (!app) throw new Error("The query focus harness root is unavailable.");
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml: value => String(value),
     });
   });
@@ -2225,7 +2225,7 @@ test("query header omits scope buttons and preserves navigation focus across wid
     const snapshot = capturePackageQueryFocus(document);
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml: value => String(value),
     });
     return {
@@ -2254,7 +2254,7 @@ test("query header omits scope buttons and preserves navigation focus across wid
     const snapshot = capturePackageQueryFocus(document);
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml: value => String(value),
     });
     return {

@@ -42,6 +42,31 @@ public class CallerLoopEvidenceTests
     }
 
     [Fact]
+    public void FindNearest_FiltersResolvedBodilessDeclarations()
+    {
+        var caller = Method(1, "Caller");
+        var bodiless = Method(2, "Bodiless");
+        MethodDefinitionMap declarationMap =
+            MethodDefinitionMap.Create(
+                [caller, bodiless]);
+
+        var evidence =
+            CallerLoopEvidenceAnalysis.FindNearest(
+                [caller],
+                [
+                    Call(
+                        caller,
+                        bodiless,
+                        4,
+                        inLoop: true),
+                ],
+                maxDepth: 1,
+                methodMap: declarationMap);
+
+        Assert.Empty(evidence);
+    }
+
+    [Fact]
     public void CallerLoopEvidence_ComposesStructuralWitnessEquality()
     {
         var first = new CallerLoopEvidence(

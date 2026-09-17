@@ -2531,9 +2531,23 @@ static class ReturnToSender
                 IncludeSiblingAssemblies = dependencyManifest is null,
             });
             ResolvedAssemblyReference targetAssembly =
-                resolver.AcquireTargetAssembly()
-                ?? throw new InvalidOperationException(
-                    "The target assembly could not be acquired into the compilation closure.");
+                resolver.AcquireTargetAssembly() switch
+                {
+                    AssemblyDependencyAcquisition.Acquired acquired =>
+                        acquired.Assembly,
+                    AssemblyDependencyAcquisition.Descriptorless =>
+                        throw new InvalidOperationException(
+                            "The target assembly does not contain managed metadata."),
+                    AssemblyDependencyAcquisition.Rejected =>
+                        throw new InvalidOperationException(
+                            "The target assembly metadata was rejected."),
+                    AssemblyDependencyAcquisition.Unavailable unavailable =>
+                        throw new InvalidOperationException(
+                            "The target assembly could not be acquired into the "
+                            + $"compilation closure ({unavailable.Failure.Kind})."),
+                    _ => throw new InvalidOperationException(
+                        "Unknown target assembly acquisition outcome."),
+                };
             AssemblyDependencyDiscoveryResult inventory = resolver.CaptureDiscoveryInventory();
             if (inventory is AssemblyDependencyDiscoveryResult.Failed failed)
             {

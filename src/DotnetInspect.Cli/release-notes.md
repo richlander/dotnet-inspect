@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
+  heap inspection with named `--library`, `--package`, and `--platform` source
+  context. Heap coordinates remain bound to the selected `--metadata-root`. The
+  command reuses the existing coordinate sections, projections, discovery,
+  acquisition, and typed failures; legacy exact options remain available until
+  file mode and retirement slices complete the command transition (#7307).
 - **Breaking:** Replaces the separate `Integration: <concept>` library sections
   with one homogeneous `Integrations` section. Narrow it with
   `--where "integration=integration.<concept>"`; use the orthogonal

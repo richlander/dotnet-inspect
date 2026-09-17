@@ -113,6 +113,312 @@ internal sealed class LibraryBodyMethodReferenceResolver
         };
     }
 
+    internal MemberRef ResolvePresenceMethod(
+        EntityHandle handle,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        var decoder = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes);
+        return ResolvePresenceMethod(
+            handle,
+            scope,
+            workBudget,
+            decoder);
+    }
+
+    MemberRef ResolvePresenceMethod(
+        EntityHandle handle,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget,
+        TypeRefDecoder decoder)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+            {
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                TypeDefinitionHandle declaringHandle =
+                    method.GetDeclaringType();
+                TypeRef declaring =
+                    decoder.GetTypeFromDefinition(
+                        _reader,
+                        declaringHandle,
+                        0);
+                ReservePresenceSignature(
+                    method.Signature,
+                    workBudget);
+                MethodSignature<TypeRef> signature =
+                    GuardedSignatureDecoder.Decode(
+                        _reader,
+                        method.Signature,
+                        SignatureBlobGuard.Kind.Method,
+                        () => method.DecodeSignature(
+                            decoder,
+                            GenericScope.Empty))
+                        .GetValueOrThrow();
+                string name = ReadPresenceString(
+                    method.Name,
+                    workBudget);
+                ThrowIfMalformedPresenceSignature(
+                    declaring,
+                    signature,
+                    _reader.GetTypeDefinition(
+                            declaringHandle)
+                        .GetGenericParameters()
+                        .Count,
+                    scope);
+                return new(
+                    declaring,
+                    name,
+                    signature.ParameterTypes,
+                    signature.ReturnType,
+                    KindFor(name))
+                {
+                    OpenParameterTypes =
+                        signature.ParameterTypes,
+                    OpenReturnType =
+                        signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
+                    SignatureHeader =
+                        signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
+                    GenericArity =
+                        signature.GenericParameterCount,
+                };
+            }
+
+            case HandleKind.MemberReference:
+            {
+                MemberReference member =
+                    _reader.GetMemberReference(
+                        (MemberReferenceHandle)handle);
+                TypeRef declaring =
+                    ResolvePresenceParentType(
+                        member.Parent,
+                        scope,
+                        decoder);
+                ReservePresenceSignature(
+                    member.Signature,
+                    workBudget);
+                MethodSignature<TypeRef> signature =
+                    GuardedSignatureDecoder.Decode(
+                        _reader,
+                        member.Signature,
+                        SignatureBlobGuard.Kind.Method,
+                        () => member.DecodeMethodSignature(
+                            decoder,
+                            GenericScope.Empty))
+                        .GetValueOrThrow();
+                string name = ReadPresenceString(
+                    member.Name,
+                    workBudget);
+                if (!MethodDefinitionMap
+                    .TryGetDeclaringTypeParameterCount(
+                        declaring,
+                        out int typeParameterCount))
+                {
+                    throw new BadImageFormatException(
+                        "The declaring type has invalid generic arity.");
+                }
+                ThrowIfMalformedPresenceSignature(
+                    declaring,
+                    signature,
+                    typeParameterCount,
+                    scope);
+                ImmutableArray<TypeRef> typeArguments =
+                    declaring.Kind
+                            == TypeRefKind.GenericInstance
+                        ? declaring.TypeArguments
+                        : [];
+                return new(
+                    declaring,
+                    name,
+                    [.. signature.ParameterTypes.Select(
+                        parameter =>
+                            parameter.Instantiate(
+                                typeArguments,
+                                []))],
+                    signature.ReturnType.Instantiate(
+                        typeArguments,
+                        []),
+                    KindFor(name))
+                {
+                    OpenParameterTypes =
+                        signature.ParameterTypes,
+                    OpenReturnType =
+                        signature.ReturnType,
+                    HasThis = signature.Header.IsInstance,
+                    SignatureHeader =
+                        signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
+                    GenericArity =
+                        signature.GenericParameterCount,
+                };
+            }
+
+            case HandleKind.MethodSpecification:
+            {
+                MethodSpecification specification =
+                    _reader.GetMethodSpecification(
+                        (MethodSpecificationHandle)handle);
+                MemberRef target =
+                    ResolvePresenceMethod(
+                        specification.Method,
+                        scope,
+                        workBudget,
+                        decoder);
+                workBudget.ReserveCorrespondenceBytes(
+                    _reader.GetBlobReader(
+                        specification.Signature)
+                        .Length);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        specification.Signature,
+                        SignatureBlobGuard.Kind
+                            .MethodSpecification))
+                {
+                    throw new BadImageFormatException(
+                        "The MethodSpec signature exceeds its structural limits.");
+                }
+                ImmutableArray<TypeRef> arguments =
+                    specification.DecodeSignature(
+                        decoder,
+                        scope);
+                if (target.Kind == MemberKind.Unsupported
+                    || target.GenericArity == 0
+                    || arguments.Length
+                        != target.GenericArity
+                    || arguments.Any(argument =>
+                        ContainsMalformedMethodSpecificationType(
+                            argument,
+                            scope)))
+                {
+                    throw new BadImageFormatException(
+                        "The MethodSpec signature is invalid for its target and caller scope.");
+                }
+                return target with
+                {
+                    TypeArguments = arguments,
+                    ReturnType =
+                        target.ReturnType.Instantiate(
+                            [],
+                            arguments),
+                    ParameterTypes =
+                    [
+                        .. target.ParameterTypes.Select(
+                            parameter =>
+                                parameter.Instantiate(
+                                    [],
+                                    arguments)),
+                    ],
+                };
+            }
+
+            default:
+                return MemberRef.Unsupported(
+                    $"callee handle kind {handle.Kind}");
+        }
+    }
+
+    TypeRef ResolvePresenceParentType(
+        EntityHandle parent,
+        GenericScope scope,
+        TypeRefDecoder decoder) =>
+        parent.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                decoder.GetTypeFromDefinition(
+                    _reader,
+                    (TypeDefinitionHandle)parent,
+                    0),
+            HandleKind.TypeReference =>
+                decoder.GetTypeFromReference(
+                    _reader,
+                    (TypeReferenceHandle)parent,
+                    0),
+            HandleKind.TypeSpecification =>
+                decoder.GetTypeFromSpecification(
+                    _reader,
+                    scope,
+                    (TypeSpecificationHandle)parent,
+                    0),
+            HandleKind.MethodDefinition =>
+                decoder.GetTypeFromDefinition(
+                    _reader,
+                    _reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)parent)
+                        .GetDeclaringType(),
+                    0),
+            _ => TypeRef.Unsupported(
+                $"member parent kind {parent.Kind}"),
+        };
+
+    void ReservePresenceSignature(
+        BlobHandle signatureHandle,
+        UnsafePresenceWorkBudget workBudget)
+        => workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(
+                signatureHandle)
+                .Length);
+
+    static void ThrowIfMalformedPresenceSignature(
+        TypeRef declaringType,
+        MethodSignature<TypeRef> signature,
+        int typeParameterCount,
+        GenericScope callerScope)
+    {
+        Validate(
+            declaringType,
+            callerScope.TypeParameters.Length,
+            callerScope.MethodParameters.Length);
+        Validate(
+            signature.ReturnType,
+            typeParameterCount,
+            signature.GenericParameterCount);
+        for (int i = 0; i < signature.ParameterTypes.Length; i++)
+        {
+            bool optionalArgument =
+                signature.Header.CallingConvention == SignatureCallingConvention.VarArgs
+                && i >= signature.RequiredParameterCount;
+            Validate(
+                signature.ParameterTypes[i],
+                optionalArgument ? callerScope.TypeParameters.Length : typeParameterCount,
+                optionalArgument
+                    ? callerScope.MethodParameters.Length
+                    : signature.GenericParameterCount);
+        }
+
+        static void Validate(TypeRef type, int typeCount, int methodCount)
+        {
+            if (SignatureTypeFacts.IsMalformed(type, typeCount, methodCount))
+            {
+                throw new BadImageFormatException(
+                    "The method signature contains an unsupported or malformed type.");
+            }
+        }
+    }
+
+    string ReadPresenceString(
+        StringHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(
+            _reader,
+            handle);
+    }
+
+    static MemberKind KindFor(string name) =>
+        name is ".ctor" or ".cctor"
+            ? MemberKind.Constructor
+            : MemberKind.Method;
+
     internal static bool SameMethodReferenceDeclaringType(
         TypeRef left,
         TypeRef right) =>
@@ -536,4 +842,11 @@ internal sealed class LibraryBodyMethodReferenceResolver
         }
     }
 
+    internal static bool ContainsMalformedMethodSpecificationType(
+        TypeRef type,
+        GenericScope scope)
+        => SignatureTypeFacts.IsMalformed(
+            type,
+            scope.TypeParameters.Length,
+            scope.MethodParameters.Length);
 }

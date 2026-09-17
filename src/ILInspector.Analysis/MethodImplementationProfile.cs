@@ -161,7 +161,8 @@ internal static class MethodImplementationProfileAnalysis
         ImmutableArray<MethodBodyImplementationMetrics> bodies,
         ImmutableArray<DirectCall> directCalls,
         IReadOnlyDictionary<int, MethodSignals> signals,
-        ImmutableArray<OverloadCallRelationship> relationships)
+        ImmutableArray<OverloadCallRelationship> relationships,
+        MethodDefinitionMap methodMap)
     {
         var incomingCallers = relationships
             .GroupBy(static relationship => relationship.Callee.MetadataToken)
@@ -220,7 +221,9 @@ internal static class MethodImplementationProfileAnalysis
                         body.FaultCount,
                         body.LocalCount,
                         calls.Length,
-                        CountDistinctCallees(calls),
+                        CountDistinctCallees(
+                            calls,
+                            methodMap),
                         signal.Allocations,
                         signal.Throws,
                         body.IsAsync,
@@ -245,16 +248,17 @@ internal static class MethodImplementationProfileAnalysis
     }
 
     static int CountDistinctCallees(
-        IEnumerable<DirectCall> calls)
+        IEnumerable<DirectCall> calls,
+        MethodDefinitionMap methodMap)
     {
         var definitions = new HashSet<int>();
         var unresolved = new HashSet<MemberRef>();
         foreach (DirectCall call in calls)
         {
-            if (IsMethodDefinitionToken(
-                    call.CalleeDefinitionToken))
+            int targetToken = methodMap.Resolve(call);
+            if (targetToken != 0)
             {
-                definitions.Add(call.CalleeDefinitionToken);
+                definitions.Add(targetToken);
             }
             else
             {
@@ -264,17 +268,21 @@ internal static class MethodImplementationProfileAnalysis
         return definitions.Count + unresolved.Count;
     }
 
-    static bool IsMethodDefinitionToken(int token)
-        => unchecked((uint)token & 0xFF000000)
-                == 0x06000000
-            && ((uint)token & 0x00FFFFFF) != 0;
-
     internal static ImmutableArray<OverloadCallRelationship>
         CollectOverloadRelationships(
             ImmutableArray<MethodIdentity> declaredMethods,
             ImmutableArray<DirectCall> directCalls)
+        => CollectOverloadRelationships(
+            declaredMethods,
+            directCalls,
+            MethodDefinitionMap.Create(declaredMethods));
+
+    internal static ImmutableArray<OverloadCallRelationship>
+        CollectOverloadRelationships(
+            ImmutableArray<MethodIdentity> declaredMethods,
+            ImmutableArray<DirectCall> directCalls,
+            MethodDefinitionMap methodMap)
     {
-        var methodMap = MethodDefinitionMap.Create(declaredMethods);
         var methodsByToken = declaredMethods.ToDictionary(
             static method => method.MetadataToken);
         var relationships =
