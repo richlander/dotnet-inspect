@@ -611,28 +611,35 @@ member qualifiers; real-package probes cover both spellings.
 
 ### Integration ecosystem queries
 
-`library --where "ecosystem=ecosystem.aspire"` narrows ordinary Integration
-results. All integrations remain enabled without that predicate; normal section
-disclosure still determines which results are requested and shown. There is no
-separate scanner opt-in or scanner-only section.
+`library -S Integrations` renders observed Integration currency in one
+homogeneous section. `library --where
+"integration=integration.aspire"` narrows by canonical concept identity, while
+`library --where "ecosystem=ecosystem.aspire"` narrows by the concepts bound to
+one canonical ecosystem pack. All integrations remain enabled without either
+predicate; normal section disclosure still determines which results are
+requested and shown. There is no separate scanner opt-in or scanner-only
+section.
 
 The CLI owns an explicit binding from a canonical ecosystem-pack identity to
 existing Integration concepts. It consumes typed pack and concept identities,
 not display-name inference or a claim that every pack has an Integration
-mapping. The initial supported value is `ecosystem.aspire`. Malformed, unknown,
-and known-but-unbound IDs fail before source acquisition. Exactly one ecosystem
-equality predicate is supported; Body Shapes predicates and Performance Triage
-filters/rankings cannot be combined with it. Explicit ranking options remain
-incompatible under `--count`, even when count-mode normalization would discard
-the ranking.
+mapping. The initial supported ecosystem value is `ecosystem.aspire`; every configured
+Integration concept ID is a supported `integration` value. Malformed, unknown,
+and known-but-unbound ecosystem IDs fail before source acquisition. At most one
+equality predicate per facet is supported. When both are supplied, their
+concept sets intersect. Body Shapes predicates and Performance Triage
+filters/rankings cannot be combined with either facet. Explicit ranking options
+remain incompatible under `--count`, even when count-mode normalization would
+discard the ranking.
 
-Without `-S`, the predicate requests the Integration family. Explicit selection
-must include an Integration section; other explicitly selected sections are
-unchanged. Integration evidence and opportunity rows are narrowed by their
-owner-issued concept association. An unmatched selected table is empty, not
-an error or a request to run another scanner. Assembly-wide presence, counts,
-and the authoritative Census/outcomes remain unchanged. A filtered empty result
-does not assert that the library has no integrations.
+Without `-S`, either predicate requests the `Integrations` section. Explicit
+selection must include `Integrations` or `Integration Opportunities`; other
+explicitly selected sections are unchanged. Integration evidence and
+opportunity rows are narrowed by their owner-issued concept association. An
+unmatched selected table is empty, not an error or a request to run another
+scanner. Assembly-wide presence, counts, and the authoritative Census/outcomes
+remain unchanged. A filtered empty result does not assert that the library has
+no integrations.
 
 The existing full Integration query remains the producer. Decode, acquisition,
 and admitted participant failures remain visible and produce the existing
@@ -641,18 +648,26 @@ remain available. Resource extraction, IL-coordinate operations, payload
 printing, and value/URL/path extraction are not Integration query operations
 and cannot consume the predicate.
 
-`library -Q Integrations` describes the family binding without a target.
-Concrete Integration sections expose the same facet; ordinary `-D` remains
-schema discovery, while effective discovery observes the narrowed results.
-The descriptor supplies only supported CLI values, not every catalog pack.
-The existing query-discovery owner retains mode separation and format rules.
+`library -Q Integrations` describes both facets without a target. `Integration
+Opportunities` exposes the same facets; ordinary `-D` remains schema discovery,
+while effective discovery observes the narrowed results. The ecosystem
+descriptor supplies only supported CLI bindings, not every catalog pack. The
+existing query-discovery owner retains mode separation and format rules.
 
-Existing section tables and typed JSON remain the rendering contract. Plain
-`--json` retains the full typed-library document, with narrowed Integration
-properties: `-S` scopes producer demand, not JSON member selection. Row,
-column, and count projections apply to the narrowed tables. Heterogeneous
-Integration sections still require Markdown/JSON; select a concrete section
-for tabular output. Existing all-TFM format restrictions remain unchanged.
+The observed section lowers every matched signal to the stable `Integration`,
+`Kind`, `Shape`, and `Symbol` columns, so Markdown, table, TSV, and JSONL can
+represent several concepts together. Plain `--json` retains the full
+typed-library document, with narrowed Integration properties: `-S` scopes
+producer demand, not JSON member selection. Row, column, and count projections
+apply to the narrowed table. `@Integrations` remains heterogeneous because it
+also contains `Integration Opportunities`; category output therefore requires
+Markdown/JSON. Existing all-TFM format restrictions remain unchanged.
+
+Replacing the published `Integration: <concept>` sections and the bare
+`Integrations` category alias is intentionally breaking. Current guidance uses
+`-S Integrations --where "integration=<canonical-id>"`; the old concept section
+names are not retained as compatibility-only aliases. The `@Integrations`
+category spelling remains the explicit request for both current sections.
 
 The consumer is the CLI, through focused adoption #5985 and parent disclosure
 tracker #6002. The user approved replacing the scanner-only UX with this
