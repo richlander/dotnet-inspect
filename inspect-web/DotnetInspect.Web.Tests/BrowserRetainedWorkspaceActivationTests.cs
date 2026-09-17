@@ -15,6 +15,9 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     const string PackageVersion = "11.0.0-preview.7.26381.103";
     const string Framework = "net10.0";
     const string SourceUrl = "https://api.nuget.org/v3/index.json";
+    const string FooPackageId = "FooPackage";
+    const string BarPackageId = "BarPackage";
+    const string BazPackageId = "BazPackage";
     const string Format1Packet =
         "eyJmIjoxLCJ0IjpbWyJQIixudWxsLCJuZXQxMC4wIixudWxsXV0sImciOltbMF1d"
         + "LCJhIjowLCJ4IjowfQ";
@@ -70,6 +73,31 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task PacketFormat2_UsesItsExactSupportedRestorationBranch()
+    {
+        InMemoryPackageStore store = await PackageStoreAsync();
+        string packet = Packet(
+            schemaVersion: InspectionDefinitionSchema.Version2);
+        await using var coordinator =
+            new BrowserRetainedWorkspaceActivationCoordinator(
+                new BrowserWorkspaceRealizationHost(),
+                () => Options(store));
+
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await coordinator.ActivatePacketAsync(
+                    "version-2",
+                    packet,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(packet, ProjectedPacket(activated.Selection));
+        AssertWorkspaceSelection(
+            activated.Selection,
+            [PackageId],
+            PackageId);
+    }
+
+    [Fact]
     public async Task RepeatedSelection_IsNoEffectWithoutAnotherCandidate()
     {
         InMemoryPackageStore store = await PackageStoreAsync();
@@ -100,10 +128,22 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
-    public async Task AThenBThenA_UsesFreshRealizationIdentity()
+    public async Task AThenBThenA_RestoresWholeWorkspaceAndSelectedPackage()
     {
-        InMemoryPackageStore store = await PackageStoreAsync();
-        string packet = Packet();
+        string[] workspace1Packages = [FooPackageId, BarPackageId];
+        string[] workspace2Packages = [BazPackageId, BarPackageId];
+        InMemoryPackageStore store = await PackageStoreAsync(
+            new(FooPackageId, "System.Text.Json", "Spotlight/package"),
+            new(
+                BarPackageId,
+                "Microsoft.Extensions.Logging",
+                "PlatformDemo"),
+            new(
+                BazPackageId,
+                "Microsoft.Extensions.DependencyInjection.Abstractions",
+                "PlatformDemo"));
+        string workspace1Packet = Packet(workspace1Packages, selectedIndex: 1);
+        string workspace2Packet = Packet(workspace2Packages, selectedIndex: 0);
         await using var coordinator =
             new BrowserRetainedWorkspaceActivationCoordinator(
                 new BrowserWorkspaceRealizationHost(),
@@ -112,33 +152,50 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         var firstA = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.Activated>(
                 await coordinator.ActivatePacketAsync(
-                    "a",
-                    packet,
+                    "workspace-1",
+                    workspace1Packet,
                     TestContext.Current.CancellationToken));
         var b = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.Activated>(
                 await coordinator.ActivatePacketAsync(
-                    "b",
-                    packet,
+                    "workspace-2",
+                    workspace2Packet,
                     TestContext.Current.CancellationToken));
         var secondA = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.Activated>(
                 await coordinator.ActivatePacketAsync(
-                    "a",
-                    packet,
+                    "workspace-1",
+                    workspace1Packet,
                     TestContext.Current.CancellationToken));
 
+        AssertWorkspaceSelection(
+            firstA.Selection,
+            workspace1Packages,
+            BarPackageId);
+        AssertWorkspaceSelection(
+            b.Selection,
+            workspace2Packages,
+            BazPackageId);
+        AssertWorkspaceSelection(
+            secondA.Selection,
+            workspace1Packages,
+            BarPackageId);
         Assert.NotSame(
             firstA.Selection.Workspace.Workspace,
             b.Selection.Workspace.Workspace);
         Assert.NotSame(
             firstA.Selection.Workspace.Workspace,
             secondA.Selection.Workspace.Workspace);
+        Assert.NotSame(
+            b.Selection.Workspace.Workspace,
+            secondA.Selection.Workspace.Workspace);
         Assert.NotEqual(
             firstA.Selection.ActivationId,
             secondA.Selection.ActivationId);
         Assert.Same(secondA.Selection, coordinator.Active);
-        Assert.Equal(packet, ProjectedPacket(secondA.Selection));
+        Assert.Equal(
+            workspace1Packet,
+            ProjectedPacket(secondA.Selection));
     }
 
     [Fact]
@@ -396,76 +453,126 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         Assert.IsType<CompleteRestorationProjection.Projectable>(
             selection.Workspace.Projection).CanonicalPacket;
 
-    static string Packet()
+    static void AssertWorkspaceSelection(
+        BrowserRetainedWorkspaceSelection selection,
+        IReadOnlyList<string> expectedPackages,
+        string selectedPackage)
     {
-        var package =
-            new DefinitionMemberCoordinate.PackageCoordinate(
-                PackageId,
-                PackageVersion,
-                Framework);
+        NavigationConsumerSnapshot snapshot = selection.Navigation.Snapshot;
+        Assert.Equal(
+            [.. expectedPackages.Order(StringComparer.Ordinal)],
+            [.. snapshot.Packages
+                .Select(package => package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+        NavigationConsumerPackageDescriptor current =
+            Assert.Single(snapshot.Packages, package => package.IsCurrent);
+        Assert.Equal(selectedPackage, current.PackageId);
+        Assert.Equal(current.Subject.Id, snapshot.ActivePackage);
+    }
+
+    static string Packet(
+        IReadOnlyList<string>? packageIds = null,
+        int selectedIndex = 0,
+        int schemaVersion = InspectionDefinitionSchema.Version3)
+    {
+        packageIds ??= [PackageId];
+        var packages = packageIds
+            .Select(packageId =>
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    packageId,
+                    PackageVersion,
+                    Framework))
+            .ToArray();
+        if ((uint)selectedIndex >= (uint)packages.Length)
+            throw new ArgumentOutOfRangeException(nameof(selectedIndex));
+        string[] tabIds = packages
+            .Select((_, index) => $"package-{index}")
+            .ToArray();
         var registry = new InspectionDefinitionRegistry();
         registry.Add(new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "workspace",
             [
                 new WorkspaceContextDefinition(
                     "context",
                     framework: Framework,
-                    members: [package]),
+                    members: packages),
             ]));
         registry.Add(new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "navigation",
-            [new NavigationTabDefinition("package", coordinate: package)],
-            "package"));
+            [.. packages.Select(
+                (package, index) => new NavigationTabDefinition(
+                    tabIds[index],
+                    coordinate: package))],
+            tabIds[selectedIndex]));
         registry.Add(new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "view",
             [
                 new CommittedViewStateDefinition(
                     null,
                     new PortableSubjectRequest.Workspace()),
-                new CommittedViewStateDefinition(
-                    "package",
-                    new PortableSubjectRequest.Package(),
-                    new PortableRetainedSubjectContext.Package(),
-                    facet: "package.overview"),
+                .. tabIds.Select(tabId =>
+                    new CommittedViewStateDefinition(
+                        tabId,
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        facet: "package.overview")),
             ]));
         registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "scenario",
             workspace: "workspace",
             context: "context",
             view: "view",
             navigation: "navigation"));
-        var prepared =
-            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
-                registry.PrepareScenario("scenario"));
+        CommittedScenarioDefinitionSet definitions =
+            registry.PrepareScenario("scenario") switch
+            {
+                InspectionDefinitionScenarioPreparationResult.Version2 version2
+                    => version2.Definitions,
+                InspectionDefinitionScenarioPreparationResult.Version3 version3
+                    => version3.Definitions,
+                var result => throw new InvalidOperationException(
+                    $"Unexpected preparation result {result.GetType().Name}."),
+            };
         WorkspaceSharePacketProjectionResult projection =
-            WorkspaceSharePacketTransposer.ToPacket(prepared.Definitions);
+            WorkspaceSharePacketTransposer.ToPacket(definitions);
         return WorkspaceSharePacketCodec.Encode(
             Assert.IsType<WorkspaceSharePacket>(projection.Packet));
     }
 
-    static async Task<InMemoryPackageStore> PackageStoreAsync()
+    static async Task<InMemoryPackageStore> PackageStoreAsync(
+        params PackageFixture[] fixtures)
     {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                "RealAssets",
-                "Spotlight",
-                "package",
-                "System.Text.Json.dll"),
-            TestContext.Current.CancellationToken);
-        byte[] package = Archive(
-            ($"lib/{Framework}/System.Text.Json.dll", assembly));
+        if (fixtures.Length == 0)
+        {
+            fixtures =
+            [
+                new(PackageId, "System.Text.Json", "Spotlight/package"),
+            ];
+        }
+
         var store = new InMemoryPackageStore();
-        await store.CommitAsync(
-            PackageId,
-            PackageVersion,
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package, writable: false),
-            TestContext.Current.CancellationToken);
+        foreach (PackageFixture fixture in fixtures)
+        {
+            byte[] assembly = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    fixture.AssetDirectory,
+                    $"{fixture.AssemblyName}.dll"),
+                TestContext.Current.CancellationToken);
+            byte[] package = Archive(
+                ($"lib/{Framework}/{fixture.AssemblyName}.dll", assembly));
+            await store.CommitAsync(
+                fixture.PackageId,
+                PackageVersion,
+                NuGetCache.GetSourceKey(SourceUrl),
+                new MemoryStream(package, writable: false),
+                TestContext.Current.CancellationToken);
+        }
         return store;
     }
 
@@ -559,6 +666,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
 
         return buffer.ToArray();
     }
+
+    sealed record PackageFixture(
+        string PackageId,
+        string AssemblyName,
+        string AssetDirectory);
 
     sealed class RejectingHandler : HttpMessageHandler
     {
