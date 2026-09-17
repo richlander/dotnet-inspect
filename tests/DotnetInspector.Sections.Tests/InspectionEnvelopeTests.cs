@@ -7,6 +7,50 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class InspectionEnvelopeTests
 {
     [Fact]
+    public void EvidenceConstructionPreservesBaselineAndEvidence()
+    {
+        InspectionEnvelope<string> inspection = CreateEquivalent();
+        var envelope = new EvidenceInspectionEnvelope<string, int[]>(
+            inspection,
+            [1, 2, 3]);
+
+        Assert.Same(inspection, envelope.Inspection);
+        Assert.Equal([1, 2, 3], envelope.Evidence);
+    }
+
+    [Fact]
+    public void EvidenceEnvelopeEqualityIncludesBaselineAndEvidence()
+    {
+        var first = new EvidenceInspectionEnvelope<string, string>(
+            CreateEquivalent(),
+            "evidence");
+        var equal = new EvidenceInspectionEnvelope<string, string>(
+            CreateEquivalent(),
+            "evidence");
+        var differentEvidence =
+            new EvidenceInspectionEnvelope<string, string>(
+                CreateEquivalent(),
+                "different");
+
+        Assert.Equal(first, equal);
+        Assert.Equal(first.GetHashCode(), equal.GetHashCode());
+        Assert.NotEqual(first, differentEvidence);
+    }
+
+    [Fact]
+    public void EvidenceEnvelopeRejectsNullValues()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new EvidenceInspectionEnvelope<string, string>(
+                null!,
+                "evidence"));
+        Assert.Throws<ArgumentNullException>(
+            () => new EvidenceInspectionEnvelope<string, string>(
+                CreateEquivalent(),
+                null!));
+    }
+
+    [Fact]
     public void ConstructionPreservesRequiredContentShareAndDiagnosticOrder()
     {
         var first = new InspectionDiagnostic(
@@ -110,17 +154,18 @@ public sealed class InspectionEnvelopeTests
         Assert.Equal(first, second);
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
 
-        static InspectionEnvelope<string> CreateEquivalent() =>
-            new(
-                "content",
-                new InspectionShare.NonProjectable(
-                    "share",
-                    "not available"),
-                [
-                    new InspectionDiagnostic(
-                        "type-dependency.warning",
-                        InspectionDiagnosticSeverity.Warning,
-                        "A warning"),
-                ]);
     }
+
+    private static InspectionEnvelope<string> CreateEquivalent() =>
+        new(
+            "content",
+            new InspectionShare.NonProjectable(
+                "share",
+                "not available"),
+            [
+                new InspectionDiagnostic(
+                    "type-dependency.warning",
+                    InspectionDiagnosticSeverity.Warning,
+                    "A warning"),
+            ]);
 }

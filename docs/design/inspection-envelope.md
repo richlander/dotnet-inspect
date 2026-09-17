@@ -427,8 +427,9 @@ Browser types. Adopters demonstrate their Debug host gestures and views
 against that product-owned construction; those demonstrations do not replace
 the Release correctness gates or verify the Release host-surface absence.
 These implementation properties are **unverified** until the adoption gates
-exist. This specification adds no executable type, flag, destination, or
-section migration and is not a general logging or tracing design.
+exist. The generic composition type is implemented; no evidence flag,
+destination, or section migration exists yet. This is not a general logging or
+tracing design.
 
 ## Same baseline, broader clients
 
