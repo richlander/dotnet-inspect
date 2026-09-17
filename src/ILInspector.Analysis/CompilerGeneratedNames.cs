@@ -250,6 +250,11 @@ public static class CompilerGeneratedNames
                 != LiftedStateMachineLeafKind.None;
     }
 
+    internal static bool IsStateMachineExecutionMethod(
+        MethodIdentity method) =>
+        method.Name == "MoveNext"
+        && IsStateMachineLeaf(LeafName(method.DeclaringType));
+
     static LiftedStateMachineLeafKind
         ClassifyLiftedStateMachineLeaf(string leafName)
     {

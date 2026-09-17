@@ -22,9 +22,14 @@ public static class ApiCoordinateMatchInspection
         StructuralSubjectIdentity.TypeSubject source,
         CoordinatePackageObservation before,
         CoordinatePackageObservation after,
-        CancellationToken cancellationToken = default) =>
-        Complete(Project(await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
-            workspace, source, before, after, cancellationToken).ConfigureAwait(false)));
+        CancellationToken cancellationToken = default)
+    {
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, before, after, cancellationToken)
+                .ConfigureAwait(false);
+        return Complete(Project(result.Detach()));
+    }
 
     public static async Task<InspectionEnvelope<ApiCoordinateMatchContent>> ExecuteAsync(
         InspectionWorkspace workspace,
@@ -32,9 +37,14 @@ public static class ApiCoordinateMatchInspection
         ApiDeclarationKind sourceKind,
         CoordinatePackageObservation before,
         CoordinatePackageObservation after,
-        CancellationToken cancellationToken = default) =>
-        Complete(Project(await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
-            workspace, source, sourceKind, before, after, cancellationToken).ConfigureAwait(false)));
+        CancellationToken cancellationToken = default)
+    {
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, sourceKind, before, after, cancellationToken)
+                .ConfigureAwait(false);
+        return Complete(Project(result.Detach()));
+    }
 
     static InspectionEnvelope<ApiCoordinateMatchContent> Complete(ApiCoordinateMatchContent content) =>
         new(content,
@@ -146,9 +156,9 @@ public static class ApiCoordinateMatchInspection
         };
     }
 
-    static ApiCoordinateMatchContent Project(ApiCoordinateCorrespondenceResult result)
+    static ApiCoordinateMatchContent Project(ApiCoordinateCorrespondenceEvidence result)
     {
-        CoordinateLibraryPairingResult pairing = result.LibraryPairing;
+        CoordinateLibraryPairingEvidence pairing = result.LibraryPairing;
         var stages = ImmutableArray.CreateBuilder<ApiCoordinateMatchStageEvidence>();
         stages.Add(new(ApiCoordinateMatchStage.LibraryPairing, pairing.Status.ToString(),
             pairing.Failure?.Kind.ToString(), Optional(pairing.Failure?.Detail),
@@ -208,7 +218,7 @@ public static class ApiCoordinateMatchInspection
                 : [];
         if (result.Correspondence is { Candidates.IsEmpty: false } candidateResult)
         {
-            CoordinateApiLibraryObservation? defining =
+            CoordinateApiLibraryEvidence? defining =
                 (result.Resolution as CoordinateTypeResolutionEvidence.Available)?.Outcome
                     is CoordinateTypeResolutionOutcomeEvidence.Resolved resolved
                     ? resolved.Definition.Assembly.Assembly.Library
@@ -247,10 +257,10 @@ public static class ApiCoordinateMatchInspection
             }),
             Before = Endpoint(pairing.Before),
             After = Endpoint(pairing.After),
-            Source = Location(pairing.Before, result.Source, result.SourceBinding?.Declaration),
+            Source = Location(result.Source),
             DestinationEntry = pairing.Destination is { } entry ? LibraryLocation(entry) : null,
             Destination = result.Destination is { } destination
-                ? Location(pairing.After, destination, result.Correspondence?.Target)
+                ? Location(destination)
                 : null,
             Candidates = candidates,
             ForwardingHops = hops,
@@ -310,6 +320,18 @@ public static class ApiCoordinateMatchInspection
                 assembly.Registration.ModuleVersionId, null);
 
     static ApiCoordinateMatchLocation Location(
+        ApiCoordinateDeclarationEvidence declaration) =>
+        LibraryLocation(declaration.Library) with
+        {
+            Type = Text(declaration.DeclaringType.ToEscapedFullName()),
+            Member = Optional(declaration.Member?.StableSelector),
+            Signature = Optional(declaration.Member?.CanonicalSignature),
+            ModuleVersionId = declaration.Declaration?.Location.ModuleVersionId,
+            MetadataToken = declaration.Declaration?.Location.MetadataToken,
+            DeclarationKind = declaration.Kind,
+        };
+
+    static ApiCoordinateMatchLocation Location(
         CoordinatePackageObservation observation,
         StructuralSubjectIdentity subject,
         ApiDeclarationReference? declaration)
@@ -341,6 +363,10 @@ public static class ApiCoordinateMatchInspection
     static ApiCoordinateMatchLocation LibraryLocation(CoordinateApiLibraryObservation library) =>
         new(Endpoint(library.Subject.Package.Descriptor), Text(library.Asset.Path),
             Assembly(library.Assembly), null, null, null, null, null);
+
+    static ApiCoordinateMatchLocation LibraryLocation(CoordinateApiLibraryEvidence library) =>
+        new(Endpoint(library.Package), Optional(library.Asset?.Path),
+            Assembly(library.Assembly.Assembly), null, null, null, null, null);
 
     static ApiCoordinateMatchAssembly Assembly(AssemblyReferenceIdentity identity) =>
         new(Text(identity.Name), Optional(identity.Version?.ToString()),

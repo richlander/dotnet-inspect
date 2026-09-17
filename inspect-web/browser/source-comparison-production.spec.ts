@@ -35,9 +35,16 @@ test.describe("published authored Source comparison transport", () => {
       const evidence = await page.evaluate(async () => {
         const packages = await import("/inspect-web-package.js");
         const source = await import("/inspect-web-source.js");
-        const surface = await packages.queryPackage(
+        const loadResult = await packages.queryPackage(
           "Microsoft.Extensions.Primitives", "10.0.0", "net10.0",
         );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "Package version settlement did not produce a surface.",
+          );
+        }
         const type = surface.types.find(candidate =>
           candidate.definitionId
             === "Microsoft.Extensions.Primitives.StringSegment");
@@ -145,9 +152,16 @@ test.describe("published authored Source comparison transport", () => {
         return targetPage.evaluate(async memberName => {
           const packages = await import("/inspect-web-package.js");
           const source = await import("/inspect-web-source.js");
-          const surface = await packages.queryPackage(
+          const loadResult = await packages.queryPackage(
             "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
           );
+          const surface = loadResult.surface;
+          if (surface === null) {
+            throw new Error(
+              loadResult.versionSettlement.content.failure?.reason
+                ?? "Package version settlement did not produce a surface.",
+            );
+          }
           const type = surface.types.find(candidate =>
             candidate.definitionId
               === "SourceDiffFixture.Counter");

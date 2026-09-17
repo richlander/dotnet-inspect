@@ -47,10 +47,12 @@ credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
 The CLI's online `package --latest-version` and equivalent `@latest` version
-queries also consume House selecting `Settle` through
-`DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
-version from its resolution receipt and preserve source listing evidence for
-feed projections; the command no longer chooses the latest row itself.
+queries consume the shared `PackageVersionSettlementInspection` envelope,
+also used by Inspect Web exact/latest package opening. The shared inspection
+projects House `Settle` evidence into a serialization-ready outcome; hosts
+render or consume the selected coordinate rather than choosing a latest row.
+The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
+composition now supplies only the configured House and source operation.
 Requested `--verbose` source-fetch progress still flows to stderr through the
 settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
@@ -58,8 +60,8 @@ settlement's optional discovery callback.
 receipt, requested progress, and explicit prerelease boundary, while the
 existing latest-version, source-failure, listing, and rendering cases preserve
 neighboring behavior.
-This is payload-free adoption: ordinary version listings, pinned and range
-queries, offline behavior, Browser settlement, and package-content/Workspace
+This is payload-free adoption: ordinary version listings, CLI pinned and range
+queries, offline behavior, and package-content/Workspace
 adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
@@ -440,6 +442,70 @@ coordinate, producer, origin, and content generation match the result's
 acquisition receipt. Every terminal result after successful acquisition remains
 an `Acquired` settlement, including selection no-match, ambiguity, rejection,
 and operation timeout, so package shape and completed evidence are not lost.
+
+## Shared version-settlement inspection
+
+For one exact or latest package demand, hosts consume one
+`InspectionEnvelope<PackageVersionSettlementOutcome>` from
+`PackageVersionSettlementInspection`, tracked by
+[#7176](https://github.com/richlander/dotnet-inspect/issues/7176).
+PackageHouse remains the normative settlement owner. This inspection adopts
+the existing [Inspection Envelope](inspection-envelope.md) and
+[Host-observable Content Kinds](host-observable-content-kinds.md) patterns
+without redefining source authorization or version selection.
+
+The question is which exact package version settles the demand, not which
+assets are applicable. The input uses the existing package coordinate:
+an omitted version requests fresh latest selection with explicit prerelease
+policy; a present version is an exact pin. Framework and RID, if supplied,
+remain request context, not asset-selection requirements. Exact settlement
+authorizes the coordinate without claiming package existence or listing state.
+
+The shared boundary preserves:
+
+- a `Settled` outcome containing the normalized request, exact selected
+  coordinate, requested prerelease policy, discovery freshness when discovery
+  occurred, and selected version/source listing evidence;
+- a `NotSettled` outcome retaining the native House terminal kind, reason,
+  operation-timeout fact, and credential-safe source failure kind, message,
+  and timeout kind;
+- required Share for that same operation; and
+- ordered cross-host diagnostics for source failures accompanying a valid
+  settlement, without turning typed non-success into a warning or empty result.
+
+Version-only settlement currently has no canonical Workspace Share projection.
+Its Share is explicitly `NonProjectable` at
+`package-version-settlement/share`; neither host substitutes an approximate
+package URL. Broader browser Workspace sharing is a separate operation and is
+not overwritten by this prerequisite's Share outcome.
+
+The returned baseline is detached and serialization-ready. It carries neither
+an acquisition candidate's authority nor live source resources. Typed source
+and version policy remain with their lower owners; the shared projection does
+not repeat selection. Caller cancellation produces no completed envelope.
+Verbose progress remains a caller-supplied log, not an inspection diagnostic.
+
+Hosts supply their configured House and a Package Source-owned operation
+lease. The inspection consumes that operation; hosts still own clients and
+the source root. A payload-free operation needs no Workspace.
+
+Production adoption has three steps within this slice: the shared boundary,
+CLI latest-version queries, and Inspect Web exact/latest package opening.
+The CLI retains scalar/feed/listing presentation. Inspect Web retains the
+same baseline through its richer package-opening composition and transport,
+then continues existing payload acquisition and Workspace admission.
+Browser search-based latest settlement and the CLI-only bridge retire with
+these callers. Version inventories and dependency-range resolution do not
+move into this inspection.
+
+`System.Text.Json` is the real motivating package. The PR-fast
+`PackageVersionSettlementInspectionTests` gate the detached result,
+equivalent-plan envelope serialization, stable/preview and exact-pin
+boundaries, typed refusal and absence, diagnostics, and cancellation.
+CLI `SourceScopedRoutingTests` and `PackageVersionTests` preserve production
+output and neighboring paths; browser adoption owns its managed and
+TypeScript boundaries. `PackageQueryInspection` is analogous shared-envelope
+composition evidence, not another policy owner.
 
 ## Host-authorized plan and operation
 

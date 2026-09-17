@@ -607,6 +607,7 @@ generation, action, and authority identities are omitted.
 
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
+dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
@@ -620,7 +621,8 @@ For API and relationship commands, `--project` means an existing
 directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
-`AGENTS.md` or `PROJECT.md` files.
+`AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
+inventories; bare `-S` retains the focused `Skills` overview.
 
 ### Types, members, and source
 
@@ -692,6 +694,11 @@ returns nonzero and says **not compared**, rather than claiming no changes.
 Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
 Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
+
+Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
+Diff` views. `Finding Transitions` remains an exact-name section because its
+focused endpoint-confirmation semantics do not compose with those comparison
+views.
 
 ### Structural matching
 

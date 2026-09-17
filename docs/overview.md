@@ -102,7 +102,12 @@ substrates, and inspection producers that will extend that space.
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
   and exact manifest results into one depth-bounded graph with root-relative
-  reachability. The
+  reachability. The proposed
+  [realized package dependency context](design/realized-package-dependency-context.md)
+  owner binds one physical Package Root selection to dependency evidence
+  projected from that exact retained content and selection intent, producing
+  detached source evidence for realized-package traversal without moving asset,
+  group, or traversal policy. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued

@@ -58,6 +58,30 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles()
+    {
+        var pipeline = DiffSections.CreatePipeline();
+
+        var category = Assert.Single(pipeline.GetCategoryMap());
+        Assert.Equal(SectionCategoryNames.Diff, category.Key);
+        Assert.Equal(
+            [
+                DiffSections.Changes.Name,
+                DiffSections.AnalysisDiff.Name,
+                DiffSections.ImplementationDiff.Name,
+            ],
+            category.Value);
+        Assert.Equal(category.Value, pipeline.BaseSectionNames);
+        Assert.DoesNotContain(
+            DiffSections.FindingTransitions.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(
+            [DiffSections.FindingTransitions.Name],
+            DiffSections.ExactOnlySections);
+    }
+
+    [Fact]
     public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
