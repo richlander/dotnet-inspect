@@ -95,7 +95,7 @@ public record LibraryOptions : IProjectionOptions
     public string? ILOffsetParameter { get; init; }
 
     /// <summary>
-    /// The IL coordinate came from the focus-first Library Coordinate child.
+    /// The coordinate came from the focus-first Library Coordinate child.
     /// </summary>
     internal bool IsCoordinateCommand { get; init; }
 

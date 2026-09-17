@@ -202,7 +202,7 @@ public sealed class PackageDependencyGroupsQueryTests
             ("Example.Package.nuspec", Manifest(
                 """
                 <dependency id="Before" version="1.0.0" />
-                <group targetFramework="any">
+                <group targetFramework="net8.0">
                   <dependency id="Middle" version="2.0.0" />
                 </group>
                 <dependency id="After" version="3.0.0" />
@@ -212,7 +212,8 @@ public sealed class PackageDependencyGroupsQueryTests
             await ExecuteAsync(
                 content,
                 "Example.Package",
-                "net8.0"));
+                "any",
+                allowCompatibleFallbackForRequestedTfm: true));
 
         Assert.Equal(
             ["Before", "Middle", "After"],
@@ -220,6 +221,11 @@ public sealed class PackageDependencyGroupsQueryTests
                 group.Dependencies.Select(dependency => dependency.Id)));
         Assert.Equal(3, result.Groups.Length);
         Assert.Equal(0, result.SelectedGroupIndex);
+        Assert.True(result.SelectedGroup!.IsImplicitManifestGroup);
+        Assert.Equal(
+            ["Before", "After"],
+            result.SelectedGroup.Dependencies.Select(dependency =>
+                dependency.Id));
     }
 
     [Fact]
