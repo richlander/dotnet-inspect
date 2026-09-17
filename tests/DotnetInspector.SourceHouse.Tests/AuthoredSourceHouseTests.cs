@@ -1262,15 +1262,20 @@ public sealed class AuthoredSourceHouseTests
             "Scheduling expired before source verification in every attempt.");
     }
 
-    [Fact]
+    [Theory]
     [Trait("Speed", "Slow")]
+    [InlineData(true)]
+    [InlineData(false)]
     public async Task
-        DeadlineDuringMappingWithoutCapabilities_IsIncomplete()
+        DeadlineDuringMappingWithoutCapabilities_IsIncomplete(bool hasMapping)
     {
         string assemblyPath =
             typeof(SourceLinkService).Assembly.Location;
-        SourceHouseTarget.TypeTarget target =
-            TypeTarget(assemblyPath, typeof(SourceLinkService).FullName!);
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            hasMapping
+                ? typeof(SourceLinkService).FullName!
+                : typeof(SourceChecksumVerification).FullName!);
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(
                 assemblyPath,
@@ -1286,12 +1291,15 @@ public sealed class AuthoredSourceHouseTests
             shortestMilliseconds = Math.Min(
                 shortestMilliseconds,
                 stopwatch.Elapsed.TotalMilliseconds);
-            Assert.NotNull(unavailable.AuthoredAttempt.Mapping);
+            Assert.Equal(
+                hasMapping,
+                unavailable.AuthoredAttempt.Mapping is not null);
+            Assert.True(unavailable.Work.DocumentsObserved > 0);
             Assert.Empty(unavailable.AuthoredAttempt.SourceAttempts);
         }
 
         // Calibrate to native work, not a machine-specific fixed duration.
-        // Only a retained mapping proves expiry reached the settlement boundary.
+        // Retained document work distinguishes post-mapping expiry from earlier stops.
         for (int step = 0; step < 96; step++)
         {
             DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMilliseconds(
@@ -1311,17 +1319,25 @@ public sealed class AuthoredSourceHouseTests
             Assert.Equal(
                 SourceHouseIncompleteBoundary.Deadline,
                 incomplete.Boundary);
-            if (incomplete.AuthoredAttempt.Mapping is null)
+            if (incomplete.Work.DocumentsObserved == 0)
                 continue;
 
             Assert.True(DateTimeOffset.UtcNow >= deadline);
-            Assert.IsType<SourceHouseAuthoredMapping.Type>(
-                incomplete.AuthoredAttempt.Mapping);
+            if (hasMapping)
+            {
+                Assert.IsType<SourceHouseAuthoredMapping.Type>(
+                    incomplete.AuthoredAttempt.Mapping);
+                Assert.True(incomplete.Work.TargetMappingsObserved > 0);
+            }
+            else
+            {
+                Assert.Null(incomplete.AuthoredAttempt.Mapping);
+                Assert.Equal(0, incomplete.Work.TargetMappingsObserved);
+            }
             Assert.Equal(
                 SourceHousePdbContributionKind.SuppliedCompanion,
                 incomplete.PdbContribution.Kind);
             Assert.True(incomplete.Work.DocumentsObserved > 0);
-            Assert.True(incomplete.Work.TargetMappingsObserved > 0);
             Assert.Equal(0, incomplete.Work.CandidateAttempts);
             Assert.Equal(0, incomplete.Work.SourceBytesObserved);
             Assert.Equal(0, incomplete.Work.SourceTextCharactersObserved);
@@ -1330,7 +1346,7 @@ public sealed class AuthoredSourceHouseTests
         }
 
         Assert.Fail(
-            "No deadline-limited settlement retained the completed native mapping.");
+            "No deadline-limited settlement retained completed native mapping work.");
     }
 
     [Fact]

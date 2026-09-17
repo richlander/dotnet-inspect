@@ -527,7 +527,8 @@ public static class SourceHouse
                         source,
                         observations);
                     return PreparedAuthoredSource.TerminalOutcome(
-                        Unavailable(
+                        SettleUnavailable(
+                            request.Plan,
                             unavailablePdb,
                             observedWork));
                 }
@@ -648,7 +649,7 @@ public static class SourceHouse
                 || mapping.Document is null)
             {
                 return PreparedAuthoredSource.TerminalOutcome(
-                    Unavailable(pdb, mappingWork));
+                    SettleUnavailable(request.Plan, pdb, mappingWork));
             }
 
             var candidate = new SourceHouseSourceCandidate(
@@ -1319,7 +1320,8 @@ public static class SourceHouse
                 map.Error);
         }
 
-        return Unavailable(
+        return SettleUnavailable(
+            request.Plan,
             prepared.PdbContribution,
             Charge(),
             prepared.Mapping,
@@ -1581,17 +1583,30 @@ public static class SourceHouse
             boundary,
             work);
 
-    private static ProvisionalOutcome Unavailable(
+    private static ProvisionalOutcome SettleUnavailable(
+        SourceHouseOperationPlan plan,
         SourceHousePdbContribution pdb,
         SourceHouseWorkCharge work,
         SourceHouseAuthoredMapping? mapping = null,
-        IReadOnlyList<SourceHouseSourceAttempt>? attempts = null) =>
-        new UnavailableOutcome(
+        IReadOnlyList<SourceHouseSourceAttempt>? attempts = null)
+    {
+        if (DeadlineExpired(plan))
+        {
+            return Incomplete(
+                SourceHouseIncompleteBoundary.Deadline,
+                pdb,
+                work,
+                mapping,
+                attempts);
+        }
+
+        return new UnavailableOutcome(
             pdb,
             new SourceHouseAuthoredAttempt.Unavailable(
                 mapping,
                 attempts ?? []),
             work);
+    }
 
     private sealed record DetachedInputs(
         byte[]? AssemblyBytes,
