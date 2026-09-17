@@ -188,7 +188,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
-                        || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellArrayStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
