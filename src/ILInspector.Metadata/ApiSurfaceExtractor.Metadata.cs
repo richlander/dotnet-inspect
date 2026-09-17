@@ -380,11 +380,14 @@ public static partial class ApiSurfaceExtractor
                         allowUnmanagedValueTypeEncoding: isUnmanaged);
                 if (IsExactPseudoConstraint(
                         constraintTypeName,
+                        attrs,
+                        isUnmanaged,
                         constraintIdentity))
                 {
                     continue;
                 }
-                if (constraintIdentity is null)
+                if (constraintIdentity is null
+                    || constraintIdentity.IsCoreLibraryPseudoConstraint)
                 {
                     constraintTypeDefinitionNamesAvailable = false;
                 }
@@ -441,6 +444,8 @@ public static partial class ApiSurfaceExtractor
 
     private static bool IsExactPseudoConstraint(
         string constraintTypeName,
+        GenericParameterAttributes attributes,
+        bool isUnmanaged,
         ConstraintTypeDefinitionNameReadResult? constraintIdentity)
     {
         if (constraintIdentity is not
@@ -454,9 +459,24 @@ public static partial class ApiSurfaceExtractor
             return false;
         }
 
+        if ((constraintTypeName, simpleName) is
+            ("System.Object", "Object"))
+        {
+            return true;
+        }
+
+        const GenericParameterAttributes StandardValueTypeFlags =
+            GenericParameterAttributes.NotNullableValueTypeConstraint
+                | GenericParameterAttributes.DefaultConstructorConstraint;
+        const GenericParameterAttributes SpecialConstraintFlags =
+            GenericParameterAttributes.ReferenceTypeConstraint
+                | GenericParameterAttributes.NotNullableValueTypeConstraint
+                | GenericParameterAttributes.DefaultConstructorConstraint;
         return (constraintTypeName, simpleName) is
-            ("System.Object", "Object")
-            or ("System.ValueType", "ValueType");
+            ("System.ValueType", "ValueType")
+            && (attributes & SpecialConstraintFlags) == StandardValueTypeFlags
+            && isUnmanaged
+                == constraintIdentity.IsUnmanagedValueTypeEncoding;
     }
 
     private static string FormatConstraintType(

@@ -236,10 +236,11 @@ public class FidelityCheckGeneratedFilterTests
         var assemblyPath = CompileFixture("""
             public static class GenericOnlyFixture
             {
-                public static int Pick<T, U, V>()
+                public static int Pick<T, U, V, W>()
                     where T : U
                     where U : System.IDisposable
-                    where V : unmanaged => 1;
+                    where V : unmanaged
+                    where W : struct => 1;
             }
             """);
         try
@@ -251,7 +252,7 @@ public class FidelityCheckGeneratedFilterTests
 
             Assert.Equal("GenericOnlyFixture", target.Type);
             Assert.Equal("Pick", target.Method);
-            Assert.Equal("mss1:3(0:)n", target.Signature);
+            Assert.Equal("mss1:4(0:)n", target.Signature);
         }
         finally
         {
@@ -2542,6 +2543,48 @@ public class FidelityCheckGeneratedFilterTests
             fakeUnmanagedParameter,
             metadata.AddTypeSpecification(
                 metadata.GetOrAddBlob(fakeUnmanagedConstraint)));
+
+        MethodDefinitionHandle flaglessValueTypeMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("FlaglessValueTypeConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle flaglessValueTypeParameter =
+            metadata.AddGenericParameter(
+                flaglessValueTypeMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            flaglessValueTypeParameter,
+            coreValueType);
+
+        MethodDefinitionHandle unmodifiedUnmanagedMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("UnmodifiedUnmanagedConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle unmodifiedUnmanagedParameter =
+            metadata.AddGenericParameter(
+                unmodifiedUnmanagedMethod,
+                GenericParameterAttributes.NotNullableValueTypeConstraint
+                    | GenericParameterAttributes.DefaultConstructorConstraint,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddCustomAttribute(
+            unmodifiedUnmanagedParameter,
+            isUnmanagedConstructor,
+            metadata.GetOrAddBlob(
+                (byte[])[0x01, 0x00, 0x00, 0x00]));
+        metadata.AddGenericParameterConstraint(
+            unmodifiedUnmanagedParameter,
+            coreValueType);
 
         void AddConstraintMethod(
             string name,

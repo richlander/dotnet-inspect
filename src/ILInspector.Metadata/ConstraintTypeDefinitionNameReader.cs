@@ -38,7 +38,8 @@ internal static class ConstraintTypeDefinitionNameReader
                     [.. shape.DefinitionNames.Distinct()],
                     shape.ResolvesThroughCoreLibrary
                         && shape.DefinitionNames is [var definitionName]
-                        && IsPseudoConstraintName(definitionName))
+                        && IsPseudoConstraintName(definitionName),
+                    shape.IsUnmanagedValueTypeEncoding)
                 : null;
         }
         catch (Exception ex) when (
@@ -296,4 +297,5 @@ internal static class ConstraintTypeDefinitionNameReader
 
 internal sealed record ConstraintTypeDefinitionNameReadResult(
     IReadOnlyList<MetadataTypeDefinitionName> DefinitionNames,
-    bool IsCoreLibraryPseudoConstraint);
+    bool IsCoreLibraryPseudoConstraint,
+    bool IsUnmanagedValueTypeEncoding);
