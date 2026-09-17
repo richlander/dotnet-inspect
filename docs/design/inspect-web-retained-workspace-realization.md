@@ -230,6 +230,9 @@ Workspaces.
 - A predecessor contains only already admitted work and drains through the
   coordinator.
 - A settlement record is detached evidence of successful or failed retirement.
+- A page observation carries the settlement identity and the exact retained
+  definition and realization installation that issued it through both success
+  and failure callbacks.
 
 Only the coordinator decides when these states may begin, publish, drain, and
 settle. Inspect Web may render their progress and failure but does not create a
@@ -584,9 +587,10 @@ authority within migrated paths. Final #6757 completion requires all seven
 slices.
 
 Slice 2 entered after Workspace Definitions gained complete restoration in
-issue #7027. Its production facade accepts only a complete current-format packet,
-constructs through `BrowserWorkspaceRealizationHost`, and returns detached
-Navigation plus canonical projection and predecessor-settlement evidence.
+issue #7027. Its production facade accepts complete supported packet formats 2
+and 3, constructs through `BrowserWorkspaceRealizationHost`, and returns
+detached Navigation plus canonical projection and predecessor-settlement
+evidence.
 Scope supplies complete membership through its ordinary fresh-Workspace
 operations; it does not require a restoration-only participant. The existing
 snapshot path remains only as explicit compatibility state for the unmigrated

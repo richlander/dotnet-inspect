@@ -10,7 +10,18 @@ import {
   createRetainedWorkspaceActivationController,
   MAX_RETAINED_WORKSPACE_DEFINITIONS,
   type RetainedWorkspaceActivationClient,
+  type RetainedWorkspacePredecessorObservation,
 } from "../src/retained-workspace-activation.ts";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, fail) => {
+    resolve = accept;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
 
 function installation(
   retainedDefinitionId: string,
@@ -43,6 +54,10 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
   }> = [];
   readonly settlements: string[] = [];
+  readonly settlementResponses = new Map<
+    string,
+    Promise<BrowserRetainedWorkspaceSettlementResult>
+  >();
   readonly deactivations: string[] = [];
   readonly deactivationResponses: Array<{
     promise: Promise<BrowserRetainedWorkspaceDeactivationResult>;
@@ -83,7 +98,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     settlementId: string,
   ): Promise<BrowserRetainedWorkspaceSettlementResult> {
     this.settlements.push(settlementId);
-    return Promise.resolve({
+    return this.settlementResponses.get(settlementId) ?? Promise.resolve({
       status: "settled",
       settlement: {
         succeeded: true,
@@ -97,21 +112,29 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
 function createFixture() {
   const client = new ActivationClient();
   const installed: BrowserRetainedWorkspaceInstallation[] = [];
-  const settled: BrowserRetainedWorkspaceSettlementResult[] = [];
+  const settled: Array<{
+    observation: RetainedWorkspacePredecessorObservation;
+    result: BrowserRetainedWorkspaceSettlementResult;
+  }> = [];
+  const observationFailures: Array<{
+    observation: RetainedWorkspacePredecessorObservation;
+    error: unknown;
+  }> = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
     install: value => installed.push(value),
     clear: () => clears++,
-    predecessorSettled: value => settled.push(value),
-    predecessorObservationFailed: error => {
-      throw error;
-    },
+    predecessorSettled: (observation, result) =>
+      settled.push({ observation, result }),
+    predecessorObservationFailed: (observation, error) =>
+      observationFailures.push({ observation, error }),
   });
   return {
     client,
     controller,
     installed,
     settled,
+    observationFailures,
     clears: () => clears,
   };
 }
@@ -252,6 +275,107 @@ test("late publication still observes distinct predecessor settlement", async ()
     ["settlement-a", "settlement-initial"],
   );
   assert.equal(fixture.settled.length, 2);
+});
+
+test("out-of-order predecessor outcomes preserve originating installation association", async () => {
+  const fixture = createFixture();
+  const firstSettlement =
+    deferred<BrowserRetainedWorkspaceSettlementResult>();
+  const secondSettlement =
+    deferred<BrowserRetainedWorkspaceSettlementResult>();
+  fixture.client.settlementResponses.set(
+    "settlement-a",
+    firstSettlement.promise,
+  );
+  fixture.client.settlementResponses.set(
+    "settlement-b",
+    secondSettlement.promise,
+  );
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const third = fixture.controller.retain({
+    label: "C",
+    canonicalLocation: "/c",
+    canonicalPacket: "packet-c",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(
+      second.id,
+      "realization-2",
+      "settlement-a",
+    ),
+    failure: null,
+  });
+  await selectSecond;
+  const selectThird = fixture.controller.activate(third.id);
+  fixture.client.activations[2]!.resolve({
+    status: "activated",
+    installation: installation(
+      third.id,
+      "realization-3",
+      "settlement-b",
+    ),
+    failure: null,
+  });
+  await selectThird;
+
+  const secondFailure = new Error("B cleanup observation failed.");
+  secondSettlement.reject(secondFailure);
+  firstSettlement.resolve({
+    status: "settled",
+    settlement: {
+      succeeded: true,
+      reason: "Replaced",
+      failure: null,
+    },
+  });
+  await Promise.allSettled([
+    firstSettlement.promise,
+    secondSettlement.promise,
+  ]);
+  await Promise.resolve();
+
+  assert.deepEqual(fixture.settled, [{
+    observation: {
+      retainedDefinitionId: second.id,
+      realizationId: "realization-2",
+      settlementId: "settlement-a",
+    },
+    result: {
+      status: "settled",
+      settlement: {
+        succeeded: true,
+        reason: "Replaced",
+        failure: null,
+      },
+    },
+  }]);
+  assert.deepEqual(fixture.observationFailures, [{
+    observation: {
+      retainedDefinitionId: third.id,
+      realizationId: "realization-3",
+      settlementId: "settlement-b",
+    },
+    error: secondFailure,
+  }]);
 });
 
 test("repeated no-effect evidence observes predecessor once", async () => {

@@ -47,11 +47,23 @@ export interface RetainedWorkspaceActivationClient {
   ): Promise<BrowserRetainedWorkspaceSettlementResult>;
 }
 
+export interface RetainedWorkspacePredecessorObservation {
+  readonly retainedDefinitionId: string;
+  readonly realizationId: string;
+  readonly settlementId: string;
+}
+
 export interface RetainedWorkspaceActivationHooks {
   install(installation: BrowserRetainedWorkspaceInstallation): void;
   clear(): void;
-  predecessorSettled(result: BrowserRetainedWorkspaceSettlementResult): void;
-  predecessorObservationFailed(error: unknown): void;
+  predecessorSettled(
+    observation: RetainedWorkspacePredecessorObservation,
+    result: BrowserRetainedWorkspaceSettlementResult,
+  ): void;
+  predecessorObservationFailed(
+    observation: RetainedWorkspacePredecessorObservation,
+    error: unknown,
+  ): void;
 }
 
 export interface RetainedWorkspaceActivationController {
@@ -139,11 +151,17 @@ export function createRetainedWorkspaceActivationController(
       return;
     }
     observedSettlementIds.add(predecessor.settlementId);
+    const observation: RetainedWorkspacePredecessorObservation = {
+      retainedDefinitionId: installation.retainedDefinitionId,
+      realizationId: installation.realizationId,
+      settlementId: predecessor.settlementId,
+    };
     void client.observeRetainedWorkspaceSettlement(
       predecessor.settlementId,
     ).then(
-      value => hooks.predecessorSettled(value),
-      (error: unknown) => hooks.predecessorObservationFailed(error),
+      value => hooks.predecessorSettled(observation, value),
+      (error: unknown) =>
+        hooks.predecessorObservationFailed(observation, error),
     );
   }
 
