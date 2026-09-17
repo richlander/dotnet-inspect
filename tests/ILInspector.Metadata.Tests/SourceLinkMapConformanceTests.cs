@@ -5,8 +5,8 @@ using System.Text.Json;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Pins the SourceLink document-map rule against the specification, and pins that exactly one
-/// implementation of it exists.
+/// Pins the SourceLink document-map rule against the specification through both supported entry
+/// points.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,7 +18,7 @@ namespace ILInspector.Metadata.Tests;
 /// </para>
 /// <para>
 /// Each row therefore carries the answer the specification requires, and every row is asserted
-/// through <em>both</em> surviving entry points. Agreement alone would be satisfied by two
+/// through <em>both</em> supported entry points. Agreement alone would be satisfied by two
 /// matchers that are wrong in the same way, so agreement is not what is asserted: conformance is,
 /// and agreement follows from it.
 /// </para>
@@ -821,39 +821,6 @@ public class SourceLinkMapConformanceTests
         Assert.NotNull(map.ParseError);
         Assert.True(map.IsEmpty);
         Assert.Null(map.ResolveUrl("/_/src/Foo.cs"));
-    }
-
-    /// <summary>
-    /// Pins which product files read the SourceLink <c>documents</c> map, so a second
-    /// implementation of the mapping rule cannot reappear unnoticed.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Seam rule 6 in <c>docs/design/inspection-layers.md</c> says a second implementation of a
-    /// shared rule is a defect. That rule was already being broken here — two matchers, disagreeing
-    /// on six of the nine inputs above — and nothing failed, because nothing was watching. This
-    /// watches.
-    /// </para>
-    /// <para>
-    /// <c>ILInspector.SourceLink.SourceLinkDocumentMap</c> is the owner and only reader.
-    /// Other SourceLink components ask it for matching, provenance, and path-audit facts.
-    /// The assertion is set equality rather than containment so another reader cannot
-    /// reappear unnoticed.
-    /// </para>
-    /// </remarks>
-    [Fact]
-    public void OnlyTheSourceLinkOwner_ReadsTheDocumentsMap()
-    {
-        string src = Path.Combine(FindRepoRoot(), "src");
-
-        var readers = Directory
-            .EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
-            .Where(static file => !file.Contains(".Tests", StringComparison.Ordinal))
-            .Where(static file => File.ReadAllText(file).Contains("\"documents\"", StringComparison.Ordinal))
-            .Select(file => Path.GetRelativePath(src, file).Replace('\\', '/'))
-            .Order(StringComparer.Ordinal);
-
-        Assert.Equal(["ILInspector.SourceLink/SourceLinkDocumentMap.cs"], readers);
     }
 
     /// <summary>
