@@ -164,7 +164,7 @@ public static class UtilityCommandDefinitions
         var skillLineLimit = new Option<int?>("-n")
         {
             Description =
-                "Select rendered skill-document lines; pair with --tail to take from the end",
+                "Select items: rendered lines for skill documents; skill list requires --lines",
         };
         opts.AddLineSelectionOptionsTo(
             skillCommand,
@@ -177,7 +177,9 @@ public static class UtilityCommandDefinitions
         var listCommand = new Command("list", "List available focused skills");
         listCommand.Options.Add(opts.Json);
         opts.AddTableOptionsTo(listCommand);
-        opts.AddLineSelectionOptionsTo(listCommand);
+        opts.AddLineSelectionOptionsTo(
+            listCommand,
+            limit: skillLineLimit);
         listCommand.SetAction((parseResult) =>
         {
             var format = opts.ResolveFormat(parseResult);

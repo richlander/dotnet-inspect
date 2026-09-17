@@ -284,10 +284,16 @@ public class SkillCommandTests
             output);
     }
 
-    [Fact]
-    public async Task SkillList_BareCountDoesNotInferDocumentLines()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkillList_BareCountDoesNotInferDocumentLines(
+        bool beforeSubcommand)
     {
-        string[] args = ["skill", "list", "-n", "1"];
+        string[] args =
+            beforeSubcommand
+                ? ["skill", "-n", "1", "list"]
+                : ["skill", "list", "-n", "1"];
         var parseResult =
             CommandLineBuilder.CreateRootCommand().Parse(args);
         var (exitCode, output, error) =
@@ -301,6 +307,33 @@ public class SkillCommandTests
         Assert.Contains(
             "add --lines to select rendered lines",
             error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkillList_ExplicitLinesAcceptsCountPlacement(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ? ["skill", "-n", "1", "--lines", "list"]
+                : ["skill", "list", "-n", "1", "--lines"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
     }
 
     [Fact]
@@ -318,7 +351,7 @@ public class SkillCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains(
-            "Select rendered skill-document lines",
+            "rendered lines for skill documents",
             output);
     }
 
