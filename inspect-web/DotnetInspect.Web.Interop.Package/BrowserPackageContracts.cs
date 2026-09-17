@@ -272,6 +272,7 @@ public sealed record BrowserPackageQueryPresetDescriptor(
     BrowserPackageQueryAcquisitionTier Tier,
     string? SelectionGroupId,
     bool CombinesWithinSelectionGroup,
+    string? ReplacementGroupId,
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 

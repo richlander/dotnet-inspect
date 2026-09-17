@@ -162,6 +162,7 @@ export const engineStartupOperations = {
             selectionGroupId: nullableText(preset.selectionGroupId),
             combinesWithinSelectionGroup: boolean(
               preset.combinesWithinSelectionGroup),
+            replacementGroupId: nullableText(preset.replacementGroupId),
             displayGroupId: nullableText(preset.displayGroupId),
             displayGroupLabel: nullableText(preset.displayGroupLabel),
           };

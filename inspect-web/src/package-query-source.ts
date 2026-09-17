@@ -104,6 +104,7 @@ function toQueryPreset(
     tier: toInspectionTier(descriptor.tier),
     selectionGroupId: descriptor.selectionGroupId,
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
+    replacementGroupId: descriptor.replacementGroupId,
     displayGroupId: descriptor.displayGroupId,
     displayGroupLabel: descriptor.displayGroupLabel,
   };

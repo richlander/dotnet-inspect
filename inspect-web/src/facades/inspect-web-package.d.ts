@@ -584,6 +584,7 @@ export interface BrowserPackageQueryPresetDescriptor {
     readonly tier: BrowserPackageQueryAcquisitionTier;
     readonly selectionGroupId: string | null;
     readonly combinesWithinSelectionGroup: boolean;
+    readonly replacementGroupId: string | null;
     readonly displayGroupId: string | null;
     readonly displayGroupLabel: string | null;
 }

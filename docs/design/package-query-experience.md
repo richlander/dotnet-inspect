@@ -90,9 +90,9 @@ source-order gesture.
 The Browser catalog projects `PackageQuery.Terms`; it does not own an
 independent predicate table. Closed options become preset controls carrying the
 explicit product-issued `(key, operator, value)` triple plus label, summary,
-weight, tier, optional compatibility-selection group, and optional display
-group. Free-input descriptors carry the same key, operator, value-kind, and
-example metadata.
+weight, tier, optional resolver selection group, optional preset replacement
+group, and optional display group. Free-input descriptors carry the same key,
+operator, value-kind, and example metadata.
 
 ### Active term delivery
 
@@ -200,13 +200,16 @@ and
 - **Inspection facts**: closed term options are projected as presets, not as a
   Browser-owned vocabulary or open grammar. Selecting a preset restarts source
   work; it never client-side-filters stale rows. Product-issued selection
-  groups make incompatible values replace one another. The `.NET Tool`, `v1`,
-  and `v2` controls share one display group while retaining independently
-  focusable buttons and explicit term triples. `tool=true` uses only manifest
-  package-type evidence. `tool-format=v1` and `tool-format=v2` inspect
+  groups define same-family replacement or combination; replacement groups
+  remove incompatible presets across families. The `.NET Tool`, `v1`, and `v2`
+  controls share one display group while retaining independently focusable
+  buttons and explicit term triples. `tool=true` uses only manifest package-type
+  evidence. `tool-format=v1` and `tool-format=v2` inspect
   `DotnetToolSettings.xml`; selecting both forms an OR-union, while either is
-  incompatible with broad `tool=true`. `skill=true` matches package entries at
-  `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
+  incompatible with broad `tool=true`. Their product-issued replacement group
+  makes the broad and specific presets replace one another without making
+  display grouping define compatibility. `skill=true` matches package entries
+  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
   persistently discloses that package-content terms may download up to 20
   candidate archives.
 - **Active terms and palette**: free-input descriptors such as `depends` add

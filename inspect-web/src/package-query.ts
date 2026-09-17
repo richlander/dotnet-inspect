@@ -20,6 +20,7 @@ export interface QueryPreset {
   tier: "search-metadata" | "nuspec" | "package-content";
   selectionGroupId?: string | null;
   combinesWithinSelectionGroup?: boolean;
+  replacementGroupId?: string | null;
   displayGroupId?: string | null;
   displayGroupLabel?: string | null;
 }
@@ -179,12 +180,21 @@ export function togglePreset(
     return withoutPreset(request, preset.id);
   }
 
-  const compatible = preset.selectionGroupId
-    ? request.presets.filter(existing =>
-        existing.selectionGroupId !== preset.selectionGroupId
-        || (preset.combinesWithinSelectionGroup === true
-          && existing.combinesWithinSelectionGroup === true))
-    : request.presets;
+  const compatible = request.presets.filter(existing => {
+    const combines = preset.selectionGroupId !== null
+      && preset.selectionGroupId !== undefined
+      && existing.selectionGroupId === preset.selectionGroupId
+      && preset.combinesWithinSelectionGroup === true
+      && existing.combinesWithinSelectionGroup === true;
+    const replacesSelectionGroup = preset.selectionGroupId !== null
+      && preset.selectionGroupId !== undefined
+      && existing.selectionGroupId === preset.selectionGroupId;
+    const replacesReplacementGroup = preset.replacementGroupId !== null
+      && preset.replacementGroupId !== undefined
+      && existing.replacementGroupId === preset.replacementGroupId;
+    return combines
+      || (!replacesSelectionGroup && !replacesReplacementGroup);
+  });
   return withPreset(withPresets(request, compatible), preset);
 }
 

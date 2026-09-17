@@ -132,6 +132,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(
                 term.CombinesWithinSelectionGroup,
                 actual.CombinesWithinSelectionGroup);
+            Assert.Equal(term.ReplacementGroupId, actual.ReplacementGroupId);
             Assert.Equal(term.DisplayGroupId, actual.DisplayGroupId);
             Assert.Equal(term.DisplayGroupLabel, actual.DisplayGroupLabel);
             Assert.Equal(

@@ -431,15 +431,16 @@ dotnet-inspect package query 'Azure.Mcp*' \
 ```
 
 Repeat `--where` to combine terms; the engine rejects incompatible selections.
-The broad `tool=true` term reports CLI v1, CLI v2, or unrecognized settings
-from `DotnetToolSettings.xml`; `tool-format=v1` and `tool-format=v2` are
-compatible filtering alternatives. Selecting a package-content term authorizes
-the required archive acquisition and defaults to at most 20 candidates. Use
-`--nuspec-only` to reject a query that would require package content. Without
-explicit `--take`, a simple `-n N` query pushes that semantic head into
-execution; explicit `--take` instead fixes the candidate population before row
-selection. Reached candidate limits and partial failures are reported
-explicitly. `--count` counts selected
+The broad `tool=true` term identifies the .NET tool package type from manifest
+evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
+classification; the two specific formats are compatible filtering
+alternatives. Selecting a package-content term authorizes the required archive
+acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
+reject a query that would require package content. Without explicit `--take`, a
+simple `-n N` query pushes that semantic head into execution; explicit
+`--take` instead fixes the candidate population before row selection. Reached
+candidate limits and partial failures are reported explicitly. `--count`
+counts selected
 matching package rows only when completion or the semantic selection proves
 the count exact.
 

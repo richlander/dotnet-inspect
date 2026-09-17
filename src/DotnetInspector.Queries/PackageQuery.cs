@@ -365,6 +365,8 @@ public static partial class PackageQuery
     public const string ToolTermKey = "tool";
     public const string ToolFormatTermKey = "tool-format";
     public const string SkillTermKey = "skill";
+    public const string ToolReplacementGroupId =
+        "package.query.replacement.dotnet-tool";
     public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
 
     private static readonly ImmutableArray<string> EqualityOperator =
@@ -507,6 +509,7 @@ public static partial class PackageQuery
             [
                 new("true", ".NET Tool", "The manifest declares a .NET tool package type."),
             ],
+            ReplacementGroupId = ToolReplacementGroupId,
             DisplayGroupId = ToolDisplayGroupId,
             DisplayGroupLabel = ".NET tool",
         },
@@ -529,6 +532,7 @@ public static partial class PackageQuery
             ],
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
+            ReplacementGroupId = ToolReplacementGroupId,
             DisplayGroupId = ToolDisplayGroupId,
             DisplayGroupLabel = ".NET tool",
         },

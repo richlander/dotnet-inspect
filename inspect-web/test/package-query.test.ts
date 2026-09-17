@@ -75,6 +75,7 @@ const ANY_TOOL_FACET: QueryPreset = {
   value: "true",
   label: ".NET Tool",
   tier: "nuspec",
+  replacementGroupId: "dotnet-tool",
 };
 
 const TOOL_V1_FACET: QueryPreset = {
@@ -86,6 +87,7 @@ const TOOL_V1_FACET: QueryPreset = {
   tier: "package-content",
   selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
+  replacementGroupId: "dotnet-tool",
 };
 
 const TOOL_V2_FACET: QueryPreset = {
@@ -97,6 +99,7 @@ const TOOL_V2_FACET: QueryPreset = {
   tier: "package-content",
   selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
+  replacementGroupId: "dotnet-tool",
 };
 
 const DEPENDS_TERM: QueryTermDescriptor = {
@@ -323,7 +326,7 @@ test("togglePreset replaces an active preset in the same producer-owned selectio
     [NO_DEPENDENCIES_FACET.id]);
 });
 
-test("togglePreset unions tool formats without inferring cross-key exclusivity", () => {
+test("togglePreset applies product-owned tool replacement and union groups", () => {
   const withV1 = togglePreset(createQueryRequest("Microsoft."), TOOL_V1_FACET);
   const withBoth = togglePreset(withV1, TOOL_V2_FACET);
   const withAny = togglePreset(withBoth, ANY_TOOL_FACET);
@@ -334,10 +337,12 @@ test("togglePreset unions tool formats without inferring cross-key exclusivity",
     [TOOL_V1_FACET.id, TOOL_V2_FACET.id]);
   assert.deepEqual(
     withAny.presets.map(preset => preset.id),
-    [TOOL_V1_FACET.id, TOOL_V2_FACET.id, ANY_TOOL_FACET.id]);
+    [ANY_TOOL_FACET.id]);
+  assert.equal(withAny.requestedLimit, 200);
   assert.deepEqual(
     backToV2.presets.map(preset => preset.id),
-    [TOOL_V1_FACET.id, ANY_TOOL_FACET.id]);
+    [TOOL_V2_FACET.id]);
+  assert.equal(backToV2.requestedLimit, 20);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

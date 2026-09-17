@@ -44,6 +44,7 @@ public sealed record PackageQueryTermDescriptor(
     public ImmutableArray<PackageQueryTermOptionDescriptor> Options { get; init; } = [];
     public string? SelectionGroupId { get; init; }
     public bool CombinesWithinSelectionGroup { get; init; }
+    public string? ReplacementGroupId { get; init; }
     public string? DisplayGroupId { get; init; }
     public string? DisplayGroupLabel { get; init; }
 }

@@ -43,6 +43,7 @@ namespace DotnetInspect.Web.Interop.Package
                             },
                             term.SelectionGroupId,
                             term.CombinesWithinSelectionGroup,
+                            term.ReplacementGroupId,
                             term.DisplayGroupId,
                             term.DisplayGroupLabel))),
                 ],

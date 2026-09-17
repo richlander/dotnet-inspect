@@ -170,7 +170,14 @@ public sealed class PackageQueryTests
         PackageQueryTermDescriptor toolFormat = PackageQuery.Terms.Single(
             term => term.Key == PackageQuery.ToolFormatTermKey);
         Assert.True(toolFormat.CombinesWithinSelectionGroup);
+        Assert.Equal(
+            PackageQuery.ToolReplacementGroupId,
+            toolFormat.ReplacementGroupId);
         Assert.Equal(PackageQuery.ToolDisplayGroupId, toolFormat.DisplayGroupId);
+        Assert.Equal(
+            PackageQuery.ToolReplacementGroupId,
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.ToolTermKey).ReplacementGroupId);
         Assert.Equal(["v1", "v2"], toolFormat.Options.Select(option => option.Value));
         Assert.Equal(
             "downloads",
