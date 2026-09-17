@@ -421,8 +421,12 @@ public static class TfmSelector
         {
             PackageLibraryResolution candidates =
                 SelectPackageLibraries(extractPath, tfm);
-            if (!candidates.IsSelected)
+            if (candidates.Status
+                == PackageLibraryResolutionStatus
+                    .EmptyCompileGroup)
+            {
                 return candidates;
+            }
 
             var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
                 candidates.Paths,
