@@ -133,43 +133,29 @@ public partial class PackageCommand
                     "integration_type",
                     "look_for",
                 ]),
+            new(
+                IntegrationSectionNames.Integrations,
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    "Integration",
+                    "Kind",
+                    "Shape",
+                    "Symbol",
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    "integration",
+                    "kind",
+                    "shape",
+                    "symbol",
+                ]),
         };
-        schemas.AddRange(
-            LibraryIntegrationCatalog.All.Select(descriptor =>
-                new AllLibrariesRowSchema(
-                    descriptor.SectionName,
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "API",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "api",
-                    ],
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "Type",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "type",
-                    ])));
         return schemas;
     }
 
