@@ -398,14 +398,19 @@ public partial class CommandExecutionTests
         {
             var actual = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+            var wildcard = await RunAppAsync(
+                "package", packagePath, "--columns", "Fie*", "--tsv", "--tips", "q");
             var expected = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
 
             Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, wildcard.Exit);
             Assert.Equal(0, expected.Exit);
             Assert.Empty(actual.Error);
+            Assert.Empty(wildcard.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
+            Assert.StartsWith("field\n", wildcard.Output);
         }
         finally
         {
@@ -424,10 +429,20 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--fields", "Authors", "--tips", "q");
+            var mixed = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info",
+                "--fields", "Version",
+                "--columns", "Value",
+                "--tsv",
+                "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("| Authors | tests |", output);
+            Assert.Equal(0, mixed.Exit);
+            Assert.Empty(mixed.Error);
+            Assert.Contains("1.0.0", mixed.Output);
         }
         finally
         {

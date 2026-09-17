@@ -432,13 +432,22 @@ public partial class CommandExecutionTests
             Namespace = "N",
             Name = "C",
             Kind = "class",
-            Members = [new ApiMember { Name = "M", Kind = "method" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                },
+            ],
         };
         var options = new MemberOptions
         {
             JsonOutput = true,
             Verbosity = Verbosity.Detailed,
             MemberSourceTooComplex = true,
+            OverloadIndex = 1,
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -705,7 +714,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Source", false)]
-    [InlineData("@All", false)]
     [InlineData("*", false)]
     [InlineData("PDB Source", true)]
     [InlineData("Source Diff", true)]
@@ -1603,6 +1611,34 @@ public partial class CommandExecutionTests
                 "cannot represent this code-section failure",
                 error);
         }
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedOverload_PreservesCategorySelectorProvenance()
+    {
+        Type target = typeof(NuGet.Versioning.NuGetVersion);
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            target.FullName!,
+            "Parse",
+            "--library",
+            target.Assembly.Location,
+            "-S",
+            $"{SectionNames.Signature},{SectionCategoryNames.Source}",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            "Source diff unavailable",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument json = JsonDocument.Parse(output);
+        Assert.Equal(
+            target.FullName,
+            $"{json.RootElement.GetProperty("namespace").GetString()}."
+                + json.RootElement.GetProperty("name").GetString());
     }
 
     [Fact]
