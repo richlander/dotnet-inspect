@@ -20,12 +20,14 @@ internal sealed class CliRowSelectionCommandAdoption
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
         Func<ParseResult, bool> isActive,
-        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering)
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering,
+        CliRowSelectionCommandAdoption? fallback)
     {
         Bindings = bindings;
         Capabilities = capabilities;
         IsActive = isActive;
         ValidateLowering = validateLowering;
+        Fallback = fallback;
     }
 
     public CliRowSelectionOptionBindings Bindings { get; }
@@ -35,6 +37,8 @@ internal sealed class CliRowSelectionCommandAdoption
     public Func<ParseResult, bool> IsActive { get; }
 
     public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
+
+    public CliRowSelectionCommandAdoption? Fallback { get; }
 }
 
 internal sealed record CliRowSelectionPreparation
@@ -76,6 +80,8 @@ internal sealed record CliRowSelectionPreparation
     public bool HasCompatibilityError { get; init; }
 
     public bool IsAdopted { get; init; }
+
+    public bool HasRequest { get; init; }
 
     public bool IsActive => Lowering is not null || Error is not null;
 
@@ -122,17 +128,45 @@ internal static class CliRowSelectionCommandRegistry
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(isActive);
+        Adoptions.TryGetValue(
+            command,
+            out CliRowSelectionCommandAdoption? fallback);
+        Adoptions.Remove(command);
         Adoptions.Add(
             command,
-            new(bindings, capabilities, isActive, validateLowering));
+            new(
+                bindings,
+                capabilities,
+                isActive,
+                validateLowering,
+                fallback));
     }
 
     public static bool OwnsShortLimit(
         ParseResult parseResult,
         IReadOnlyList<string> arguments)
     {
-        if (TryGetActiveAdoption(parseResult, out _))
+        if (Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out CliRowSelectionCommandAdoption? adoption)
+            && adoption.IsActive(parseResult))
             return true;
+
+        bool hasExplicitLineUnit =
+            arguments.Any(
+                static argument =>
+                    argument is "--lines" or "--tail-lines"
+                    || argument.StartsWith(
+                        "--lines=",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--tail-lines=",
+                        StringComparison.Ordinal));
+        if (hasExplicitLineUnit
+            && TryGetActiveAdoption(parseResult, out _))
+        {
+            return true;
+        }
 
         return parseResult.CommandResult.Command.Name == "router"
             && arguments.Any(
@@ -151,7 +185,12 @@ internal static class CliRowSelectionCommandRegistry
                 parseResult,
                 out CliRowSelectionCommandAdoption? adoption))
         {
-            return CliRowSelectionPreparation.Inactive(parseResult);
+            return CliRowSelectionPreparation.Inactive(parseResult) with
+            {
+                IsAdopted = Adoptions.TryGetValue(
+                    parseResult.CommandResult.Command,
+                    out _)
+            };
         }
 
         string[] effectiveArguments =
@@ -182,6 +221,8 @@ internal static class CliRowSelectionCommandRegistry
             Arguments = result.Arguments,
             ArgumentPositions = result.ArgumentPositions,
             IsAdopted = true,
+            HasRequest = result.Occurrences.Count > 0
+                || result.ArgumentFailures.Count > 0,
             PresenceOptions =
             [
                 adoption.Bindings.Head,
@@ -290,10 +331,15 @@ internal static class CliRowSelectionCommandRegistry
     {
         if (Adoptions.TryGetValue(
                 parseResult.CommandResult.Command,
-                out adoption)
-            && adoption.IsActive(parseResult))
+                out adoption))
         {
-            return true;
+            while (adoption is not null)
+            {
+                if (adoption.IsActive(parseResult))
+                    return true;
+
+                adoption = adoption.Fallback;
+            }
         }
 
         adoption = null;
@@ -338,7 +384,12 @@ internal static class CliRowSelectionCommandRegistry
             CliRowSelectionFailureReason.ModifierRequiresCount =>
                 $"{OptionName(failure.OccurrenceKind)} requires -n.",
             CliRowSelectionFailureReason.UnsupportedCapability =>
-                $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
+                failure.OccurrenceKind == CliRowSelectionOccurrenceKind.Limit
+                    && failure.MissingCapabilities
+                        == CliRowSelectionCapabilities.HeadTail
+                    ? "-n selects semantic rows and is not available for this "
+                        + "command; add --lines to select rendered lines."
+                    : $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
             _ => "The row-selection arguments are invalid."
         };
 

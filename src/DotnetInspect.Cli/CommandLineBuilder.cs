@@ -281,7 +281,7 @@ public static class CommandLineBuilder
                 optionValueFailure);
 
         bool usesCombinedFailurePrecedence =
-            rowSelection.IsAdopted
+            rowSelection.HasRequest
             || executionBound.IsActive;
         if (usesCombinedFailurePrecedence
             && SelectFirstCategoryOneFailure(
@@ -329,7 +329,7 @@ public static class CommandLineBuilder
                 headLines,
                 tailLines);
         }
-        else if (!rowSelection.IsActive)
+        else if (!rowSelection.IsAdopted)
         {
             ApplyParsedLineWindow(parseResult, rawArgs);
             headLines = HeadLines;
@@ -1077,12 +1077,6 @@ public static class CommandLineBuilder
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
         => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
-
-    /// <summary>
-    /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
-    /// Delegates to <see cref="CommandLineHelpers.ParseTypeLimit"/> for backward compatibility.
-    /// </summary>
-    internal static int? ParseTypeLimit(string? value) => CommandLineHelpers.ParseTypeLimit(value);
 
     /// <summary>
     /// Classifies a positional argument by file extension.

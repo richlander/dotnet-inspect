@@ -129,6 +129,7 @@ public static class UtilityCommandDefinitions
             return await CacheCommand.ExecuteAsync(options);
         });
         cacheCommand.Subcommands.Add(clearCommand);
+        opts.AddLineSelectionOptionsTo(clearCommand);
 
         cacheCommand.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -160,14 +161,16 @@ public static class UtilityCommandDefinitions
     public static Command CreateSkillCommand(SharedOptions opts)
     {
         var skillCommand = new Command("skill", "Show skill definition (router to focused skills)");
-        skillCommand.Options.Add(opts.Limit);
+        opts.AddLineSelectionOptionsTo(
+            skillCommand,
+            static _ => OutputFormat.Markdown);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
 
         // Subcommand: list (supports the standard output formats)
         var listCommand = new Command("list", "List available focused skills");
         listCommand.Options.Add(opts.Json);
         opts.AddTableOptionsTo(listCommand);
-        listCommand.Options.Add(opts.Limit);
+        opts.AddLineSelectionOptionsTo(listCommand);
         listCommand.SetAction((parseResult) =>
         {
             var format = opts.ResolveFormat(parseResult);
@@ -181,7 +184,9 @@ public static class UtilityCommandDefinitions
         {
             var name = skill.Name;
             var focusedCommand = new Command(name, skill.Description);
-            focusedCommand.Options.Add(opts.Limit);
+            opts.AddLineSelectionOptionsTo(
+                focusedCommand,
+                static _ => OutputFormat.Markdown);
             focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
             skillCommand.Subcommands.Add(focusedCommand);
         }
@@ -194,16 +199,6 @@ public static class UtilityCommandDefinitions
         var demoCommand = new Command(
             DemoCommand.Name,
             "Run a product home inspection demo (real section output)");
-        var linesOption = new Option<bool>("--lines")
-        {
-            Description = "Apply -n to rendered lines instead of demo rows",
-            Arity = ArgumentArity.Zero
-        };
-        var tailLinesOption = new Option<bool>("--tail-lines")
-        {
-            Description = "Apply -n to rendered lines from the end",
-            Arity = ArgumentArity.Zero
-        };
         var limitOption = new Option<string[]>("-n")
         {
             Description = "Select the first N demo rows; pair with --tail to select from the end",
@@ -231,8 +226,9 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(rowsOption);
         demoCommand.Options.Add(opts.Head);
         demoCommand.Options.Add(opts.Tail);
-        demoCommand.Options.Add(linesOption);
-        demoCommand.Options.Add(tailLinesOption);
+        demoCommand.Options.Add(opts.Lines);
+        demoCommand.Options.Add(opts.TailLines);
+        opts.RegisterLineSelectionFallback(demoCommand, limitOption);
 
         var listCommand = new Command("list", "List product home demos");
         listCommand.Options.Add(opts.Json);
@@ -243,8 +239,8 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(rowsOption);
         listCommand.Options.Add(opts.Head);
         listCommand.Options.Add(opts.Tail);
-        listCommand.Options.Add(linesOption);
-        listCommand.Options.Add(tailLinesOption);
+        listCommand.Options.Add(opts.Lines);
+        listCommand.Options.Add(opts.TailLines);
 
         CliRowSelectionOptionBindings rowBindings =
             new(
@@ -254,8 +250,8 @@ public static class UtilityCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption);
+                opts.Lines,
+                opts.TailLines);
         CliRowSelectionCapabilities rowCapabilities =
             CliRowSelectionCapabilities.HeadTail
             | CliRowSelectionCapabilities.Window
@@ -288,15 +284,10 @@ public static class UtilityCommandDefinitions
                 return;
             }
 
-            if (result.GetResult(rowsOption) is { Implicit: false }
-                || result.GetValue(opts.Head)
-                || result.GetValue(opts.Tail)
-                || result.GetValue(linesOption)
-                || result.GetValue(tailLinesOption))
+            if (result.GetResult(rowsOption) is { Implicit: false })
             {
                 result.AddError(
-                    "--rows, --head, --tail, --lines, and --tail-lines "
-                    + "are available only when listing demos.");
+                    "--rows is available only when listing demos.");
             }
 
             if (result.GetResult(limitOption)?.Tokens.Count > 1)

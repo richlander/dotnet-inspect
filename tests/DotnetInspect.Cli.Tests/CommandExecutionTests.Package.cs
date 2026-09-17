@@ -65,7 +65,8 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package files",
                 "--paths",
-                "-o-1",
+                "-o=-1",
+                "--lines",
                 "-1",
                 "--tips",
                 "q",
@@ -861,8 +862,8 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "2" },
-                         ["-n", "2", "--tail"],
+                         new[] { "-n", "2", "--lines" },
+                         ["-n", "2", "--tail-lines"],
                      })
             {
                 var baseline = await RunAppInDirectoryAsync(

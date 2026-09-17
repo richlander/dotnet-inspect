@@ -1727,7 +1727,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.CommandLine.dll", "--package", "System.CommandLine",
-            "-S", "SourceLink: Files", "--tips", "q", "-n", "18");
+            "-S", "SourceLink: Files", "--tips", "q", "-n", "18", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2658,7 +2658,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "*", "-n", "8", "--tips", "q");
+            "-S", "*", "-n", "8", "--lines", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("IL coordinate sections require", error);

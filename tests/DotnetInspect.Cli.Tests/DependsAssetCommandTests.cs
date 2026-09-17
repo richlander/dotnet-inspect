@@ -3336,6 +3336,58 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task SemanticWindowComposesWithRenderedLineLimit()
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                AssetsFixture,
+                "--depth",
+                "1",
+                "-S",
+                "Dependency Graph",
+                "--rows",
+                "2..2",
+                "--count",
+                "-n",
+                "100",
+                "--lines",
+            ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("1..1")]
+    public async Task LegacyRowsRemainCommandOwnedDuringSemanticAdoption(
+        string rows)
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                AssetsFixture,
+                "--depth",
+                "1",
+                "-S",
+                "Dependency Graph",
+                "--rows",
+                rows,
+                "--count",
+            ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("1", output.Trim());
+    }
+
+    [Fact]
     public async Task PlainTextColumns_RenderProjectedGraphRows()
     {
         string[] arguments =

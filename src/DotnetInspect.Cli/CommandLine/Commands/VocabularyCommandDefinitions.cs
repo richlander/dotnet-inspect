@@ -25,8 +25,6 @@ public static class VocabularyCommandDefinitions
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
         command.Options.Add(opts.PlainText);
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
 
         command.SetAction((parseResult) =>
         {
@@ -73,11 +71,16 @@ public static class VocabularyCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            result => opts.ParseDiscover(result) is null);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => opts.ParseDiscover(result) is null,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.ResolveFormat(result),
+                    lowering));
 
         return command;
     }

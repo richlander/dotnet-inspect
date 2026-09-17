@@ -173,6 +173,42 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task FocusedSkill_LineSelectionUsesFixedMarkdownFormat()
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            string[] args =
+                ["skill", "query", "-n", "1", "--lines"];
+            var parseResult =
+                CommandLineBuilder.CreateRootCommand().Parse(args);
+            var (exitCode, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                        parseResult,
+                        args));
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(error);
+            Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
+    }
+
+    [Fact]
     public async Task EveryRegisteredSkillResourceResolves()
     {
         foreach (var skill in SkillCommand.Skills)

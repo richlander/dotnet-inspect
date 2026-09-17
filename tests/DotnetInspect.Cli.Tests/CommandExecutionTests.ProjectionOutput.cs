@@ -262,16 +262,14 @@ public partial class CommandExecutionTests
             "package",
             "Foo",
             "-n1",
-            "--tail",
-            "false",
-            "--tail",
-            "true",
+            "--tail-lines=false",
+            "--tail-lines=true",
             "--help");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "expects a single argument but 2 were provided",
+            "--tail-lines does not accept a value",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

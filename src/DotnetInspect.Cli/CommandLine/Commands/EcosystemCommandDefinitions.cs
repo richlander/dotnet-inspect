@@ -30,10 +30,6 @@ public static class EcosystemCommandDefinitions
         opts.AddCountOptionTo(command);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
-        // The lowering bindings require identities for unsupported line modes;
-        // leaving these options unattached keeps them outside the public command.
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
 
         command.SetAction(parseResult =>
         {
@@ -66,11 +62,16 @@ public static class EcosystemCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.ResolveFormat(result),
+                    lowering));
 
         return command;
     }

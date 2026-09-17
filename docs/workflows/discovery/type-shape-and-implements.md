@@ -220,7 +220,7 @@ extends
 ### 4b. Limited results
 
 ```bash
-dotnet-inspect implements Stream -t 3 -v:q
+dotnet-inspect implements Stream -n 3 -v:q
 ```
 
 ```expect
@@ -260,7 +260,7 @@ dotnet-inspect implements IHost -v:q
 ### 5b. Interface with many implementers
 
 ```bash
-dotnet-inspect implements IDisposable -v:q --platform -t 5
+dotnet-inspect implements IDisposable -v:q --platform -n 5
 ```
 
 ```expect
@@ -303,7 +303,7 @@ dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
 ### 7a. With header
 
 ```bash
-dotnet-inspect implements Stream --table -t 3
+dotnet-inspect implements Stream --table -n 3
 ```
 
 ```expect
@@ -317,7 +317,7 @@ Source
 ### 7b. Without header for piping
 
 ```bash
-dotnet-inspect implements Stream --table --no-headers -t 3
+dotnet-inspect implements Stream --table --no-headers -n 3
 ```
 
 ```expect
@@ -369,7 +369,7 @@ System.Collections.IEnumerable
 ### 8c. Find types implementing the same interface
 
 ```bash
-dotnet-inspect implements IEnumerable -t 5 -v:q
+dotnet-inspect implements IEnumerable -n 5 -v:q
 ```
 
 ```expect
