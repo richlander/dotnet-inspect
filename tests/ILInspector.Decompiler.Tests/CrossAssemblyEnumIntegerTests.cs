@@ -173,11 +173,18 @@ public class CrossAssemblyEnumIntegerTests
             function.EnumUnderlyingTypes,
             pair => pair.Key.Namespace == "System.Data" && pair.Key.Name == "CommandBehavior");
         Assert.Equal("Int32", underlyingType.Value.Name);
+        Assert.Contains(commandBehavior.Key, function.FlagsEnumTypes);
 
         IrPasses.Run(function);
         function.CheckInvariant();
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("(CommandBehavior)", output);
+        Assert.Contains(
+            "CommandBehavior.SingleResult | CommandBehavior.SequentialAccess",
+            output);
+        Assert.Contains(
+            "CommandBehavior.SingleResult | CommandBehavior.SingleRow | CommandBehavior.SequentialAccess",
+            output);
+        Assert.DoesNotContain("(CommandBehavior)", output);
     }
 
     [Fact]

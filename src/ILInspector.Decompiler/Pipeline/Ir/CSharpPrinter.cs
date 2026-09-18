@@ -4582,14 +4582,14 @@ public sealed partial class CSharpPrinter
         LoadArgument a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => StackSlotName(s),
-        Constant { Value: int or long } c when EnumMemberName(c) is { } named
-            => WithNodeKind(c, named, "MemberAccessExpression"),
+        Constant { Value: int or long } c when EnumSymbolicConstant(c) is { } symbolic
+            => WithNodeKind(c, symbolic.Text, symbolic.Kind),
         // A retyped enum constant is still that enum whether or not a single
-        // member names it — a bare int is CS0266. EnumConstantText owns the
-        // name-or-cast decision (the overflow-aware cast wraps an unsigned- or
-        // narrow-backed enum's out-of-range/negative value in `unchecked`, e.g.
-        // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
-        // long-backed enum keeps its `long` payload.
+        // member or complete flags decomposition names it — a bare int is
+        // CS0266. EnumConstantText owns the symbolic-or-cast decision (the
+        // overflow-aware cast wraps an unsigned- or narrow-backed enum's
+        // out-of-range/negative value in `unchecked`, e.g.
+        // `unchecked((U)(-1))`). A long-backed enum keeps its `long` payload.
         Constant { Value: int or long, Type: { } enumType } c
             when CoercionRendering.IsEnum(enumType, _function.TypeShapes)
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
@@ -5178,6 +5178,11 @@ public sealed partial class CSharpPrinter
     Rendered RenderedExpression(IrExpression node)
     {
         string text = Expression(node);
+        if (node is Constant { Value: int or long } constant
+            && EnumSymbolicConstant(constant) is { } symbolic)
+        {
+            return new Rendered(text, symbolic.Precedence);
+        }
         if (node is Call call && OperatorCallPrecedence(call) is { } operatorPrecedence)
             return new Rendered(text, operatorPrecedence);
         if (IsWholeExpressionWrapper(text, "checked(") || IsWholeExpressionWrapper(text, "unchecked("))
@@ -5196,7 +5201,7 @@ public sealed partial class CSharpPrinter
         // `-x`) renders as a compound expression, so it must parenthesize like
         // any other binary/unary — otherwise an enclosing `!`/`-`/binary
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
-        bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
+        bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or LoadField
             or NewObject or ArrayLength or LoadElement or FixedBufferElementAddress or SliceExpression or RangeExpression or CaughtException or SizeOf or DefaultValue or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
@@ -5215,6 +5220,8 @@ public sealed partial class CSharpPrinter
             // member-access receiver misbinds onto the call result
             // (`(E)x.M()` is `(E)(x.M())`), so those keep Operand's parens.
             || node is Coerce && IsSimpleAtomText(text);
+        atomic = atomic || node is Constant constant
+            && EnumSymbolicConstant(constant) is not { IsCombination: true };
         atomic = atomic || node is LoadIndirect { Address: FixedBufferElementAddress }
             || node is LoadIndirect load && PointerElementAccessText(load) is not null;
         return atomic ? text : $"({text})";
@@ -6205,7 +6212,7 @@ public sealed partial class CSharpPrinter
             // type is the enum (not integer-like) and this is skipped.
             : binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
                 && TryCoerceEnumOperand(binary.Right, lvalueType) is { } coercedRight
-                ? coercedRight
+                ? coercedRight.Text
             // A mixed-sign same-width compound (`nuint -= nint`, `ulong /= long`)
             // has no C# common type, so `target op= right` is CS0034. For the
             // sign-NEUTRAL operators (unchecked +/-/*, bitwise &/|/^) the bit
@@ -6911,9 +6918,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// A retyped enum constant renders <c>EnumType.Member</c> when its value
-    /// names exactly one member of the resolved (same-assembly) enum. Composite
-    /// flag values and unnamed casts have no exact member and fall through to
-    /// the raw integer — naming those is a later slice.
+    /// names exactly one eligible member of the resolved enum.
     /// </summary>
     string? EnumMemberName(Constant constant)
         => constant.Value is int or long
