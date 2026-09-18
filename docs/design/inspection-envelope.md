@@ -290,13 +290,15 @@ sometimes conceal an enriched value as `object` or as a bare baseline.
 Producing an enriched result performs one inspection, not an ordinary
 inspection followed by a second run to obtain evidence.
 
-`EvidenceBuilder<TContent, TEvidence>` is the shared host-selection helper. Its
+`EvidenceInspectionBuilder<TContent, TEvidence>` is the shared host-selection
+helper. Its
 `[Conditional("DEBUG")]` request method makes Release callers omit the capture
 request and its argument evaluation. The builder accepts operation state and
-ordinary and evidence-enabled static delegates, invokes exactly one, and
-returns the ordinary inspection plus an optional evidence envelope. When
-enriched, both tuple members reference the same `InspectionEnvelope<TContent>`;
-the tuple is host orchestration rather than a third service return form.
+ordinary and evidence-enabled static delegates, invokes exactly one, and cannot
+be reused for a second execution. Synchronous and asynchronous forms return the
+ordinary inspection plus an optional evidence envelope. When enriched, both
+tuple members reference the same `InspectionEnvelope<TContent>`; the tuple is
+host orchestration rather than a third service return form.
 
 The host resolves both capture intent and delivery intent before execution.
 Delivery may replace a host's primary output or accompany its ordinary Content

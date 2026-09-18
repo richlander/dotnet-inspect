@@ -13,7 +13,7 @@ using AuthoredSourceHouse = DotnetInspector.SourceHouse.SourceHouse;
 
 namespace DotnetInspector.Queries;
 
-public sealed record AssemblyMemberSourcePdbProvenance(
+public sealed record AssemblySourcePdbProvenance(
     AssemblyAcquisitionRegistration SourceRegistration,
     CodeViewInfo? Identity,
     string? Location,
@@ -36,32 +36,127 @@ public static partial class AssemblyContextSourceQuery
     {
         var findingSubject = new FindingSubject(
             "member", request.Member.Format(MemberAnchorFormat.Qualified));
+        AuthoredPdbInspection authored = await InspectAuthoredPdbAsync(
+            group, participant, context, retained, version,
+            new SourceHouseTarget.MemberTarget(request.Type, request.Member, request.MetadataToken),
+            operationName: "member-source", limits, timeout, cancellationToken,
+            retainSymbols).ConfigureAwait(false);
+        PdbMemberSourceInspection inspection = authored switch
+        {
+            { AcquisitionFailure: { } failure } =>
+                PdbSourceHouse.MemberPdbAcquisitionFailed(findingSubject, failure),
+            { LibraryFailure: { } terminal } =>
+                UnsuccessfulMemberInspection(
+                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
+                        ? PdbMemberSourceOutcome.SourceLimitExceeded
+                        : PdbMemberSourceOutcome.InspectionFailed,
+                    AdmissionDetail(terminal), failed: true),
+            { HouseOutcome: { } outcome } => ProjectMemberAuthored(outcome, findingSubject),
+            _ => throw new InvalidOperationException("Authored source inspection did not settle."),
+        };
+        return new(inspection, inspection.IsComplete ? authored.Provenance : null,
+            authored.PdbImage)
+        {
+            HouseOutcome = authored.HouseOutcome,
+            LibraryFailure = authored.LibraryFailure,
+        };
+    }
+
+    internal static async Task<TypePdbInspection> InspectTypePdbAsync(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyTypeSourceRequest request,
+        AssemblyContextSourceQueryContext context,
+        ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion version,
+        SourceHouseLimits limits,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        bool retainSymbols = false)
+    {
+        var findingSubject = new FindingSubject(
+            "type", request.Type.ToMetadataFullName());
+        AuthoredPdbInspection authored = await InspectAuthoredPdbAsync(
+            group, participant, context, retained, version,
+            new SourceHouseTarget.TypeTarget(request.Type),
+            operationName: "type-source", limits, timeout, cancellationToken,
+            retainSymbols).ConfigureAwait(false);
+        PdbTypeSourceInspection inspection = authored switch
+        {
+            { AcquisitionFailure: { } failure } =>
+                PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
+            { LibraryFailure: { } terminal } =>
+                UnsuccessfulTypeInspection(
+                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
+                        ? PdbTypeSourceOutcome.SourceLimitExceeded
+                        : PdbTypeSourceOutcome.InspectionFailed,
+                    AdmissionDetail(terminal), failed: true),
+            { HouseOutcome: { } outcome } => ProjectTypeAuthored(outcome, findingSubject),
+            _ => throw new InvalidOperationException("Authored source inspection did not settle."),
+        };
+        if (inspection.IsComplete
+            && authored.Provenance is null
+            && authored.ProvenanceFailure is { } provenanceFailure)
+        {
+            throw provenanceFailure;
+        }
+        return new(inspection, inspection.IsComplete ? authored.Provenance : null,
+            authored.PdbImage)
+        {
+            HouseOutcome = authored.HouseOutcome,
+            LibraryFailure = authored.LibraryFailure,
+        };
+    }
+
+    static async Task<AuthoredPdbInspection> InspectAuthoredPdbAsync(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyContextSourceQueryContext context,
+        ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion version,
+        SourceHouseTarget target,
+        string operationName,
+        SourceHouseLimits limits,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        bool retainSymbols)
+    {
         var opened = await OpenSourceLinkAsync(
             retained, context, cancellationToken).ConfigureAwait(false);
         if (opened.Source is not { } source)
         {
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
-            return new(
-                PdbSourceHouse.MemberPdbAcquisitionFailed(findingSubject, opened.Failure!),
-                null, null);
+            return new(AcquisitionFailure: opened.Failure);
         }
 
         AssemblyContextLibraryPortablePdb? companion = null;
         ImmutableArray<byte>? pdbImage = null;
-        AssemblyPdbSourceProvenance provenance;
+        AssemblyPdbSourceProvenance? provenance = null;
+        Exception? provenanceFailure = null;
         Exception? primaryFailure = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
-            provenance = new(source.RepositoryUrl, source.CommitHash);
+            try
+            {
+                provenance = new(source.RepositoryUrl, source.CommitHash);
+            }
+            catch (Exception failure) when (
+                target is SourceHouseTarget.TypeTarget
+                && IsInspectionFailure(failure))
+            {
+                // Malformed type-map provenance must not suppress decompiler fallback.
+                // InspectTypePdbAsync rethrows this failure if authored source succeeds.
+                provenanceFailure = failure;
+            }
             if (retainSymbols || !source.Context.HasEmbeddedPdb)
                 pdbImage = source.Context.GetPortablePdbImage();
             if (!source.Context.HasEmbeddedPdb
                 && pdbImage is { } image)
             {
-                companion = new(image, new AssemblyMemberSourcePdbProvenance(
+                companion = new(image, new AssemblySourcePdbProvenance(
                     participant.Assembly.Registration,
                     source.Context.PdbId,
                     source.Context.PdbLocation,
@@ -86,8 +181,8 @@ public static partial class AssemblyContextSourceQuery
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
         var plan = new SourceHouseOperationPlan(
-            SourceHouseOperationPlanIdentity.Create("member-source"),
-            SourceHousePolicyGeneration.Create("member-source-v1"),
+            SourceHouseOperationPlanIdentity.Create(operationName),
+            SourceHousePolicyGeneration.Create($"{operationName}-v1"),
             limits,
             DateTimeOffset.UtcNow.Add(timeout),
             SourceCapabilities(context));
@@ -105,12 +200,9 @@ public static partial class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
             return new(
-                UnsuccessfulInspection(
-                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
-                        ? PdbMemberSourceOutcome.SourceLimitExceeded
-                        : PdbMemberSourceOutcome.InspectionFailed,
-                    AdmissionDetail(terminal), failed: true),
-                null, retainSymbols ? pdbImage : null)
+                Provenance: provenance,
+                PdbImage: retainSymbols ? pdbImage : null,
+                ProvenanceFailure: provenanceFailure)
             {
                 LibraryFailure = terminal,
             };
@@ -124,10 +216,10 @@ public static partial class AssemblyContextSourceQuery
         {
             EnsureBindingPolicyVersion(participant, version);
             var houseRequest = new SourceHouseAuthoredRequest(
-                SourceHouseRequestIdentity.Create("member-source"),
+                SourceHouseRequestIdentity.Create(operationName),
                 completed.Reference,
                 completed.Reference.ImplementationAssembly!,
-                new SourceHouseTarget.MemberTarget(request.Type, request.Member, request.MetadataToken),
+                target,
                 plan);
             if (completed.Owner.IssueOperationLease(completed.Reference)
                 is not LibraryOperationLeaseIssueOutcome.Issued issued)
@@ -149,9 +241,10 @@ public static partial class AssemblyContextSourceQuery
 
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(participant, version);
-        PdbMemberSourceInspection inspection = ProjectAuthored(outcome, findingSubject);
-        return new(inspection, inspection.IsComplete ? provenance : null,
-            retainSymbols ? pdbImage : null)
+        return new(
+            Provenance: provenance,
+            PdbImage: retainSymbols ? pdbImage : null,
+            ProvenanceFailure: provenanceFailure)
         {
             HouseOutcome = outcome,
         };
@@ -190,7 +283,7 @@ public static partial class AssemblyContextSourceQuery
     {
         if (failures.Count > 0)
             throw new InvalidOperationException(
-                "Member source Library/Artifact retirement failed.", new AggregateException(failures));
+                "Authored source Library/Artifact retirement failed.", new AggregateException(failures));
     }
 
     static string AdmissionDetail(AssemblyContextLibraryAdapterResult.Terminal terminal) =>
@@ -210,7 +303,7 @@ public static partial class AssemblyContextSourceQuery
             _ => throw new InvalidOperationException("Unknown Library admission terminal."),
         };
 
-    static PdbMemberSourceInspection ProjectAuthored(
+    static PdbMemberSourceInspection ProjectMemberAuthored(
         SourceHouseOutcome outcome,
         FindingSubject subject)
     {
@@ -291,10 +384,10 @@ public static partial class AssemblyContextSourceQuery
             detail = last?.Observation?.Detail ?? last?.Observation?.Code
                 ?? "The selected member has no available authored source.";
         }
-        return UnsuccessfulInspection(subject, kind, detail, failed, mapping, verification);
+        return UnsuccessfulMemberInspection(subject, kind, detail, failed, mapping, verification);
     }
 
-    static PdbMemberSourceInspection UnsuccessfulInspection(
+    static PdbMemberSourceInspection UnsuccessfulMemberInspection(
         FindingSubject subject,
         PdbMemberSourceOutcome outcome,
         string detail,
@@ -310,6 +403,164 @@ public static partial class AssemblyContextSourceQuery
             null, mapping?.Observation, mapping?.Document, verification)
         {
             Outcome = outcome,
+        };
+
+    static PdbTypeSourceInspection ProjectTypeAuthored(
+        SourceHouseOutcome outcome,
+        FindingSubject subject)
+    {
+        var mapping = outcome.AuthoredAttempt.Mapping as SourceHouseAuthoredMapping.Type;
+        SourceHouseSourceAttempt? last = outcome.AuthoredAttempt.SourceAttempts.LastOrDefault();
+        SourceChecksumVerification? verification = last?.ChecksumVerification;
+        if (outcome is SourceHouseOutcome.Available available)
+        {
+            if (mapping is null)
+                throw new InvalidOperationException("Available type source requires its mapping.");
+            PdbTypeSourceInspection inspection =
+                PdbSourceHouse.FromVerifiedTypeContent(
+                    mapping.SourceMapping,
+                    mapping.Document,
+                    available.Source.Text,
+                    available.Source.Selected.ChecksumVerification
+                        ?? throw new InvalidOperationException(
+                            "Available type source requires checksum verification."),
+                    subject);
+            return WithTypeEvidence(inspection, mapping);
+        }
+
+        PdbTypeSourceOutcome kind;
+        string detail;
+        bool failed = true;
+        if (outcome is SourceHouseOutcome.Incomplete incomplete)
+        {
+            kind = incomplete.Boundary == SourceHouseIncompleteBoundary.Deadline
+                ? PdbTypeSourceOutcome.SourceDeadlineExceeded
+                : PdbTypeSourceOutcome.SourceLimitExceeded;
+            detail = $"Authored source stopped at its {incomplete.Boundary} bound.";
+        }
+        else if (outcome is SourceHouseOutcome.Rejected rejected)
+        {
+            kind = PdbTypeSourceOutcome.InspectionFailed;
+            detail = $"Authored source input rejected: {rejected.Rejection.Kind}.";
+        }
+        else if (last?.Observation?.Code == "ChecksumMismatch"
+            || verification == SourceChecksumVerification.Mismatch)
+        {
+            kind = PdbTypeSourceOutcome.ChecksumMismatch;
+            verification = SourceChecksumVerification.Mismatch;
+            detail = "Fetched PDB source does not match the portable-PDB checksum.";
+        }
+        else if (last?.Observation?.Code == nameof(SourceChecksumVerification.Unsupported)
+            || verification == SourceChecksumVerification.Unsupported)
+        {
+            kind = PdbTypeSourceOutcome.ChecksumUnsupported;
+            verification = SourceChecksumVerification.Unsupported;
+            detail = "The portable-PDB source checksum algorithm is unsupported.";
+        }
+        else if (outcome is SourceHouseOutcome.Failed failure)
+        {
+            kind = (failure.Failure.Stage, failure.Failure.Code) switch
+            {
+                (SourceHouseFailureStage.SourceVerification, "SourceDecodeFailed") =>
+                    PdbTypeSourceOutcome.SourceExtractionFailed,
+                (SourceHouseFailureStage.SourceCapability, _) =>
+                    PdbTypeSourceOutcome.SourceAcquisitionFailed,
+                _ => PdbTypeSourceOutcome.InspectionFailed,
+            };
+            detail = failure.Failure switch
+            {
+                { Stage: SourceHouseFailureStage.SourceCapability, Code: "StorageFailed" } =>
+                    "The source-content store failed.",
+                { Stage: SourceHouseFailureStage.PortablePdbInspection
+                    or SourceHouseFailureStage.SourceLinkInspection
+                    or SourceHouseFailureStage.TargetMapping } =>
+                    $"Portable PDB type source mapping failed: "
+                    + $"{failure.Failure.Detail ?? failure.Failure.Code}",
+                _ => $"{failure.Failure.Code}: {failure.Failure.Detail}",
+            };
+        }
+        else if (outcome.PdbContribution.Kind == SourceHousePdbContributionKind.Unavailable)
+        {
+            kind = PdbTypeSourceOutcome.PortablePdbUnavailable;
+            detail = "A matching portable PDB remains unresolved after acquisition.";
+        }
+        else
+        {
+            failed = false;
+            kind = mapping is null
+                ? PdbTypeSourceOutcome.SourceMappingUnavailable
+                : mapping.Document.Checksum is not { Length: > 0 }
+                    || mapping.Document.ChecksumAlgorithm is not { Length: > 0 }
+                    ? PdbTypeSourceOutcome.ChecksumUnavailable
+                    : PdbTypeSourceOutcome.SourceAcquisitionUnavailable;
+            detail = mapping is null
+                ? "The selected type has no portable-PDB source mapping."
+                : last?.Observation?.Detail ?? last?.Observation?.Code
+                    ?? "The selected type has no available authored source.";
+        }
+        return UnsuccessfulTypeInspection(
+            subject, kind, detail, failed, mapping, verification);
+    }
+
+    static PdbTypeSourceInspection UnsuccessfulTypeInspection(
+        FindingSubject subject,
+        PdbTypeSourceOutcome outcome,
+        string detail,
+        bool failed,
+        SourceHouseAuthoredMapping.Type? mapping = null,
+        SourceChecksumVerification? verification = null) =>
+        TypeInspection(
+            failed
+                ? new FindingInspection<string>.Failed(
+                    new InspectionError(subject, TextFindings.LineDescriptor, detail))
+                : new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput, detail),
+            text: null,
+            mapping,
+            verification,
+            outcome);
+
+    static PdbTypeSourceInspection TypeInspection(
+        FindingInspection<string> lines,
+        string? text,
+        SourceHouseAuthoredMapping.Type? mapping,
+        SourceChecksumVerification? verification,
+        PdbTypeSourceOutcome outcome)
+    {
+        var inspection = new PdbTypeSourceInspection(
+            lines,
+            text,
+            mapping?.SourceMapping,
+            mapping?.Document,
+            verification)
+        {
+            Outcome = outcome,
+        };
+        return WithTypeEvidence(inspection, mapping);
+    }
+
+    static PdbTypeSourceInspection WithTypeEvidence(
+        PdbTypeSourceInspection inspection,
+        SourceHouseAuthoredMapping.Type? mapping) =>
+        inspection with
+        {
+            Scope = mapping is null ? null : PdbTypeSourceUnitScope.PrimaryTypeDocument,
+            Strength = mapping?.Strength switch
+            {
+                SourceHouseMappingStrength.CorrelatedTypeDocument =>
+                    PdbTypeSourceMappingStrength.CorrelatedTypeDocument,
+                SourceHouseMappingStrength.InferredTypeDocument =>
+                    PdbTypeSourceMappingStrength.InferredTypeDocument,
+                null => null,
+                _ => throw new InvalidOperationException("Unknown type source mapping strength."),
+            },
+            IsPartial = mapping?.IsPartial ?? false,
+            AdditionalDocuments = mapping is null
+                ? Array.Empty<PdbTypeSourceAdditionalDocument>()
+                : mapping.AdditionalDocuments
+                    .Select(static document => new PdbTypeSourceAdditionalDocument(
+                        document.OriginalPath, document.ResolvedUrl))
+                    .ToArray(),
         };
 
     static IReadOnlyList<ISourceHouseSourceCapability> SourceCapabilities(
@@ -394,4 +645,14 @@ public static partial class AssemblyContextSourceQuery
             : bytes.Length > maximumBytes
                 ? new SourceHouseCapabilityOutcome.Incomplete(new("SourceBytesExceeded"))
                 : new SourceHouseCapabilityOutcome.Available(bytes);
+
+    sealed record AuthoredPdbInspection(
+        AssemblyPdbSourceProvenance? Provenance = null,
+        ImmutableArray<byte>? PdbImage = null,
+        Exception? AcquisitionFailure = null,
+        Exception? ProvenanceFailure = null)
+    {
+        public SourceHouseOutcome? HouseOutcome { get; init; }
+        public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+    }
 }

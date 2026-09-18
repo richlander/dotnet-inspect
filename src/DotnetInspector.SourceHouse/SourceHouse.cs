@@ -867,6 +867,20 @@ public static class SourceHouse
                 documentsObserved,
                 typeMappingsObserved);
         }
+        if (target is SourceHouseTarget.TypeTarget
+            { OriginalDocumentPath: { } selectedPath })
+        {
+            if (!string.Equals(sourcePath, selectedPath, StringComparison.Ordinal)
+                && !typeMapping.AdditionalSourceFiles.Any(
+                    additional => string.Equals(
+                        additional.FilePath, selectedPath, StringComparison.Ordinal)))
+            {
+                return MappingPreparation.Unavailable(
+                    documentsObserved,
+                    typeMappingsObserved);
+            }
+            sourcePath = selectedPath;
+        }
         SourceDocumentObservation? typeDocument =
             SelectDocument(documents, documentRowId: null, sourcePath);
         if (typeDocument is null)
@@ -881,7 +895,21 @@ public static class SourceHouse
                 == SourceLinkResolver.SourceResolutionMethod.Inferred
                 ? SourceHouseMappingStrength.InferredTypeDocument
                 : SourceHouseMappingStrength.CorrelatedTypeDocument;
+        SourceLinkResolver.TypeSourceInfo detachedMapping =
+            typeMapping with
+            {
+                Checksum = typeMapping.Checksum?.ToArray(),
+                AdditionalSourceFiles =
+                [
+                    .. typeMapping.AdditionalSourceFiles.Select(
+                        static additional => additional with
+                        {
+                            Checksum = additional.Checksum?.ToArray(),
+                        }),
+                ],
+            };
         var typeEvidence = new SourceHouseAuthoredMapping.Type(
+            detachedMapping,
             typeDocument,
             strength,
             typeMapping.IsPartialType,

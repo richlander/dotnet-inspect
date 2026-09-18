@@ -11,7 +11,8 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     static readonly AnnotationDescriptor Calli = new("unsafe.calli", AnnotationCategory.Unsafety, "calls through a function pointer");
 
     public string Name => "unsafety-occurrences";
-    public IReadOnlyList<string> Produces { get; } = ["unsafe.*"];
+    public IReadOnlyList<string> Produces { get; } =
+        [Deref.Id, StackAlloc.Id, Calli.Id];
     public IReadOnlyList<string> DependsOn => [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForMember(

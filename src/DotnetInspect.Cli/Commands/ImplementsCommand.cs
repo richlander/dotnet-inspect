@@ -139,6 +139,16 @@ public class ImplementsCommand
                 .Select(g => g.First())
                 .ToList();
 
+            if (options.TypeFilter is { Length: > 0 } typeFilter)
+            {
+                results = results
+                    .Where(result =>
+                        TypeMatcher.MatchesTypeFilter(
+                            result.TypeName,
+                            typeFilter))
+                    .ToList();
+            }
+
             bool hasSemanticRowSelection =
                 options.RowSelection?.Operations.Count > 0;
             if (hasSemanticRowSelection)

@@ -25,15 +25,15 @@ public sealed record CSharpStructuralDiffDocument
 
     /// <summary>Current correspondence and structural-comparison methodology.</summary>
     /// <remarks>
-    /// Bumped from 1 to 2 when <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>
-    /// was introduced: replaying a version-1 artifact whose null-provenance
-    /// declaration node was recorded as <c>Unsupported</c> now reissues
-    /// <c>InferredDeclaration</c> for the same shape, so the replay-equality
-    /// check in this record's constructor would otherwise reject it with a
-    /// misleadingly generic mismatch error. The version gate above makes that
-    /// invalidation explicit instead.
+    /// Version 2 introduced
+    /// <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>. Version 3
+    /// preserves retained facts and targets in the top-level C# projections.
+    /// Replaying either earlier methodology can derive different correspondence
+    /// or projection content from the same embedded mixed documents, so the
+    /// version gate rejects it before the replay-equality check can report
+    /// apparent artifact tampering.
     /// </remarks>
-    public const int CurrentMethodologyVersion = 2;
+    public const int CurrentMethodologyVersion = 3;
 
     /// <summary>Creates and validates one portable structural diff.</summary>
     public CSharpStructuralDiffDocument(

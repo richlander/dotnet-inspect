@@ -69,6 +69,9 @@ public class PdbSourceHouseTests
             "remains unresolved",
             Assert.IsType<FindingInspection<string>.Failed>(
                 typeInspection.Lines.Value).Error.Reason);
+        Assert.Equal(
+            PdbTypeSourceOutcome.PortablePdbUnavailable,
+            typeInspection.Outcome);
     }
 
     [Fact]
@@ -119,6 +122,9 @@ public class PdbSourceHouseTests
         Assert.Equal(
             FindingInspectionAbsenceKind.NoApplicableInput,
             typeAbsent.Kind);
+        Assert.Equal(
+            PdbTypeSourceOutcome.SourceMappingUnavailable,
+            typeInspection.Outcome);
     }
 
     [Fact]
@@ -341,6 +347,47 @@ public class PdbSourceHouseTests
         Assert.Equal(
             SourceChecksumVerification.Exact,
             result.ChecksumVerification);
+        Assert.Equal(
+            PdbTypeSourceOutcome.SourceTooComplex,
+            result.Outcome);
+    }
+
+    [Fact]
+    public void FromTypeContent_ChecksumFailurePreservesTypedOutcome()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        var mapping = TypeMapping();
+
+        PdbTypeSourceInspection mismatch =
+            PdbSourceHouse.FromTypeContent(
+                mapping,
+                Document(Encoding.UTF8.GetBytes(Source + "changed")),
+                content,
+                Subject);
+        PdbTypeSourceInspection unsupported =
+            PdbSourceHouse.FromTypeContent(
+                mapping,
+                Document(content) with { ChecksumAlgorithm = "MD5" },
+                content,
+                Subject);
+
+        Assert.Equal(PdbTypeSourceOutcome.ChecksumMismatch, mismatch.Outcome);
+        Assert.Equal(PdbTypeSourceOutcome.ChecksumUnsupported, unsupported.Outcome);
+    }
+
+    [Fact]
+    public void NonCompleteTypeInspection_DefaultsToUnspecifiedOutcome()
+    {
+        var result = new PdbTypeSourceInspection(
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                "Synthetic legacy result."),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+
+        Assert.Equal(PdbTypeSourceOutcome.Unspecified, result.Outcome);
     }
 
     [Fact]
@@ -709,6 +756,16 @@ public class PdbSourceHouseTests
             ResolvedUrl: "https://example.test/Sample.cs",
             ChecksumAlgorithm: "SHA256",
             Checksum: Convert.ToHexString(SHA256.HashData(content)));
+
+    static SourceLinkResolver.TypeSourceInfo TypeMapping() =>
+        new(
+            "/_/Sample.cs",
+            "https://example.test/Sample.cs",
+            LineNumber: 17,
+            GitHubBrowseUrl: "https://example.test/browse/Sample.cs",
+            SourceLinkResolver.SourceResolutionMethod.SourceLink,
+            Checksum: SHA256.HashData(Encoding.UTF8.GetBytes(Source)),
+            ChecksumAlgorithm: "SHA256");
 
     static SourceLinkService OpenSourceNeedingPdb()
     {

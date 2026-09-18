@@ -842,6 +842,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
+- [Annotated Source Finding provenance](design/annotated-source-finding-provenance.md):
+  complete descriptor classification across the production member-census and
+  call-relationship profiles.
+- [Annotated Source C# projection](design/annotated-source-csharp-projection.md):
+  lossless retained-plane rebasing and explicit original-to-projected C# node
+  identity for one annotated-source document.
 - [Annotated Source invocation destinations](design/annotated-source-invocation-destinations.md):
   Research composition of physical direct calls, Decompiler-issued invocation
   nodes, and CallGraph-owned typed targets.
