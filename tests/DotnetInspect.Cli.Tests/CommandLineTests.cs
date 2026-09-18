@@ -365,6 +365,22 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void LibraryCommand_OfflineDoesNotBindAsExactLibrary()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = root.Parse(
+            ["library", "--package", "Foo", "--json", "--offline"]);
+        var command = Assert.Single(
+            root.Subcommands,
+            command => command.Name == "library");
+        var source = Assert.IsType<Argument<string?>>(
+            Assert.Single(command.Arguments));
+
+        Assert.Empty(result.Errors);
+        Assert.Null(result.GetValue(source));
+    }
+
+    [Fact]
     public void Router_WithCompactFlag_ParsesCorrectly()
     {
         var args = CommandLineBuilder.PreprocessArgs(["System.Text.Json.JsonSerializer", "--json", "--compact"]);

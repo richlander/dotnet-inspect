@@ -1019,7 +1019,11 @@ public static class CommandLineBuilder
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
         rootCommand.Options.Add(rootTipsOption);
-        var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
+        var offlineOption = new Option<bool>("--offline")
+        {
+            Description = "Disable all network access (use cached data only)",
+            Recursive = true
+        };
         rootCommand.Options.Add(offlineOption);
         var traceMermaidOption = new Option<bool>("--trace-mermaid") { Description = "Write a Mermaid request trace diagram to stderr at process exit" };
         rootCommand.Options.Add(traceMermaidOption);
