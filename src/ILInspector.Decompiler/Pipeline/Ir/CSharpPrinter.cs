@@ -6,6 +6,7 @@ using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
 using Inspector.Text;
+using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -948,20 +949,7 @@ public sealed partial class CSharpPrinter
     };
 
     static HashSet<int> CollectBranchTargets(IrNode functionScope)
-    {
-        var targets = new HashSet<int>();
-        foreach (var node in functionScope.DescendantsOutsideNestedFunctions)
-        {
-            switch (node)
-            {
-                case Branch branch: targets.Add(branch.TargetOffset); break;
-                case ConditionalBranch conditional: targets.Add(conditional.TargetOffset); break;
-                case Leave leave: targets.Add(leave.TargetOffset); break;
-                case SwitchBranch sw: foreach (int t in sw.TargetOffsets) targets.Add(t); break;
-            }
-        }
-        return targets;
-    }
+        => ReferenceOwnership.CollectBranchTargets(functionScope);
 
     IEnumerable<string> CollectDeclarations(IrFunction function)
     {
@@ -4061,6 +4049,7 @@ public sealed partial class CSharpPrinter
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
+        PointerElementCompoundAssignment s => $"{Operand(s.Pointer)}[{Expression(s.Index)}] {BinaryOperator(s.Operation)}= {Expression(s.Value)};",
         StoreIndirect s => AssignmentText(
             s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
@@ -5400,105 +5389,6 @@ public sealed partial class CSharpPrinter
 
         return $"{Operand(pointer)}[{Expression(index)}]";
     }
-
-    static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
-    {
-        if (add.Left.ResultType is { Kind: TypeRefKind.Pointer } && add.Right.ResultType is not { Kind: TypeRefKind.Pointer })
-        {
-            pointer = add.Left;
-            offset = add.Right;
-            return true;
-        }
-        if (add.Right.ResultType is { Kind: TypeRefKind.Pointer } && add.Left.ResultType is not { Kind: TypeRefKind.Pointer })
-        {
-            pointer = add.Right;
-            offset = add.Left;
-            return true;
-        }
-
-        pointer = add.Left;
-        offset = add.Right;
-        return false;
-    }
-
-    static bool TryScaledPointerIndex(IrExpression offset, TypeRef elementType, out IrExpression index)
-    {
-        if (ByteSize(elementType) is not { } elementSize)
-        {
-            index = offset;
-            return false;
-        }
-
-        if (TryConstantMultiple(offset, elementSize, out var multiple))
-        {
-            index = multiple >= int.MinValue && multiple <= int.MaxValue
-                ? new Constant((int)multiple, TypeRef.CoreLib("System", "Int32"))
-                : new Constant(multiple, TypeRef.CoreLib("System", "Int64"));
-            return true;
-        }
-
-        if (offset is Binary { Kind: BinaryKind.Multiply } multiply)
-        {
-            if (IsConstant(multiply.Left, elementSize))
-            {
-                index = NativeIntegerOperand(multiply.Right);
-                return true;
-            }
-            if (IsConstant(multiply.Right, elementSize))
-            {
-                index = NativeIntegerOperand(multiply.Left);
-                return true;
-            }
-        }
-
-        if (elementSize == 1)
-        {
-            index = NativeIntegerOperand(offset);
-            return true;
-        }
-
-        index = offset;
-        return false;
-    }
-
-    static IrExpression NativeIntegerOperand(IrExpression expression)
-        => expression is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" }, Operand: { } operand }
-            ? operand
-            : expression;
-
-    static bool IsConstant(IrExpression expression, int value)
-        => expression is Constant { Value: int i } && i == value
-            || expression is Constant { Value: long l } && l == value;
-
-    static bool TryConstantMultiple(IrExpression expression, int divisor, out long multiple)
-    {
-        long value = expression switch
-        {
-            Constant { Value: int i } => i,
-            Constant { Value: long l } => l,
-            _ => 0,
-        };
-        if (expression is not Constant { Value: int or long } || divisor == 0 || value % divisor != 0)
-        {
-            multiple = 0;
-            return false;
-        }
-
-        multiple = value / divisor;
-        return true;
-    }
-
-    static int? ByteSize(TypeRef type)
-        => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            ? type.Name switch
-            {
-                "Boolean" or "Byte" or "SByte" => 1,
-                "Char" or "Int16" or "UInt16" => 2,
-                "Int32" or "UInt32" or "Single" => 4,
-                "Int64" or "UInt64" or "Double" => 8,
-                _ => null,
-            }
-            : null;
 
     string IndirectTarget(IrExpression address, TypeRef? elementType)
         => elementType is not null && IsNativeInteger(address.ResultType)

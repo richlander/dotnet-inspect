@@ -766,6 +766,10 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    enabled by the existing raiser consuming the typed pointer local.
    Admission cases are PR-fast; Deep Inspect
    and the focused pre-merge selection own the slow gate.
+   The separate [pointer-element compound-update raise](pointer-element-compound-updates.md)
+   consumes its exclusive address-only spills before materialization. Its
+   ownership and evaluation-order gate is independent of this unchanged
+   exact-storage admission; retained pointer carriers still follow this rule.
    The unchanged shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy

@@ -136,7 +136,6 @@ public class ExactPointerSlotMaterializationTests
     [InlineData(nameof(ExactPointerSlotMaterializationSamples.ReadAndObserve))]
     [InlineData(nameof(ExactPointerSlotMaterializationSamples.CopyThenReplace))]
     [InlineData(nameof(ExactPointerSlotMaterializationSamples.MutateAndObserve))]
-    [InlineData(nameof(ExactPointerSlotMaterializationSamples.Accumulate))]
     public void CompilerProducedPointerStorageMaterializes(string method)
     {
         using var source = MetadataSource.Open(typeof(ExactPointerSlotMaterializationSamples).Assembly.Location);

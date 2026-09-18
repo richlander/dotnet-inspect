@@ -63,6 +63,7 @@ internal static class OperationMemorySafetyContract
             StoreIndirect { Address: FixedBufferElementAddress } => true,
             LoadIndirect load => RendersAsPointerDereference(load.Address),
             StoreIndirect store => RendersAsPointerDereference(store.Address),
+            PointerElementCompoundAssignment => true,
             InitObject init => RendersAsPointerDereference(init.Address),
             LocalFunctionInvocation invocation =>
                 callerUsesUpdatedRules && invocation.RequiresUnsafe
