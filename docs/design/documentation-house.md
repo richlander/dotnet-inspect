@@ -952,7 +952,7 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred provider. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
 | Cheap-first ordering | Provider construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the provider receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
-| Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once, retains only requested exact IDs, and reports actual parsing work once. |
+| Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
 | Authored-source boundary | Source documentation consumes SourceHouse-authored evidence plus #6584 trusted physical-declaration correspondence and never decompiled or PDB-only output. |
@@ -990,9 +990,11 @@ content from another direct Library is offered for the selected subject.
 `CompiledDocumentationQueryTests` gates the shared Queries result over the same
 real `System.Text.Json` 10.0.0 assembly and documentation. It demonstrates that
 multi-subject type/member execution scans the selected companion once while
-publishing independent typed outcomes, and that the exact House outcome remains
-available in process, the transferred operation is settled, the Library owner
-can retire before serialization, and the
+publishing independent typed outcomes, and that heterogeneous read policies
+retain only their own subjects and match their corresponding single-request
+outcomes. It also demonstrates that the exact House outcome remains available
+in process, the transferred operation is settled, the Library owner can retire
+before serialization, and the
 source-generated JSON contract round trips the separately copied portable
 outcome. Neighboring absent, unavailable, contribution-rejected,
 malformed-document, content-access-failed, and top-level lease-rejected results

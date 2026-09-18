@@ -358,6 +358,89 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        ExecuteMany_HeterogeneousReadPoliciesRetainOnlyTheirOwnSubjects()
+    {
+        byte[] xml = Encoding.UTF8.GetBytes($"""
+            <doc>
+              <members>
+                <member name="T:System.Text.Json.JsonSerializer">
+                  <summary>Type.</summary>
+                </member>
+                <member name="{DeserializeIdentity}">
+                  <summary>Member.</summary>
+                </member>
+              </members>
+            </doc>
+            """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        ApiType type = Assert.Single(
+            library.ApiSurfaceCorrespondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.JsonSerializer");
+        DocumentationSubjectReference typeSubject =
+            DocumentationSubjectReference.ForType(
+                library.ApiSurfaceCorrespondence,
+                type);
+        DocumentationSubjectReference memberSubject =
+            Subject(library);
+        var tightLimits = XmlDocumentationReadLimits.Default with
+        {
+            MaxRetainedTextCharacters = 64,
+        };
+        DocumentationHouseRequest typeRequest = Request(
+            typeSubject,
+            DirectLibraryDocumentationHouseAdapter
+                .CreateCompiledXmlContributions(
+                    library.Reference,
+                    typeSubject),
+            xmlReadLimits: tightLimits);
+        DocumentationHouseRequest memberRequest = Request(
+            memberSubject,
+            DirectLibraryDocumentationHouseAdapter
+                .CreateCompiledXmlContributions(
+                    library.Reference,
+                    memberSubject));
+
+        CompiledDocumentationQueryResult typeAlone =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                typeRequest,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        CompiledDocumentationQueryResult memberAlone =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                memberRequest,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        IReadOnlyList<CompiledDocumentationQueryResult> together =
+            await CompiledDocumentationQuery.ExecuteManyAsync(
+                [typeRequest, memberRequest],
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        var expectedType =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                typeAlone.Content);
+        var expectedMember =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                memberAlone.Content);
+        Assert.Equal(
+            expectedType.Documentation,
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                together[0].Content).Documentation);
+        Assert.Equal(
+            expectedMember.Documentation,
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                together[1].Content).Documentation);
+        Assert.All(
+            together,
+            result => Assert.True(
+                result.Outcome.Work.ParsedCompiledXml));
+    }
+
+    [Fact]
+    public async Task
         MillionsOfContributions_PublishBoundedIncompleteProvenance()
     {
         const int contributionCount = 4_000_000;
@@ -1015,12 +1098,13 @@ public sealed class CompiledDocumentationQueryTests
         IReadOnlyList<CompiledXmlContribution> contributions,
         int maximumContributions = 8,
         int maximumCompiledXmlBytes = 8 * 1024 * 1024,
-        DateTimeOffset? deadline = null)
+        DateTimeOffset? deadline = null,
+        XmlDocumentationReadLimits? xmlReadLimits = null)
     {
         var limits = new DocumentationHouseLimits(
             maximumContributions,
             maximumCompiledXmlBytes,
-            XmlDocumentationReadLimits.Default);
+            xmlReadLimits ?? XmlDocumentationReadLimits.Default);
         var plan = new DocumentationHouseOperationPlan(
             DocumentationHouseOperationPlanIdentity.Create(
                 "compiled-plan"),

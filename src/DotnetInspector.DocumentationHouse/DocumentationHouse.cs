@@ -555,22 +555,14 @@ public static class DocumentationHouse
 
     private sealed class CompiledXmlBatch
     {
-        private readonly XmlDocMemberIdentity[] _identities;
+        private readonly IReadOnlyList<DocumentationHouseRequest> _requests;
         private readonly Dictionary<
             BatchKey,
             CompiledXmlRead> _reads = [];
 
         internal CompiledXmlBatch(
-            IReadOnlyList<DocumentationHouseRequest> requests)
-        {
-            _identities =
-            [
-                .. requests
-                    .Select(static request =>
-                        request.Subject.CompiledXmlIdentity)
-                    .DistinctBy(static identity => identity.Value),
-            ];
-        }
+            IReadOnlyList<DocumentationHouseRequest> requests) =>
+            _requests = requests;
 
         internal CompiledXmlBatchRead Read(
             CompiledXmlContribution selected,
@@ -585,14 +577,85 @@ public static class DocumentationHouse
             if (_reads.TryGetValue(key, out CompiledXmlRead? read))
                 return new(read, PerformedRead: false);
 
+            var identities = new List<XmlDocMemberIdentity>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (DocumentationHouseRequest request in _requests)
+            {
+                if (TryGetKey(
+                        request,
+                        operationLease,
+                        out BatchKey? requestKey)
+                    && requestKey == key
+                    && seen.Add(
+                        request.Subject.CompiledXmlIdentity.Value))
+                {
+                    identities.Add(
+                        request.Subject.CompiledXmlIdentity);
+                }
+            }
             read = ReadCompiledXml(
                 selected,
                 operationLease,
                 limits,
-                _identities,
+                identities,
                 cancellationToken);
             _reads.Add(key, read);
             return new(read, PerformedRead: true);
+        }
+
+        private static bool TryGetKey(
+            DocumentationHouseRequest request,
+            LibraryOperationLease operationLease,
+            out BatchKey? key)
+        {
+            key = null;
+            DocumentationSubjectReference subject = request.Subject;
+            DocumentationHouseOperationPlan plan = request.Plan;
+            if (!ReferenceEquals(
+                    subject.ApiContent.Library,
+                    subject.Library)
+                || !ReferenceEquals(
+                    subject.ApiContent,
+                    subject.Library.ApiAssembly)
+                || !subject.ApiContent.HasRole(
+                    LibraryContentRole.ApiAssembly)
+                || !ReferenceEquals(
+                    operationLease.Reference,
+                    subject.Library)
+                || DateTimeOffset.UtcNow >= plan.Deadline
+                || plan.ExceedsCompiledXmlContributionLimit)
+            {
+                return false;
+            }
+
+            IReadOnlyList<CompiledXmlContribution> contributions =
+                plan.CompiledXmlContributions;
+            if (ValidateContributions(request, contributions).Count > 0
+                || contributions.Any(static contribution =>
+                    contribution.Kind
+                        == CompiledXmlContributionKind.Partial))
+            {
+                return false;
+            }
+
+            CompiledXmlContribution[] candidates =
+            [
+                .. contributions.Where(static contribution =>
+                    contribution.Kind
+                        == CompiledXmlContributionKind.Candidate),
+            ];
+            CompiledXmlContribution? selected =
+                candidates.Length == 0
+                    ? null
+                    : SelectCandidate(candidates);
+            if (selected is null)
+                return false;
+
+            key = new BatchKey(
+                selected.CompiledXmlContent!,
+                plan.Limits.MaximumCompiledXmlBytes,
+                plan.Limits.XmlReadLimits);
+            return true;
         }
 
         private sealed record BatchKey(
