@@ -6,7 +6,5 @@
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
-    <!-- Ambiguous read cases intentionally retain the source-generator warning. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);SYSLIB1227</WarningsNotAsErrors>
   </PropertyGroup>
 </Project>

@@ -55,8 +55,9 @@ This yields four distinct CLI roles:
 | Coordinate child | A required subordinate address within that subject |
 | Section or lens | Evidence or representation at the established request |
 
-`library diff` is an operation child. `library coordinate` is a coordinate
-child. `member -S IL` remains a representation lens.
+`package query` is an operation child. `library coordinate` is a coordinate
+child. Top-level `diff` is an operation command, and `member -S IL` remains a
+representation lens.
 
 ## Admission rule
 

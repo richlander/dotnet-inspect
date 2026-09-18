@@ -24,7 +24,7 @@ The **Diff History inspection** owner defines temporal inspection and the
 related metadata-only version-population reduction:
 
 > The range supplies addresses; the operation authorizes their use. Plain
-> subject Diff compares the two endpoints. `--history` evaluates the bounded
+> Diff compares the two endpoints. `--history` evaluates the bounded
 > version population by default; optional `--at` selects checkpoints instead.
 > Package population Count counts versions without inspecting payloads.
 > History returns one owner-specific Outcome whose available case carries a detached temporal
@@ -34,11 +34,11 @@ related metadata-only version-population reduction:
 
 The user approved this direction on 2026-09-14 and explicitly requested
 "remove the timeline command (no compat)". The subsequent
-[subject-owned Diff decision](command-transition-model.md#subject-owned-diff)
-supersedes #6988's top-level placement and owns CLI mapping and cutover.
-This document relinquishes that command-placement responsibility while
-retaining temporal, count, and evaluation semantics. Its examples now consume
-the subject-owned grammar rather than defining a competing entry point.
+[operation/section composition](operation-command-and-subject-section-composition.md)
+supersedes the later subject-owned placement proposal and owns CLI mapping and
+cutover. This document relinquishes that command-placement responsibility while
+retaining temporal, count, and evaluation semantics. Its examples use
+illustrative top-level Diff grammar rather than defining another entry point.
 
 The subsequent user direction names the mode `--history`, requires an explicit
 consumer for population-creating ranges, and admits Count as a consumer.
@@ -64,7 +64,7 @@ declaration identity through an intervening checkpoint.
 The subsequent user-approved revision makes `--at` target selection, not an
 operation-enabling switch. It supersedes the earlier requirement for an
 explicit `--endpoints` flag and the discovery-only meaning of History without
-`--at`. An explicitly named subject Diff is itself a range consumer. History
+`--at`. An explicitly named Diff request is itself a range consumer. History
 can use an explicit range or infer bounded population endpoints from exact
 checkpoint versions; neither form authorizes an unbounded version scan.
 
@@ -86,10 +86,12 @@ Endpoints: A ----------------------> B
 History:   A -> v1 -> v2 -> ... ----> B
 ```
 
-Grouping them as modes of a subject-owned Diff operation makes the same
-source and focus usable for endpoint confirmation and temporal investigation.
-Distinct arity does not require a top-level command. Two-endpoint comparison
-and N-address correlation retain different acquisition and failure semantics.
+Grouping them as modes of one Diff operation family makes the same source and
+focus usable for endpoint confirmation and temporal investigation.
+Distinct arity does not require another command; one operation mode can select
+the pairwise or temporal request and its owner-specific Outcome. Two-endpoint
+comparison and N-address correlation retain different acquisition and failure
+semantics.
 
 Existing `PackageVersionVector` addressing and `FindingCensusCorrelation<T>`
 are the implementation baseline. The `match`/`match --similar` operation family
@@ -99,8 +101,9 @@ authority to reuse its algorithms. No external implementation is transferred.
 ## CLI adoption of the semantic contract
 
 Command placement and host-adoption completion are owned by
-[subject-owned Diff](command-transition-model.md#subject-owned-diff).
-The following examples and bindings consume that contract.
+[Operation Commands and Subject Sections](operation-command-and-subject-section-composition.md).
+The following examples and bindings consume its retained top-level Diff
+contract.
 
 ### Explicit range consumers
 
@@ -109,8 +112,8 @@ named command or mode selects an admitted consumer:
 
 | Selector | Input and meaning |
 | --- | --- |
-| Plain subject Diff | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
-| Admitted Type/Member Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at` selects checkpoints. |
+| Plain top-level Diff | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
+| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at` selects checkpoints. |
 | Package range with `--count` | Count the selected package versions using source metadata alone, outside Diff. |
 
 Plain Diff means endpoint comparison; `--history` explicitly changes the
@@ -127,10 +130,10 @@ evaluation or Finding rows. A range in `--rows` filters the admitted cohort
 and needs no additional consumer. A source range outside an admitted command
 or mode still has no consumer; projection options cannot supply one.
 
-Platform ranges use plain subject Diff; platform History and count-only
+Platform ranges use plain top-level Diff; platform History and count-only
 version populations remain unsupported. Non-range explicit local Library
-pairs move under `library diff` while retaining their pairwise argument
-meaning and content.
+pairs remain top-level `diff --library` requests while retaining their pairwise
+argument meaning and content.
 
 The initial History domain is one bounded package-version population, one
 Type focus, and one Finding producer, optionally narrowed to one Member.
@@ -140,30 +143,30 @@ ordering, or cross-package comparison. Both hosts consume this same domain.
 
 ```bash
 # Plain Diff compares only the two endpoints
-dotnet-inspect type diff Markout.MarkoutWriterOptions \
-  --package Markout@0.33.0..0.35.2
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriterOptions
 
 # History authorizes evaluation across the bounded version population
-dotnet-inspect type diff Markout.MarkoutWriterOptions \
-  --package Markout@0.33.0..0.35.2 --history -S Transitions
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriterOptions --history -S Transitions
 
 # Inspect a sparse sample; preserve the gap between the endpoints
-dotnet-inspect type diff Markout.MarkoutWriterOptions \
-  --package Markout@0.33.0..0.35.2 --history --at endpoints
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriterOptions --history --at endpoints
 
 # Inspect the two endpoints plus an intermediate checkpoint
-dotnet-inspect type diff System.Text.Json.JsonSerializer \
-  --package System.Text.Json@9.0.0..10.0.0 \
-  --history --at endpoints --at 9.0.5
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --history \
+  --at endpoints --at 9.0.5
 
 # Probe endpoints and the middle population version for manual bisection
-dotnet-inspect type diff System.Text.Json.JsonSerializer \
-  --package System.Text.Json@9.0.0..10.0.0 \
-  --history --at endpoints --at midpoint
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --history \
+  --at endpoints --at midpoint
 
 # Equivalent checkpoint selection without spelling the range
-dotnet-inspect type diff System.Text.Json.JsonSerializer \
-  --package System.Text.Json --history \
+dotnet-inspect diff --package System.Text.Json \
+  --type System.Text.Json.JsonSerializer --history \
   --at 9.0.0 --at 9.0.5 --at 10.0.0
 
 # Discover versions without evaluating API subjects
@@ -173,12 +176,13 @@ dotnet-inspect package Markout@0.33.0..0.35.2 --versions
 dotnet-inspect package Markout@0.33.0..0.35.2 --count
 
 # Count changed destination versions for one selected API Member
-dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
-  --package System.Text.Json@9.0.0..10.0.0 --history --count
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --member Deserialize:1 \
+  --history --count
 
 # Sparse Member Analysis includes the mandatory first-Version source
-dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
-  --package System.Text.Json@9.0.0..10.0.0 \
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --member Deserialize:1 \
   --history --finding analysis.allocation \
   --at first --at 9.0.5 --at last
 ```
@@ -499,8 +503,8 @@ not another counting algorithm.
 | Request | Count cohort and unit |
 | --- | --- |
 | Package range `--count` | Selected Versions: package-version population rows, using metadata only. |
-| Future `package diff ... --history --count` | Selected Package History rows: package versions, including the baseline when selected. |
-| Type/Member Diff `--history --count` | Changed Versions: destination versions with an established change to the selected subject under the selected comparison, once per version. |
+| Future Package-focused Diff `--history --count` | Selected Package History rows: package versions, including the baseline when selected. |
+| Type/Member-focused Diff `--history --count` | Changed Versions: destination versions with an established change to the selected subject under the selected comparison, once per version. |
 
 The Package History row records intended counting semantics only. Package
 History admission, comparison domain, acquisition, and content require their
@@ -606,7 +610,7 @@ than the ordinary Evaluations default. An explicit selector must resolve only
 to Changed Versions; selectors including Evaluations or Transitions, including
 `-S "*"`, are rejected before acquisition, not ignored or reduced with another
 unit. This deliberately replaces the standalone Timeline's arbitrary
-selected-cohort counts at the subject-owned cutover. Ordinary row selection
+selected-cohort counts at the Diff/History cutover. Ordinary row selection
 continues to expose Evaluations and Transitions without Count.
 
 The section/query catalog is mode-aware before acquisition. Pairwise Changes,
@@ -636,10 +640,10 @@ same two components under the shared serializer. Count failure remains typed
 and nonzero in either delivery mode; it never becomes a numeric JSON fallback.
 
 The public envelope mode tracked by #6719 remains a separately owned
-transport, but is now required by the subject-owned CLI adoption. It serializes
-this exact constructed envelope without another inspection. Complete Browser
-delivery is also part of adoption; it must preserve Content, Share, and ordered
-typed diagnostics even where the UI renders only a subset.
+transport, but is now required by top-level Diff and subject-section adoption.
+It serializes this exact constructed envelope without another inspection.
+Complete Browser delivery is also part of adoption; it must preserve Content,
+Share, and ordered typed diagnostics even where the UI renders only a subset.
 This supersedes the earlier delivery plan that deferred envelope exposure.
 
 ## Browser adoption boundary
@@ -679,11 +683,14 @@ no implementation step or gate.
 
 ## CLI cutover dependency
 
-The [placement owner](command-transition-model.md#cutover-and-production-path)
-owns atomic retirement of top-level `diff` and `timeline`, obsolete-input
+The
+[operation/section composition](operation-command-and-subject-section-composition.md)
+retains top-level `diff` and owns the subject-section equivalence obligation.
+Focused Diff adoption owns atomic retirement of `timeline`, migration of
+existing top-level Diff routes into the unified operation, obsolete-input
 handling, replacement coverage, and active guidance. This History adoption
-supplies the shared semantic implementation and subject-mode bindings; it does
-not preserve a second algorithm or route. The proposed `--timeline` and
+supplies the shared semantic implementation and authored section presets; it
+does not preserve a second algorithm or route. The proposed `--timeline` and
 `--pairwise` spellings do not become aliases.
 
 This specification PR changes no runtime behavior. Current README/skills remain
@@ -692,19 +699,18 @@ truthful until the cutover; they must not advertise the new consumers early.
 ## Counted adoption and evidence
 
 The authoritative
-[five-step production path](command-transition-model.md#cutover-and-production-path)
-now includes shared enveloped terminals, supported public CLI envelope
-transport, subject-owned CLI cutover, and complete Browser adoption after the
-specification. This replaces the earlier four-step plan; it does not add a
-second parallel migration. History and population-count work contribute to the
-shared-terminal step and both host adoptions. The generic envelope type is
-already implemented and is reused, not rebuilt.
+[seven-step production path](operation-command-and-subject-section-composition.md#production-adoption)
+includes focused Diff adoption in step 5 and host adoption in step 7.
+History and population-count work contribute the shared terminal, supported
+public CLI envelope transport, top-level Diff and subject-section consumption,
+and complete Browser adoption. The generic envelope type is already
+implemented and is reused, not rebuilt.
 
-The #7229 revision locks the subject-specific Count contract and the approved
-operation/checkpoint defaults in step 1.
-Step 2 constructs Changed Versions and its completion evidence in the shared
-History result and consumes the existing Count reduction. Steps 4 and 5 adopt
-that same result and Count outcome in CLI and Browser/Wasm, respectively.
+Within those focused adoption steps, #7229 first locks the subject-specific
+Count contract and approved operation/checkpoint defaults, then constructs
+Changed Versions and its completion evidence in the shared History result.
+CLI and Browser/Wasm consume that same result and Count outcome rather than
+introducing host-specific reductions.
 The CLI cutover in #7126 retires the old selected-cohort Timeline count and
 no-`--at` discovery behavior, disclosing the changed unit and evaluation
 authorization under the existing breaking-change policy. There is no
@@ -805,7 +811,7 @@ The implementation slices must supply Release gates for:
   contrasted with ordinary scalar Count JSON projection, without a second
   reduction; Count failure remains nonzero on CLI envelope delivery;
 - metadata-only counts without package payload acquisition or a Type focus;
-- unchanged endpoint content under plain subject Diff, equivalent
+- unchanged endpoint content under plain Diff, equivalent
   non-range local pair content, Type/Member History, and rejected retired
   commands without package fallback; and
 - complete CLI/Browser envelope delivery for History and Package version

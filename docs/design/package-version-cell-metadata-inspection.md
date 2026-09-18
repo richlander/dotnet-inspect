@@ -27,11 +27,11 @@ It does not implement History or a second host terminal.
 
 ## Motivation and real asset
 
-Subject-owned Diff History needs to inspect selected cells from one already
-settled package-version population. Re-discovering a selected version,
-reconstructing its source authority, or extracting its package directly in a
-host would break the cell's reporter-bound correspondence and duplicate
-PackageHouse and Workspace policy.
+Top-level Diff History and its operation-backed subject sections need to
+inspect selected cells from one already settled package-version population.
+Re-discovering a selected version, reconstructing its source authority, or
+extracting its package directly in a host would break the cell's
+reporter-bound correspondence and duplicate PackageHouse and Workspace policy.
 
 The motivating population is `Markout@0.33.0..0.35.2`. Production
 `dotnet-inspect` observation of `Markout@0.35.2` records one `net10.0` package
@@ -243,7 +243,7 @@ This operation is step 2 of the eight-step temporal ownership path:
 6. [Bounded PackageHouse baseline/checkpoint Analysis](package-version-cell-pair-analysis.md)
    — #7248.
 7. Shared Diff History and metadata-only version-count terminals, followed by
-   subject CLI cutover with top-level `timeline` removal.
+   top-level Diff and subject-section adoption with `timeline` removal.
 8. Browser Compare and version-count adoption.
 
 The later hosts supply their source authorization and cell executor while
@@ -251,7 +251,7 @@ consuming the same request and outcome. This lower producer feeds the shared
 `InspectionEnvelope<DiffHistoryOutcome>` terminal in step 7; it does not
 introduce a separate CLI or Browser counting/correlation algorithm. The existing
 standalone Timeline's host-local API acquisition/projection remains until the
-subject-owned cutover retires it in step 7.
+Diff/History cutover retires it in step 7.
 
 API evidence is structured producer content, not rendered output. The later
 History terminal retains it in the shared envelope; CLI Markout lowering and

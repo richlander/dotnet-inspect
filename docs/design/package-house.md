@@ -470,10 +470,11 @@ This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History under
-[Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior; the metadata-only package version Count is now the
-resource-free CLI consumer described above.
+production consumer remains top-level Diff History under
+[Diff History inspection](diff-history.md), with future subject sections backed
+by that same operation rather than continued standalone `timeline` behavior;
+the metadata-only package version Count is now the resource-free CLI consumer
+described above.
 
 ## Package target context
 
@@ -563,8 +564,21 @@ acquisition generation and compile selection receipt. It reports:
 
 - the retained compressed package archive length;
 - the selected framework and available compile-slice count;
+- the ordered, distinct top-level package folders whose admitted entry paths
+  contain the selected asset-folder framework as a directory segment;
 - one uncompressed payload length for every selected compile asset; and
 - the selected Library count and sum of those payload lengths.
+
+The selected-framework folder inventory is package layout evidence, not an
+additional asset selection. For example, `lib/net10.0/Foo.dll` contributes
+`lib`, while `runtimes/linux-x64/lib/net10.0/Foo.dll` contributes `runtimes`.
+An entry for another framework does not contribute, and an explicit `_._`
+empty-group marker is not content.
+
+Folder names are package-authored, sink-bound text. A host-neutral projection
+carries each name as `InertString` under `TextPolicy.Field`; structured formats
+retain the collection as an array rather than collapsing it into presentation
+text.
 
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a
@@ -587,12 +601,12 @@ correspondence.
 
 The host-neutral Package Info inspection lowers that typed projection into one
 `InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
-size, selected framework, available-framework count, selected payload size,
-selected Library count, and typed non-success state. The in-process content
-also retains the resource-free measurement outcome so the acquisition
-generation and compile-selection receipt remain available without retaining
-package content. Hosts consume these fields rather than reselecting assets or
-deriving measurements from extracted paths.
+size, selected framework, available-framework count, selected-framework folder
+inventory, selected payload size, selected Library count, and typed non-success
+state. The in-process content also retains the resource-free measurement
+outcome so the acquisition generation and compile-selection receipt remain
+available without retaining package content. Hosts consume these fields rather
+than reselecting assets or deriving measurements from extracted paths.
 
 CLI configured-source Package Info acquisition requests the compile realization
 as part of its existing package acquisition, so measurement does not download a
