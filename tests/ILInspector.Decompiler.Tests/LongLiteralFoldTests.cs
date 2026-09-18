@@ -80,7 +80,7 @@ public sealed class LongLiteralFoldTests
     static string Fixture(string memberName, PrinterOptions? options = null)
         => Render(typeof(LongLiteralFoldFixture), memberName, options);
 
-    // ---- 1. the default view is unchanged ----
+    // ---- 1. the default view ----
 
     public static TheoryData<string, string> DefaultRenders() => new()
     {
@@ -93,16 +93,17 @@ public sealed class LongLiteralFoldTests
         { nameof(LongLiteralFoldFixture.MinusOne), "public static long MinusOne() => (long)-1;" },
         { nameof(LongLiteralFoldFixture.IntMinValue), "public static long IntMinValue() => (long)-2147483648;" },
         { nameof(LongLiteralFoldFixture.IntMaxValue), "public static long IntMaxValue() => (long)2147483647;" },
+        { nameof(LongLiteralFoldFixture.JustPastIntMaxValue), "public static long JustPastIntMaxValue() => 2147483648;" },
         { nameof(LongLiteralFoldFixture.LargeReturn), "public static long LargeReturn() => 5000000000;" },
         { nameof(LongLiteralFoldFixture.LargeTernaryArms), "public static long LargeTernaryArms(bool c, long tail) => (c ? 5000000000 : 6000000000) + tail;" },
     };
 
     [Theory]
     [MemberData(nameof(DefaultRenders))]
-    public void Default_IsUnchanged(string member, string expected)
+    public void Default_RendersExpectedText(string member, string expected)
     {
         // The knob defaults to false, so PrinterOptions.Default and "no options at all"
-        // must both produce today's text — the opt-in contract, pinned as exact text
+        // must both produce the same text — the opt-in contract, pinned as exact text
         // rather than a containment check so a stray space or paren fails here.
         Assert.Equal(expected, Fixture(member));
         Assert.Equal(expected, Fixture(member, PrinterOptions.Default));
@@ -156,16 +157,18 @@ public sealed class LongLiteralFoldTests
     [Theory]
     [InlineData(nameof(LongLiteralFoldFixture.LargeReturn))]
     [InlineData(nameof(LongLiteralFoldFixture.LargeTernaryArms))]
-    [InlineData(nameof(LongLiteralFoldFixture.JustPastIntMaxValue))]
     public void LdcI8Sources_RenderIdenticallyWithTheLensOnOrOff(string member)
     {
-        // `LargeReturn`/`LargeTernaryArms` are real `ldc.i8` bodies; `JustPastIntMaxValue`
-        // is csc's `ldc.i4 <int.MinValue bits>; conv.u8` zero-extension trick, whose target
-        // is UInt64 and so is not the fold's shape either. None may change, and equality —
-        // not an expected-text pin — is the claim, so this stays honest even where the
-        // shipped render of a shape is imperfect (the conv.u8 body is such a case; its
-        // pre-existing spelling is out of this lens's scope).
+        // These are real `ldc.i8` bodies and are outside the conv.i8 style lens.
         Assert.Equal(Fixture(member), Fixture(member, LensOptions));
+    }
+
+    [Fact]
+    public void ConvU8Boundary_RendersCorrectlyWithTheLensOnOrOff()
+    {
+        const string expected = "public static long JustPastIntMaxValue() => 2147483648;";
+        Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue)));
+        Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue), LensOptions));
     }
 
     [Fact]
@@ -307,6 +310,23 @@ public sealed class LongLiteralFoldTests
         // Non-vacuity: the knob-on renders must actually differ from knob-off, otherwise
         // this would be comparing a render with itself.
         Assert.All(FoldedSpecimens, s => Assert.NotEqual(Fixture(s.Method), Fixture(s.Method, LensOptions)));
+    }
+
+    [Fact]
+    public void ConvU8BoundaryOutput_CompilesBackExactly()
+    {
+        var target = new FidelityCheck.CompileBackTarget(
+            AssemblyPath,
+            typeof(LongLiteralFoldFixture).FullName!,
+            nameof(LongLiteralFoldFixture.JustPastIntMaxValue),
+            Overload: 0,
+            Signature: "() -> corelib:System.Int64");
+
+        var result = Assert.Single(FidelityCheck.EvaluateTargets([AssemblyPath], [target], lowered: false));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{target.Method}: compile-back is {result.Status} ({result.Detail}); the zero-extended literal did not round-trip.");
     }
 
     static IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> Evaluate(

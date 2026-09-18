@@ -2390,14 +2390,48 @@ public sealed partial class CSharpPrinter
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
-        // target on the conversion's operand, not (char)((ushort)x). An
-        // out-of-range constant operand still needs the unchecked spelling.
+        // target on the conversion's operand, not (char)((ushort)x). A widening
+        // conv.u8 first zero-extends a signed stack value, however, so it
+        // cannot be replaced by a bare signed sink cast. Preserve the unsigned
+        // source reinterpretation for non-constants; for constants render the
+        // exact zero-extended value that csc itself lowers back to the widening
+        // conversion (#3356).
         // The remaining casts are same-width reinterprets (cross-signedness or
         // sibling-width): inside a lexical checked region a bare spelling
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
         {
+            TypeRef? zeroExtendSource = IsCoreInt64(numericTarget)
+                && conv.Target is
+                {
+                    Kind: TypeRefKind.Definition,
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                    Name: "UInt64",
+                }
+                ? TypeFamilies.WideningZeroExtendSibling(
+                    EffectiveType(conv.Operand),
+                    conv.Target)
+                : null;
+            if (zeroExtendSource is not null && conv.Operand is Constant { Value: int zeroExtendPayload })
+            {
+                var widened = new Constant((long)(uint)zeroExtendPayload, numericTarget);
+                return new(
+                    NumericConstant(widened, numericTarget),
+                    CSharpConversionRules.ConstantFits((uint)zeroExtendPayload, numericTarget)
+                        ? "LiteralExpression"
+                        : "ConversionExpression");
+            }
+            if (zeroExtendSource is not null)
+            {
+                return new(
+                    CheckedSafeNumericCast(
+                        zeroExtendSource,
+                        numericTarget,
+                        () => $"({TypeText(numericTarget)})({TypeText(zeroExtendSource)}){Operand(conv.Operand)}"),
+                    "ConversionExpression");
+            }
             if (conv.Operand is Constant { Value: int or long } convConst)
             {
                 long literal = convConst.Value is int i ? i : (long)convConst.Value!;

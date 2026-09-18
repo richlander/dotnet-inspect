@@ -958,6 +958,81 @@ public class CoerceChokePointTests
         AssertCompiles("public static int M(int x, byte b)", body);
     }
 
+    [Fact]
+    public void ZeroExtendingConstantConvert_AtSignedSiblingSink_RendersUnsignedValue()
+    {
+        // #3356: ldc.i4 int.MinValue; conv.u8 at a long return is 2147483648.
+        // Replacing conv.u8 with the signed sink cast silently sign-extended it.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var ulongType = TypeRef.CoreLib("System", "UInt64");
+        var value = new ILInspector.Decompiler.Pipeline.Convert(
+            ulongType,
+            isChecked: false,
+            isUnsigned: false,
+            new Constant(int.MinValue, intType));
+
+        string body = RenderReturn(
+            value,
+            longType,
+            [],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("return 2147483648;", body);
+        Assert.DoesNotContain("return -2147483648;", body);
+        AssertCompiles("public static long M()", body);
+    }
+
+    [Fact]
+    public void ZeroExtendingNonConstantConvert_AtSignedSiblingSink_PreservesConvert()
+    {
+        // The same rule applies when the int payload is not a constant: the inner
+        // conv.u8 and outer long coercion compose instead of becoming `(long)i`.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var ulongType = TypeRef.CoreLib("System", "UInt64");
+        var value = new ILInspector.Decompiler.Pipeline.Convert(
+            ulongType,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "i", intType));
+
+        string body = RenderReturn(
+            value,
+            longType,
+            [new Parameter("i", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("return (long)(uint)i;", body);
+        Assert.DoesNotContain("return (long)i;", body);
+        AssertCompiles("public static long M(int i)", body);
+    }
+
+    [Fact]
+    public void SignExtendingConstantConvert_AtUnsignedSiblingSink_RemainsSigned()
+    {
+        // Close negative for #3356: conv.i8 sign-extends the same int payload.
+        // Only the UInt64-to-Int64 zero-extension composition may normalize it.
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var ulongType = TypeRef.CoreLib("System", "UInt64");
+        var value = new ILInspector.Decompiler.Pipeline.Convert(
+            longType,
+            isChecked: false,
+            isUnsigned: false,
+            new Constant(int.MinValue, intType));
+
+        string body = RenderReturn(
+            value,
+            ulongType,
+            [],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("return unchecked((ulong)(-2147483648));", body);
+        Assert.DoesNotContain("return 2147483648;", body);
+        AssertCompiles("public static ulong M()", body);
+    }
+
     // #2302 canaries: the join-arm rule's third direction — a primitive arm at
     // a same-family primitive MergedType it cannot reach implicitly. The
     // pre-F1 fold shipped these bare (CS0029/CS0266); the latent class needs
