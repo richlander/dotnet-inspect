@@ -1640,7 +1640,7 @@ test("complete saved Platform Open installs managed Platform presentation", asyn
   assert.equal(h.state.package?.source.kind, "platform");
   assert.equal(h.state.rootKind, "platform");
   assert.equal(h.state.package?.id, "Microsoft.NETCore.App");
-  assert.deepEqual(h.state.platformSelection, {
+  assert.deepEqual(structuredClone(h.state.platformSelection), {
     tfm: "net11.0",
     version: "11.0.6",
     includeAllLibraries: false,
