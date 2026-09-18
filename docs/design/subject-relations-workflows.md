@@ -458,7 +458,7 @@ build occurs.
 The [Dependency inspection command owner](dependency-inspection-command.md)
 retains its admission, traversal, evidence, and failure contracts. The
 forward-looking section name follows
-[#7628](https://github.com/richlander/dotnet-inspect/issues/7628); this worked
+[Relationship Section Naming](relationship-section-naming.md); this worked
 example does not rename the current product section.
 
 ### Shortcuts remain part of the section system
