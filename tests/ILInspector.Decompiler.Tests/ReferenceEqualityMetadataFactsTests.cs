@@ -436,6 +436,81 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
+    [Fact]
+    public void ExternalErrorObsoleteEnumMember_RendersCompilableCast()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "external-enum-error-obsolete-member-").FullName;
+        try
+        {
+            string enumPath = Emit(
+                directory,
+                "enum",
+                "Twin",
+                """
+                namespace N;
+                public enum E
+                {
+                    [System.Obsolete("removed", true)]
+                    Old = 1,
+                    Current = 2,
+                }
+                """);
+            string consumerPath = Emit(
+                directory,
+                "consumer",
+                "Consumer",
+                """
+                namespace Consumer;
+                public static class Cases
+                {
+                    public static N.E Return() => (N.E)1;
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
+
+            var resolver =
+                TestAssemblyReferenceResolvers.SingleAssembly(enumPath);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                consumerPath,
+                resolver,
+                context);
+            var function = IrImporter.Import(
+                source,
+                "Consumer.Cases",
+                "Return");
+            Assert.NotNull(function);
+
+            string body = CSharpPrinter.PrintRaised(
+                function!,
+                method => IrImporter.Import(source, method)).Output!;
+
+            Assert.Contains("return (E)1;", body);
+            Assert.DoesNotContain("E.Old", body);
+            Emit(
+                directory,
+                "recompiled",
+                "Recompiled",
+                $$"""
+                using N;
+                namespace Recompiled;
+                public static class Cases
+                {
+                    public static N.E Return()
+                    {
+                {{body}}
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(2, MetadataFactState.No)]
     [InlineData(5000, MetadataFactState.Unknown)]

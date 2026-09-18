@@ -36,6 +36,15 @@ internal static class EnumMetadataFactReader
             {
                 continue;
             }
+            if (AttributeReader.TryGetObsoleteAttribute(
+                reader,
+                field.GetCustomAttributes(),
+                out _,
+                out bool isError)
+                && isError)
+            {
+                continue;
+            }
 
             ConstantHandle constantHandle = field.GetDefaultValue();
             if (constantHandle.IsNil)
