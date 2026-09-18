@@ -61,25 +61,41 @@ const objectStart = sampleDocument.text.indexOf("new object()");
 const calleeText = [
   "public static bool DeepEquals(JsonElement left, JsonElement right)",
   "{",
-  "    Span<byte> buffer = stackalloc byte[64];",
+  "    Span<byte> leftBuffer = stackalloc byte[64];",
+  "    Span<byte> rightBuffer = stackalloc byte[128];",
   "    return left.ValueKind == right.ValueKind;",
   "}",
 ].join("\n");
 const stackallocText = "stackalloc byte[64]";
+const secondStackallocText = "stackalloc byte[128]";
 const calleeDocument: AnnotatedSourceDocument = {
   text: calleeText,
-  nodes: [{
-    id: 0,
-    kind: "StackAllocationExpression",
-    medium: "CSharp",
-    spans: [{
-      start: calleeText.indexOf(stackallocText),
-      length: stackallocText.length,
-    }],
-    provenance: {
-      il_offsets: [18],
+  nodes: [
+    {
+      id: 0,
+      kind: "StackAllocationExpression",
+      medium: "CSharp",
+      spans: [{
+        start: calleeText.indexOf(stackallocText),
+        length: stackallocText.length,
+      }],
+      provenance: {
+        il_offsets: [18],
+      },
     },
-  }],
+    {
+      id: 1,
+      kind: "StackAllocationExpression",
+      medium: "CSharp",
+      spans: [{
+        start: calleeText.indexOf(secondStackallocText),
+        length: secondStackallocText.length,
+      }],
+      provenance: {
+        il_offsets: [24],
+      },
+    },
+  ],
   regions: [],
   facts: [],
   targets: [],
@@ -161,6 +177,15 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
       source_offset: 1,
       origin: "Body",
     },
+    {
+      id: 7,
+      descriptor: "safety.callee",
+      category: "Unsafety",
+      conditionality: "Always",
+      detail: "callee uses a second stack allocation",
+      source_offset: 1,
+      origin: "Body",
+    },
   ],
   targets: [
     ...sampleDocument.targets,
@@ -168,6 +193,7 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
     { fact_id: 4, node_id: 1 },
     { fact_id: 5, node_id: 1 },
     { fact_id: 6, node_id: 1 },
+    { fact_id: 7, node_id: 1 },
   ],
 };
 const result: AnnotatedSourceResult = {
@@ -207,6 +233,10 @@ const result: AnnotatedSourceResult = {
       unavailableReason: null,
     },
   },
+  findingEvidenceDocuments: [{
+    id: 0,
+    document: calleeDocument,
+  }],
   findingEvidence: [{
     factId: 6,
     instanceKey: 61,
@@ -216,8 +246,20 @@ const result: AnnotatedSourceResult = {
       ilOffset: 18,
       kind: "Localloc",
     }],
-    document: calleeDocument,
+    documentId: 0,
     nodeIds: [0],
+    unavailableReason: null,
+  }, {
+    factId: 7,
+    instanceKey: 62,
+    member: "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
+    target: calleeTarget,
+    coordinates: [{
+      ilOffset: 24,
+      kind: "Localloc",
+    }],
+    documentId: 0,
+    nodeIds: [1],
     unavailableReason: null,
   }],
   provenance: inertString("browser-gate product fixture"),

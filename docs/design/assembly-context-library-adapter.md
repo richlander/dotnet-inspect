@@ -7,9 +7,10 @@ of an existing exact assembly-context participant into a direct Library input.
 It is tracked by [#7312](https://github.com/richlander/dotnet-inspect/issues/7312).
 
 The assembly-only adapter and authored SourceHouse core are implemented.
-Supplied companion admission is tracked by
-[#7439](https://github.com/richlander/dotnet-inspect/issues/7439);
-production-query adoption remains the next delivery below.
+Supplied companion admission landed under
+[#7439](https://github.com/richlander/dotnet-inspect/issues/7439).
+The first production-query adoption is the shared member-source-pair cutover
+in [#7448](https://github.com/richlander/dotnet-inspect/issues/7448).
 
 > Given a live group, its exact selected participant, an explicit assembly
 > role, optional supplied Portable PDB, finite materialization bounds, and
@@ -134,8 +135,8 @@ counted adapter-to-first-production path now has four deliveries:
    serves CLI `diff --pdb-source` and Browser/Wasm two-version Source.
    Retire the authored acquisition composition those endpoints replace.
 
-The independent source producers already serve both hosts; this adapter alone
-does not make those callers SourceHouse consumers. Ordinary type/member
+The member-source-pair adoption now serves both hosts through SourceHouse;
+this adapter alone did not make those callers House consumers. Ordinary type/member
 source-query adoption, acquisition, decompiler fallback, other Library
 producers, and remaining source policy retirement stay with the corresponding
 twelve-step #6512 slices.

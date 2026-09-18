@@ -31,10 +31,12 @@ including inactive direct-Package state, is mostly implemented by
 [#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
 [#7154](https://github.com/richlander/dotnet-inspect/pull/7154) materializes
 omitted direct-Package context as exact Package-only Navigation context. The
-host-neutral portable query intent and canonical payload codec are implemented by
-[#7093](https://github.com/richlander/dotnet-inspect/pull/7093); vocabulary
-resolution, Definitions query adoption, and complete view binding remain
-follow-up work.
+host-neutral portable query intent and canonical payload codec are implemented
+by [#7093](https://github.com/richlander/dotnet-inspect/pull/7093), and Package
+Query vocabulary resolution is implemented by
+[#7359](https://github.com/richlander/dotnet-inspect/pull/7359). Definitions
+query adoption, query-bearing packet projection, and complete view binding
+remain follow-up work.
 The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
@@ -189,8 +191,8 @@ Navigation effect authority remain separate owner-issued currencies.
 7. **Portable Workspace registrations begin at definition schema version 3 and
    packet format 3.** Versions 1 and 2 remain immutable source contracts.
    Version 3 adds one ordered registration vector beside contexts, permits zero
-   contexts only when that vector is nonempty, and projects the same complete
-   registration state into the packet.
+   contexts when that vector is nonempty or in the closed query-only composition,
+   and projects the same complete state into the packet.
 8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
@@ -228,11 +230,12 @@ state supplies a second analogy for composing durable Workspace and view intent
 without serializing rendered results. These analogies support the separation;
 they do not transfer another system's schema or lifecycle.
 
-The current CLI does not satisfy this target. It constructs one ephemeral
-realization, renders the typed top-level inventory, optionally enters Package
-Navigation, and exits. Direct registration construction is non-projectable, and
-the current packet grammar cannot represent every supported top-level
-registration.
+The CLI resource-free authoring path is implemented under #7427. Direct
+Package and registration inputs produce one schema-version-3 definition and
+canonical format-3 packet or URL; canonical packet and exact Inspect Web URL
+input re-emits the same durable value without realization. The default
+inventory and optional Package Navigation paths remain realization-backed
+transitional behavior when durable output is not requested.
 
 ### Definition, plan, and realization
 
@@ -318,7 +321,8 @@ grammar.
 ### Schema-version-3 registration-bearing Workspaces
 
 Schema version 3 adds required `registrations` to a `workspace` record beside
-required `contexts`. Both are ordered arrays. Either may be empty, but not both:
+required `contexts`. Both are ordered arrays. Outside the query-only
+composition, either may be empty but not both:
 
 ```json
 {
@@ -338,9 +342,9 @@ required `contexts`. Both are ordered arrays. Either may be empty, but not both:
 Every context retains its existing invariant: it has at least one group
 subscription or inline member. Schema versions 1 and 2 retain their existing
 requirement for at least one context and reject the unknown `registrations`
-property. Schema version 3 instead requires at least one context or one
-registration. It never manufactures an empty synthetic context to carry
-registration state.
+property. Outside the query-only composition, schema version 3 instead requires
+at least one context or one registration. It never manufactures an empty
+synthetic context to carry registration state.
 
 `registrations` is the ordered closed portable counterpart of
 `WorkspacePlan.Registrations`:
@@ -640,7 +644,8 @@ Implementation proceeds in focused slices:
    contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
-   realization when no transformation needs it.
+   realization when no transformation needs it. Implemented under
+   [#7427](https://github.com/richlander/dotnet-inspect/issues/7427).
 4. **Portable enrichment.** Add one real realization-backed transformation,
    “make Package dependencies explicit/top-level,” using a nuget.org package
    with deterministic direct dependencies and proving context-preserving
@@ -655,12 +660,39 @@ Implementation proceeds in focused slices:
    including registrations and derived scenarios, through the same Definitions
    owner.
 
+Query-bearing sharing follows a separate five-step path under
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971):
+
+1. **Portable intent and payload.** Define and implement the host-neutral
+   semantic model, canonical codec, and identity pair. Complete.
+2. **First production vocabulary.** Adopt `package-query/v1` in Package Query
+   and lower both CLI and Browser requests through it. Complete.
+3. **Definitions contract.** Define the common schema-version-2/3 query record,
+   state-bound packet projection, and the format-3 query-only composition. This
+   design slice.
+4. **Definitions implementation.** Implement record parsing, public query
+   descriptors, composition binding, format-3 query-table
+   encoding/transposition, and the fixed-vector gates below through one
+   host-neutral Definitions API.
+5. **Production-host adoption.** Have the CLI emit and replay the query-only
+   packet without acquisition during packet generation, and have Inspect Web
+   emit and restore the same packet in `/query` share links. Both hosts then
+   execute through their existing Package Query pipeline; no query result or
+   host-specific presentation enters Definitions.
+
+This extends the existing Definitions and Package Query paths rather than
+introducing an alternative architecture, so no retirement plan applies.
+Rendering is also outside this contract: the packet carries canonical request
+data, while each host's existing Package Query presentation continues to own
+its typed result rendering.
+
 Required evidence includes:
 
 - exact canonical round trips for Package, Exact Library, Package Prefix, and
   scanner-free Ecosystem-only definitions;
 - registration-only lowering to one plan with zero contexts and exact ordered
-  registrations, plus rejection when both arrays are empty;
+  registrations, plus query-only admission and rejection of an otherwise empty
+  Workspace composition;
 - visible non-projectability for a scanner-bearing Ecosystem until its owner
   supplies a portable scanner vocabulary;
 - direct-input and packet-input semantic equivalence;
@@ -877,20 +909,24 @@ Field semantics:
   grammar below) — and `members`, additional inline coordinates overlaid on
   the subscription. A context must have at least one of `subscribe` and
   `members`. Schema versions 1 and 2 require at least one context. Schema
-  version 3 permits an empty context array only when `registrations` is
-  nonempty.
+  version 3 permits an empty context array when `registrations` is nonempty or
+  when the record participates in the query-only peer composition below.
 - `registrations` — required on schema-version-3 Workspace records and unknown
   on earlier versions. It is the ordered closed Exact Library, Package Prefix,
   or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
-  A version-3 Workspace must have at least one context or registration.
+  A version-3 Workspace with neither context nor registration is valid only in
+  the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Version 2 additionally carries the canonical
-  payload for one `PortableQueryIntent`; the `queryId` supplies the intent's
-  vocabulary identity beside that payload. This note pins the record and
-  reference slots; Portable Query Payload owns the one payload shape and codec,
-  while the vocabulary owner defines binding and execution and must itself sit
-  at or below the dependency boundary.
+  optional product query ID. Versions 2 and 3 use the common closed envelope
+  `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
+  `payload` is one closed JSON object parsed and canonically rewritten by
+  `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
+  exact `(queryId, canonical payload)` identity; the named vocabulary owns
+  semantic binding and execution. An unknown `queryId` remains syntactically
+  valid and reaches typed vocabulary resolution rather than becoming an
+  unknown record shape. Schema-version-1 records neither accept nor synthesize
+  `payload`.
 - schema-version-1 `view` records — named view presets whose shape this note
   pins (`lens`, `type`, `memberAnchor` or `memberSignature`, definition-only
   `memberKey`, `section`, and library scope — each field individually optional;
@@ -1108,15 +1144,16 @@ Each state has these fields:
   both recommended. Presence records an exact-request basis even when the same
   facet would currently be recommended.
 - `queries` is an optional array of peer query-record IDs in ascending ordinal
-  order. It is valid only with a present exact `facet`; recommendation cannot
-  carry query state for a facet that may change. Query records carry every
-  result-affecting filter and every owner-issued body or source-target
-  refinement as a vocabulary ID plus canonical `PortableQueryIntent` payload.
-  The shared payload codec owns its closed structure and bytes; the named
-  vocabulary owns exact binding and selector validation. Workspace Definitions
-  does not reinterpret either. The query-free schema-version-2 record slice
-  still rejects every nonempty query list until #6971 supplies vocabulary
-  resolution and Definitions adoption.
+  order. Ordinary state-bound queries require a present exact `facet`;
+  recommendation cannot carry query state for a facet that may change. Query
+  records carry every result-affecting filter and every owner-issued body or
+  source-target refinement as a vocabulary ID plus canonical
+  `PortableQueryIntent` payload. The shared payload codec owns its closed
+  structure and bytes; the named vocabulary owns exact binding and selector
+  validation. Workspace Definitions does not reinterpret either. Schema
+  version 3 adds the one exception defined below: the leading null-navigation
+  row may carry one coordinate-free primary query without a facet in a
+  query-only composition.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
   Library subject and does not select one. It is valid only on a direct
@@ -1140,10 +1177,104 @@ values expressible by `PortableQueryIntent`. Otherwise the state is
 key.
 
 The leading Workspace row cannot carry retained Package context and cannot
-request a Package subject. A non-Package navigation row is undecorated: it
-carries only its `navigation` field, with no subject, context, facet, query, or
-Library scope. These rows preserve ordered inventory without inventing a
-structural grammar or Package ancestry for a source that does not have one.
+request a Package subject. Except for the schema-version-3 query-only
+composition below, it follows the same facet-bound query rule as every other
+state. A non-Package navigation row is undecorated: it carries only its
+`navigation` field, with no subject, context, facet, query, or Library scope.
+These rows preserve ordered inventory without inventing a structural grammar
+or Package ancestry for a source that does not have one.
+
+#### Coordinate-free primary query attachment
+
+A Package Query request names a source population, not an already-realized
+Package occurrence. Attaching it to a coordinate would therefore invent
+Package ancestry, while attaching it to a Workspace facet would falsely claim
+that the query refines that facet. Schema version 3 instead admits one
+**query-only composition** whose leading null-navigation row is an attachment
+point, not a structural input to the query:
+
+```json
+[
+  {
+    "schemaVersion": 3,
+    "kind": "workspace",
+    "id": "package-discovery",
+    "contexts": [],
+    "registrations": []
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "query",
+    "id": "extensions-with-di",
+    "queryId": "package-query/v1",
+    "payload": {
+      "t": [
+        ["depends", "eq", "Microsoft.Extensions.DependencyInjection"],
+        ["prefix", "eq", "Microsoft.Extensions."],
+        ["prerelease", "eq", "stable"]
+      ],
+      "b": [["candidates", 200]]
+    }
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "navigation",
+    "id": "navigation",
+    "tabs": [],
+    "focus": null
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "view",
+    "id": "view",
+    "states": [
+      {
+        "navigation": null,
+        "subject": {"kind": "workspace"},
+        "queries": ["extensions-with-di"]
+      }
+    ]
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "scenario",
+    "id": "scenario",
+    "workspace": "package-discovery",
+    "view": "view",
+    "navigation": "navigation"
+  }
+]
+```
+
+Here **coordinate-free** means that canonical query identity is the resolver's
+only persisted input; **primary** means that the query owner supplies the
+result surface instead of refining a structural subject's facet.
+
+The composition is valid only when all of these conditions hold:
+
+- the Workspace has no contexts and no registrations;
+- navigation has no tabs and null focus;
+- the view has only its required leading row;
+- that row requests Workspace, omits context, facet, and Library scope, and
+  references exactly one query record;
+- the referenced vocabulary descriptor declares a coordinate-free primary
+  query and no structural-subject, facet, selected-context, or Library input;
+  and
+- the scenario omits `context` and its legacy singular `query` field.
+
+The leading Workspace subject remains the restorable structural root; it is not
+passed to the query resolver. The query owner supplies the page or command
+purpose and re-runs the restored request. No package result or completion state
+is persisted. A coordinate-free query cannot be mixed with contexts,
+registrations, state-bound queries, facets, or retained selectors in this
+version. Those combinations need their own owner-defined composition rather
+than inheriting meaning from the attachment location.
+
+Schema version 2 retains its nonempty-context invariant and therefore cannot
+represent this query-only scenario. Its `q` table remains usable for ordinary
+state-bound queries once implemented. Version 3 is required here because it
+can represent the empty Workspace peer composition without manufacturing a
+coordinate or registration.
 
 #### Portable subject and context selectors
 
@@ -1309,10 +1440,11 @@ their Registry evidence; the coordinator does not choose another facet.
 When `facet` is absent, Navigation owns recommendation and its complete
 evidence.
 
-Every query reference resolves one version-2 query record. Its public
-vocabulary descriptor declares the exact structural inputs and facet IDs it
-accepts, whether it consumes state-level Library scope, and how canonical
-intent binds to typed execution. Malformed portable payload, unknown
+Every query reference resolves one query record matching the containing
+composition's schema version. Its public vocabulary descriptor declares the
+exact structural inputs and facet IDs it accepts, whether it consumes
+state-level Library scope, and how canonical intent binds to typed execution.
+Malformed portable payload, unknown
 vocabulary, duplicate query purposes, missing required selectors, a query
 incompatible with the exact subject or facet, and `libraries` consumed by no
 referenced query all fail closed through their owning typed results.
@@ -1357,17 +1489,21 @@ canonical-ID composition.
 Schema version 3 preserves that same-version rule. Its group-catalog, query,
 navigation, view, and scenario records use the schema-version-2 fields with
 `schemaVersion` equal to `3`. The Workspace record adds required ordered
-`registrations` and permits empty `contexts` under the combined nonempty
-invariant above.
+`registrations`. Both `contexts` and `registrations` may be empty only in the
+query-only peer composition above; every other version-3 composition requires
+at least one of them.
 
-Version 3 adds exactly one registration-only peer composition:
+Version 3 adds two empty-context peer compositions:
 
-- navigation has `tabs: []` and `focus: null`;
-- view has exactly one leading Workspace state with `navigation: null` and a
-  Workspace subject;
-- scenario omits `context`, references that Workspace/navigation/view trio, and
-  may reference only queries valid for the leading Workspace state; and
-- no group catalog is required unless another referenced record uses one.
+- A **registration-only** composition has at least one registration,
+  navigation `tabs: []` and `focus: null`, exactly one leading Workspace state,
+  and no selected context. That state may carry only ordinary
+  Workspace-compatible facet-bound queries.
+- A **query-only** composition has no context or registration and satisfies
+  every coordinate-free attachment condition above.
+
+Neither composition requires a group catalog unless another referenced record
+uses one.
 
 When the Workspace has contexts, all navigation, view, selected-context, query,
 and catalog validation retains version 2's semantics. A version-3 scenario
@@ -1649,8 +1785,9 @@ workspace only after selection and any graph rendering succeed. Failure or
 supersession publishes no partial replacement. These frontend boundaries are
 gated by `product-home-demos.test.ts`,
 `saved-workspace-navigation.test.ts`, the home-demo source contract in
-`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
-production-composition cases in `library-hierarchy.spec.ts`.
+`composition-root-workspace-navigation.test.ts`, and the package/Platform
+Methods and Call Graph production-composition cases in
+`library-hierarchy.spec.ts`.
 
 The System.Text.Json and Microsoft.Extensions migrations are gated by two
 independent exact facts: `PlatformPrunePolicy` reports that each former package
@@ -2183,21 +2320,57 @@ is a complete canonical fixed vector:
 }
 ```
 
+The coordinate-free Package Query above has this canonical packet:
+
+```json
+{
+  "f": 3,
+  "t": [],
+  "g": [],
+  "r": [],
+  "a": null,
+  "x": null,
+  "q": [
+    [
+      "package-query/v1",
+      {
+        "t": [
+          ["depends", "eq", "Microsoft.Extensions.DependencyInjection"],
+          ["prefix", "eq", "Microsoft.Extensions."],
+          ["prerelease", "eq", "stable"]
+        ],
+        "b": [["candidates", 200]]
+      }
+    ]
+  ],
+  "v": [
+    {
+      "t": null,
+      "u": {"k": "workspace"},
+      "q": [0]
+    }
+  ]
+}
+```
+
 The top-level property order is `f`, `t`, `g`, `r`, `a`, `x`, optional `q`,
 then `v`. `f` is the exact integer `3`. `r` is required even when empty. `t`,
 `g`, `a`, `q`, and `v` otherwise retain format 2's spelling, ordering, and
 semantics.
 
 `x` is `null` exactly when `g` is empty. When `g` is nonempty, `x` is one exact
-context index under format 2's rules. `t` and `g` may both be empty only when
-`r` is nonempty. A registration-only packet has `a: null`, `x: null`, no query
-table unless the leading Workspace state references a Workspace-compatible
-query, and exactly one leading Workspace view row. When `t` is nonempty, `v`
-again has that leading row followed by one row per coordinate-table entry.
-Transposition maps `x: null` to an omitted version-3 scenario `context`,
-`t: []` to version-3 navigation `tabs: []`, and `a: null` to its `focus: null`.
-The reverse projection requires exactly that peer composition; it never
-invents a selected context for a registration-only Workspace.
+context index under format 2's rules. `t`, `g`, and `r` may all be empty only
+when the leading view row references exactly one coordinate-free primary query
+and satisfies the query-only composition above. A registration-only packet has
+at least one `r` entry, `a: null`, `x: null`, and exactly one leading Workspace
+view row; any query there follows ordinary Workspace-compatible facet-bound
+rules. A query-only packet has `r: []`, `a: null`, `x: null`, one referenced
+query tuple, and the exact leading-row shape in the fixed vector. When `t` is
+nonempty, `v` again has that leading row followed by one row per
+coordinate-table entry. Transposition maps `x: null` to an omitted
+version-3 scenario `context`, `t: []` to version-3 navigation `tabs: []`, and
+`a: null` to its `focus: null`. Reverse projection never invents a selected
+context, coordinate, registration, facet, or retained selector.
 
 `r` is the ordered registration table. Entries are not sorted or deduplicated:
 canonical order is the Workspace definition's authored order, and duplicate
@@ -2279,10 +2452,11 @@ TypeScript packet parser, writer, or transposer.
 The managed codec gates use the canonical JSON above plus fixed vectors for
 Package- and Platform-origin Exact Libraries, a scanner-free Ecosystem
 containing all three population arms, mixed contexts and registrations,
-`x: null` registration-only state, non-null `x` with contexts, all malformed
-tuple cases, scanner-bearing non-projectability, and every outer limit. Each
-accepted vector must satisfy byte-identical packet -> records -> packet output
-through that one implementation.
+`x: null` registration-only state, the query-only Package Query vector,
+non-null `x` with contexts, all malformed tuple cases, scanner-bearing
+non-projectability, and every outer limit. Each accepted vector must satisfy
+byte-identical packet -> records -> packet output through that one
+implementation.
 
 Inspect Web invokes the same managed codec and transposer through the
 `CatalogExports` JS-export adapter in
@@ -2798,8 +2972,11 @@ Implementation must add, at minimum:
   Library scope while a direct Package-coordinate Workspace state resolves it
   only within that occurrence. It must round-trip a Workspace-compatible query
   attached to the leading null state through both long-form records and packet
-  format 2, while continuing to reject Package-query attachment without a
-  Package coordinate;
+  format 2. It must also round-trip the query-only format-3 fixed vector, prove
+  that its leading Workspace subject is not supplied as query input, and reject
+  the same coordinate-free Package Query under format 2 or when mixed with
+  context, registration, facet, retained selector, Library scope, or another
+  query;
 - a navigation gate proving ordered tabs and nullable record-local focus
   round-trip, `null` selects the Workspace state with no occurrence context,
   non-null version-2 focus accepts only a direct Package coordinate, every
