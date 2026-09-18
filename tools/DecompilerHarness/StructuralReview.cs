@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 using ILInspector.Decompiler;
@@ -50,6 +51,7 @@ internal static class StructuralReview
             comparison,
             CSharpStructuralSide.After);
         var rows = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+        var multiplicityRows = CSharpStructuralDiffPrinter.ToMultiplicityDisplayRows(comparison);
         var correspondenceGaps = GetCorrespondenceGaps(comparison.Correspondence);
 
         using var output = new StringWriter { NewLine = "\n" };
@@ -62,7 +64,9 @@ internal static class StructuralReview
         {
             output.WriteLine(
                 $"Structural review status: **Partial** - {correspondenceGaps.Length} unsupported or ambiguous " +
-                "nodes were excluded. Supported rows do not establish changes represented only by the gaps below.");
+                "nodes were excluded from node-level correspondence. Supported rows do not establish changes " +
+                "represented only by the gaps below; group-level multiplicity deltas do not identify occurrences " +
+                "or locations.");
             output.WriteLine();
         }
         output.WriteLine("## Before");
@@ -78,9 +82,11 @@ internal static class StructuralReview
 
         if (rows.IsEmpty)
         {
-            output.WriteLine(comparison.IsCorrespondenceComplete
-                ? "No structural changes."
-                : "No supported structural changes; correspondence is incomplete.");
+            output.WriteLine(multiplicityRows.IsEmpty
+                ? comparison.IsCorrespondenceComplete
+                    ? "No structural changes."
+                    : "No supported structural changes; correspondence is incomplete."
+                : "No node-level structural changes; ambiguous-group multiplicity changes are reported below.");
             if (comparison.Fidelity is { } fidelity)
             {
                 output.WriteLine();
@@ -126,8 +132,35 @@ internal static class StructuralReview
             }
         }
 
+        WriteMultiplicityDeltas(output, multiplicityRows);
         WriteCorrespondenceGaps(output, correspondenceGaps);
         return output.ToString();
+    }
+
+    static void WriteMultiplicityDeltas(
+        StringWriter output,
+        ImmutableArray<CSharpStructuralMultiplicityDisplayRow> rows)
+    {
+        if (rows.IsEmpty)
+            return;
+
+        output.WriteLine();
+        output.WriteLine("## Ambiguous group multiplicity");
+        output.WriteLine();
+        output.WriteLine("| Structure | IL origins | Occurrences | Location |");
+        output.WriteLine("| --- | --- | ---: | --- |");
+        foreach (var row in rows)
+        {
+            output.Write("| ");
+            output.Write(TableCell(row.Structure));
+            output.Write(" | ");
+            output.Write(TableCell(row.IlOrigins));
+            output.Write(" | ");
+            output.Write(TableCell(row.Occurrences));
+            output.Write(" | ");
+            output.Write(TableCell(row.Location));
+            output.WriteLine(" |");
+        }
     }
 
     static (CSharpStructuralSide Side, CSharpUnmatchedNode Node)[] GetCorrespondenceGaps(

@@ -6,8 +6,6 @@ public enum PlatformSourceFacet
     TargetDiscovery,
     Reference,
     Implementation,
-    CompiledXml,
-    SourceDerivedDocumentation,
 }
 
 /// <summary>How authorized capabilities participate in one source facet.</summary>

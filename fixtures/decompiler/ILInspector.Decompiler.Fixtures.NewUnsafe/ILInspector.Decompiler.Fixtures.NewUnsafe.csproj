@@ -31,6 +31,7 @@
     <Compile Include="../PointerVariableUpdateSamples.cs" Link="PointerVariableUpdateSamples.cs" />
     <Compile Include="../ScalarSelfUpdateSamples.cs" Link="ScalarSelfUpdateSamples.cs" />
     <Compile Include="../CheckedIntegerOperandSamples.cs" Link="CheckedIntegerOperandSamples.cs" />
+    <Compile Include="../OrderedBinarySpillSamples.cs" Link="OrderedBinarySpillSamples.cs" />
   </ItemGroup>
 
 </Project>
