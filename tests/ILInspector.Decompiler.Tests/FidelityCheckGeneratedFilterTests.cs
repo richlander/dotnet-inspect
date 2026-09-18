@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -17,6 +18,248 @@ namespace ILInspector.Decompiler.Tests;
 [Collection(ConsoleMutatorCollection.Name)]
 public class FidelityCheckGeneratedFilterTests
 {
+    [Fact]
+    public void SelectReturnToSenderTargets_UsesStableSetAcrossMetadataOrder()
+    {
+        var firstAssembly = CompileFixture("""
+            public static class StableSelectionFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+                public static int Gamma(int value) => value + 3;
+            }
+            """, assemblyName: "StableSelection");
+        var reorderedAssembly = CompileFixture("""
+            public static class StableSelectionFixture
+            {
+                public static int Gamma(int value) => value + 3;
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """, assemblyName: "StableSelection");
+        try
+        {
+            var first = FidelityCheck.SelectReturnToSenderTargets([firstAssembly], cap: 2)
+                .Select(target => $"{target.Type}::{target.Method}{target.Signature}")
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            var reordered = FidelityCheck.SelectReturnToSenderTargets([reorderedAssembly], cap: 2)
+                .Select(target => $"{target.Type}::{target.Method}{target.Signature}")
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.Equal(first, reordered);
+        }
+        finally
+        {
+            DeleteFixture(firstAssembly);
+            DeleteFixture(reorderedAssembly);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_UsesGenericArityInStableRanking()
+    {
+        var firstAssembly = CompileFixture("""
+            public static class StableGenericArityFixture
+            {
+                public static int Pick() => 1;
+                public static int Pick<T>() => 2;
+            }
+            """, assemblyName: "StableGenericArity");
+        var reorderedAssembly = CompileFixture("""
+            public static class StableGenericArityFixture
+            {
+                public static int Pick<T>() => 2;
+                public static int Pick() => 1;
+            }
+            """, assemblyName: "StableGenericArity");
+        try
+        {
+            var first = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [firstAssembly],
+                    cap: 1));
+            var reordered = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [reorderedAssembly],
+                    cap: 1));
+
+            Assert.Equal(first.Signature, reordered.Signature);
+        }
+        finally
+        {
+            DeleteFixture(firstAssembly);
+            DeleteFixture(reorderedAssembly);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_AppliesGlobalCapAndTypeFilterBeforeSampling()
+    {
+        var firstAssembly = CompileFixture("""
+            public static class FirstAssemblyFixture
+            {
+                public static int Alpha(int value) => value + 1;
+                public static int Beta(int value) => value + 2;
+            }
+            """, assemblyName: "FirstAssembly");
+        string excludedMethods = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, 32)
+                .Select(index =>
+                    $"    public static int Hidden{index}(int value) => value + {index + 7};"));
+        var secondAssembly = CompileFixture($$"""
+            using System.CodeDom.Compiler;
+
+            public static class IncludedType
+            {
+                public static int Gamma(int value) => value + 3;
+                public static int Delta(int value) => value + 4;
+
+                [GeneratedCode("fixture", "1.0")]
+                public static int Generated(int value) => value + 5;
+
+                public static class NestedType
+                {
+                    public static int Nested(int value) => value + 6;
+                }
+            }
+
+            public static class ExcludedType
+            {
+            {{excludedMethods}}
+            }
+            """, assemblyName: "SecondAssembly");
+        try
+        {
+            var globallyCapped = FidelityCheck.SelectReturnToSenderTargets(
+                [firstAssembly, secondAssembly],
+                cap: 3);
+
+            Assert.Equal(3, globallyCapped.Count);
+            Assert.Equal(2, globallyCapped.Count(target => target.AssemblyPath == firstAssembly));
+            Assert.Equal(1, globallyCapped.Count(target => target.AssemblyPath == secondAssembly));
+            Assert.All(globallyCapped, target => Assert.NotNull(target.Address));
+
+            var reversed = FidelityCheck.SelectReturnToSenderTargets(
+                [secondAssembly, firstAssembly],
+                cap: 3);
+            Assert.All(reversed, target => Assert.Equal(secondAssembly, target.AssemblyPath));
+
+            Assert.Equal(
+                2,
+                FidelityCheck.SelectReturnToSenderTargets([firstAssembly], cap: 5).Count);
+
+            var filtered = FidelityCheck.SelectReturnToSenderTargets(
+                [secondAssembly],
+                cap: 1,
+                typeFilter: "IncludedType");
+            var filteredTarget = Assert.Single(filtered);
+            Assert.Equal("IncludedType", filteredTarget.Type);
+
+            using var source = MetadataSource.Open(secondAssembly);
+            var unfilteredWinner = Assert.Single(
+                IrImporter.GetStableSampleCandidates(source, sampleSize: 1));
+            Assert.Equal("ExcludedType", unfilteredWinner.TypeName);
+        }
+        finally
+        {
+            DeleteFixture(firstAssembly);
+            DeleteFixture(secondAssembly);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableArtifactIdentitiesBeforeSampling()
+    {
+        string assemblyPath = CreateUnrepresentableIdentityFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Equal(2, selected.Count);
+            Assert.Contains(selected, target => target.Method == "Good");
+            Assert.Contains(selected, target => target.Method == "event");
+            Assert.DoesNotContain(selected, target => target.Type.Contains(
+                "bad-namespace",
+                StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method is "bad-name" or "BadSignature" or "BadConstraint");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsInvalidConstraintSignaturesBeforeSampling()
+    {
+        string assemblyPath = CreateInvalidConstraintSignatureFixture();
+        try
+        {
+            Assert.Empty(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnavailableCanonicalSignaturesBeforeSampling()
+    {
+        string assemblyPath = CreateUnavailableCanonicalSignatureFixture();
+        try
+        {
+            Assert.Empty(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_IncludesRepresentableGenericMethods()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class GenericOnlyFixture
+            {
+                public static int Pick<T, U, V, W>()
+                    where T : U
+                    where U : System.IDisposable
+                    where V : unmanaged
+                    where W : struct => 1;
+            }
+            """);
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: 1));
+
+            Assert.Equal("GenericOnlyFixture", target.Type);
+            Assert.Equal("Pick", target.Method);
+            Assert.Equal("mss1:4(0:)n", target.Signature);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void Evaluate_PreservesIteratorPropertyDeclarationOrder()
     {
@@ -2008,14 +2251,17 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(string source, bool allowUnsafe = false)
+    static string CompileFixture(
+        string source,
+        bool allowUnsafe = false,
+        string assemblyName = "fixture")
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "fixture.dll");
+        var path = Path.Combine(directory, $"{assemblyName}.dll");
         var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         var compilation = CSharpCompilation.Create(
-            Path.GetFileNameWithoutExtension(path),
+            assemblyName,
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
             references,
             new CSharpCompilationOptions(
@@ -2027,6 +2273,459 @@ public class FidelityCheckGeneratedFilterTests
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
+    }
+
+    static string CreateUnrepresentableIdentityFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "UnrepresentableIdentity.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("UnrepresentableIdentity"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule("UnrepresentableIdentity");
+        TypeBuilder badSignatureType = module.DefineType(
+            "bad-namespace.BadType",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        DefineConstantMethod(badSignatureType, "Hidden", typeof(int));
+
+        TypeBuilder goodType = module.DefineType(
+            "GoodType",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        DefineConstantMethod(goodType, "Good", typeof(int));
+        DefineConstantMethod(goodType, "event", typeof(int));
+        DefineConstantMethod(goodType, "bad-name", typeof(int));
+        MethodBuilder badSignature = goodType.DefineMethod(
+            "BadSignature",
+            MethodAttributes.Public | MethodAttributes.Static,
+            badSignatureType,
+            Type.EmptyTypes);
+        ILGenerator badSignatureBody = badSignature.GetILGenerator();
+        badSignatureBody.Emit(OpCodes.Ldnull);
+        badSignatureBody.Emit(OpCodes.Ret);
+
+        MethodBuilder badConstraint = goodType.DefineMethod(
+            "BadConstraint",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        badConstraint.DefineGenericParameters("T")[0]
+            .SetBaseTypeConstraint(badSignatureType);
+        ILGenerator badConstraintBody = badConstraint.GetILGenerator();
+        badConstraintBody.Emit(OpCodes.Ldc_I4_1);
+        badConstraintBody.Emit(OpCodes.Ret);
+
+        badSignatureType.CreateType();
+        goodType.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static string CreateInvalidConstraintSignatureFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "InvalidConstraintSignature.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("InvalidConstraintSignature.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InvalidConstraintSignature"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("InvalidConstraintSignatureFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("bad-namespace"),
+            name: metadata.GetOrAddString("BadModifier"));
+        TypeReferenceHandle disposable = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("IDisposable"));
+        TypeReferenceHandle @object = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("Object"));
+        TypeReferenceHandle valueType = metadata.AddTypeReference(
+            resolutionScope: default,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("ValueType"));
+        AssemblyReferenceHandle fakeCore = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Fake.Core"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    (byte[])
+                    [
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    ]),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle fakeObject = metadata.AddTypeReference(
+            resolutionScope: fakeCore,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("Object"));
+        TypeReferenceHandle fakeUnmanagedModifier =
+            metadata.AddTypeReference(
+                resolutionScope: fakeCore,
+                @namespace: metadata.GetOrAddString(
+                    "System.Runtime.InteropServices"),
+                name: metadata.GetOrAddString("UnmanagedType"));
+        TypeReferenceHandle coreValueType = metadata.AddTypeReference(
+            resolutionScope: systemRuntime,
+            @namespace: metadata.GetOrAddString("System"),
+            name: metadata.GetOrAddString("ValueType"));
+        TypeReferenceHandle isUnmanagedAttribute =
+            metadata.AddTypeReference(
+                resolutionScope: systemRuntime,
+                @namespace: metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                name: metadata.GetOrAddString(
+                    "IsUnmanagedAttribute"));
+        MemberReferenceHandle isUnmanagedConstructor =
+            metadata.AddMemberReference(
+                isUnmanagedAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    (byte[])[0x20, 0x00, 0x01]));
+        TypeReferenceHandle enumerable = metadata.AddTypeReference(
+            resolutionScope: fakeCore,
+            @namespace: metadata.GetOrAddString(
+                "System.Collections.Generic"),
+            name: metadata.GetOrAddString("IEnumerable`1"));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x10);
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x08);
+
+        var methodBodies = new BlobBuilder();
+        var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int AddBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(
+                instructions,
+                new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ldc_i4_1);
+            encoder.OpCode(ILOpCode.Ret);
+            return methodBodyEncoder.AddMethodBody(encoder, maxStack: 1);
+        }
+
+        MethodDefinitionHandle badIndexMethod = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("BadGenericIndex"),
+            metadata.GetOrAddBlob(methodSignature),
+            AddBody(),
+            MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle badIndexParameter = metadata.AddGenericParameter(
+            badIndexMethod,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        var badIndexConstraint = new BlobBuilder();
+        badIndexConstraint.WriteByte(0x1E);
+        badIndexConstraint.WriteCompressedInteger(1);
+        metadata.AddGenericParameterConstraint(
+            badIndexParameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(badIndexConstraint)));
+
+        void AddModifiedConstraintMethod(
+            string name,
+            TypeReferenceHandle underlyingType)
+        {
+            MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+            GenericParameterHandle parameter = metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                index: 0);
+            var constraint = new BlobBuilder();
+            constraint.WriteByte(0x1F);
+            constraint.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
+            constraint.WriteByte(0x12);
+            constraint.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(underlyingType) << 2) | 1);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(constraint)));
+        }
+
+        AddModifiedConstraintMethod("ModifiedConstraint", disposable);
+        AddModifiedConstraintMethod("ModifiedObjectConstraint", @object);
+        AddModifiedConstraintMethod("ModifiedValueTypeConstraint", valueType);
+
+        MethodDefinitionHandle fakeUnmanagedMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("FakeUnmanagedConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle fakeUnmanagedParameter =
+            metadata.AddGenericParameter(
+                fakeUnmanagedMethod,
+                GenericParameterAttributes.NotNullableValueTypeConstraint
+                    | GenericParameterAttributes.DefaultConstructorConstraint,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddCustomAttribute(
+            fakeUnmanagedParameter,
+            isUnmanagedConstructor,
+            metadata.GetOrAddBlob(
+                (byte[])[0x01, 0x00, 0x00, 0x00]));
+        var fakeUnmanagedConstraint = new BlobBuilder();
+        fakeUnmanagedConstraint.WriteByte(0x1F);
+        fakeUnmanagedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(fakeUnmanagedModifier) << 2)
+                | 1);
+        fakeUnmanagedConstraint.WriteByte(0x11);
+        fakeUnmanagedConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(coreValueType) << 2)
+                | 1);
+        metadata.AddGenericParameterConstraint(
+            fakeUnmanagedParameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(fakeUnmanagedConstraint)));
+
+        MethodDefinitionHandle flaglessValueTypeMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("FlaglessValueTypeConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle flaglessValueTypeParameter =
+            metadata.AddGenericParameter(
+                flaglessValueTypeMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            flaglessValueTypeParameter,
+            coreValueType);
+
+        MethodDefinitionHandle unmodifiedUnmanagedMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("UnmodifiedUnmanagedConstraint"),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle unmodifiedUnmanagedParameter =
+            metadata.AddGenericParameter(
+                unmodifiedUnmanagedMethod,
+                GenericParameterAttributes.NotNullableValueTypeConstraint
+                    | GenericParameterAttributes.DefaultConstructorConstraint,
+                metadata.GetOrAddString("U"),
+                index: 0);
+        metadata.AddCustomAttribute(
+            unmodifiedUnmanagedParameter,
+            isUnmanagedConstructor,
+            metadata.GetOrAddBlob(
+                (byte[])[0x01, 0x00, 0x00, 0x00]));
+        metadata.AddGenericParameterConstraint(
+            unmodifiedUnmanagedParameter,
+            coreValueType);
+
+        void AddConstraintMethod(
+            string name,
+            EntityHandle constraintType)
+        {
+            MethodDefinitionHandle method = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                metadata.GetOrAddBlob(methodSignature),
+                AddBody(),
+                MetadataTokens.ParameterHandle(1));
+            GenericParameterHandle parameter = metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("V"),
+                index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraintType);
+        }
+
+        var arityMismatchConstraint = new BlobBuilder();
+        arityMismatchConstraint.WriteByte(0x15);
+        arityMismatchConstraint.WriteByte(0x12);
+        arityMismatchConstraint.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(enumerable) << 2) | 1);
+        arityMismatchConstraint.WriteCompressedInteger(2);
+        arityMismatchConstraint.WriteByte(0x08);
+        arityMismatchConstraint.WriteByte(0x08);
+        AddConstraintMethod(
+            "ArityMismatchConstraint",
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(arityMismatchConstraint)));
+        AddConstraintMethod("FakeObjectConstraint", fakeObject);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string CreateUnavailableCanonicalSignatureFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "UnavailableCanonicalSignature.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("UnavailableCanonicalSignature.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("UnavailableCanonicalSignature"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("UnavailableCanonicalSignatureFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x14);
+        signature.WriteByte(0x08);
+        signature.WriteCompressedInteger(2);
+        signature.WriteCompressedInteger(1);
+        signature.WriteCompressedInteger(3);
+        signature.WriteCompressedInteger(0);
+
+        var methodBodies = new BlobBuilder();
+        var instructions = new BlobBuilder();
+        var instructionEncoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        instructionEncoder.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(instructionEncoder, maxStack: 0);
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            parameter);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static void DefineConstantMethod(
+        TypeBuilder type,
+        string name,
+        Type returnType)
+    {
+        MethodBuilder method = type.DefineMethod(
+            name,
+            MethodAttributes.Public | MethodAttributes.Static,
+            returnType,
+            Type.EmptyTypes);
+        ILGenerator body = method.GetILGenerator();
+        body.Emit(OpCodes.Ldc_I4_1);
+        body.Emit(OpCodes.Ret);
     }
 
     static void DeleteFixture(string assemblyPath)
