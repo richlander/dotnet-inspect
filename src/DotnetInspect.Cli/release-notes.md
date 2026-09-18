@@ -2,16 +2,31 @@
 
 ## Unreleased
 
+- **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
+  `@Integrations` categories, category-first alphabetical discovery, and
+  alphabetical multi-section output. Replace the former unprefixed
+  `-S Integrations` alias with `-S @Integrations`; exact
+  `-S "Known Integrations"` remains available. Computed `@All`, `@Default`,
+  and `@Hidden` selectors remain unsupported (#7453).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
-  heap inspection with named `--library`, `--package`, and `--platform` source
-  context. Heap coordinates remain bound to the selected `--metadata-root`. The
-  command reuses the existing coordinate sections, projections, discovery,
-  acquisition, and typed failures; legacy exact options remain available until
-  file mode and retirement slices complete the command transition (#7307).
+  heap inspection and `library coordinate --file <path>` for sparse IL
+  coordinate populations, with named `--library`, `--package`, and `--platform`
+  source context. File mode admits at most 1,024 significant records before
+  Library acquisition; blank and comment lines do not count, while malformed
+  records remain visible. Heap coordinates remain bound to the selected
+  `--metadata-root`. The command reuses the existing coordinate sections,
+  projections, discovery, acquisition, and typed failures; legacy coordinate
+  options remain available until the retirement slice completes the command
+  transition (#7307).
+- **Breaking:** `library coordinate --file` emits valid and malformed records
+  together in source-file order, and applies row windows after that ordering.
+  Legacy `library --il-offsets` continues to group malformed records first
+  during the transition (#7307).
 - **Breaking:** Replaces the separate `Integration: <concept>` library sections
   with one homogeneous `Integrations` section. Narrow it with
-  `--where "integration=integration.<concept>"`; use the orthogonal
-  `ecosystem` facet for configured ecosystem bindings. Renames
+  `--where "integration=integration.<concept>"`; use the composable `ecosystem`
+  facet to enable an ecosystem's registered Integration set. The current Aspire
+  registration enables the complete configured Integration catalog. Renames
   `Integration: Opportunities` to `Integration Opportunities`, while
   `@Integrations` continues to select both current sections.
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
