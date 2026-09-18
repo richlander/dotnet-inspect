@@ -3,8 +3,6 @@ using System.Globalization;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
-using NuGet.Frameworks;
-using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections;
@@ -523,16 +521,26 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         string id,
         string version,
         string? framework,
-        string? runtimeIdentifier) =>
-        new(
-            id.ToUpperInvariant(),
-            NuGetVersion.Parse(version).ToNormalizedString(),
-            framework is null
-                ? null
-                : NuGetFramework.Parse(framework)
-                    .GetShortFolderName()
-                    .ToUpperInvariant(),
+        string? runtimeIdentifier)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(id, version);
+        string? normalizedFramework = null;
+        if (framework is not null
+            && !NuGetTargetFrameworkIdentity.TryNormalize(
+                framework,
+                out normalizedFramework))
+        {
+            throw new InvalidOperationException(
+                "Prepared Package targets must use a recognized target framework.");
+        }
+
+        return new(
+            coordinate.PackageId,
+            coordinate.Version,
+            normalizedFramework,
             runtimeIdentifier?.ToLowerInvariant());
+    }
 
     private static PackageDependencyEvidenceGroupIdentity? GroupOf(
         PackageDependencyEvidenceDeclarationFailure failure) =>
