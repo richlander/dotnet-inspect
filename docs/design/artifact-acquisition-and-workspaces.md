@@ -2132,8 +2132,8 @@ compile asset selection succeeds. That host-neutral package-level result
 retains:
 
 - exact package id and version;
-- the requested target framework and the selector's selected framework, when
-  either exists;
+- the requested compile target, selected compile slice, and independently
+  selected implementation-universe target, when each exists;
 - the requested runtime identifier, when one participates in selection;
 - the package content producer key and cache origin;
 - the complete typed `PackageCompileAssetSelection`, including
@@ -2182,10 +2182,14 @@ The binding also retains compatible target-selection authorization separately
 from the observed selection outcome. Exact-only construction retains neither.
 Compatible construction retains authorization even when the exact compile
 slice wins, and additionally records compatible implementation use only when
-that path governs the frozen outcome. PackageHouse compile receipts map
-`ExplicitTarget` to compatible authorization and `HighestAvailable` or
-`ExactTarget` to no such authorization; the binding freezes the receipt's
-existing selection without invoking the selector again.
+that path governs the frozen outcome. The compile selector issues the selected
+implementation-universe target and compatible-use outcome as typed selection
+facts, including compatible ambiguity where no unique implementation target
+exists. Root binding consumes those facts directly rather than deriving
+identity from implementation asset paths or display text. PackageHouse compile
+receipts map `ExplicitTarget` to compatible authorization and
+`HighestAvailable` or `ExactTarget` to no such authorization; the binding
+freezes the receipt's existing selection without invoking the selector again.
 Public typed acquisition asks the runtime source identity to match its legacy
 configured-source identity against a private digest before any cache lookup or
 download. That check prevents one source from reading or publishing through
@@ -3186,9 +3190,9 @@ The request preserves six facts separately:
   froze the binding's implementation universe; and
 - whether the caller or owner-issued selection policy authorized compatible
   target selection; and
-- whether an exact compile-target miss actually invoked compatible
-  implementation selection, including when that selection produced no unique
-  universe.
+- whether implementation selection used a compatible universe relative to the
+  requested compile target, including when compatible selection produced no
+  unique universe.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
@@ -3352,17 +3356,29 @@ In `PackageAssemblyContextRealizationTests`,
 `PackageRootBinding_SourceSelectionPreservesCompatibleTargetAuthorization`
 gates owner-issued PackageHouse receipt mapping when compatible selection is
 observed;
+`PackageRootBinding_SourceSelectionPreservesImplementationUniverseTarget`
+gates an exact `ref/net10.0` compile slice paired with its selected
+`lib/net8.0` implementation universe;
 `PackageRootBinding_CompatibleAuthorizationSurvivesExactSelection` gates
-authorization retention when exact target selection wins; and
+authorization retention when exact target selection wins;
+`PackageRootBinding_CompatibleSelectionPreservesLowerImplementationTarget`
+gates the same split for the public compatible-construction path; and
 `CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget` gates
 reacquisition rejection when replacement content changes that prior exact
 selection outcome.
+`CompatibleImplementationRequest_RejectsReplacementImplementationTarget`
+gates rejection when the compile slice remains `ref/net10.0` but the
+implementation universe changes from `lib/net8.0` to `lib/net7.0`.
 `CompatibleAmbiguousRequest_RejectsReplacementWithSelectedTarget` gates the
 same rejection when a prior no-unique-target outcome becomes a uniquely
 selected replacement target.
-`PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
+`CompatibleAmbiguousRequest_RejectsReplacementWithExactOutcome` gates the
+otherwise-equal-target case where compatible ambiguity becomes exact and the
+observed compatible-use fact changes.
+`PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSlice`
 gates the compatible-selection round trip, including token transport and exact
-empty-group preservation.
+empty-group preservation while retaining its independently selected lower
+implementation universe.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
 compatible-selection intent when no unique implementation universe exists.
 
@@ -3370,6 +3386,9 @@ In `PackageHouseExecutionTests`,
 `ExactCompileRealizeKeepsRequestedAndSelectedFrameworksDistinct` gates
 independent retention of the requested compile target, selected implementation
 target, compatible-selection authorization, and observed compatible use.
+`ExactCompileRealizePreservesCompatibleImplementationUniverse` gates the
+production adapter when an exact `ref/net10.0` compile slice uses a
+`lib/net8.0` implementation universe.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

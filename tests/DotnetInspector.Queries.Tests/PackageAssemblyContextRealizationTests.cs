@@ -407,6 +407,100 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void
+        PackageRootBinding_SourceSelectionPreservesImplementationUniverseTarget()
+    {
+        const string packageId = "compatible.split.receipt";
+        var content = new InMemoryPackageContent(
+            Archive(
+                ("ref/net10.0/Compatible.Split.Receipt.dll", [0x01]),
+                ("lib/net8.0/Compatible.Split.Receipt.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net10.0");
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                receipt);
+        PackageRootReacquisitionRequest request =
+            binding.CreateReacquisitionRequest();
+
+        Assert.Equal("net10.0", receipt.Selection.TargetFramework);
+        Assert.Equal(
+            "net8.0",
+            receipt.Selection.ImplementationTargetFramework);
+        Assert.True(
+            receipt.Selection.UsesCompatibleImplementationSelection);
+        Assert.Equal("net10.0", request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.True(request.AllowsCompatibleTargetSelection);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Fact]
+    public void
+        CompatibleImplementationRequest_RejectsReplacementImplementationTarget()
+    {
+        const string packageId = "compatible.split.replacement";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, "1.0.0");
+        var initialContent = new InMemoryPackageContent(
+            Archive(
+                ("ref/net10.0/Compatible.Split.Replacement.dll", [0x01]),
+                ("lib/net8.0/Compatible.Split.Replacement.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        var initialPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            initialContent,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                initialContent,
+                packageId,
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net10.0");
+        PackageRootReacquisitionRequest request =
+            PackageRootBinding.CreateFromSourceSelection(
+                initialPayload,
+                receipt).CreateReacquisitionRequest();
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("ref/net10.0/Compatible.Split.Replacement.dll", [0x03]),
+                    ("lib/net7.0/Compatible.Split.Replacement.dll", [0x04])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootRebindingOutcome.Failed failure =
+            Assert.IsType<PackageRootRebindingOutcome.Failed>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload));
+
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind
+                .SelectionRequestNotReproduced,
+            failure.Kind);
+    }
+
+    [Fact]
     public void PackageRootSelectionIdentity_DifferentAssetsChangeIdentity()
     {
         PackageSourceCoordinate coordinate =
@@ -514,6 +608,40 @@ public sealed class PackageAssemblyContextRealizationTests
 
     [Fact]
     public void
+        PackageRootBinding_CompatibleSelectionPreservesLowerImplementationTarget()
+    {
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(
+                "compatible.split",
+                "1.0.0"),
+            new InMemoryPackageContent(
+                Archive(
+                    ("ref/net10.0/Compatible.Split.dll", [0x01]),
+                    ("lib/net8.0/Compatible.Split.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                "net10.0");
+        PackageRootReacquisitionRequest request =
+            binding.CreateReacquisitionRequest();
+
+        Assert.Equal("net10.0", binding.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            "net8.0",
+            binding.Root.AssetSelection.ImplementationTargetFramework);
+        Assert.Equal("net10.0", request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.True(request.AllowsCompatibleTargetSelection);
+        Assert.True(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Fact]
+    public void
         CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget()
     {
         PackageSourceCoordinate coordinate =
@@ -578,11 +706,14 @@ public sealed class PackageAssemblyContextRealizationTests
                 "net9.0");
 
         Assert.Equal("net9.0", binding.Coordinate.Framework);
-        Assert.Equal("net8.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             binding.Root.AssetSelection.Status);
         Assert.Equal("net8.0", binding.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            "net6.0",
+            binding.Root.AssetSelection.ImplementationTargetFramework);
         Assert.Empty(binding.Root.AssetSelection.Assets);
         Assert.Equal(
             ["lib/net6.0/Compatible.Empty.dll"],
@@ -591,7 +722,7 @@ public sealed class PackageAssemblyContextRealizationTests
             binding.CreateReacquisitionRequest();
         Assert.Equal("net9.0", reacquisition.Coordinate.Framework);
         Assert.Equal("net9.0", reacquisition.CompileTargetFramework);
-        Assert.Equal("net8.0", reacquisition.SelectionTargetFramework);
+        Assert.Equal("net6.0", reacquisition.SelectionTargetFramework);
         Assert.True(reacquisition.UsesCompatibleImplementationSelection);
     }
 
@@ -623,7 +754,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 PackageRootAcquisition.BindReacquired(request, payload)).Binding;
 
         Assert.Equal("net9.0", request.CompileTargetFramework);
-        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.Equal("net6.0", request.SelectionTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             reopened.Root.AssetSelection.Status);
@@ -661,11 +792,14 @@ public sealed class PackageAssemblyContextRealizationTests
                 "net9.0");
 
         Assert.Equal("net9.0", binding.Coordinate.Framework);
-        Assert.Equal("net8.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal("net6.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             binding.Root.AssetSelection.Status);
         Assert.Equal("net8.0", binding.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            "net6.0",
+            binding.Root.AssetSelection.ImplementationTargetFramework);
         Assert.Empty(binding.Root.AssetSelection.Assets);
         Assert.Equal(
             ["lib/net6.0/Compatible.Empty.dll"],
@@ -798,6 +932,49 @@ public sealed class PackageAssemblyContextRealizationTests
                     request,
                     replacementPayload));
 
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failure.Kind);
+    }
+
+    [Fact]
+    public void
+        CompatibleAmbiguousRequest_RejectsReplacementWithExactOutcome()
+    {
+        const string packageId = "invalid.compatible.exact.replacement";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, "1.0.0");
+        var initialPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/netcoreapp5.0/Legacy.dll", [0x01]),
+                    ("lib/net5.0/Modern.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootReacquisitionRequest request =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                initialPayload,
+                "net9.0").CreateReacquisitionRequest();
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net9.0/Exact.dll", [0x03])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootRebindingOutcome.Failed failure =
+            Assert.IsType<PackageRootRebindingOutcome.Failed>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload));
+
+        Assert.Equal("net9.0", request.SelectionTargetFramework);
+        Assert.True(request.UsesCompatibleImplementationSelection);
         Assert.Equal(
             PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
             failure.Kind);
