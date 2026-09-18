@@ -690,6 +690,16 @@ static class DtsEmitter
                 $"{function.Name} delegate parameters",
                 "invalid delegate parameter association");
         }
+        bool validParameterWireBindings = TryIndexParameterWireBindings(
+            function,
+            out IReadOnlyDictionary<int, JsExportParameterWireBinding>
+                parameterWireBindings);
+        if (!validParameterWireBindings)
+        {
+            effectiveDiagnostics.ReportUnmappedType(
+                $"{function.Name} JSON input parameters",
+                "invalid JSON input parameter association");
+        }
         IReadOnlyDictionary<string, string> publicReturnTypeNames =
             MappedTypeNames(
                 typeEnvironment,
@@ -749,33 +759,59 @@ static class DtsEmitter
             effectiveDiagnostics.UnmappedTypes.Count
                 == returnDiagnosticsBefore;
         TypeScriptParameterSignature[] parameters =
-            validDelegateAssociations
+            validDelegateAssociations && validParameterWireBindings
                 ?
                 [
                     .. function.Parameters.Select((parameter, index) =>
-                        new TypeScriptParameterSignature(
-                            CamelCase.FromPascalCase(parameter.Name),
-                            TsTypeMapper.MapParameterType(
-                                parameter.Type,
+                    {
+                        string rawType = TsTypeMapper.MapParameterType(
+                            parameter.Type,
+                            typeEnvironment.KnownTypeNames,
+                            effectiveDiagnostics,
+                            $"{function.Name}.{parameter.Name}",
+                            BlockedAliases(
+                                parameter.TypeReferences,
+                                typeEnvironment.KnownTypeNames,
+                                typeEnvironment.KnownTypeIdentities),
+                            MappedTypeNames(
+                                typeEnvironment,
+                                parameter.TypeReferences),
+                            delegateParameters.GetValueOrDefault(index),
+                            typeEnvironment.DelegateMappingContext);
+                        JsExportParameterWireBinding? wireBinding =
+                            parameterWireBindings.GetValueOrDefault(index);
+                        string publicType = wireBinding is null
+                            ? rawType
+                            : TsTypeMapper.MapJsonWireType(
+                                wireBinding.WireType,
                                 typeEnvironment.KnownTypeNames,
                                 effectiveDiagnostics,
                                 $"{function.Name}.{parameter.Name}",
                                 BlockedAliases(
-                                    parameter.TypeReferences,
+                                    wireBinding.WireTypeReferences,
                                     typeEnvironment.KnownTypeNames,
                                     typeEnvironment.KnownTypeIdentities),
                                 MappedTypeNames(
                                     typeEnvironment,
-                                    parameter.TypeReferences),
-                                delegateParameters.GetValueOrDefault(index),
-                                typeEnvironment.DelegateMappingContext))),
+                                    wireBinding.WireTypeReferences),
+                                wireBinding.WireTypeShape,
+                                typeEnvironment.IdentityNames,
+                                typeEnvironment.UnionContext);
+                        return new TypeScriptParameterSignature(
+                            CamelCase.FromPascalCase(parameter.Name),
+                            rawType,
+                            publicType,
+                            wireBinding is not null);
+                    }),
                 ]
                 :
                 [
                     .. function.Parameters.Select(parameter =>
                         new TypeScriptParameterSignature(
                             CamelCase.FromPascalCase(parameter.Name),
-                            "unknown")),
+                            "unknown",
+                            "unknown",
+                            false)),
                 ];
 
         return new TypeScriptFunctionSignature(
@@ -2114,7 +2150,8 @@ static class DtsEmitter
           .Append(string.Join(
               ", ",
               signature.Parameters.Select(
-                  parameter => $"{parameter.Name}: {parameter.Type}")))
+                  parameter =>
+                      $"{parameter.Name}: {parameter.PublicType}")))
           .Append("): ")
           .Append(signature.PublicReturnType)
           .Append(";\n");
@@ -2143,6 +2180,31 @@ static class DtsEmitter
         }
 
         delegateParameters = indexed;
+        return true;
+    }
+
+    static bool TryIndexParameterWireBindings(
+        JsExportFunction function,
+        out IReadOnlyDictionary<int, JsExportParameterWireBinding>
+            parameterWireBindings)
+    {
+        var indexed =
+            new Dictionary<int, JsExportParameterWireBinding>();
+        foreach (JsExportParameterWireBinding binding
+            in function.ParameterWireBindings)
+        {
+            if (binding is null
+                || binding.ParameterIndex < 0
+                || binding.ParameterIndex >= function.Parameters.Count
+                || !indexed.TryAdd(binding.ParameterIndex, binding))
+            {
+                parameterWireBindings =
+                    new Dictionary<int, JsExportParameterWireBinding>();
+                return false;
+            }
+        }
+
+        parameterWireBindings = indexed;
         return true;
     }
 

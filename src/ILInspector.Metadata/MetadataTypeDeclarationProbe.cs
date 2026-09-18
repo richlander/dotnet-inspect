@@ -35,15 +35,6 @@ public static class MetadataTypeDeclarationProbe
                 System.Text.Encoding.UTF8.GetByteCount(segment);
         }
         comparisonWork = Math.Max(comparisonWork, 1);
-        if (comparisonWork
-            > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
-        {
-            return new TypeDeclarationResult.Rejected(
-                MetadataTypeNameFailure.Malformed(
-                    default,
-                    "The exact TypeDef name exceeds the structural-name "
-                    + "work budget."));
-        }
 
         long remainingWork =
             MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
@@ -64,11 +55,11 @@ public static class MetadataTypeDeclarationProbe
                     remainingWork -= comparisonWork;
                     if (remainingWork < 0)
                     {
-                        return new TypeDeclarationResult.Rejected(
-                            MetadataTypeNameFailure.Malformed(
-                                handle,
-                                "The exact TypeDef lookup exceeded its "
-                                + "structural-name work budget."));
+                        return new TypeDeclarationResult.BudgetExceeded(
+                            MetadataSafetyPolicy
+                                .MaxStructuralSignatureWorkChars,
+                            "The exact TypeDef lookup exceeded its "
+                                + "structural-name work budget.");
                     }
                 }
             }

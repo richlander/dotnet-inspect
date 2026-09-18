@@ -172,9 +172,11 @@ public sealed class MethodBodyInspectionSession
 The exact method names and execution-publication shape land with the first
 section migration. The boundary should not:
 
-- `Open` captures command-selected capability and body-scope policy
+- `Open` captures command-selected capability and body-scope policy, creates a
+  `LibraryBodyAnalysisRequest`, and delegates path or prefetched-image
+  execution to `LibraryBodyAnalysisService`
 - one session builds and reuses one Analysis service execution per command
-- neutral Analysis queries consume focused Analysis-owned results
+- migrated neutral Analysis queries consume focused Analysis-owned results
 - `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes

@@ -571,6 +571,7 @@ import type {
   BrowserPackagePruningResult,
   BrowserPackageSurface,
   BrowserExactLibraryApiInspection,
+  BrowserTypeCandidate,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
 } from "./facades/inspect-web-package.d.ts";
@@ -908,7 +909,7 @@ interface SpotlightCache {
   signature: string;
   pool: Array<{ pkg: AppPackage; type: AppTypeSurface }>;
   keyMap: Map<string, { pkg: AppPackage; type: AppTypeSurface }>;
-  candidatesJson: string;
+  candidates: ReadonlyArray<BrowserTypeCandidate>;
 }
 
 type HighlightRange = readonly [start: number, end: number];
@@ -2676,7 +2677,7 @@ const workspaceLocation = createAsyncWorkspaceLocationPersistence({
       "",
       url),
   decode: value => inspectDecodeWorkspaceShareState(value),
-  encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
+  encode: shareState => inspectEncodeWorkspaceShareState(shareState),
 });
 let pendingDemoNavigation: {
   navigationSeq: number;
@@ -6015,7 +6016,7 @@ async function uniqueCompatiblePackage(
   const match = await engineClient.package.matchPackageDependencyCoordinate(
     packageId,
     declaredRange ?? null,
-    JSON.stringify(dependencyCoordinateCandidates(packages)));
+    dependencyCoordinateCandidates(packages));
   if (match.outcome !== "Unique") return null;
   return packages.find(candidate =>
     packageIdentityKey(candidate) === match.candidateKey) || null;
@@ -8713,7 +8714,7 @@ function spotlightCandidates() {
     signature,
     pool,
     keyMap,
-    candidatesJson: JSON.stringify(candidates),
+    candidates,
   };
   return spotlightCache;
 }
@@ -8823,7 +8824,7 @@ function spotlightTypeMatches(query: string) {
     return spotlightTypeRanking.matches;
   if (pendingSpotlightTypeRankingKey !== key) {
     pendingSpotlightTypeRankingKey = key;
-    void inspectSearchTypes(query, cache.candidatesJson).then(
+    void inspectSearchTypes(query, cache.candidates).then(
       hits => {
         if (pendingSpotlightTypeRankingKey !== key) return undefined;
         const lowerQuery = query.toLowerCase();
@@ -13317,7 +13318,7 @@ async function renderDependencyGraph() {
         const roles =
           await engineClient.package.classifyPackageGraphIdentities(
             inspectedPackageId,
-            JSON.stringify(packageIds),
+            packageIds,
           );
         return roles.map(role => {
           switch (role) {

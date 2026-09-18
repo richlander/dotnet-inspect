@@ -162,7 +162,7 @@ public partial class PackageCommand
                     result.Version ?? string.Empty,
                     sourceByRow[row],
                     options.ContentScope,
-                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
                     includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
                 return content.SelectedContent is { } selected
