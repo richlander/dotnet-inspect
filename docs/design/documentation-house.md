@@ -318,6 +318,19 @@ platform target, derive a sibling path, enumerate an ambient directory,
 directly invoke SourceHouse, or reacquire content already represented by the
 Library.
 
+The PlatformHouse integration follows the same boundary. A one-Library
+realization may explicitly request `CompiledXmlDocumentation` content together
+with a reference view. Installed and package-backed Platform sources then
+snapshot the exact same-basename reference-pack companion, when present, under
+the existing byte, XML-document, duration, and source-operation bounds.
+PlatformHouse publishes that content in the assembly's Artifact generation and
+constructs its `CompiledXmlDocumentation` Library correspondence, but performs
+no XML parsing or documentation settlement. A completed requested realization
+without that companion proves authoritative absence; a realization that did
+not request it proves only unavailability. The separately compiled
+`DotnetInspector.DocumentationHouse.Platform` adapter maps those states to one
+source-neutral contribution and retains no Library or Artifact authority.
+
 ## Documentation demand
 
 The initial demand is closed:
@@ -912,7 +925,7 @@ assembly and XML companion in the .NET 11 reference pack.
 7. **Completed.** Adopt package compiled documentation in Inspect Web;
 8. **Completed.** Adopt package and direct-library compiled documentation in
    the CLI;
-9. add the PlatformHouse adapter;
+9. **Completed.** Add the PlatformHouse adapter;
 10. remove PlatformHouse's superseded documentation contracts;
 11. adopt platform reference-pack compiled documentation in Inspect Web;
 12. adopt platform reference-pack compiled documentation in the CLI;
