@@ -1110,6 +1110,138 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.DoesNotContain("HTTP 401", error);
     }
 
+    [Fact]
+    public async Task PackageVersionListing_EnvelopeRetainsPartialEvidenceAndCount()
+    {
+        string packageName = $"PartialVersionEnvelope{Guid.NewGuid():N}";
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--count",
+                    "--envelope",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(
+            "package-version-listing",
+            root.GetProperty("result_kind").GetString());
+        JsonElement content = root.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("kind").GetString());
+        JsonElement document = content.GetProperty("document");
+        Assert.Equal(
+            "Partial",
+            document.GetProperty("completeness").GetString());
+        Assert.Equal(2, document.GetProperty("versions").GetArrayLength());
+        Assert.Equal(
+            2,
+            content.GetProperty("count")
+                .GetProperty("result")
+                .GetProperty("value").GetInt32());
+        Assert.Single(root.GetProperty("diagnostics").EnumerateArray());
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_EnvelopeRetainsSourceCountCohort()
+    {
+        string packageName = $"VersionFeedEnvelope{Guid.NewGuid():N}";
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    packageName,
+                    "--versions-with-feed",
+                    "--count",
+                    "--envelope",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        JsonElement document = content.GetProperty("document");
+        int sourceCount =
+            document.GetProperty("sourceListings").GetArrayLength();
+        Assert.Equal(2, sourceCount);
+        JsonElement count = content.GetProperty("count");
+        Assert.Equal(
+            "SourceListings",
+            count.GetProperty("result").GetProperty("cohort").GetString());
+        Assert.Equal(
+            sourceCount,
+            count.GetProperty("result").GetProperty("value").GetInt32());
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_EnvelopeRetainsTypedSourceFailure()
+    {
+        string packageName = $"FailedVersionEnvelope{Guid.NewGuid():N}";
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "1.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--envelope",
+                    "--source",
+                    RefusedSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(
+            "notAvailable",
+            content.GetProperty("kind").GetString());
+        JsonElement failure = content.GetProperty("failure");
+        JsonElement authorityFailure =
+            Assert.Single(
+                failure.GetProperty("authorityFailures").EnumerateArray());
+        Assert.Equal(
+            "AuthenticationRequired",
+            authorityFailure.GetProperty("kind").GetString());
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("--versions", "--head", "false", false)]
     [InlineData("--versions", "--tail", "false", false)]

@@ -147,6 +147,123 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Versions_EnvelopePreservesTheCompleteListing()
+    {
+        var result = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--envelope");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "package-version-listing",
+            root.GetProperty("result_kind").GetString());
+        JsonElement content = root.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("kind").GetString());
+        JsonElement document = content.GetProperty("document");
+        Assert.Equal(
+            "system.text.json",
+            document.GetProperty("request").GetProperty("packageId").GetString());
+        Assert.Equal(
+            "Authoritative",
+            document.GetProperty("completeness").GetString());
+        Assert.True(document.GetProperty("versions").GetArrayLength() > 1);
+        Assert.Equal(JsonValueKind.Null, content.GetProperty("count").ValueKind);
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Versions_CountSupportsScalarJsonAndCompleteEnvelope()
+    {
+        var scalar = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--count");
+        var scalarJson = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--count",
+            "--json");
+        var envelope = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--count",
+            "--envelope");
+        var selectedScalar = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--count",
+            "-n",
+            "1");
+        var selectedEnvelope = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--versions",
+            "--count",
+            "-n",
+            "1",
+            "--envelope");
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Empty(scalar.Error);
+        int count = int.Parse(scalar.Output.Trim());
+        Assert.True(count > 1);
+        Assert.Equal((0, count.ToString(), ""), (
+            scalarJson.Exit,
+            scalarJson.Output.Trim(),
+            scalarJson.Error));
+        Assert.Equal(0, envelope.Exit);
+        Assert.Empty(envelope.Error);
+        using JsonDocument json = JsonDocument.Parse(envelope.Output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(
+            count,
+            content.GetProperty("document")
+                .GetProperty("versions").GetArrayLength());
+        JsonElement countOutcome = content.GetProperty("count");
+        Assert.Equal(
+            "completed",
+            countOutcome.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Versions",
+            countOutcome.GetProperty("result").GetProperty("cohort").GetString());
+        Assert.Equal(
+            count,
+            countOutcome.GetProperty("result").GetProperty("value").GetInt32());
+        Assert.Equal((0, "1", ""), (
+            selectedScalar.Exit,
+            selectedScalar.Output.Trim(),
+            selectedScalar.Error));
+        Assert.Equal(0, selectedEnvelope.Exit);
+        Assert.Empty(selectedEnvelope.Error);
+        using JsonDocument selectedJson =
+            JsonDocument.Parse(selectedEnvelope.Output);
+        JsonElement selectedContent =
+            selectedJson.RootElement.GetProperty("content");
+        Assert.Equal(
+            count,
+            selectedContent.GetProperty("document")
+                .GetProperty("versions").GetArrayLength());
+        Assert.Equal(
+            1,
+            selectedContent.GetProperty("count")
+                .GetProperty("result")
+                .GetProperty("value").GetInt32());
+    }
+
+    [Fact]
     public async Task Versions_BareShorthandAndTailSelectRows()
     {
         var (headExit, headOutput, headError) = await RunAppAsync(
@@ -845,6 +962,57 @@ public class PackageVersionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("--envelope cannot be combined", result.Error);
+    }
+
+    [Theory]
+    [InlineData("System.Text.Json@8.0.0")]
+    [InlineData("System.Text.Json@latest")]
+    public async Task ListingEnvelope_RejectsNonPopulationPackageReference(
+        string packageReference)
+    {
+        var result = await RunAppAsync(
+            "package",
+            packageReference,
+            "--versions",
+            "--envelope");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--envelope on package requires one unversioned package",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task ListingEnvelope_RequiresAnExplicitPluralVersionGesture()
+    {
+        var result = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "--count",
+            "--envelope");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "with --versions or --versions-with-feed",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task ListingEnvelope_RejectsLocalFile()
+    {
+        var result = await RunAppAsync(
+            "package",
+            typeof(PackageVersionTests).Assembly.Location,
+            "--versions",
+            "--envelope");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--envelope on package requires one unversioned package",
+            result.Error);
     }
 
     [Fact]
