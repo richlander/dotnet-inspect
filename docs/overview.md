@@ -51,6 +51,9 @@ substrates, and inspection producers that will extend that space.
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,
   subject, and Section owner retains its semantic contract.
+  [Relationship Section Naming](design/relationship-section-naming.md) owns the
+  user-visible grammar that distinguishes direct relationship evidence, rooted
+  hierarchies, identity-preserving graphs, and optional analyses.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
