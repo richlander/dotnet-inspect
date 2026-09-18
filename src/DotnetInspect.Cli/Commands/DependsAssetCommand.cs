@@ -171,6 +171,11 @@ public partial class DependsCommand
 
         try
         {
+            CommandContext inspectionContext =
+                options.ShareFormat is not null
+                && !options.EnvelopeOutput
+                    ? context.WithVerboseLogging(enabled: false)
+                    : context;
             var builder = new EvidenceInspectionBuilder<
                 DependencyInspectionContent,
                 DependencyInspectionEvidenceDocument>();
@@ -179,7 +184,7 @@ public partial class DependsCommand
                 || DependsAssetSections.RequestsEvidence(includeSections));
             var state = new DependsAssetInspectionState(
                 options,
-                context,
+                inspectionContext,
                 plan,
                 options.Effective && options.Depth is null
                     ? 1
@@ -360,6 +365,12 @@ public partial class DependsCommand
             DependsAssetInspectionState operation,
             CancellationToken cancellationToken)
     {
+        using IDisposable? networkTrafficLogSuppression =
+            operation.Options.ShareFormat is not null
+            && !operation.Options.EnvelopeOutput
+                ? DotnetInspector.Networking.HttpClientFactory
+                    .SuppressNetworkTrafficLogging()
+                : null;
         DependsAssetProjection projection =
             await AcquireAssetProjectionAsync(
                 operation.Options,

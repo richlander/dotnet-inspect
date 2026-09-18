@@ -381,6 +381,7 @@ public sealed class DependsAssetCommandTests
             "https://api.nuget.org/v3/index.json",
             "--share",
             "packet",
+            "--verbose",
         ];
         (int baselineExitCode, string baselineOutput, string baselineError) =
             await RunCapturedOfflineAsync(arguments);
@@ -453,6 +454,7 @@ public sealed class DependsAssetCommandTests
             "https://api.nuget.org/v3/index.json",
             "--share",
             "packet",
+            "--verbose",
         ];
         var baseline = await RunCapturedWithPackageFeedAsync(
             arguments,
@@ -474,6 +476,7 @@ public sealed class DependsAssetCommandTests
         Assert.True(
             baseline.ExitCode == 0,
             $"Baseline stderr:{Environment.NewLine}{baseline.Error}");
+        Assert.NotEmpty(baseline.Error);
         Assert.True(
             evidence.ExitCode == baseline.ExitCode,
             $"Evidence stderr:{Environment.NewLine}{evidence.Error}");
@@ -4176,7 +4179,16 @@ public sealed class DependsAssetCommandTests
                     new HttpClientHandler()));
         try
         {
-            var result = await RunCapturedAsync(args);
+            var result = await ConsoleCapture.RunAsync(async errorWriter =>
+            {
+                using IDisposable trafficLogging =
+                    DotnetInspector.Networking.HttpClientFactory
+                        .EnableNetworkTrafficLogging(
+                            CSharpText.CSharpIdentifier
+                                .ContainRenderedText,
+                            errorWriter);
+                return await RunAsync(args);
+            });
             return (
                 result.ExitCode,
                 result.Output,
