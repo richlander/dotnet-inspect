@@ -1,5 +1,7 @@
 using System.CommandLine;
+using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -428,6 +430,132 @@ public sealed class DependsAssetCommandTests
             failure.GetProperty("coordinate")
                 .GetProperty("version")
                 .GetString());
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesLatestPackageShareAndSettledCoordinate()
+    {
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+        if (!buildProbe.IsDebugBuild)
+            return;
+
+        const string packageId = "Contoso.Share.Latest";
+        const string version = "2.0.0";
+        string[] arguments =
+        [
+            "depends",
+            "--package",
+            $"{packageId}@LaTeSt",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+        ];
+        var baseline = await RunCapturedWithPackageFeedAsync(
+            arguments,
+            packageId,
+            version);
+        string evidencePath = Path.Combine(
+            CreateTemporaryDirectory(),
+            "evidence.json");
+
+        var evidence = await RunCapturedWithPackageFeedAsync(
+            [
+                .. arguments,
+                "--evidence-envelope",
+                evidencePath,
+            ],
+            packageId,
+            version);
+
+        Assert.True(
+            baseline.ExitCode == 0,
+            $"Baseline stderr:{Environment.NewLine}{baseline.Error}");
+        Assert.True(
+            evidence.ExitCode == baseline.ExitCode,
+            $"Evidence stderr:{Environment.NewLine}{evidence.Error}");
+        Assert.Equal(baseline.Output, evidence.Output);
+        Assert.Equal(
+            baseline.Error
+                + $"Evidence envelope: {evidencePath}{Environment.NewLine}",
+            evidence.Error);
+        Assert.Single(
+            evidence.Requests,
+            static request => request.Host.Equals(
+                "azuresearch-usnc.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+
+        using JsonDocument enriched = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                evidencePath,
+                TestContext.Current.CancellationToken));
+        JsonElement failure = Assert.Single(
+            enriched.RootElement.GetProperty("evidence")
+                .GetProperty("packageInputs")
+                .GetProperty("failedRoots")
+                .EnumerateArray());
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            failure.GetProperty("coordinate")
+                .GetProperty("packageId")
+                .GetString());
+        Assert.Equal(
+            version,
+            failure.GetProperty("coordinate")
+                .GetProperty("version")
+                .GetString());
+        Assert.Equal(
+            $"{packageId}@LaTeSt",
+            failure.GetProperty("sourceLabel").GetString());
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesReservedPackageShareRefusal()
+    {
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+        if (!buildProbe.IsDebugBuild)
+            return;
+
+        string[] arguments =
+        [
+            "depends",
+            "--package",
+            "Microsoft.NETCore.App@8.0.0",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+        ];
+        var baseline = await RunCapturedWithPackageFeedAsync(
+            arguments,
+            "Microsoft.NETCore.App",
+            "8.0.0");
+        string evidencePath = Path.Combine(
+            CreateTemporaryDirectory(),
+            "evidence.json");
+
+        var evidence = await RunCapturedWithPackageFeedAsync(
+            [
+                .. arguments,
+                "--evidence-envelope",
+                evidencePath,
+            ],
+            "Microsoft.NETCore.App",
+            "8.0.0");
+
+        Assert.Equal(1, baseline.ExitCode);
+        Assert.Equal(baseline.ExitCode, evidence.ExitCode);
+        Assert.Equal(baseline.Output, evidence.Output);
+        Assert.Equal(baseline.Error, evidence.Error);
+        Assert.Empty(baseline.Requests);
+        Assert.Empty(evidence.Requests);
+        Assert.False(File.Exists(evidencePath));
     }
 
     [Fact]
@@ -4018,6 +4146,56 @@ public sealed class DependsAssetCommandTests
             }
         });
 
+    private static async Task<(
+        int ExitCode,
+        string Output,
+        string Error,
+        ConcurrentQueue<Uri> Requests)> RunCapturedWithPackageFeedAsync(
+            string[] args,
+            string packageId,
+            string version)
+    {
+        var requests = new ConcurrentQueue<Uri>();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetAuthenticationDecorator(
+                innerHandler => new PackageFeedHandler(
+                    packageId,
+                    version,
+                    requests,
+                    innerHandler));
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory
+            .ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetPackageSourceHandlerForTesting(
+                _ => new PackageFeedHandler(
+                    packageId,
+                    version,
+                    requests,
+                    new HttpClientHandler()));
+        try
+        {
+            var result = await RunCapturedAsync(args);
+            return (
+                result.ExitCode,
+                result.Output,
+                result.Error,
+                requests);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory
+                .SetPackageSourceHandlerForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+        }
+    }
+
     private static Task<int> RunAsync(string[] args)
     {
         RootCommand root = CommandLineBuilder.CreateRootCommand();
@@ -4057,6 +4235,54 @@ public sealed class DependsAssetCommandTests
         internal void Mark()
         {
             IsDebugBuild = true;
+        }
+    }
+
+    private sealed class PackageFeedHandler(
+        string packageId,
+        string version,
+        ConcurrentQueue<Uri> requests,
+        HttpMessageHandler innerHandler)
+        : DelegatingHandler(innerHandler)
+    {
+        private const string FlatContainer =
+            "https://api.nuget.org/v3-flatcontainer/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            requests.Enqueue(uri);
+            string path = uri.GetLeftPart(UriPartial.Path);
+            string? body = uri.Host.Equals(
+                    "azuresearch-usnc.nuget.org",
+                    StringComparison.OrdinalIgnoreCase)
+                ? $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""
+                : path switch
+                {
+                    "https://api.nuget.org/v3/index.json" => $$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "{{FlatContainer}}",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            }
+                          ]
+                        }
+                        """,
+                    _ => null,
+                };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? ""),
+                RequestMessage = request,
+            });
         }
     }
 

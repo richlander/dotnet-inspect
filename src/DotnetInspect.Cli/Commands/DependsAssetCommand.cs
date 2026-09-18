@@ -68,15 +68,34 @@ public partial class DependsCommand
                 "--envelope currently requires --evidence-envelope in asset-mode depends.");
             return 1;
         }
-        if (options.ShareFormat is not null
-            && options.EvidenceEnvelopePath is null)
+        var context = new CommandContext(options.Verbose);
+        DependsShareProjection.AssetSharePreparation.Projectable?
+            sharePreparation = null;
+        if (options.ShareFormat is { } preparedShareFormat)
         {
-            var shareContext = new CommandContext(options.Verbose);
-            return await DependsShareProjection.WriteAsync(
-                options,
-                shareContext.HttpClient,
-                shareContext.Logger,
-                cancellationToken).ConfigureAwait(false);
+            DependsShareProjection.AssetSharePreparation preparation =
+                await DependsShareProjection.PrepareAssetAsync(
+                    options,
+                    context.HttpClient,
+                    context.Logger,
+                    cancellationToken).ConfigureAwait(false);
+            if (preparation
+                is DependsShareProjection.AssetSharePreparation.Rejected)
+            {
+                return DependsShareProjection.WriteAsset(
+                    preparation,
+                    preparedShareFormat);
+            }
+
+            sharePreparation =
+                (DependsShareProjection.AssetSharePreparation.Projectable)
+                    preparation;
+            if (options.EvidenceEnvelopePath is null)
+            {
+                return DependsShareProjection.WriteAsset(
+                    preparation,
+                    preparedShareFormat);
+            }
         }
 
         SectionCatalog<DependsAssetProjection> catalog =
@@ -150,7 +169,6 @@ public partial class DependsCommand
             return 1;
         }
 
-        var context = new CommandContext(options.Verbose);
         try
         {
             var builder = new EvidenceInspectionBuilder<
@@ -166,7 +184,8 @@ public partial class DependsCommand
                 options.Effective && options.Depth is null
                     ? 1
                     : options.Depth,
-                pruneSource);
+                pruneSource,
+                sharePreparation);
             (
                 InspectionEnvelope<DependencyInspectionContent> inspection,
                 EvidenceInspectionEnvelope<
@@ -348,54 +367,15 @@ public partial class DependsCommand
                 operation.Plan,
                 operation.TraversalDepth,
                 operation.PruneSource,
+                operation.SharePreparation,
                 cancellationToken).ConfigureAwait(false);
         operation.Projection = projection;
         return (
             projection.Result,
-            CreateAssetInspectionShare(
-                operation.Options,
-                projection));
-    }
-
-    private static InspectionShare CreateAssetInspectionShare(
-        DependsOptions options,
-        DependsAssetProjection projection)
-    {
-        if (options.ShareFormat is null)
-        {
-            return new InspectionShare.NonProjectable(
+            operation.SharePreparation?.Share
+                ?? new InspectionShare.NonProjectable(
                 "asset-dependencies/share",
-                "Share projection was not requested.");
-        }
-
-        PackageDependencyEvidenceOutcome packageInputs =
-            projection.Evidence.PackageInputs;
-        PackageSourceCoordinate? coordinate =
-            packageInputs.Roots.Length + packageInputs.FailedRoots.Length == 1
-                ? packageInputs.Roots switch
-                {
-                    [PackageDependencyEvidenceRoot
-                    {
-                        Identity:
-                            PackageDependencyEvidenceRootIdentity.Package
-                                package,
-                    }] => package.Coordinate,
-                    [] => packageInputs.FailedRoots[0] switch
-                    {
-                        PackageDependencyEvidenceRootFailure.Package package =>
-                            package.Coordinate,
-                        PackageDependencyEvidenceRootFailure.Acquisition
-                            acquisition => acquisition.Coordinate,
-                        _ => null,
-                    },
-                    _ => null,
-                }
-                : null;
-        return coordinate is not null
-            ? DependsShareProjection.ProjectAsset(options, coordinate)
-            : new InspectionShare.NonProjectable(
-                "asset-dependencies/share",
-                "The asset dependency request is not one exact package root.");
+                "Share projection was not requested."));
     }
 
     private sealed class DependsAssetInspectionState(
@@ -403,7 +383,9 @@ public partial class DependsCommand
         CommandContext context,
         DependsAssetRequestPlan plan,
         int? traversalDepth,
-        Func<string, InstalledPlatformPruneSource.Result> pruneSource)
+        Func<string, InstalledPlatformPruneSource.Result> pruneSource,
+        DependsShareProjection.AssetSharePreparation.Projectable?
+            sharePreparation)
     {
         internal DependsOptions Options { get; } = options;
 
@@ -415,6 +397,9 @@ public partial class DependsCommand
 
         internal Func<string, InstalledPlatformPruneSource.Result>
             PruneSource { get; } = pruneSource;
+
+        internal DependsShareProjection.AssetSharePreparation.Projectable?
+            SharePreparation { get; } = sharePreparation;
 
         internal DependsAssetProjection? Projection { get; set; }
     }
@@ -740,6 +725,8 @@ public partial class DependsCommand
             DependsAssetRequestPlan plan,
             int? traversalDepth,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
+            DependsShareProjection.AssetSharePreparation.Projectable?
+                sharePreparation,
             CancellationToken cancellationToken)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
@@ -778,7 +765,10 @@ public partial class DependsCommand
                     operationContext,
                     plan.Traversal,
                     traversalDepth,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    settledPackageCoordinate: sharePreparation?.Coordinate,
+                    settledPackageAuthorization:
+                        sharePreparation?.Authorization).ConfigureAwait(false);
             evidenceRequest = acquisition.Request;
         }
 

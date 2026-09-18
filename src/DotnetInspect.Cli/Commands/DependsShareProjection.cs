@@ -13,6 +13,21 @@ internal static class DependsShareProjection
 {
     private const string BrowserPlatformPackageId = "Microsoft.NETCore.App";
 
+    internal abstract record AssetSharePreparation
+    {
+        private AssetSharePreparation()
+        {
+        }
+
+        internal sealed record Projectable(
+            PackageSourceCoordinate Coordinate,
+            PackageSourceAuthorization Authorization,
+            InspectionShare Share) : AssetSharePreparation;
+
+        internal sealed record Rejected(
+            string Message) : AssetSharePreparation;
+    }
+
     internal static string? ValidateOptions(DependsOptions options)
     {
         if (options.ShareFormat is null)
@@ -51,12 +66,44 @@ internal static class DependsShareProjection
         VerboseLogger logger,
         CancellationToken cancellationToken = default)
     {
+        AssetSharePreparation preparation =
+            await PrepareAssetAsync(
+                options,
+                httpClient,
+                logger,
+                cancellationToken).ConfigureAwait(false);
+        return WriteAsset(
+            preparation,
+            options.ShareFormat!.Value);
+    }
+
+    internal static int WriteAsset(
+        AssetSharePreparation preparation,
+        WorkspaceShareFormat format) =>
+        preparation switch
+        {
+            AssetSharePreparation.Projectable projectable =>
+                WorkspaceShareOutput.WriteScalar(
+                    projectable.Share,
+                    format),
+            AssetSharePreparation.Rejected rejected =>
+                NonProjectable(rejected.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown asset Share preparation."),
+        };
+
+    internal static async Task<AssetSharePreparation> PrepareAssetAsync(
+        DependsOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        CancellationToken cancellationToken = default)
+    {
         string packageReference = options.PackageName!;
         if (packageReference.EndsWith(
                 ".nupkg",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 "--share requires an exact NuGet.org package coordinate; "
                 + "local package archives cannot be restored by the published Browser.");
         }
@@ -65,7 +112,7 @@ internal static class DependsShareProjection
             PackageReferenceParser.Parse(packageReference);
         if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 "--share requires a valid NuGet package id.");
         }
         if (string.Equals(
@@ -73,7 +120,7 @@ internal static class DependsShareProjection
                 BrowserPlatformPackageId,
                 StringComparison.OrdinalIgnoreCase))
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 $"--share cannot project NuGet package '{packageId}' because "
                 + "the published Browser reserves that id for the .NET Platform.");
         }
@@ -81,7 +128,7 @@ internal static class DependsShareProjection
                 options.Tfm,
                 out string? framework))
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 "--share requires one valid target framework with --tfm.");
         }
 
@@ -90,14 +137,14 @@ internal static class DependsShareProjection
                 .AuthorizeSourcesFor(packageId);
         if (sourceAuthorization.DenialReason is { } denialReason)
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 "--share could not apply the effective package source policy: "
                 + denialReason);
         }
         if (sourceAuthorization.Sources.Count != 1
             || !sourceAuthorization.Sources[0].IsNuGetOrg)
         {
-            return NonProjectable(
+            return new AssetSharePreparation.Rejected(
                 "--share requires the effective package source policy to "
                 + "authorize exactly one NuGet.org source because the "
                 + "published Browser cannot preserve another source selection.");
@@ -133,77 +180,29 @@ internal static class DependsShareProjection
                     unavailable.Message,
                 _ => "The package coordinate could not be resolved.",
             };
-            return NonProjectable($"--share could not resolve an exact NuGet.org package coordinate: {message}");
+            return new AssetSharePreparation.Rejected(
+                "--share could not resolve an exact NuGet.org package coordinate: "
+                + message);
         }
 
-        InspectionShare share = ProjectAsset(
-            options,
-            resolved.Coordinate.PackageId,
-            resolved.Coordinate.Version);
-        return WorkspaceShareOutput.WriteScalar(
-            share,
-            options.ShareFormat!.Value);
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                resolved.Coordinate.PackageId,
+                resolved.Coordinate.Version);
+        return new AssetSharePreparation.Projectable(
+            coordinate,
+            sourceAuthorization,
+            ProjectAsset(
+                coordinate.PackageId,
+                coordinate.Version,
+                framework!));
     }
 
-    internal static InspectionShare ProjectAsset(
-        DependsOptions options,
-        PackageSourceCoordinate coordinate) =>
-        ProjectAsset(
-            options,
-            coordinate.PackageId,
-            coordinate.Version);
-
     private static InspectionShare ProjectAsset(
-        DependsOptions options,
         string packageId,
-        string version)
+        string version,
+        string framework)
     {
-        string packageReference = options.PackageName!;
-        if (packageReference.EndsWith(
-                ".nupkg",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return AssetNonProjectableShare(
-                "local package archives cannot be restored by the published Browser.");
-        }
-
-        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
-        {
-            return AssetNonProjectableShare(
-                "the package id is not valid.");
-        }
-        if (string.Equals(
-                packageId,
-                BrowserPlatformPackageId,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return AssetNonProjectableShare(
-                $"NuGet package '{packageId}' is reserved for the .NET Platform.");
-        }
-        if (!TryNormalizeFramework(
-                options.Tfm,
-                out string? framework))
-        {
-            return AssetNonProjectableShare(
-                "one valid target framework is required with --tfm.");
-        }
-
-        PackageSourceAuthorization sourceAuthorization =
-            new SourcePolicyPackageSourceAuthorization(options.SourceOptions)
-                .AuthorizeSourcesFor(packageId);
-        if (sourceAuthorization.DenialReason is { } denialReason)
-        {
-            return AssetNonProjectableShare(
-                "the effective package source policy was denied: "
-                + denialReason);
-        }
-        if (sourceAuthorization.Sources.Count != 1
-            || !sourceAuthorization.Sources[0].IsNuGetOrg)
-        {
-            return AssetNonProjectableShare(
-                "the effective package source policy must authorize exactly one NuGet.org source.");
-        }
-
         var definitionCoordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,
