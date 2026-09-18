@@ -9,12 +9,11 @@ public sealed class PackageVersionPopulationInspectionTests
     private const string PackageId = "System.Text.Json";
 
     [Fact]
-    public async Task PopulationPreservesDirectionAddressesSourcesAndRequestedCount()
+    public async Task PopulationPreservesDirectionAddressesAndSources()
     {
         var (envelope, requests) = await PopulateAsync(
             $"{PackageId}@2.0.0..1.0.0",
             [("1.0.0", true), ("1.1.0", true), ("2.0.0", true)],
-            new(PackageVersionPopulationCountCohort.Versions),
             cancellationToken: TestContext.Current.CancellationToken);
 
         var populated =
@@ -29,12 +28,6 @@ public sealed class PackageVersionPopulationInspectionTests
         Assert.Equal(
             ["2.0.0", "1.1.0", "1.0.0"],
             populated.Document.SourceListings.Select(row => row.Version));
-        var count =
-            Assert.IsType<PackageVersionPopulationCountOutcome.Completed>(
-                populated.Count);
-        Assert.Equal(PackageVersionPopulationCountCohort.Versions,
-            count.Result.Cohort);
-        Assert.Equal(3, count.Result.Value);
         Assert.Equal(1, requests);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
@@ -43,10 +36,9 @@ public sealed class PackageVersionPopulationInspectionTests
         Assert.Equal(
             "available",
             json.RootElement.GetProperty("content").GetProperty("kind").GetString());
-        Assert.Equal(
-            3,
-            json.RootElement.GetProperty("content").GetProperty("count")
-                .GetProperty("result").GetProperty("value").GetInt32());
+        Assert.False(
+            json.RootElement.GetProperty("content")
+                .TryGetProperty("count", out _));
     }
 
     [Fact]
@@ -57,21 +49,34 @@ public sealed class PackageVersionPopulationInspectionTests
         var (envelope, _) = await PopulateAsync(
             $"{PackageId}@1.0.0..2.0.0",
             [("1.0.0", true), ("1.1.0", true), ("2.0.0", true)],
-            new(PackageVersionPopulationCountCohort.Versions, selection),
             cancellationToken: TestContext.Current.CancellationToken);
 
         var populated =
             Assert.IsType<PackageVersionPopulationOutcome.Populated>(
                 envelope.Content);
         Assert.Equal(3, populated.Document.Versions.Length);
-        Assert.Equal(
-            2,
+        PackageVersionPopulationCountOutcome count =
+            PackageVersionPopulationInspection.Count(
+                populated.Document,
+                new(
+                    PackageVersionPopulationCountCohort.Versions,
+                    selection));
+        var completed =
             Assert.IsType<PackageVersionPopulationCountOutcome.Completed>(
-                populated.Count).Result.Value);
+                count);
+        Assert.Equal(2, completed.Result.Value);
+
+        InspectionEnvelope<int> countEnvelope =
+            PackageVersionPopulationInspection.ProjectCountEnvelope(
+                envelope,
+                completed);
+        Assert.Equal(2, countEnvelope.Content);
+        Assert.IsType<InspectionShare.NonProjectable>(countEnvelope.Share);
+        Assert.Empty(countEnvelope.Diagnostics);
     }
 
     [Fact]
-    public async Task OmittedCountRetainsACompleteDocumentWithoutCountContent()
+    public async Task PopulationDocumentHasNoCountContent()
     {
         var (envelope, _) = await PopulateAsync(
             $"{PackageId}@1.0.0..1.1.0",
@@ -82,7 +87,10 @@ public sealed class PackageVersionPopulationInspectionTests
             Assert.IsType<PackageVersionPopulationOutcome.Populated>(
                 envelope.Content);
         Assert.Equal(2, populated.Document.Versions.Length);
-        Assert.Null(populated.Count);
+        using JsonDocument json = JsonDocument.Parse(Serialize(envelope));
+        Assert.False(
+            json.RootElement.GetProperty("content")
+                .TryGetProperty("count", out _));
     }
 
     [Fact]
@@ -135,7 +143,6 @@ public sealed class PackageVersionPopulationInspectionTests
         int Requests)> PopulateAsync(
         string packageReference,
         (string Version, bool Listed)[] versions,
-        PackageVersionPopulationCountRequest? countRequest = null,
         PackageSourceFailureKind? failure = null,
         CancellationToken cancellationToken = default)
     {
@@ -168,8 +175,7 @@ public sealed class PackageVersionPopulationInspectionTests
             await PackageVersionPopulationInspection.ExecuteAsync(
                 range!,
                 new PackageHouse(authorization),
-                operation,
-                countRequest: countRequest);
+                operation);
         return (envelope, requests);
     }
 

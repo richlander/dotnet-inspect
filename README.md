@@ -447,10 +447,11 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
-scalar, including with `--json`; `--count --envelope` emits the complete
-population envelope with both the directed version Document and typed Count
-component. `--preview`, `--include-unlisted`, configured source options, and
-`--versions-with-feed` remain semantic population inputs.
+scalar, including with `--json`; `--count --envelope` makes that same integer
+the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
+the complete directed version Document. `--preview`, `--include-unlisted`,
+configured source options, and `--versions-with-feed` remain semantic
+population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before

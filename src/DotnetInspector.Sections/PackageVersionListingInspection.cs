@@ -158,12 +158,9 @@ public static class PackageVersionListingInspection
                 nameof(listing));
         }
 
-        return new(
-            count.Result.Value,
-            new InspectionShare.NonProjectable(
-                "package-version-count/share",
-                "Package version Count does not yet have a canonical Workspace Share projection."),
-            listing.Diagnostics);
+        return PackageVersionCountProjection.ProjectEnvelope(
+            listing,
+            count);
     }
 
     private static InspectionEnvelope<PackageVersionListingOutcome> Envelope(

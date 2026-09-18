@@ -953,16 +953,12 @@ public sealed class SourceScopedRoutingTests : IDisposable
         if (envelope)
         {
             using JsonDocument json = JsonDocument.Parse(output);
-            JsonElement content = json.RootElement.GetProperty("content");
             Assert.Equal(
-                3,
-                content.GetProperty("document")
-                    .GetProperty("versions").GetArrayLength());
+                "package-version-count",
+                json.RootElement.GetProperty("result_kind").GetString());
             Assert.Equal(
                 2,
-                content.GetProperty("count")
-                    .GetProperty("result")
-                    .GetProperty("value").GetInt32());
+                json.RootElement.GetProperty("content").GetInt32());
         }
         else
         {
@@ -1038,6 +1034,33 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Contains(
             "does not contain range endpoint 3.0.0",
             failure.GetProperty("reason").GetRawText());
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task RangeVersionCountEnvelopeRequiresScalarResult()
+    {
+        string packageName = $"HouseRangeCountMissing{Guid.NewGuid():N}";
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@1.0.0..3.0.0",
+                    "--count",
+                    "--envelope",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("does not contain range endpoint 3.0.0", error);
         Assert.DoesNotContain(
             requests,
             request => request.EndsWith(
