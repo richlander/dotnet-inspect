@@ -268,6 +268,7 @@ export function createRetainedWorkspaceActivationController(
         throw new AggregateError(
           [error, abandonmentError],
           "Retained Workspace installation and Navigation abandonment failed.",
+          { cause: abandonmentError },
         );
       }
       throw error;
