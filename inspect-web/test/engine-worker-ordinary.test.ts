@@ -807,8 +807,6 @@ test("large generated results cross the former ordinary transport bounds", async
       queryPackageVersions: async () => ({
         versions,
         currentVersionInsertionIndex: 0,
-        previousVersion: null,
-        previousVersionUnavailableReason: null,
       }),
     },
   });
