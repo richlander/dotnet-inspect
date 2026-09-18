@@ -6,6 +6,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 using ILInspector.CSharp;
 using Markout;
 using Markout.Formatting;
@@ -191,7 +192,19 @@ internal static class ExternalCallGraphOutputAdapter
             CSharpIdentifier.ContainRenderedText(
                 callGraph.Member.ToQualifiedDisplayString()),
             CSharpIdentifier.ContainRenderedText(
-                callGraph.Member.DeclaringType.Assembly));
+                ReadDefinitionAssembly(
+                    callGraph.Member.DeclaringType)));
+    }
+
+    static string ReadDefinitionAssembly(TypeRef type)
+    {
+        while (type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is not null)
+        {
+            type = type.ElementType;
+        }
+
+        return type.Assembly;
     }
 
     static string FormatReceipt(CallGraphCallSiteEvidence receipt) =>

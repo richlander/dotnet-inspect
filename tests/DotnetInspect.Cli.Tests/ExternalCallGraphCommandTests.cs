@@ -459,10 +459,38 @@ public sealed class ExternalCallGraphCommandTests
                     StringComparison.Ordinal)
                 && edge.Contains(
                     "RuntimeContextSlot",
+                    StringComparison.Ordinal)
+                && edge.Contains(
+                    "\"target_assembly\":\"OpenTelemetry.Api\"",
                     StringComparison.Ordinal));
         Assert.Contains(
             "external-boundary-classification-incomplete",
             captured.Error);
+
+        var mermaidOptions = new ExternalCallGraphOptions
+        {
+            TypeName =
+                "Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions",
+            Member =
+                "AddOpenTelemetrySharedProviderBuilderServices~4d95928639",
+            RootPackage = "OpenTelemetry@1.18.0",
+            Packages = ["OpenTelemetry.Api@1.18.0"],
+            Tfm = Framework,
+            IncludeAll = true,
+            Format = OutputFormat.Mermaid,
+        };
+        var mermaid = await ConsoleCapture.RunAsync(
+            () => ExternalCallGraphCommand.ExecuteAsync(
+                mermaidOptions,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, mermaid.ExitCode);
+        Assert.Contains(
+            "[\"OpenTelemetry.Api\"]",
+            mermaid.Output);
+        Assert.Contains(
+            "RuntimeContextSlot",
+            mermaid.Output);
     }
 
     static async Task<Execution> ExecuteAsync(
