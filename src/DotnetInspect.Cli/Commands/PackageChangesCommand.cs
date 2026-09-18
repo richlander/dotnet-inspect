@@ -17,6 +17,13 @@ namespace DotnetInspect.Cli.Commands;
 internal static class PackageChangesCommand
 {
     internal const string Name = "activity";
+    private static readonly InspectionEnvelopeJsonContract<
+        EcosystemChangeReportDocument> JsonContract =
+            new(
+                "ecosystem-change-report",
+                1,
+                EcosystemChangeReportJsonContext.Default
+                    .EcosystemChangeReportDocument);
 
     internal static async Task<int> ExecuteAsync(
         PackageChangesOptions options,
@@ -153,7 +160,8 @@ internal static class PackageChangesCommand
                 cancellationToken).ConfigureAwait(false);
         EcosystemChangeReportDocument document = inspection.Content;
 
-        WriteOutput(document, options);
+        if (!WriteOutput(inspection, options))
+            return 1;
         return document.Failures.IsEmpty
             && document.Summary.Completion
                 != EcosystemChangeReportCompletionKind.Failed
@@ -161,31 +169,35 @@ internal static class PackageChangesCommand
             : 1;
     }
 
-    private static void WriteOutput(
-        EcosystemChangeReportDocument document,
+    private static bool WriteOutput(
+        InspectionEnvelope<EcosystemChangeReportDocument> inspection,
         PackageChangesOptions options)
     {
+        if (options.EnvelopeOutput || options.Format == OutputFormat.Json)
+        {
+            return InspectionEnvelopeOutput.TryWrite(
+                inspection,
+                JsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+        }
+
+        EcosystemChangeReportDocument document = inspection.Content;
         switch (options.Format)
         {
-            case OutputFormat.Json:
-                Console.WriteLine(
-                    EcosystemChangeReportJson.Serialize(
-                        document,
-                        options.CompactJson));
-                return;
             case OutputFormat.PlainText:
                 MarkoutSerializer.Serialize(
                     EcosystemChangeReportView.Create(document),
                     Console.Out,
                     new PlainTextFormatter(),
                     EcosystemChangeReportViewContext.Default);
-                return;
+                return true;
             case OutputFormat.Markdown:
                 MarkoutSerializer.Serialize(
                     EcosystemChangeReportView.Create(document),
                     Console.Out,
                     EcosystemChangeReportViewContext.Default);
-                return;
+                return true;
             default:
                 throw new InvalidOperationException(
                     "Unsupported package activity output format.");
