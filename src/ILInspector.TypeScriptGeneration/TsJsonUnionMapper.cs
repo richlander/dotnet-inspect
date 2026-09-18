@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
 namespace ILInspector.TypeScriptGeneration;
@@ -15,6 +16,205 @@ sealed record TsJsonUnionMappingContext(
 
 static class TsJsonUnionMapper
 {
+    internal static bool CanCollapseToUnknown(
+        ApiTypeShape? type,
+        IReadOnlyList<JsExportUnion> unions,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
+    {
+        ApiTypeShape? presentType = UnwrapNullableShape(type);
+        if (presentType?.Definition is not { } identity
+            || !declaredTypesByScopedIdentity.TryGetValue(
+                identity,
+                out ApiType? definition))
+        {
+            return false;
+        }
+
+        Dictionary<ApiType, JsExportUnion> unionsByDefinition =
+            unions.ToDictionary(union => union.Definition);
+        if (!unionsByDefinition.TryGetValue(
+                definition,
+                out JsExportUnion? union))
+        {
+            return false;
+        }
+
+        Dictionary<MetadataTypeDefinitionName, JsExportUnion>
+            unionsByDefinitionName = unions
+                .Where(union =>
+                    union.Definition.DefinitionName is not null)
+                .ToDictionary(
+                    union => union.Definition.DefinitionName!,
+                    union => union);
+        Dictionary<ApiTypeReferenceIdentity, JsExportUnion> unionsByIdentity =
+            declaredTypesByScopedIdentity
+                .Where(candidate =>
+                    unionsByDefinition.ContainsKey(candidate.Value))
+                .ToDictionary(
+                    candidate => candidate.Key,
+                    candidate => unionsByDefinition[candidate.Value]);
+
+        return UnionCanMapToUnknown(
+            union,
+            (parameterIndex, active) =>
+                parameterIndex >= 0
+                && parameterIndex < presentType.TypeArguments.Length
+                && ShapeCanMapToUnknown(
+                    presentType.TypeArguments[parameterIndex],
+                    unionsByIdentity,
+                    unionsByDefinitionName,
+                    active),
+            unionsByIdentity,
+            unionsByDefinitionName,
+            []);
+    }
+
+    static bool UnionCanMapToUnknown(
+        JsExportUnion union,
+        Func<int, HashSet<JsExportUnion>, bool>
+            parameterCanMapToUnknown,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, JsExportUnion>
+            unionsByIdentity,
+        IReadOnlyDictionary<MetadataTypeDefinitionName, JsExportUnion>
+            unionsByDefinitionName,
+        HashSet<JsExportUnion> active)
+    {
+        if (!active.Add(union))
+            return false;
+
+        bool result = union.CaseTypes.Any(caseType =>
+            UnionCaseCanMapToUnknown(
+                caseType,
+                parameterCanMapToUnknown,
+                unionsByIdentity,
+                unionsByDefinitionName,
+                active));
+        active.Remove(union);
+        return result;
+    }
+
+    static bool UnionCaseCanMapToUnknown(
+        TypeRef type,
+        Func<int, HashSet<JsExportUnion>, bool>
+            parameterCanMapToUnknown,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, JsExportUnion>
+            unionsByIdentity,
+        IReadOnlyDictionary<MetadataTypeDefinitionName, JsExportUnion>
+            unionsByDefinitionName,
+        HashSet<JsExportUnion> active)
+    {
+        if (type.Kind == TypeRefKind.GenericParameter)
+        {
+            // A supplied argument is a finite type tree, not a recursive case
+            // edge, even when it instantiates the same union definition.
+            return parameterCanMapToUnknown(
+                type.GenericParameterIndex,
+                []);
+        }
+
+        if (type is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { } nullableDefinition,
+                TypeArguments: [var nullable],
+            }
+            && IsCoreType(nullableDefinition, "Nullable`1"))
+        {
+            return UnionCaseCanMapToUnknown(
+                nullable,
+                parameterCanMapToUnknown,
+                unionsByIdentity,
+                unionsByDefinitionName,
+                active);
+        }
+
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType!
+            : type;
+        if (definition.Namespace == "System.Text.Json"
+            && definition.Name == "JsonElement"
+            && TsTypeMapper.IsAuthenticFrameworkMapping(definition))
+        {
+            return true;
+        }
+
+        if (definition.Resolution?.Type is not { } resolved
+            || !unionsByDefinitionName.TryGetValue(
+                resolved,
+                out JsExportUnion? nested))
+        {
+            return false;
+        }
+
+        return UnionCanMapToUnknown(
+            nested,
+            (parameterIndex, nestedActive) =>
+                parameterIndex >= 0
+                && parameterIndex < type.TypeArguments.Length
+                && UnionCaseCanMapToUnknown(
+                    type.TypeArguments[parameterIndex],
+                    parameterCanMapToUnknown,
+                    unionsByIdentity,
+                    unionsByDefinitionName,
+                    nestedActive),
+            unionsByIdentity,
+            unionsByDefinitionName,
+            active);
+    }
+
+    static bool ShapeCanMapToUnknown(
+        ApiTypeShape type,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, JsExportUnion>
+            unionsByIdentity,
+        IReadOnlyDictionary<MetadataTypeDefinitionName, JsExportUnion>
+            unionsByDefinitionName,
+        HashSet<JsExportUnion> active)
+    {
+        ApiTypeShape presentType = UnwrapNullableShape(type) ?? type;
+        if (presentType.Kind == ApiTypeShapeKind.GenericParameter)
+            return true;
+
+        if (presentType.Definition is { } identity
+            && identity.FullName == "System.Text.Json.JsonElement"
+            && DtsEmitter.IsAuthenticFrameworkMapping(identity))
+        {
+            return true;
+        }
+
+        return presentType.Definition is { } unionIdentity
+            && unionsByIdentity.TryGetValue(
+                unionIdentity,
+                out JsExportUnion? union)
+            && UnionCanMapToUnknown(
+                union,
+                (parameterIndex, nestedActive) =>
+                    parameterIndex >= 0
+                    && parameterIndex < presentType.TypeArguments.Length
+                    && ShapeCanMapToUnknown(
+                        presentType.TypeArguments[parameterIndex],
+                        unionsByIdentity,
+                        unionsByDefinitionName,
+                        nestedActive),
+                unionsByIdentity,
+                unionsByDefinitionName,
+                active);
+    }
+
+    static ApiTypeShape? UnwrapNullableShape(ApiTypeShape? type)
+    {
+        return type is
+        {
+            Kind: ApiTypeShapeKind.GenericInstance,
+            Definition: { } definition,
+            TypeArguments: [var nullable],
+        }
+            && definition.FullName == "System.Nullable`1"
+            && DtsEmitter.IsAuthenticFrameworkMapping(definition)
+            ? nullable
+            : type;
+    }
+
     internal static IEnumerable<string> MapCase(
         TypeRef type,
         IReadOnlyList<string> parameters,

@@ -31,11 +31,23 @@ internal interface ILibraryMethodAnalysisInfrastructure
         TypeDefinition typeDefinition,
         MethodDefinition methodDefinition);
 
+    GenericScope CreatePresenceScope(
+        TypeDefinition typeDefinition,
+        MethodDefinition methodDefinition,
+        UnsafePresenceWorkBudget workBudget);
+
     MethodIdentity CreateMethodIdentity(
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         GenericScope scope);
+
+    MethodIdentity CreatePresenceMethodIdentity(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget);
 
     ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
@@ -223,16 +235,18 @@ internal sealed class LibraryMethodAnalysisRunner(
                 reader.GetMethodDefinition(methodHandle);
             GenericScope? scope = null;
             GenericScope Scope()
-                => scope ??= _infrastructure.CreateScope(
+                => scope ??= _infrastructure.CreatePresenceScope(
                     typeDefinition,
-                    methodDefinition);
+                    methodDefinition,
+                    _unsafePresenceWork);
             MethodIdentity Caller()
                 => caller ??=
-                    _infrastructure.CreateMethodIdentity(
+                    _infrastructure.CreatePresenceMethodIdentity(
                         typeHandle,
                         methodHandle,
                         methodDefinition,
-                        Scope());
+                        Scope(),
+                        _unsafePresenceWork);
 
             bool hasUnsafeSignature =
                 SignatureMayContainUnsafeType(

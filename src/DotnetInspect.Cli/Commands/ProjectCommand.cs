@@ -2,11 +2,13 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using InertText;
@@ -194,6 +196,13 @@ public class ProjectCommand
             sections.Add(section);
         }
 
+        if (!TrySelectDocumentRows(
+                sections,
+                options.RowSelection))
+        {
+            return 1;
+        }
+
         if (shapeCount == 1)
             return WriteShapeProjection(sections[0], options, projectedColumns);
 
@@ -204,6 +213,38 @@ public class ProjectCommand
             return WriteCounts(sections, orderedNames, options);
 
         return RenderSections(sections, projectedColumns, options);
+    }
+
+    private static bool TrySelectDocumentRows(
+        List<ProjectSection> sections,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        if (sections.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Semantic Project document rows require exactly one section.");
+        }
+
+        ProjectSection section = sections[0];
+        if (!CliSemanticRowSelection.TrySelect(
+                intent,
+                section.Documents,
+                section.Name,
+                failure =>
+                    $"Project document row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<ProjectDocumentRow> selected))
+        {
+            return false;
+        }
+
+        sections[0] = section with { Documents = selected };
+        return true;
     }
 
     private static bool ValidateOptions(ProjectOptions options)

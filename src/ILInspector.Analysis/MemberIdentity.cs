@@ -113,6 +113,7 @@ public sealed record MethodIdentity(
 
     internal byte SignatureHeader { get; init; }
     internal int RequiredParameterCount { get; init; } = -1;
+    internal bool HasInvalidGenericParameterDeclaration { get; init; }
     internal bool IsVirtualDispatchOpen { get; init; }
 
     public bool Equals(MethodIdentity? other)
@@ -133,6 +134,8 @@ public sealed record MethodIdentity(
             && ((SignatureHeader & 0x0F) != 0x05
                 || RequiredParameterCount
                     == other.RequiredParameterCount)
+            && HasInvalidGenericParameterDeclaration
+                == other.HasInvalidGenericParameterDeclaration
             && ImmutableArrayValueEquality.SequenceEqual(
                 GenericParameterNames,
                 other.GenericParameterNames);
@@ -154,6 +157,7 @@ public sealed record MethodIdentity(
         hash.Add(SignatureHeader & 0x4F);
         if ((SignatureHeader & 0x0F) == 0x05)
             hash.Add(RequiredParameterCount);
+        hash.Add(HasInvalidGenericParameterDeclaration);
         ImmutableArrayValueEquality.AddToHash(ref hash, GenericParameterNames);
         return hash.ToHashCode();
     }

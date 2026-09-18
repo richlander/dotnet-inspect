@@ -774,6 +774,7 @@ generation, action, and authority identities are omitted.
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills -n 1 --tail
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
@@ -788,7 +789,12 @@ directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
 `AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
-inventories; bare `-S` retains the focused `Skills` overview.
+inventories; bare `-S` retains the focused `Skills` overview. With exactly one
+document section selected, `-n`, `--tail`, and `--rows A..B` select complete
+document rows before Count, structured output, projection, or print/bare
+lowering. Add `--lines` only to clip rendered text. Multi-section `@Project`
+output retains its independent section row sets and rendered-line `-n`
+fallback.
 
 ### Types, members, and source
 

@@ -164,12 +164,15 @@ public static class AssemblyPairClusterRootPathQuery
                 PublicMethodRootInventoryReader.Read(
                     reader,
                     limits.PublicRoots);
-            Analysis.LibraryBodyIndex index =
-                Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
-                    cluster.Identity.Source.Identity.Name,
-                    snapshot.Content,
+            Analysis.LibraryBodyAnalysisRequest request =
+                Analysis.LibraryBodyAnalysisRequest.Create(
                     Analysis.LibraryBodyAnalysisFeatures
                         .MethodEvidence);
+            Analysis.LibraryBodyIndex index =
+                Analysis.LibraryBodyAnalysisService.AnalyzeImage(
+                    cluster.Identity.Source.Identity.Name,
+                    snapshot.Content,
+                    request);
             if (roots.ModuleVersionId
                     != cluster.Identity.SourceModuleVersionId
                 || index.ModuleIdentity.ModuleVersionId
