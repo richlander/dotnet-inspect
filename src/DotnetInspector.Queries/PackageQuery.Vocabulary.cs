@@ -57,6 +57,7 @@ internal enum PackageQueryPredicateKind
     NoDependencies,
     DependencyTarget,
     Depends,
+    DependsPrefix,
     Downloads,
     Readme,
     Tool,

@@ -138,6 +138,7 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
+                ("depends-prefix", 210),
                 ("downloads", 300),
                 ("readme", 400),
                 ("tool", 500),
@@ -151,6 +152,7 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
+                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -197,6 +199,16 @@ public sealed class PackageQueryTests
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
+        PackageQueryTermDescriptor dependsPrefix =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.DependsPrefixTermKey);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, dependsPrefix.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Toggle,
+            dependsPrefix.ControlKind);
+        Assert.Equal(
+            ["true"],
+            dependsPrefix.Options.Select(option => option.Value));
         PackageQueryTermDescriptor dependencyTarget =
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DependencyTargetTermKey);
@@ -231,6 +243,11 @@ public sealed class PackageQueryTests
         "depends",
         PortableQueryOperator.Equal,
         "not/a/package",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "depends-prefix",
+        PortableQueryOperator.Equal,
+        "false",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
         "dependency-target",
@@ -620,6 +637,175 @@ public sealed class PackageQueryTests
                 value.ToString()));
         Assert.Equal(2, source.ManifestRequests.Count);
         Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsPrefixUsesFirstIdSegmentAndRetainsWitnesses()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Microsoft.Extensions.Hosting"),
+            Match("Microsoft.Extensions.Logging"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["microsoft.extensions.hosting@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Hosting",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="microsoft.extensions.configuration" version="10.0.0" />
+                      <dependency id="Newtonsoft.Json" version="13.0.3" />
+                    </group>
+                    <group targetFramework="net8.0">
+                      <dependency id="System.Text.Json" version="10.0.0" />
+                    </group>
+                    """),
+                ["microsoft.extensions.logging@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Logging",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.Primitives" version="10.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Microsoft.Extensions.Hosting", match.Package.PackageId);
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            candidate =>
+                candidate.Id == PackageQuery.DependsPrefixTermKey);
+        Assert.Equal(2, evidence.Summary!.Count);
+        Assert.Equal(
+            [
+                "net10.0: Newtonsoft.Json 13.0.3",
+                "net8.0: System.Text.Json 10.0.0",
+            ],
+            evidence.Summary.Preview.Select(value => value.ToString()));
+        Assert.Contains(
+            "First package-ID segment Microsoft",
+            evidence.Value,
+            StringComparison.Ordinal);
+        Assert.Equal(2, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsPrefixUsesWholeIdWhenNoDotExists()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Polly",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Polly.Core" version="8.6.4" />
+                  <dependency id="System.Threading.Tasks.Extensions" version="4.5.4" />
+                </group>
+                """),
+            "Polly");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Polly*",
+                terms:
+                [
+                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            candidate =>
+                candidate.Id == PackageQuery.DependsPrefixTermKey);
+
+        Assert.Equal(1, evidence.Summary!.Count);
+        Assert.Equal(
+            ["net10.0: System.Threading.Tasks.Extensions 4.5.4"],
+            evidence.Summary.Preview.Select(value => value.ToString()));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsPrefixUsesSelectedDependencyTarget()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Azure.Identity",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Azure.Core" version="1.50.0" />
+                </group>
+                <group targetFramework="net8.0">
+                  <dependency id="Microsoft.Identity.Client" version="4.77.0" />
+                </group>
+                """),
+            "Azure.Identity");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Azure.Identity*",
+                terms:
+                [
+                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        Assert.Empty(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>());
+
+        PackageQueryPlan net8Plan = Accepted(
+            PackageQuery.PlanInput(
+                "Azure.Identity*",
+                terms:
+                [
+                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net8.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch net8Match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                net8Plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Contains(
+            "net8.0: Microsoft.Identity.Client 4.77.0",
+            net8Match.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsPrefixTermKey).Value,
+            StringComparison.Ordinal);
     }
 
     [Fact]

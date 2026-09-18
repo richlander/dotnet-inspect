@@ -224,6 +224,22 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Catalog_ProjectsDependsPrefixAsNuspecPreset()
+    {
+        BrowserPackageQueryPresetDescriptor preset =
+            Assert.Single(
+                BrowserPackageQueryOperations.Catalog().Presets,
+                candidate =>
+                    candidate.Key == PackageQuery.DependsPrefixTermKey);
+
+        Assert.Equal("eq", preset.Operator);
+        Assert.Equal("true", preset.Value);
+        Assert.Equal(
+            BrowserPackageQueryAcquisitionTier.Nuspec,
+            preset.Tier);
+    }
+
+    [Fact]
     public void TryCreateTerms_ParsesCanonicalOperatorsWithoutChangingText()
     {
         Assert.True(BrowserPackageQueryOperations.TryCreateTerms(

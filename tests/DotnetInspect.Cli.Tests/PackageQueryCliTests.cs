@@ -37,6 +37,7 @@ public class PackageQueryCliTests
                 PackageQuery.DependenciesTermKey,
                 PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
+                PackageQuery.DependsPrefixTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
                 PackageQuery.ToolTermKey,
@@ -78,6 +79,29 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void DependsPrefixTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Azure.*",
+                ["depends-prefix=true"],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.DependsPrefixTermKey, term.Key);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal("true", term.Value);
+        Assert.True(options.Plan.RequiresManifest);
+        Assert.False(options.Plan.RequiresPackageContent);
     }
 
     [Theory]
@@ -250,10 +274,11 @@ public class PackageQueryCliTests
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
+    [InlineData("depends-prefix=false", "term value is invalid")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
-        "requires a depends or dependencies term")]
+        "requires a depends, depends-prefix, or dependencies term")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
@@ -549,6 +574,26 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains("Dependency.One 1.0.0", result.Output);
         Assert.Contains("Dependency.Two 2.0.0", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task DependsPrefixTerm_UsesManifestEvidenceWithoutPackageContent()
+    {
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends-prefix=true"),
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.Contains("Contoso.Third", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.Contains("Dependency.One 1.0.0", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);

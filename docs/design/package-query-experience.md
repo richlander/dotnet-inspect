@@ -98,7 +98,8 @@ operator, value-kind, and example metadata.
 
 The Browser and CLI share the first production vocabulary:
 `dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
-`readme=true`, `tool=true`, `tool-format=v1|v2`, and `skill=true`.
+`depends-prefix=true`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
+`skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.

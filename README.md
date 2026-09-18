@@ -464,10 +464,20 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
+Use `depends-prefix=true` to find packages with a direct dependency from a
+different first dot-delimited package-ID segment. It uses the same
+`dependency-target` scope and remains nuspec-only:
+
+```bash
+dotnet-inspect package query 'Azure.*' \
+  --where "depends-prefix=true"
+```
+
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and product-authored evidence. The initial CLI
-vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, and skill packages. Discover the
+vocabulary covers package metadata, dependencies, cross-prefix dependencies,
+downloads, README presence, .NET tools and their CLI v1/v2 format, and skill
+packages. Discover the
 admitted keys and values before constructing a query:
 
 ```bash

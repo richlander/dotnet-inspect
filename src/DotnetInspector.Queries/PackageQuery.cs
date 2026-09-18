@@ -131,7 +131,7 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.IncompatibleTerms =>
             "The selected package-query terms cannot be combined.",
         PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
-            "dependency-target requires a depends or dependencies term.",
+            "dependency-target requires a depends, depends-prefix, or dependencies term.",
         PackageQueryRequestFailureReason.RequiredPopulationMissing =>
             "Package Query requires exactly one package or prefix population term.",
         PackageQueryRequestFailureReason.RequiredPrereleaseMissing =>
@@ -214,7 +214,8 @@ public sealed class PackageQueryPlan
     internal bool HasDependencyPredicate =>
         BoundTerms.Any(term =>
             term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
-                or PackageQueryPredicateKind.Depends);
+                or PackageQueryPredicateKind.Depends
+                or PackageQueryPredicateKind.DependsPrefix);
     internal bool HasExplicitDependencyTarget =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
@@ -429,6 +430,7 @@ public static partial class PackageQuery
     public const string DependencyTargetTermKey = "dependency-target";
     public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
+    public const string DependsPrefixTermKey = "depends-prefix";
     public const string DownloadsTermKey = "downloads";
     public const string ReadmeTermKey = "readme";
     public const string ToolTermKey = "tool";
@@ -540,6 +542,26 @@ public static partial class PackageQuery
             "Microsoft.Extensions.DependencyInjection",
             PackageQueryTermRole.Inspection,
             PackageQueryTermControlKind.Input),
+        new(
+            DependsPrefixTermKey,
+            "cross-prefix dependency",
+            "Matches a direct dependency whose first dot-delimited package-ID segment differs from the package.",
+            210,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "boolean",
+            "true",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Toggle)
+        {
+            Options =
+            [
+                new(
+                    "true",
+                    "cross-prefix dependency",
+                    "The selected dependency scope declares a package from another first dot-delimited ID segment."),
+            ],
+        },
         new(
             DownloadsTermKey,
             "downloads",
@@ -655,6 +677,8 @@ public static partial class PackageQuery
         Key(DependenciesTermKey, BindDependencies),
         Key(DependencyTargetTermKey, BindDependencyTarget),
         Key(DependsTermKey, BindDepends),
+        Key(DependsPrefixTermKey, static (op, value) =>
+            BindBoolean(op, value, PackageQueryPredicateKind.DependsPrefix)),
         Key(DownloadsTermKey, BindDownloads),
         Key(ReadmeTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Readme)),
@@ -886,6 +910,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.DependencyTarget =>
                 DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
+            PackageQueryPredicateKind.DependsPrefix =>
+                DependsPrefixTermKey,
             PackageQueryPredicateKind.Downloads => DownloadsTermKey,
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
             PackageQueryPredicateKind.Tool => ToolTermKey,
@@ -1446,6 +1472,13 @@ public static partial class PackageQuery
                     ?? throw new InvalidOperationException(
                         "Dependency matching requires one dependency selection."))
                     .Length > 0,
+            PackageQueryPredicateKind.DependsPrefix =>
+                MatchingDependencyPrefixes(
+                    match,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
             PackageQueryPredicateKind.Downloads =>
                 match.TotalDownloads >= term.Predicate.Number,
             PackageQueryPredicateKind.Readme =>
@@ -1539,6 +1572,30 @@ public static partial class PackageQuery
                             group,
                             dependency))),
         ];
+
+    static PackageQueryDependencyMatch[] MatchingDependencyPrefixes(
+        PackageQueryPackage package,
+        PackageQueryDependencySelection selection) =>
+        [
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies
+                    .Where(dependency =>
+                        !FirstPackageIdSegment(package.PackageId).Equals(
+                            FirstPackageIdSegment(dependency.Id),
+                            StringComparison.OrdinalIgnoreCase))
+                    .Select(dependency =>
+                        new PackageQueryDependencyMatch(
+                            group,
+                            dependency))),
+        ];
+
+    static ReadOnlySpan<char> FirstPackageIdSegment(string packageId)
+    {
+        int separator = packageId.IndexOf('.');
+        return separator < 0
+            ? packageId.AsSpan()
+            : packageId.AsSpan(0, separator);
+    }
 
     static IEnumerable<DeclaredPackageDependencyGroup>
         SelectedDependencyGroups(
@@ -1693,6 +1750,12 @@ public static partial class PackageQuery
                         StringComparer.Ordinal),
                     "dependency declaration",
                     "dependency declarations"),
+            PackageQueryPredicateKind.DependsPrefix =>
+                DescribeDependencyPrefixes(
+                    package,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency evidence requires one dependency selection.")),
             PackageQueryPredicateKind.Downloads =>
                 Describe(
                     $"The package source reports {package.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads."),
@@ -1728,6 +1791,30 @@ public static partial class PackageQuery
             Summary = description.Summary,
             Term = term.Term,
         };
+    }
+
+    static PackageQueryTermEvidence DescribeDependencyPrefixes(
+        PackageQueryPackage package,
+        PackageQueryDependencySelection selection)
+    {
+        PackageQueryEvidenceSummary summary =
+            SummarizeItems(
+                MatchingDependencyPrefixes(package, selection)
+                    .Select(DescribeDependencyMatch),
+                StringComparer.Ordinal);
+        PackageQueryTermEvidence declarations =
+            DescribeItems(
+                summary,
+                "cross-prefix dependency declaration",
+                "cross-prefix dependency declarations");
+        InertString packagePrefix = new(
+            TextPolicy.Field,
+            FirstPackageIdSegment(package.PackageId).ToString());
+        return new(
+            InertString.Format(
+                TextPolicy.Prose,
+                $"First package-ID segment {packagePrefix}: {declarations.Text}"),
+            summary);
     }
 
     static void AddTermEvidence(
