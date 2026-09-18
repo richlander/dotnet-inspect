@@ -166,8 +166,10 @@ public sealed class ResourceOwnershipFlowTests
             evidence.Limits,
             limit => limit.Kind
                 == ResourceOwnershipFlowLimitKind.ResolutionIncomplete);
-        Assert.Empty(
-            Assert.Single(index.ArrayPoolOwnership).Rents);
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.Empty(projected.Rents);
+        Assert.False(projected.IsComplete);
     }
 
     [Fact]
@@ -214,6 +216,38 @@ public sealed class ResourceOwnershipFlowTests
             evidence.Limits,
             limit => limit.Kind
                 == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+    }
+
+    [Fact]
+    public void CustomLimitationDoesNotTaintArrayPoolProjection()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    ArrayPoolResourceEffectModel.Definition(),
+                    TokenResourceModel()),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("RentWhileMovingToken"),
+                });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(evidence.IsComplete);
+        Assert.Contains(
+            evidence.Limits,
+            limit => limit.Kind
+                == ResourceOwnershipFlowLimitKind.UnsupportedEffect
+                && limit.Effect?.ResourceKinds.Any(kind =>
+                    kind.Identity == TokenKind) == true);
+
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.True(projected.IsComplete);
+        Assert.True(Assert.Single(projected.Rents).IsComplete);
     }
 
     [Fact]
@@ -607,6 +641,7 @@ public sealed class ResourceOwnershipFlowTests
             evidence.Limits,
             limit => limit.Kind
                 == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+        Assert.Empty(index.ArrayPoolOwnership);
     }
 
     [Fact]
@@ -690,6 +725,7 @@ public sealed class ResourceOwnershipFlowTests
             evidence.Limits,
             limit => limit.Kind
                 == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+        Assert.Empty(index.ArrayPoolOwnership);
     }
 
     [Fact]

@@ -31,7 +31,10 @@ public enum ResourceOwnershipFlowLimitKind
 public sealed record ResourceOwnershipFlowLimit(
     ResourceOwnershipFlowLimitKind Kind,
     int? ILOffset = null,
-    ResourceEffectResolutionGap? ResolutionGap = null);
+    ResourceEffectResolutionGap? ResolutionGap = null,
+    ResolvedResourceEffect? Effect = null,
+    ResourceEffectModelIdentity? Model = null,
+    ResourceKindIdentity? ResourceKind = null);
 
 /// <summary>
 /// One body-local ownership effect. A forwarded effect retains the physical
@@ -88,12 +91,15 @@ internal static class ResourceOwnershipFlow
 {
     internal static ImmutableArray<ResourceOwnershipMethodEvidence> Analyze(
         ImmutableArray<ResourceOwnershipFlowMethodInput> inputs,
-        ResourceEffectResolutionOutcome outcome)
+        ResourceEffectResolutionOutcome outcome,
+        ResourceEffectAdmission admission)
     {
         if (inputs.IsDefaultOrEmpty)
             return [];
 
-        ResolutionView resolution = ResolutionView.Create(outcome);
+        ResolutionView resolution = ResolutionView.Create(
+            outcome,
+            admission);
         return
         [
             .. inputs
@@ -115,12 +121,15 @@ internal static class ResourceOwnershipFlow
         var limits =
             ImmutableArray.CreateBuilder<ResourceOwnershipFlowLimit>();
         limits.AddRange(resolution.LimitsFor(method.MetadataToken));
+        IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
+            effects = resolution.EffectsFor(method.MetadataToken);
 
         if (!context.Blocks.IsComplete)
         {
-            limits.Add(
-                new(
-                    ResourceOwnershipFlowLimitKind.ControlFlowIncomplete));
+            AddEffectScopedLimits(
+                limits,
+                ResourceOwnershipFlowLimitKind.ControlFlowIncomplete,
+                effects);
             return new(method, member, [], [], limits.ToImmutable(), false);
         }
 
@@ -131,10 +140,11 @@ internal static class ResourceOwnershipFlow
                     + (method.IsStatic ? 0 : 1));
         if (!reaching.IsComplete)
         {
-            limits.Add(
-                new(
-                    ResourceOwnershipFlowLimitKind
-                        .ReachingDefinitionsIncomplete));
+            AddEffectScopedLimits(
+                limits,
+                ResourceOwnershipFlowLimitKind
+                    .ReachingDefinitionsIncomplete,
+                effects);
             return new(method, member, [], [], limits.ToImmutable(), false);
         }
 
@@ -146,8 +156,6 @@ internal static class ResourceOwnershipFlow
             calls.ToDictionary(
                 static pair => pair.Key,
                 static pair => pair.Value.Callee);
-        IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
-            effects = resolution.EffectsFor(method.MetadataToken);
         IReadOnlySet<int> incompleteCallOffsets =
             resolution.IncompleteCallOffsetsFor(
                 method.MetadataToken);
@@ -177,7 +185,8 @@ internal static class ResourceOwnershipFlow
                     limits.Add(
                         new(
                             ResourceOwnershipFlowLimitKind.UnsupportedEffect,
-                            offset));
+                            offset,
+                            Effect: effect));
                     continue;
                 }
 
@@ -192,7 +201,9 @@ internal static class ResourceOwnershipFlow
                     limits.Add(
                         new(
                             ResourceOwnershipFlowLimitKind.AuthorityUnproven,
-                            offset));
+                            offset,
+                            Effect: effect,
+                            ResourceKind: resourceKind.Identity));
                     continue;
                 }
 
@@ -208,7 +219,9 @@ internal static class ResourceOwnershipFlow
                         new(
                             ResourceOwnershipFlowLimitKind
                                 .ValueFlowUnsupported,
-                            offset));
+                            offset,
+                            Effect: effect,
+                            ResourceKind: resourceKind.Identity));
                     continue;
                 }
 
@@ -223,7 +236,9 @@ internal static class ResourceOwnershipFlow
                         new(
                             ResourceOwnershipFlowLimitKind
                                 .ReachingDefinitionsIncomplete,
-                            store.Offset));
+                            store.Offset,
+                            Effect: effect,
+                            ResourceKind: resourceKind.Identity));
                     continue;
                 }
 
@@ -231,7 +246,9 @@ internal static class ResourceOwnershipFlow
                     definition,
                     slot,
                     isArgument: false,
+                    effect,
                     resourceKind,
+                    resourceKind.Identity,
                     authority,
                     context,
                     reaching,
@@ -294,7 +311,12 @@ internal static class ResourceOwnershipFlow
                 definition,
                 slot,
                 isArgument: true,
+                rootEffect: null,
                 resourceKind: null,
+                projectedResourceKind:
+                    isArrayCompatibilityType
+                        ? ArrayPoolResourceEffectModel.BufferKind
+                        : null,
                 acquisitionAuthority: null,
                 context,
                 reaching,
@@ -340,7 +362,8 @@ internal static class ResourceOwnershipFlow
                 limits.Add(
                     new(
                         ResourceOwnershipFlowLimitKind.UnsupportedEffect,
-                        offset));
+                        offset,
+                        Effect: effect));
             }
         }
 
@@ -363,11 +386,35 @@ internal static class ResourceOwnershipFlow
             complete);
     }
 
+    static void AddEffectScopedLimits(
+        ImmutableArray<ResourceOwnershipFlowLimit>.Builder limits,
+        ResourceOwnershipFlowLimitKind kind,
+        IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
+            effects)
+    {
+        ResolvedResourceEffect[] methodEffects =
+        [
+            .. effects.Values
+                .SelectMany(static atCall => atCall)
+                .Distinct(),
+        ];
+        if (methodEffects.Length == 0)
+        {
+            limits.Add(new(kind));
+            return;
+        }
+
+        foreach (ResolvedResourceEffect effect in methodEffects)
+            limits.Add(new(kind, Effect: effect));
+    }
+
     static DefinitionAnalysis AnalyzeDefinition(
         LocalDefinition definition,
         int slot,
         bool isArgument,
+        ResolvedResourceEffect? rootEffect,
         ResolvedResourceKindReference? resourceKind,
+        ResourceKindIdentity? projectedResourceKind,
         ResolvedResourceEffect? acquisitionAuthority,
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
@@ -389,12 +436,14 @@ internal static class ResourceOwnershipFlow
                 limits.Add(
                     new(
                         ResourceOwnershipFlowLimitKind.ValueFlowUnsupported,
-                        use.Offset));
+                        use.Offset,
+                        Effect: rootEffect,
+                        ResourceKind: projectedResourceKind));
                 continue;
             }
 
             ImmutableArray<ReleaseMatch> releases = [];
-            bool releaseIncomplete = false;
+            ImmutableArray<ResolvedResourceEffect> incompleteReleases = [];
             bool? ClassifyRelease(int operationOffset, int parameterIndex)
             {
                 if (!calls.TryGetValue(
@@ -420,10 +469,10 @@ internal static class ResourceOwnershipFlow
                     handledEffects,
                     context);
                 releases = match.Matches;
-                releaseIncomplete = match.IsIncomplete;
+                incompleteReleases = match.IncompleteEffects;
                 return !match.Matches.IsEmpty
                     ? true
-                    : match.IsIncomplete
+                    : !match.IncompleteEffects.IsEmpty
                         ? null
                         : false;
             }
@@ -455,14 +504,20 @@ internal static class ResourceOwnershipFlow
                                 release.Effect,
                                 release.Authority));
                     }
-                    if (releaseIncomplete)
+                    if (!incompleteReleases.IsEmpty)
                     {
                         complete = false;
-                        limits.Add(
-                            new(
-                                ResourceOwnershipFlowLimitKind
-                                    .UnsupportedEffect,
-                                classification.OperationOffset));
+                        foreach (ResolvedResourceEffect effect
+                            in incompleteReleases)
+                        {
+                            limits.Add(
+                                new(
+                                    ResourceOwnershipFlowLimitKind
+                                        .UnsupportedEffect,
+                                    classification.OperationOffset,
+                                    Effect: effect,
+                                    ResourceKind: projectedResourceKind));
+                        }
                     }
                     break;
                 case ArrayPoolUseClassifier.UseKind.Store:
@@ -499,13 +554,16 @@ internal static class ResourceOwnershipFlow
                     break;
                 default:
                     complete = false;
-                    if (releaseIncomplete)
+                    foreach (ResolvedResourceEffect effect
+                        in incompleteReleases)
                     {
                         limits.Add(
                             new(
                                 ResourceOwnershipFlowLimitKind
                                     .UnsupportedEffect,
-                                classification.OperationOffset));
+                                classification.OperationOffset,
+                                Effect: effect,
+                                ResourceKind: projectedResourceKind));
                     }
                     break;
             }
@@ -532,7 +590,8 @@ internal static class ResourceOwnershipFlow
         MethodBodyAnalysisContext context)
     {
         var matches = ImmutableArray.CreateBuilder<ReleaseMatch>();
-        bool incomplete = false;
+        var incompleteEffects =
+            ImmutableArray.CreateBuilder<ResolvedResourceEffect>();
         foreach (ResolvedResourceEffect effect in atCall)
         {
             if (effect.Effect is not ResourceEffect.Release release)
@@ -565,7 +624,7 @@ internal static class ResourceOwnershipFlow
 
             if (receiverSource)
             {
-                incomplete = true;
+                incompleteEffects.Add(effect);
                 continue;
             }
 
@@ -573,7 +632,7 @@ internal static class ResourceOwnershipFlow
                     is not ResourceEffectCompletion.NormalReturn
                 || release.Observation is not null)
             {
-                incomplete = true;
+                incompleteEffects.Add(effect);
                 continue;
             }
 
@@ -585,7 +644,7 @@ internal static class ResourceOwnershipFlow
                     effects,
                     out ResolvedResourceEffect? authority))
             {
-                incomplete = true;
+                incompleteEffects.Add(effect);
                 continue;
             }
             if (release.Correspondence is not null
@@ -607,7 +666,11 @@ internal static class ResourceOwnershipFlow
                     authority));
         }
 
-        return new(matches.ToImmutable(), incomplete);
+        return new(
+            matches.ToImmutable(),
+            incompleteEffects
+                .Distinct()
+                .ToImmutableArray());
     }
 
     static bool TryResolveAuthority(
@@ -745,7 +808,7 @@ internal static class ResourceOwnershipFlow
 
     readonly record struct ReleaseMatchOutcome(
         ImmutableArray<ReleaseMatch> Matches,
-        bool IsIncomplete);
+        ImmutableArray<ResolvedResourceEffect> IncompleteEffects);
 
     sealed class ResolutionView
     {
@@ -780,7 +843,8 @@ internal static class ResourceOwnershipFlow
         }
 
         internal static ResolutionView Create(
-            ResourceEffectResolutionOutcome outcome)
+            ResourceEffectResolutionOutcome outcome,
+            ResourceEffectAdmission admission)
         {
             ImmutableArray<ResolvedResourceEffect> effects = outcome switch
             {
@@ -886,50 +950,92 @@ internal static class ResourceOwnershipFlow
                 }
             }
 
+            ImmutableArray<ResourceEffectModelIdentity> ModelsFor(
+                ResourceEffectResolutionGap gap,
+                ImmutableArray<ResourceEffectTargetEvaluation>
+                    evaluations)
+            {
+                ImmutableArray<ResourceEffectModelIdentity> models =
+                [
+                    .. evaluations
+                        .Where(evaluation =>
+                            evaluation.Gaps.Contains(gap))
+                        .Select(static evaluation => evaluation.Model)
+                        .Distinct(),
+                ];
+                if (!models.IsEmpty)
+                    return models;
+                return
+                [
+                    .. admission.Models
+                        .Select(static model => model.Identity)
+                        .Distinct(),
+                ];
+            }
+
+            void AddGap(
+                ResourceEffectResolutionGap gap,
+                ImmutableArray<ResourceEffectTargetEvaluation>
+                    evaluations)
+            {
+                foreach (ResourceEffectModelIdentity model
+                    in ModelsFor(gap, evaluations))
+                {
+                    AddLimit(
+                        gap.PhysicalInvocation,
+                        new(
+                            ResourceOwnershipFlowLimitKind
+                                .ResolutionIncomplete,
+                            ResolutionGap: gap,
+                            Model: model));
+                }
+            }
+
             if (outcome
                 is ResourceEffectResolutionOutcome.Incomplete incomplete)
             {
                 foreach (ResourceEffectResolutionGap gap in incomplete.Gaps)
-                {
-                    AddLimit(
-                        gap.PhysicalInvocation,
-                        new(
-                            ResourceOwnershipFlowLimitKind
-                                .ResolutionIncomplete,
-                            ResolutionGap: gap));
-                }
+                    AddGap(gap, incomplete.Evaluations);
             }
             else if (outcome
                 is ResourceEffectResolutionOutcome.Conflict conflict)
             {
-                global.Add(
-                    new(
-                        ResourceOwnershipFlowLimitKind
-                            .ResolutionConflict));
+                foreach (AdmittedResourceEffectModel model
+                    in admission.Models)
+                {
+                    global.Add(
+                        new(
+                            ResourceOwnershipFlowLimitKind
+                                .ResolutionConflict,
+                            Model: model.Identity));
+                }
                 foreach (ResourceEffectConflict item in conflict.Conflicts)
                 {
-                    AddLimit(
-                        item.PhysicalInvocation,
-                        new(
-                            ResourceOwnershipFlowLimitKind
-                                .ResolutionConflict));
+                    foreach (ResolvedResourceEffect effect in item.Effects)
+                    {
+                        AddLimit(
+                            item.PhysicalInvocation,
+                            new(
+                                ResourceOwnershipFlowLimitKind
+                                    .ResolutionConflict,
+                                Effect: effect));
+                    }
                 }
                 foreach (ResourceEffectResolutionGap gap in conflict.Gaps)
-                {
-                    AddLimit(
-                        gap.PhysicalInvocation,
-                        new(
-                            ResourceOwnershipFlowLimitKind
-                                .ResolutionIncomplete,
-                            ResolutionGap: gap));
-                }
+                    AddGap(gap, conflict.Evaluations);
             }
             else if (outcome
                 is ResourceEffectResolutionOutcome.Rejected)
             {
-                global.Add(
-                    new(
-                        ResourceOwnershipFlowLimitKind.ResolutionRejected));
+                foreach (AdmittedResourceEffectModel model
+                    in admission.Models)
+                {
+                    global.Add(
+                        new(
+                            ResourceOwnershipFlowLimitKind
+                                .ResolutionRejected,
+                            Model: model.Identity));
+                }
             }
 
             return new(

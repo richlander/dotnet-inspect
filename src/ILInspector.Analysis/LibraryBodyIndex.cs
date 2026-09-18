@@ -1598,6 +1598,9 @@ public sealed class LibraryBodyIndex
         if (plan.Includes(
                 LibraryBodyAnalysisFeatures.OwnershipFlow))
         {
+            ResourceEffectAdmission admission =
+                resourceEffects
+                    ?? ArrayPoolResourceEffectModel.Create();
             ResourceEffectResolutionOutcome resolved;
             if (!reader.IsAssembly)
             {
@@ -1622,8 +1625,7 @@ public sealed class LibraryBodyIndex
                     hasFullMethodEvidenceScope: !plan.IsScoped);
                 resolved = ResourceEffectResolver.Resolve(
                     ownershipPolicy,
-                    resourceEffects
-                        ?? ArrayPoolResourceEffectModel.Create(),
+                    admission,
                     [
                         new CatalogCallGraphParticipant(
                             provisional,
@@ -1633,7 +1635,8 @@ public sealed class LibraryBodyIndex
             ImmutableArray<ResourceOwnershipMethodEvidence> methods =
                 ResourceOwnershipFlow.Analyze(
                     analysis.OwnershipFlowInputs,
-                    resolved);
+                    resolved,
+                    admission);
             analysis = analysis with
             {
                 OwnershipFlow = new(

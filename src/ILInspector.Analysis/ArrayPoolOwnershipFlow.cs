@@ -64,41 +64,80 @@ static class ArrayPoolOwnershipProjection
     static ArrayPoolOwnershipMethodEvidence Project(
         ResourceOwnershipMethodEvidence evidence)
     {
+        ImmutableArray<ArrayPoolRentOwnership> rents =
+        [
+            .. evidence.Acquisitions
+                .Where(static acquisition =>
+                    acquisition.ResourceKind.Identity
+                        == ArrayPoolResourceEffectModel.BufferKind)
+                .Select(static acquisition =>
+                    new ArrayPoolRentOwnership(
+                        acquisition.AcquisitionOffset,
+                        [
+                            .. acquisition.Uses.Select(
+                                use => ProjectUse(
+                                    use,
+                                    acquisition.ResourceKind)),
+                        ],
+                        acquisition.IsComplete)),
+        ];
+        ImmutableArray<ArrayPoolParameterOwnership> parameters =
+        [
+            .. evidence.Parameters
+                .Where(static parameter =>
+                    parameter.ValueType.Kind == TypeRefKind.SzArray)
+                .Select(static parameter =>
+                    new ArrayPoolParameterOwnership(
+                        parameter.ParameterIndex,
+                        [
+                            .. parameter.Uses.Select(
+                                use => ProjectUse(
+                                    use,
+                                    resourceKind: null)),
+                        ],
+                        parameter.IsComplete)),
+        ];
+        bool hasArrayParameter = evidence.Member.ParameterTypes.Any(
+            static parameter => parameter.Kind == TypeRefKind.SzArray);
+        bool hasArrayPoolEvidence =
+            !rents.IsEmpty
+            || !parameters.IsEmpty
+            || hasArrayParameter;
+        bool isComplete =
+            rents.All(static rent => rent.IsComplete)
+            && parameters.All(static parameter => parameter.IsComplete)
+            && !evidence.Limits.Any(limit =>
+                IsArrayPoolRelevant(limit, hasArrayPoolEvidence));
+
         return new(
             evidence.Method,
             evidence.Member,
-            [
-                .. evidence.Acquisitions
-                    .Where(static acquisition =>
-                        acquisition.ResourceKind.Identity
-                            == ArrayPoolResourceEffectModel.BufferKind)
-                    .Select(static acquisition =>
-                        new ArrayPoolRentOwnership(
-                            acquisition.AcquisitionOffset,
-                            [
-                                .. acquisition.Uses.Select(
-                                    use => ProjectUse(
-                                        use,
-                                        acquisition.ResourceKind)),
-                            ],
-                            acquisition.IsComplete)),
-            ],
-            [
-                .. evidence.Parameters
-                    .Where(static parameter =>
-                        parameter.ValueType.Kind == TypeRefKind.SzArray)
-                    .Select(static parameter =>
-                        new ArrayPoolParameterOwnership(
-                            parameter.ParameterIndex,
-                            [
-                                .. parameter.Uses.Select(
-                                    use => ProjectUse(
-                                        use,
-                                        resourceKind: null)),
-                            ],
-                            parameter.IsComplete)),
-            ],
-            evidence.IsComplete);
+            rents,
+            parameters,
+            isComplete);
+    }
+
+    static bool IsArrayPoolRelevant(
+        ResourceOwnershipFlowLimit limit,
+        bool hasArrayPoolEvidence)
+    {
+        if (limit.ResourceKind is { } resourceKind)
+        {
+            return resourceKind
+                == ArrayPoolResourceEffectModel.BufferKind;
+        }
+        if (limit.Effect is { } effect)
+        {
+            return effect.ResourceKinds.Any(static kind =>
+                    kind.Identity
+                        == ArrayPoolResourceEffectModel.BufferKind)
+                || effect.Sources.Any(static source =>
+                    source.Model.Equals(
+                        ArrayPoolResourceEffectModel.Identity));
+        }
+        if (limit.Model is { } model)
+            return model.Equals(ArrayPoolResourceEffectModel.Identity);
+        return hasArrayPoolEvidence;
     }
 
     static ArrayPoolOwnershipUse ProjectUse(

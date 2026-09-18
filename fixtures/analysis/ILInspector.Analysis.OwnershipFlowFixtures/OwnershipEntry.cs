@@ -268,6 +268,14 @@ public static class Entry
     public static DeclaredToken ForwardMovedToken(DeclaredToken token) =>
         TokenResourceApi.Move(token);
 
+    public static int RentWhileMovingToken(DeclaredToken token)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        _ = TokenResourceApi.Move(token);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return buffer.Length;
+    }
+
     public static BindingOutcome BindOccurrenceReferences()
     {
         var owner = new BindingOwner<byte>();
