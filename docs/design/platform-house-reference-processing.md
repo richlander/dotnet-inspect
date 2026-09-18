@@ -1140,6 +1140,40 @@ Release.
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal`
 gates typed incomplete precedence without settling that foreign evidence.
 
+### Installed reference-source terminal adoption
+
+For the corresponding one-source installed operation, the installed
+assembly-reference bridge accepts the complete adapter result family.
+Successful values continue through the existing installed materialization
+path. An adapter-issued `NotSucceeded` value delegates its resource-free
+contribution to the source-neutral terminal projector above without installed
+probing, file opening, Artifact publication, Library construction, or Metadata
+work.
+
+The projector applies the same exact request, target, Reference-facet,
+capability, and single-source-plan correspondence and the same failure, budget,
+invalid-evidence, and cancellation precedence. An accepted installed
+`Unavailable`, `Rejected`, `Incomplete`, or `Failed` contribution appears once
+as `OutcomeRelevant`; foreign or otherwise unusable evidence is not settled.
+Installed `InvalidRequest` diagnostics classify rejection as `InvalidRequest`,
+`InvalidCoordinate` as `InvalidTargetCorrespondence`, and rejected
+source-owned layout, member, assembly, or other evidence as
+`InvalidOwnerResult`. The installed diagnostic remains on the caller-owned
+adapter result beside the host-neutral House outcome.
+
+This closes the installed single-source terminal algebra. It does not add
+target discovery, source precedence, fallback, aggregation, source-relative
+lineage, ladder composition, or host adoption.
+
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsInstalledSourceTerminalOutcomes`
+gates the four installed terminal arms, exact outcome-relevant settlement,
+source failure stage, retained installed diagnostic, and malformed installed
+reference content in Release.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_ClassifiesInstalledRejection`
+gates installed rejection classification.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignInstalledSourceTerminal`
+gates foreign installed evidence before settlement.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the
