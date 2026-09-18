@@ -391,11 +391,10 @@ public class IlBodyDiffTests
     }
 
     // Malformed metadata can encode a TypeReference resolution scope or a nested-type chain that
-    // points back at itself. The IL-diff operand/signature name climbs would then recurse until an
-    // *uncatchable* StackOverflowException — which MetadataOperandResolver's try/catch cannot
-    // intercept — so these assert the climbs terminate instead of overflowing the test runner.
+    // points back at itself. Operand and signature formatting must reject the relationship through
+    // the public diff result rather than overflow or return a plausible partial identity.
     [Fact]
-    public void Compare_SelfReferentialTypeReferenceOperand_DoesNotStackOverflow()
+    public void Compare_SelfReferentialTypeReferenceOperand_ReportsRelationshipFailure()
     {
         var image = BuildSyntheticEntryImage(
             SyntheticTokenInstruction.LdToken,
@@ -407,11 +406,11 @@ public class IlBodyDiffTests
 
         var diff = SyntheticEntryDiff(image, image);
 
-        Assert.True(diff.IsExact);
+        AssertRelationshipRejected(diff, "Cycle");
     }
 
     [Fact]
-    public void Compare_SelfNestedTypeDefinitionOperand_DoesNotStackOverflow()
+    public void Compare_SelfNestedTypeDefinitionOperand_ReportsRelationshipFailure()
     {
         var image = BuildSyntheticEntryImage(
             SyntheticTokenInstruction.LdToken,
@@ -431,11 +430,11 @@ public class IlBodyDiffTests
 
         var diff = SyntheticEntryDiff(image, image);
 
-        Assert.True(diff.IsExact);
+        AssertRelationshipRejected(diff, "Cycle");
     }
 
     [Fact]
-    public void Compare_SelfReferentialTypeReferenceInTypeSpec_DoesNotStackOverflow()
+    public void Compare_SelfReferentialTypeReferenceInTypeSpec_ReportsRelationshipFailure()
     {
         var image = BuildSyntheticEntryImage(
             SyntheticTokenInstruction.LdToken,
@@ -455,11 +454,11 @@ public class IlBodyDiffTests
 
         var diff = SyntheticEntryDiff(image, image);
 
-        Assert.True(diff.IsExact);
+        AssertRelationshipRejected(diff, "Cycle");
     }
 
     [Fact]
-    public void Compare_SelfNestedTypeDefinitionInTypeSpec_DoesNotStackOverflow()
+    public void Compare_SelfNestedTypeDefinitionInTypeSpec_ReportsRelationshipFailure()
     {
         var image = BuildSyntheticEntryImage(
             SyntheticTokenInstruction.LdToken,
@@ -483,7 +482,7 @@ public class IlBodyDiffTests
 
         var diff = SyntheticEntryDiff(image, image);
 
-        Assert.True(diff.IsExact);
+        AssertRelationshipRejected(diff, "Cycle");
     }
 
     [Fact]
@@ -735,6 +734,20 @@ public class IlBodyDiffTests
         => row.Operation.Operand?.Kind == IlOperandIdentityKind.Slot
             || row.Operation.OpcodeFamily.StartsWith("ldloc.", StringComparison.Ordinal)
             || row.Operation.OpcodeFamily.StartsWith("stloc.", StringComparison.Ordinal);
+
+    static void AssertRelationshipRejected(
+        IlBodyDiffResult diff,
+        string expectedKind)
+    {
+        Assert.False(diff.IsAvailable);
+        Assert.Contains(
+            expectedKind,
+            Assert.IsType<string>(diff.Failure),
+            StringComparison.Ordinal);
+        var failure = Assert.Single(diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
+    }
 
     static void AssertTokenOperandPair(
         IlBodyDiffResult diff,

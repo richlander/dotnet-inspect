@@ -141,6 +141,7 @@ function annotatedResult(): AnnotatedSourceResult {
     viewerCatalog: sampleViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],
+    callRelationships: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
