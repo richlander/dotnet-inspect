@@ -487,6 +487,11 @@ member of an existing Workspace context, not a global member outside contexts:
    direct Package member. The emitted member retains exact Package ID and
    version and inherits that context's target; the transformation does not
    create a global member slot or move a dependency to another context.
+   Because portable packet topology represents every unique effective source
+   through Navigation, append one dormant Package tab and matching dormant
+   view state for each newly introduced effective source. Reuse that tab when
+   multiple contexts contain the same effective source. Existing focus,
+   selected context, tabs, and view states do not move or change.
 5. Preserve context order and every existing subscription/member position.
    Within each context, process selected roots in document order and their
    owner-issued dependencies in result order. Append only the first occurrence
@@ -507,13 +512,17 @@ canonical insertion into the derived definition, context-local duplicate
 handling, and the all-or-nothing portable outcome.
 
 The pathological fixed vector uses
-`Microsoft.Extensions.Hosting@10.0.0` as a direct member in two contexts with
-different effective targets. One dependency is already explicit in the first
-context, and one owner-issued dependency is shared by both results. The gate
-requires no duplicate append in the first context, one append in the second,
-distinct declarations across contexts, unchanged preexisting order, and exact
-first-seen order for every newly appended member. A failure for either root
-emits no derived definition.
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` as a direct member in two
+contexts with different effective targets. Its direct
+`Microsoft.Extensions.DependencyInjection.Abstractions` dependency is already
+explicit in the first context and returned for both roots. The gate requires no
+duplicate append in the first context, one append in the second, distinct
+declarations across contexts, unchanged preexisting order, and exact first-seen
+order for every newly appended member. A failure for either root emits no
+derived definition. This package keeps the completed packet within the existing
+12-coordinate browser and codec limit; packages whose explicit direct
+dependencies exceed a packet limit fail visibly without emitting a partial
+packet.
 
 ### Noun-command consumption and derived scenarios
 
@@ -653,7 +662,8 @@ Implementation proceeds in focused slices:
    “make Package dependencies explicit/top-level,” using a nuget.org package
    with deterministic direct dependencies and proving context-preserving
    placement, context-local duplicate handling, all-or-nothing completion, and
-   that no graph result enters the packet.
+   that no graph result enters the packet. Implemented under
+   [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
 5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
    `type`, then `library` and `member`, one command at a time.
 6. **Transitional retirement.** Remove `workspace --active-package` and any
