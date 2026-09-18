@@ -2,6 +2,7 @@ declare const inertStringBrand: unique symbol;
 export type InertString = string & {
     readonly [inertStringBrand]: "InertString";
 };
+export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "Calli" | number;
@@ -20,6 +21,18 @@ export interface BrowserAnnotatedSource {
     readonly contextLimitation: string | null;
     readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
     readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
+    readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
+}
+export interface BrowserAnnotatedSourceCallRelationship {
+    readonly edgeRow: number;
+    readonly factId: number;
+    readonly moduleVersionId: string;
+    readonly callerToken: number;
+    readonly ilOffset: number;
+    readonly operandToken: number;
+    readonly kind: BrowserAnnotatedSourceCallKind;
+    readonly inLoop: boolean;
+    readonly target: BrowserCallGraphTarget;
 }
 export interface BrowserAnnotatedSourceCapabilityAvailability {
     readonly available: boolean;
@@ -56,6 +69,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
     readonly invocationDestinations: ReadonlyArray<BrowserAnnotatedSourceInvocationDestination>;
     readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
     readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
+    readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
 }
 export interface BrowserCSharpBodyEvidence {
     readonly isExact: boolean;
