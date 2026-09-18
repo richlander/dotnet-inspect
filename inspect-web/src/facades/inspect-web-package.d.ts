@@ -488,6 +488,11 @@ export interface BrowserPackagePruningSupply {
     readonly package: string;
     readonly version: string;
 }
+export interface BrowserPackageQueryAnswer {
+    readonly id: string;
+    readonly value: string;
+    readonly term: BrowserPackageQueryTerm | null;
+}
 export interface BrowserPackageQueryCancellation {
     readonly kind: BrowserPackageQueryCancellationKind;
     readonly reason: string | null;
@@ -538,11 +543,6 @@ export interface BrowserPackageQueryEvidence {
     readonly summary: BrowserPackageQueryEvidenceSummary | null;
     readonly properties: ReadonlyArray<BrowserPackageQueryEvidenceProperty>;
     readonly number: number | null;
-    readonly term: BrowserPackageQueryTerm | null;
-}
-export interface BrowserPackageQueryAnswer {
-    readonly id: string;
-    readonly value: string;
     readonly term: BrowserPackageQueryTerm | null;
 }
 export interface BrowserPackageQueryEvidenceProperty {
