@@ -627,9 +627,43 @@ re-emits the canonical packet or selected URL without complete restoration.
 The `--share` selection governs this scalar; inventory output formats apply
 only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
-controls, `--root-request`, or Package Navigation selectors. `--preview` and
-explicit NuGet source policy are accepted only with the explicit
-dependency-enrichment transformation.
+controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
+source policy is accepted only for dependency enrichment or coordinate
+replacement; `--preview` is accepted only for dependency enrichment.
+
+To replace one direct Package coordinate in an existing scenario, use its
+one-based **navigation-row order**, not inventory order. Unlike authoring,
+this explicit transformation acquires and realizes the input and destination:
+
+```bash
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-version 12.1.2 --share packet
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-tfm net9.0 --share url
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-version 12.1.2 --json --envelope
+```
+
+Use `--to-version`, `--to-tfm`, or both, and select either scalar `--share`
+output or `--json --envelope`. The envelope includes the derived Share,
+actual Scope outcome, retention/fallback decision and diagnostics. Scalar
+output contains only the complete resulting packet/URL; fallback diagnostics
+go to stderr. No input packet is emitted as a successful failure fallback.
+Source options are allowed for this acquisition-backed route.
+
+Replacement preserves unrelated contexts, registrations, row order, focus,
+and committed views. Format 4 can retain an active Library, Type or Member
+and its exact inspector. For example, changing `Avalonia@11.3.14` to `12.1.2`
+on `net8.0` follows `Avalonia.Data.MultiBinding` from `Avalonia.Markup`
+to its defining `Avalonia.Base` Library; its constructor can follow separately.
+An explicitly active Library stays paired with that Library instead.
+Both Versions must be exact pins. Changed TFMs require an unsubscribed
+single-member context; shared-context TFM changes, floating selected sources,
+ambiguous source positions and query-bearing scenarios are visibly refused.
+Do not combine replacement with dependency enrichment, direct construction,
+inventory controls, or
+`--active-package`/Library/Type/Member/inspector selectors: the packet owns that
+intent. Browser coordinate-control and capture adoption remain separate.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -666,8 +700,8 @@ Packet input is mutually exclusive with direct Package and registration
 construction. Workspace Definitions performs complete restoration, including
 group and non-Package context intent and retained Navigation state, before the
 CLI enters the inventory operation. CLI refinement of that restored Navigation
-state is intentionally deferred, so `--packet` currently combines only with
-inventory controls when `--share` is absent.
+state is intentionally deferred. Without `--replace-package`, `--packet`
+combines only with inventory controls when `--share` is absent.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.
