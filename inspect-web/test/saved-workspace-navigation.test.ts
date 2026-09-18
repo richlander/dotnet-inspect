@@ -133,10 +133,12 @@ const hostNames = new Set([
   "buildShareUrl", "share",
   "openSavedWorkspace", "openSavedWorkspaceCore", "openCompleteSavedWorkspace",
   "activateManagedRetainedWorkspaceProjection",
-  "takeStagedRetainedWorkspaceInstallation",
   "prepareRetainedSavedWorkspaceInstallation", "installRetainedSavedWorkspace",
   "installManagedWorkspaceOccurrenceView",
   "openLegacySavedWorkspace", "openLegacySavedWorkspaceFromManaged",
+  "registerManagedCompatibilityOpen", "beginManagedCompatibilityCommit",
+  "finishManagedCompatibilityOpen", "cancelPendingManagedCompatibilityOpen",
+  "clearInstalledManagedWorkspaceAssociation",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
@@ -401,12 +403,15 @@ function harness() {
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
   const innerNavigationSequence = createNavigationSequence();
   let cancelPendingWorkspaceConstruction = () => {};
+  let cancelPendingManagedCompatibilityOpen = () => true;
   const navigationSequence = {
     begin: () => {
+      assert.equal(cancelPendingManagedCompatibilityOpen(), true);
       cancelPendingWorkspaceConstruction();
       return innerNavigationSequence.begin();
     },
     invalidate: () => {
+      assert.equal(cancelPendingManagedCompatibilityOpen(), true);
       cancelPendingWorkspaceConstruction();
       innerNavigationSequence.invalidate();
     },
@@ -446,6 +451,7 @@ function harness() {
   const retainedDeletes: string[] = [];
   const managedOccurrenceActivations: string[][] = [];
   const legacyOccurrenceActivations: string[] = [];
+  const legacyOccurrenceQueries: string[] = [];
   const acquisitions: string[] = [];
   const queries: string[][] = [];
   const retained: { packageModel: Package; replacedPackage: Package | null }[] = [];
@@ -670,6 +676,14 @@ function harness() {
     recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
+    workspaceOccurrenceRequest: () => state.packages.map(pkg => ({
+      package: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+    })),
+    queryWorkspaceOccurrenceView: () => {
+      legacyOccurrenceQueries.push("query");
+    },
     inspectActivateRetainedWorkspacePackageOccurrence: (
       retainedDefinitionId: string,
       realizationId: string,
@@ -759,6 +773,9 @@ function harness() {
             navigation: BrowserRetainedWorkspaceInstallation["navigation"];
           },
         ) => boolean | Promise<boolean>,
+        install?: (
+          installation: BrowserRetainedWorkspaceInstallation,
+        ) => void | Promise<void>,
       ): Promise<BrowserRetainedWorkspaceActivationResult> => {
         retainedActivations.push(retainedDefinitionId);
         const operation = controls.activateRetained?.()
@@ -779,9 +796,8 @@ function harness() {
             };
           }
           if (result.installation) {
-            context.stagedRetainedWorkspaceInstallation =
-              result.installation;
             managedActiveDefinitionId = retainedDefinitionId;
+            await install?.(result.installation);
           }
           return result;
         });
@@ -805,12 +821,17 @@ function harness() {
         return Promise.resolve();
       },
     },
-    stagedRetainedWorkspaceInstallation:
-      null as BrowserRetainedWorkspaceInstallation | null,
     installedRetainedWorkspaceRealizationId:
       null as string | null,
     installedRetainedWorkspaceInstallation:
       null as BrowserRetainedWorkspaceInstallation | null,
+    pendingManagedCompatibilityOpen: null as {
+      navigationSeq: number;
+      committing: boolean;
+      restoreIncumbent: () => void;
+    } | null,
+    managedCompatibilityCommitBarrier: Promise.resolve(),
+    settleManagedCompatibilityCommit: null as (() => void) | null,
     requestAnimationFrame: (action: () => void) => frames.push(action),
     observeAsync: (operation: Promise<unknown>) => operations.push(operation),
     sourceInspection: {
@@ -950,10 +971,15 @@ function harness() {
   cancelPendingWorkspaceConstruction = () => {
     runInNewContext("cancelPendingWorkspaceConstruction()", context);
   };
+  cancelPendingManagedCompatibilityOpen = () =>
+    Boolean(runInNewContext(
+      "cancelPendingManagedCompatibilityOpen()",
+      context));
   return {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
     queries, retained, recent, invalidations, toasts, clipboard, picker, previousEntries,
+    legacyOccurrenceQueries,
     catalogRequests, packageComparisonTargets,
     demoRuns, publications, completeEncoded, retainedDefinitions,
     retainedActivations,
@@ -1817,7 +1843,70 @@ test("legacy saved Open replaces a managed incumbent without snapshotting it", a
     h.context.retainedWorkspaces.workspaces.find(
       (workspace: { id: string }) => workspace.id === managedId)?.kind,
     "managed");
+  assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
+  assert.equal(h.context.installedRetainedWorkspaceInstallation, null);
+  runInNewContext("ensureWorkspaceOccurrenceView()", h.context);
+  assert.deepEqual(h.legacyOccurrenceQueries, ["query"]);
   assert.equal(h.writes.filter(write => write.kind === "push").length, 2);
+});
+
+test("failed legacy Open restores the managed incumbent's current package focus", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const alpha = h.state.packages.find(pkg => pkg.id === "Alpha");
+  assert.ok(alpha);
+  h.state.package = alpha;
+  h.navigationHistory.record();
+  const incumbentUrl = h.location.href;
+  const incumbentHistory = structuredClone(h.history.state);
+  h.controls.acquisition = async id => id !== "Beta";
+
+  h.open();
+  await h.settle();
+
+  assert.equal(h.state.package?.id, "Alpha");
+  assert.equal(h.state.workspaceSubjectOpen, true);
+  assert.equal(h.context.app.inert, false);
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-1");
+  assert.equal(h.location.href, incumbentUrl);
+  assert.deepEqual(h.history.state, incumbentHistory);
+  assert.match(h.state.queryNotice, /Saved Workspace .* failed/u);
+});
+
+test("superseded legacy Open restores its managed incumbent before navigation continues", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const managedId = h.context.retainedWorkspaces.activeWorkspaceId;
+  const selection = deferred<void>();
+  h.controls.selection = () => selection.promise;
+
+  h.open();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.context.app.inert, true);
+
+  h.navigationSequence.begin();
+
+  assert.equal(h.context.app.inert, false);
+  assert.equal(h.state.package?.id, "Beta");
+  assert.equal(
+    h.context.retainedWorkspaces.activeWorkspaceId,
+    managedId);
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-1");
+
+  selection.resolve();
+  await h.settle();
+
+  assert.equal(h.state.package?.id, "Beta");
+  assert.equal(
+    h.context.retainedWorkspaces.activeWorkspaceId,
+    managedId);
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
 });
 
 test("superseded saved Open stops after pending packet decoding", async () => {

@@ -91,6 +91,9 @@ export interface RetainedWorkspaceActivationController {
     accept?: (
       preparation: BrowserRetainedWorkspacePreparedInstallation,
     ) => boolean | Promise<boolean>,
+    install?: (
+      installation: BrowserRetainedWorkspaceInstallation,
+    ) => void | Promise<void>,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
   cancelPending(): boolean;
   waitForPendingCommit(): Promise<void>;
@@ -243,6 +246,9 @@ export function createRetainedWorkspaceActivationController(
     accept: (
       preparation: BrowserRetainedWorkspacePreparedInstallation,
     ) => boolean | Promise<boolean> = () => true,
+    install: (
+      installation: BrowserRetainedWorkspaceInstallation,
+    ) => void | Promise<void> = () => {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -364,6 +370,18 @@ export function createRetainedWorkspaceActivationController(
             installedPublicationOrdinal = installation.publicationOrdinal;
             activeDefinitionId = installation.retainedDefinitionId;
             hooks.install(installation);
+          }
+          if (generation === selectionGeneration
+            && activeDefinitionId === installation.retainedDefinitionId) {
+            try {
+              await install(installation);
+            } catch (error) {
+              pendingDefinitionId = null;
+              lastFailure = error instanceof Error
+                ? error.message
+                : "Retained Workspace presentation installation failed.";
+              throw error;
+            }
           }
           if (generation === selectionGeneration) {
             pendingDefinitionId = null;

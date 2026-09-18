@@ -430,6 +430,54 @@ test("navigation cannot supersede an accepted commit before installation", async
     ["started", "installed", "settled"]);
 });
 
+test("commit barrier remains held through caller presentation installation", async () => {
+  const fixture = createFixture();
+  fixture.client.delayCommits = true;
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const presentation = deferred<void>();
+
+  const selection = fixture.controller.activate(
+    definition.id,
+    undefined,
+    () => presentation.promise);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(definition.id, "realization-1"),
+    failure: null,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  fixture.client.completeCommit("workspace-activation-1");
+  await Promise.resolve();
+  await Promise.resolve();
+
+  let barrierSettled = false;
+  const barrier = fixture.controller.waitForPendingCommit().then(() => {
+    barrierSettled = true;
+    return undefined;
+  });
+  await Promise.resolve();
+
+  assert.equal(barrierSettled, false);
+  assert.equal(fixture.controller.cancelPending(), false);
+  assert.deepEqual(
+    fixture.commitEvents,
+    ["started", "installed"]);
+
+  presentation.resolve();
+  await selection;
+  await barrier;
+
+  assert.equal(barrierSettled, true);
+  assert.deepEqual(
+    fixture.commitEvents,
+    ["started", "installed", "settled"]);
+});
+
 test("late preparation is canceled before it can create predecessor settlement", async () => {
   const fixture = createFixture();
   const initial = fixture.controller.retain({

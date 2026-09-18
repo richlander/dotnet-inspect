@@ -429,9 +429,14 @@ does not authorize host-level deduplication.
 
 Opening a stored format-1 compatibility record while a managed definition is
 active does not snapshot that managed presentation. The compatibility restore
-remains private while the UI is inert; failure reinstalls the incumbent from
-its detached managed installation evidence, while success removes managed
-authority before publishing the new compatibility entry and history result.
+remains private while the UI is inert. Navigation may supersede it before
+managed deactivation begins; supersession or failure reinstalls the incumbent
+from its detached managed installation evidence and reapplies its current
+resource-free package focus and Navigation history. Once managed deactivation
+begins, later Navigation waits through compatibility presentation and history
+installation. Success clears the retired managed-realization association
+before publishing the new compatibility entry, history result, and legacy
+package-occurrence surface.
 
 ### Spotlight and package-query handoff
 
@@ -795,7 +800,8 @@ candidate Workspace, pre-cutover Navigation Consumer acceptance, package-only,
 Platform, and registration-only activation, exact admitted Workspace-root
 package actions, unified compatibility/managed retention and capacity, and
 production Saved Open tests for success, failure, retry, supersession, focus,
-and history commitment.
+history commitment, commit-barrier installation ordering, current managed
+package-focus restoration, and managed-association retirement.
 
 Existing package, Platform, Navigation, and analysis entry points remain on
 their current paths until their counted adoption slices. The retained
