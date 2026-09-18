@@ -191,9 +191,7 @@ static class ArrayPoolOwnershipProjection
         }
         if (limit.Effect is { } effect)
         {
-            return effect.ResourceKinds.Any(static kind =>
-                    kind.Identity
-                        == ArrayPoolResourceEffectModel.BufferKind)
+            return AppliesToArrayPoolObligation(effect)
                 || effect.Sources.Any(static source =>
                     source.Model.Equals(
                         ArrayPoolResourceEffectModel.Identity));
@@ -202,6 +200,13 @@ static class ArrayPoolOwnershipProjection
             return model.Equals(ArrayPoolResourceEffectModel.Identity);
         return hasArrayPoolEvidence;
     }
+
+    static bool AppliesToArrayPoolObligation(
+        ResolvedResourceEffect effect) =>
+        !effect.ResourceKinds.Any()
+        || effect.ResourceKinds.Any(static kind =>
+            kind.Identity
+                == ArrayPoolResourceEffectModel.BufferKind);
 
     static ArrayPoolOwnershipUse ProjectUse(
         ResourceOwnershipUse use,
@@ -212,10 +217,8 @@ static class ArrayPoolOwnershipProjection
                 ResourceOwnershipUseKind.Released
                     when resourceKind?.Identity
                             == ArrayPoolResourceEffectModel.BufferKind
-                        || use.Effect?.ResourceKinds.Any(kind =>
-                            kind.Identity
-                                == ArrayPoolResourceEffectModel.BufferKind)
-                            == true =>
+                        || use.Effect is { } effect
+                            && AppliesToArrayPoolObligation(effect) =>
                     ArrayPoolOwnershipUseKind.ReturnedToPool,
                 ResourceOwnershipUseKind.Stored =>
                     ArrayPoolOwnershipUseKind.Stored,

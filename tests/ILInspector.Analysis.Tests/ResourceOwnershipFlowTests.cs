@@ -636,6 +636,75 @@ public sealed class ResourceOwnershipFlowTests
     }
 
     [Fact]
+    public void KindlessArrayReleaseProjectsReturnedToPool()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    DeclaredReleaseModel(
+                        new("fixture.kindless-resource"),
+                        SecondaryKind,
+                        new ResourceEffectCompletion.NormalReturn(),
+                        omitKind: true)),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence generic =
+            Assert.Single(index.ResourceOwnership);
+        Assert.Equal(
+            ResourceOwnershipUseKind.Released,
+            Assert.Single(Assert.Single(generic.Parameters).Uses).Kind);
+
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.True(projected.IsComplete);
+        ArrayPoolOwnershipUse release =
+            Assert.Single(Assert.Single(projected.Parameters).Uses);
+        Assert.Equal(
+            ArrayPoolOwnershipUseKind.ReturnedToPool,
+            release.Kind);
+    }
+
+    [Fact]
+    public void UnsupportedKindlessArrayReleaseRemainsIncomplete()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    DeclaredReleaseModel(
+                        new("fixture.kindless-resource"),
+                        SecondaryKind,
+                        new ResourceEffectCompletion.Entry(),
+                        omitKind: true)),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence generic =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(generic.IsComplete);
+        Assert.Empty(Assert.Single(generic.Parameters).Uses);
+        Assert.Single(generic.Limits);
+
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.False(projected.IsComplete);
+        ArrayPoolParameterOwnership parameter =
+            Assert.Single(projected.Parameters);
+        Assert.False(parameter.IsComplete);
+        Assert.Empty(parameter.Uses);
+    }
+
+    [Fact]
     public void NonArrayResourceParameterRetainsReleaseEvidence()
     {
         LibraryBodyIndex index =
@@ -981,7 +1050,8 @@ public sealed class ResourceOwnershipFlowTests
     static ResourceEffectModelDefinition DeclaredReleaseModel(
         ResourceEffectModelIdentity modelIdentity,
         ResourceKindIdentity kindIdentity,
-        ResourceEffectCompletion completion)
+        ResourceEffectCompletion completion,
+        bool omitKind = false)
     {
         ResourceTypeExpression.Named api = new(
             FixtureAssembly(),
@@ -1014,7 +1084,7 @@ public sealed class ResourceOwnershipFlowTests
                     new ResourceEffect.Release(
                         new ResourceEffectLocation.Parameter(0),
                         completion,
-                        kind,
+                        omitKind ? null : kind,
                         Correspondence: null,
                         Observation: null),
                     [Provenance(
