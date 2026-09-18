@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -47,15 +46,14 @@ public sealed record SelectedContextExactTypeLiveTarget(
     string? PackageExtractPath);
 
 /// <summary>
-/// Exact Type content plus owner-issued defining source identities and an
-/// optional live target for hosts operating within the admitted realization.
+/// Exact Type content plus the owner-issued defining source identities needed
+/// by aggregate hosts.
 /// </summary>
 public sealed record SelectedContextExactTypeInspectionResult
 {
     public SelectedContextExactTypeInspectionResult(
         ExactTypeInspectionResult inspection,
-        ImmutableArray<SelectedContextExactTypeSource> definingSources,
-        SelectedContextExactTypeLiveTarget? liveTarget = null)
+        ImmutableArray<SelectedContextExactTypeSource> definingSources)
     {
         Inspection = inspection
             ?? throw new ArgumentNullException(nameof(inspection));
@@ -66,7 +64,6 @@ public sealed record SelectedContextExactTypeInspectionResult
                 : throw new ArgumentException(
                     "Defining sources must be an initialized immutable array.",
                     nameof(definingSources));
-        LiveTarget = liveTarget;
     }
 
     public ExactTypeInspectionResult Inspection { get; }
@@ -75,13 +72,6 @@ public sealed record SelectedContextExactTypeInspectionResult
     {
         get;
     }
-
-    /// <summary>
-    /// Full inspection state for in-process host rendering. This value is not
-    /// detached or serialized and remains valid only under the paired lease.
-    /// </summary>
-    [JsonIgnore]
-    public SelectedContextExactTypeLiveTarget? LiveTarget { get; }
 }
 
 /// <summary>
@@ -102,7 +92,8 @@ public static class SelectedContextExactTypeInspectionOperation
             projectionLimits: null,
             activation: null,
             facet: null,
-            ApiSurfaceScope.PublicWithNonPublicTypes);
+            scope: ApiSurfaceScope.PublicWithNonPublicTypes,
+            liveTargetConsumer: null);
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         Execute(
@@ -119,7 +110,8 @@ public static class SelectedContextExactTypeInspectionOperation
             projectionLimits,
             activation: null,
             facet: null,
-            ApiSurfaceScope.PublicWithNonPublicTypes);
+            scope: ApiSurfaceScope.PublicWithNonPublicTypes,
+            liveTargetConsumer: null);
     }
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -129,7 +121,43 @@ public static class SelectedContextExactTypeInspectionOperation
             SelectedContextExactTypeInspectionRequest request,
             ViewFacetId? facet = null,
             ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes) =>
+        ExecuteActivation(
+            authority,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer: null);
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
                 ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteActivation(
+            authority,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer);
+    }
+
+    static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteActivation(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet,
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
     {
         ArgumentNullException.ThrowIfNull(activation);
         if (activation.SelectedContext is not { } context)
@@ -156,7 +184,8 @@ public static class SelectedContextExactTypeInspectionOperation
             projectionLimits: null,
             activation,
             facet,
-            scope);
+            scope,
+            liveTargetConsumer);
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -167,7 +196,8 @@ public static class SelectedContextExactTypeInspectionOperation
             ApiSurfaceProjectionLimits? projectionLimits,
             CompleteWorkspaceActivation? activation,
             ViewFacetId? facet,
-            ApiSurfaceScope scope)
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
@@ -239,8 +269,9 @@ public static class SelectedContextExactTypeInspectionOperation
         ];
         var content = new SelectedContextExactTypeInspectionResult(
             inspection,
-            projectedSources,
-            target);
+            projectedSources);
+        if (target is not null)
+            liveTargetConsumer?.Invoke(target);
         InspectionShare share =
             new InspectionShare.NonProjectable(
                 "selected-context-exact-type/share",

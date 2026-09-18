@@ -1009,14 +1009,16 @@ public static class TypeCommand
             ((WorkspacePacketRestorationResult.Restored)result).Value;
         WorkspaceTypeShareChoice shareChoice =
             WorkspaceTypeShareChoice.From(options);
+        SelectedContextExactTypeLiveTarget? liveTarget = null;
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
-            SelectedContextExactTypeInspectionOperation.Execute(
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
                 restoration.Authority,
                 restoration.Workspace,
                 new SelectedContextExactTypeInspectionRequest(
                     options.TypeName!),
-                shareChoice.Facet,
-                options.IncludeAll
+                target => liveTarget = target,
+                facet: shareChoice.Facet,
+                scope: options.IncludeAll
                     ? ApiSurfaceScope.IncludeAll
                     : ApiSurfaceScope.PublicWithNonPublicTypes);
         ExactTypeInspectionResult inspection =
@@ -1044,7 +1046,7 @@ public static class TypeCommand
                 inspection,
                 envelope.Diagnostics,
                 ExactTypeRenderSource.From(source),
-                envelope.Content.LiveTarget
+                liveTarget
                     ?? throw new InvalidOperationException(
                         "An available Workspace Type result requires a "
                             + "live inspection target."))
