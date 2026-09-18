@@ -51,11 +51,11 @@ owns the names and semantic extents carried as `TContent`. This adoption
 consumes that contract; it does not define a competing Diff-specific content
 taxonomy.
 
-This is **specification only**. Existing top-level `diff` and `timeline` remain
-current until the cutover. Current examples elsewhere in this document are
-pre-cutover evidence; the target grammar is isolated below. Other root
-operations such as `match`, `find`, `depends`, and `graph` are not relocated
-by this adoption.
+This is **specification only**. Existing top-level `diff` remains current and
+is retained by the composition owner; `timeline` remains current until focused
+Diff adoption retires it. Examples in the historical placement section are
+pre-cutover evidence, not target grammar. Other root operations such as
+`match`, `find`, `depends`, and `graph` are not relocated by this adoption.
 
 Related docs:
 

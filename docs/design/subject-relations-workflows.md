@@ -1185,10 +1185,10 @@ traversal options.
 | `Dependencies`, `References` | No new predicates; describe the owning evidence view's adopted bindings, or explicitly report no query operators. | None |
 | `Calls`, `Callers` | No new predicates; describe the owning call view's adopted bindings, or explicitly report no query operators. | None; do not imply a callee-signature join. |
 
-Graph children retain their owners' discovery contracts; this design does not
-invent `--where` bindings for Graph-document columns. Where a known section has
-no adopted operators, a named request such as `type -Q Implementers` still
-identifies the section and explicitly says
+Operation-backed Graph sections retain the Graph owner's discovery contracts;
+this design does not invent `--where` bindings for Graph-document columns.
+Where a known section has no adopted operators, a named request such as
+`type -Q Implementers` still identifies the section and explicitly says
 **no query operators**. An unknown section remains an error. Bare `-Q` lists
 only query-capable sections, under the existing discovery contract.
 
@@ -1426,7 +1426,7 @@ the named adoption gates run in Release:
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected direct producers, evidence, errors, and output without requesting Graph traversal. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
-| Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Neither category requests Graph traversal; Package, Library, Type, and Member topology begins only through the matching `graph` child. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
+| Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Neither category requests Graph traversal; Package, Library, Type, and Member topology begins only through an operation-backed Graph section or an explicit top-level Graph request. Equivalent subject-first and operation-first requests preserve the same typed Graph request and result. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
 | Section query discovery | Named and category `-Q` report actual per-section bindings, result units and accepted shortcut expansions without target acquisition or producer work. Return filtering keeps member rows in Find, return edges in Relations and classified return edges in Integration; it does not retain unrelated edges or switch an explicit view. Unsupported categories/bindings fail visibly, and known sections without operators say so. |
 | Predicate composition | Mixed flags/`--where` and their expanded forms agree regardless of order. Span-family OR remains inside the AND with a string return; repeated signature shapes match one member, duplicate constraints do not duplicate evidence, contradictory return predicates give an honestly scoped empty result, and invalid bindings fail visibly. |
 | Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
