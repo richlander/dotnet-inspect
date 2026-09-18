@@ -622,11 +622,11 @@ exist to be selected. The family has two currencies: the IL coordinate, and the
 heap coordinate `--heap` carries (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
-The family is counted in currencies, not flags, because one currency can have
-more than one spelling. The IL coordinate has two: `--il-offset` takes a single
-coordinate, and `--il-offsets` takes a file of them for batch reporting. They
-are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
-carry the same currency, so they are one member of this family rather than two.
+The family is counted in currencies, not syntax elements, because one currency
+can have more than one spelling. `library coordinate` accepts either one exact
+IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
+and `--il-offsets` parent options carry the same currency. Exact and file modes
+are mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -1235,11 +1235,12 @@ resolved by discarding one.
 
 ### Lens modes project their own payload
 
-A few flags select a *lens* rather than a section of the normal document:
+A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
-payload it computes itself and returns before the section pipeline, so the
-section-selection vocabulary does not describe what the caller is looking at.
+`library coordinate --file`, transitional `library --il-offsets`, and the
+`-D`/`--discover` listing. Each renders a payload it computes itself and
+returns before the section pipeline, so the section-selection vocabulary does
+not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1609,10 +1610,11 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
-  an input that has no other expression and gate the sections it makes
-  meaningful. They do not narrow a shape, and a flag qualifies for this family
-  only if its input is a new currency. The first two spell the same currency, so
+- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
+  `--heap`, supplies coordinate input that has no other expression and gates
+  the sections it makes meaningful. Coordinate input does not narrow a shape,
+  and syntax qualifies for this family only if its input is a new currency.
+  Exact and file IL coordinates spell the same currency, so
   they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.
