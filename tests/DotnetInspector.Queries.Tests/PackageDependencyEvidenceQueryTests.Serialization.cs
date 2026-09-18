@@ -109,6 +109,31 @@ public sealed partial class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Serialization_RejectsMismatchedEvidenceProducerIdentity()
+    {
+        const string json =
+            """
+            {
+              "association": 1,
+              "producer_key": "producer",
+              "portable_producer_key": "nfp-1.0000000000000000000000000000000000000000000000000000000000000000",
+              "transport_kind": "NuGetV3",
+              "producer_display": ""
+            }
+            """;
+        JsonTypeInfo<PackageDependencyEvidenceSourceIdentity> typeInfo =
+            (JsonTypeInfo<PackageDependencyEvidenceSourceIdentity>)
+                DependencyInspectionJsonContext.Default.GetTypeInfo(
+                    typeof(PackageDependencyEvidenceSourceIdentity))!;
+
+        Exception? exception = Record.Exception(
+            () => JsonSerializer.Deserialize(json, typeInfo));
+        Assert.True(
+            exception is JsonException or ArgumentException,
+            $"Expected mismatched producer identity rejection; received {exception?.GetType().Name ?? "no exception"}.");
+    }
+
+    [Fact]
     public void Serialization_RoundTripsEveryAdmittedRootKind()
     {
         RestoredProjectDependencyFacts restored = Available(

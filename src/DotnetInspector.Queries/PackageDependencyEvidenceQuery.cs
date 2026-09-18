@@ -207,11 +207,12 @@ public sealed record PackageDependencyEvidenceSourceIdentity
     {
         ArgumentOutOfRangeException.ThrowIfNegative(association);
         ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
-        if (!PackageProducerIdentity.IsCanonicalPortableKey(
+        if (!PackageProducerIdentity.IsPortableKeyFor(
+                producerKey,
                 portableProducerKey))
         {
             throw new ArgumentException(
-                "A package evidence source requires a canonical portable producer key.",
+                "A package evidence source requires the producer's canonical portable key.",
                 nameof(portableProducerKey));
         }
         if (!Enum.IsDefined(transportKind))

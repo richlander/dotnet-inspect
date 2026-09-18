@@ -818,6 +818,15 @@ public sealed class DependencyInspectionJsonContextTests
             }
             """);
         AssertRejected(
+            """
+            {
+              "producer_key": "producer",
+              "portable_producer_key": "nfp-1.0000000000000000000000000000000000000000000000000000000000000000",
+              "transport_kind": "NuGetV3",
+              "producer_display": ""
+            }
+            """);
+        AssertRejected(
             $$"""
             {
               "producer_key": "producer",

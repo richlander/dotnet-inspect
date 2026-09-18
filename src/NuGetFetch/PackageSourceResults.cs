@@ -143,6 +143,20 @@ public sealed class PackageProducerIdentity
         && value.AsSpan(PortableKeyPrefix.Length).IndexOfAnyExcept(
             "0123456789abcdef") < 0;
 
+    /// <summary>
+    /// True when <paramref name="portableKey"/> is the canonical portable
+    /// projection of <paramref name="key"/>.
+    /// </summary>
+    public static bool IsPortableKeyFor(
+        string? key,
+        string? portableKey) =>
+        !string.IsNullOrWhiteSpace(key)
+        && IsCanonicalPortableKey(portableKey)
+        && string.Equals(
+            CreatePortableKey(key),
+            portableKey,
+            StringComparison.Ordinal);
+
     /// <inheritdoc/>
     public bool Equals(PackageProducerIdentity? other) =>
         other is not null

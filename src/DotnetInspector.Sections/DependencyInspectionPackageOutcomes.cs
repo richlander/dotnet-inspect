@@ -22,11 +22,12 @@ public sealed record DependencyInspectionPackageSourceIdentity
         InertString producerDisplay)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
-        if (!PackageProducerIdentity.IsCanonicalPortableKey(
+        if (!PackageProducerIdentity.IsPortableKeyFor(
+                producerKey,
                 portableProducerKey))
         {
             throw new ArgumentException(
-                "A dependency Content source requires a canonical portable producer key.",
+                "A dependency Content source requires the producer's canonical portable key.",
                 nameof(portableProducerKey));
         }
         if (!Enum.IsDefined(transportKind))
