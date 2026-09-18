@@ -39,7 +39,8 @@ public static class DiffHistoryInspector
                     request.WorkspaceDeadline,
                     request.ApiInspection);
             PackageVersionCellMetadataInspectionOutcome outcome =
-                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                await PackageVersionCellMetadataInspector
+                    .ExecuteForApiComparisonAsync(
                         cellRequest,
                         executor,
                         cancellationToken)

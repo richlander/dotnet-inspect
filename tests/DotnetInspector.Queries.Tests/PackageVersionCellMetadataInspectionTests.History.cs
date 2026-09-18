@@ -535,6 +535,80 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        HistoryCountSelectedConstraintFailureRemainsSourceInsufficient()
+    {
+        byte[] image =
+            AssemblyContextApiComparisonQueryTests
+                .BuildMissingConstraintConsumer();
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.SelectedConstraint",
+                "1.0.0",
+                "2.0.0");
+        IPackageContent[] contents =
+        [
+            population[0].Content(
+                ($"lib/{Framework}/MissingConstraintConsumer.dll",
+                    image)),
+            population[1].Content(
+                ($"lib/{Framework}/MissingConstraintConsumer.dll",
+                    image)),
+        ];
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            return population[position].Realize(
+                execution,
+                contents[position]);
+        });
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "N.Consumer`1")),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.All(
+            document.Evaluations,
+            static evaluation =>
+            {
+                Assert.IsType<
+                    FindingInspection<ApiMemberHandle>.Complete>(
+                        evaluation.Inspection.Value);
+                var participant =
+                    Assert.IsType<
+                        DiffHistoryApiParticipantEvidence.Available>(
+                            Assert.Single(evaluation.Participants));
+                Assert.Contains(
+                    participant.InspectionFailures,
+                    static failure =>
+                        failure.Operation
+                            == ApiSurface.ConstraintResolutionOperation);
+            });
+        DiffHistoryChangedVersionAssessment<ApiMemberHandle> assessment =
+            Assert.Single(document.ChangedVersionAssessments);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Failed,
+            assessment.State);
+        Assert.IsType<FindingComparison<ApiMemberHandle>.Failed>(
+            assessment.Comparison!.Value);
+        Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+    }
+
+    [Fact]
+    public async Task
         HistoryCountRetainsSparseFailureBesideUsableDocument()
     {
         ImmutableArray<CellFixture> population =
