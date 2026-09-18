@@ -17,14 +17,15 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
-`vocabulary` value rendering, `timeline`, `package query`, and package activity
-have semantic `-n` adoption. Their supported Window and direction capabilities
-remain command-specific. These adopters also accept explicit rendered-line
-selection where their output format permits it. Unselected modes of a
-partially adopted command use the rendered-line fallback. Commands without an
-active semantic row adoption, including text documents and structured commands
-whose item rows have not yet been adopted, lower bare `-n` to rendered-line
-selection. Explicit `--lines` remains accepted as redundant unit selection.
+`vocabulary` value rendering, `timeline`, `package query`, package activity,
+and projected member Facts JSON have semantic `-n` adoption. Their supported
+Window and direction capabilities remain command-specific. These adopters also
+accept explicit rendered-line selection where their output format permits it.
+Unselected modes of a partially adopted command use the rendered-line fallback.
+Commands without an active semantic row adoption, including text documents and
+structured commands whose item rows have not yet been adopted, lower bare `-n`
+to rendered-line selection. Explicit `--lines` remains accepted as redundant
+unit selection.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -783,9 +784,11 @@ The broad explicit-line rollout is enforced by:
 | Gate | Property |
 | --- | --- |
 | `CacheCommandTests` | A command without semantic rows infers rendered lines for bare `-n`, supports inferred Head/Tail and explicit `--lines`/`--tail-lines`, and rejects inferred or explicit line selection with complete JSON before command work. |
-| `SkillCommandTests` | `skill`, `skill list`, and focused skill-document commands infer rendered lines for bare `-n`, preserve explicit `--lines`, apply `--tail` to lines, and retain fixed Markdown output independent of the environment-selected format. |
+| `SkillCommandTests` | `skill`, `skill list`, and focused skill-document commands infer rendered lines for bare `-n`, preserve explicit `--lines`, apply `--tail` to lines, retain fixed Markdown output independent of the environment-selected format, and accurately teach legacy `--rows` composition. |
 | `ImplementsCommandTests` and `ExtensionsCommandTests` | Existing semantic Head/Tail and Window selection remains intact, explicit line clipping is available, and numeric `-t` is ordinary type-filter input rather than a hidden row count or a compatibility diagnostic. |
 | `PackageChangesCommandTests` | Package activity retains semantic `-n`, does not reuse that count when line selection is explicit, and rejects JSON line clipping before acquisition. |
+| `CommandExecutionTests.Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, `Member_FactsProjectedJson_RejectsUnavailableWindow`, `Member_FactsProjectedJson_DeduplicatesEquivalentSelectors`, `Member_FactsCount_DoesNotActivateProjectedJsonAdoption`, `Member_FactsCount_LegacyRowsComposeWithInferredLines`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | Projected member Facts JSON applies semantic Head, Tail, and strict Window selection before serialization, equivalent selector spellings retain the same active adoption, terminal Count preserves legacy row/line composition, and effective or structural discovery remains outside that projection-specific declaration. |
+| `CommandExecutionTests.LibraryCoordinateCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
 | `CliRowSelectionRouterIntegrationTests` | Uniform fallback candidates lower commandless `-n` as rendered-line selection, while candidates with different effective units require an explicit command before target acquisition. |
 | `PayloadLensContainmentTests` | Explicit line clipping preserves end-of-options ownership; row-shaped payload text after `--` is not interpreted as row selection. |
 

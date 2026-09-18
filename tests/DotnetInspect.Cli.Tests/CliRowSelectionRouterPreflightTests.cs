@@ -1127,12 +1127,36 @@ public sealed class CliRowSelectionRouterPreflightTests
             Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Success, ordinary.Outcome);
         }
 
-        CliRowSelectionRouteEnvelopeResult semanticUnsupported =
-            Evaluate(["Target", "-n", "2"], first, second);
-        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability, semanticUnsupported.Outcome);
-        Assert.Equal(CliRowSelectionCapabilities.HeadTail, semanticUnsupported.Failure!.MissingCapabilities);
-        Assert.Equal(CliRowSelectionOccurrenceKind.Limit, semanticUnsupported.RequestKind);
-        Assert.Equal(1, semanticUnsupported.Position);
+        CandidateFixture fallbackFirst =
+            new(
+                "fallback-first",
+                capabilities: CliRowSelectionCapabilities.Lines,
+                defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
+        CandidateFixture fallbackSecond =
+            new(
+                "fallback-second",
+                capabilities: CliRowSelectionCapabilities.Lines,
+                defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
+        CliRowSelectionRouteEnvelopeResult inferredLines =
+            Evaluate(["Target", "-n", "2"], fallbackFirst, fallbackSecond);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.Success,
+            inferredLines.Outcome);
+        Assert.Empty(
+            inferredLines.LoweringResult!.Value!.SemanticIntent.Operations);
+        Assert.Equal(2, inferredLines.LoweringResult.Value.LineIntent!.Count);
+
+        CandidateFixture semantic =
+            new(
+                "semantic",
+                capabilities: CliRowSelectionCapabilities.HeadTail);
+        CliRowSelectionRouteEnvelopeResult mixedUnits =
+            Evaluate(["Target", "-n", "2"], semantic, fallbackFirst);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.ExplicitCommandRequired,
+            mixedUnits.Outcome);
+        Assert.Equal(CliRowSelectionOccurrenceKind.Limit, mixedUnits.RequestKind);
+        Assert.Equal(1, mixedUnits.Position);
     }
 
     [Fact]
@@ -1877,7 +1901,9 @@ public sealed class CliRowSelectionRouterPreflightTests
             string linesName = "--lines",
             string tailLinesName = "--tail-lines",
             string? childOptionName = null,
-            bool extraOptionRecursive = false)
+            bool extraOptionRecursive = false,
+            CliRowSelectionDefaultUnit defaultUnit =
+                CliRowSelectionDefaultUnit.SemanticRows)
         {
             Option<string[]> limit =
                 RowValueOption(limitName);
@@ -2064,7 +2090,8 @@ public sealed class CliRowSelectionRouterPreflightTests
                         tail,
                         lines,
                         tailLines),
-                    capabilities);
+                    capabilities,
+                    defaultUnit);
         }
 
         public CliRowSelectionRouteCandidate Candidate { get; }
