@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -31,6 +33,15 @@ public sealed class LifetimeClassifier : IHiddenFactClassifier
     static readonly AnnotationDescriptor RefStructReturn = new("lifetime.ref-struct-return", AnnotationCategory.Lifetime, "returns a ref struct — lifetime-constrained, cannot be boxed or stored on the heap");
     static readonly AnnotationDescriptor PointerReturn = new("lifetime.pointer-return", AnnotationCategory.Lifetime, "returns an unmanaged pointer — the caller inherits an unverifiable lifetime obligation");
     static readonly AnnotationDescriptor StackEscape = new("lifetime.stack-escape", AnnotationCategory.Lifetime, "returns a pointer into stack memory reclaimed on return — a dangling pointer");
+
+    public static ImmutableArray<AnnotationDescriptor> Descriptors { get; } =
+    [
+        RefReturn,
+        StackBound,
+        RefStructReturn,
+        PointerReturn,
+        StackEscape,
+    ];
 
     public AnnotationCategory Category => AnnotationCategory.Lifetime;
 

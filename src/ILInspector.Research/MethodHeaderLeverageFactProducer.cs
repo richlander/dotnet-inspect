@@ -13,7 +13,7 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
         new("cost.method", AnnotationCategory.Cost, "method has call-graph leverage");
 
     public string Name => "method-header-leverage";
-    public IReadOnlyList<string> Produces { get; } = ["cost.method"];
+    public IReadOnlyList<string> Produces { get; } = [HeaderCost.Id];
     public IReadOnlyList<string> DependsOn { get; } = [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForAssembly(
