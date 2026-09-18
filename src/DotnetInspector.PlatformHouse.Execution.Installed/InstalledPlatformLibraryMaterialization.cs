@@ -17,6 +17,17 @@ public sealed record InstalledReferenceArtifactProvenance(
     AssemblyReferenceIdentity Identity) : IArtifactProvenance;
 
 /// <summary>
+/// Resource-free provenance for one installed reference compiled-XML
+/// companion snapshot.
+/// </summary>
+public sealed record InstalledReferenceDocumentationArtifactProvenance(
+    InstalledPlatformSourceGeneration SourceGeneration,
+    InstalledReferencePackCoordinate Coordinate,
+    string FileName,
+    AssemblyReferenceIdentity AssociatedAssemblyIdentity) :
+    IArtifactProvenance;
+
+/// <summary>
 /// Resource-free provenance for one installed implementation assembly snapshot.
 /// </summary>
 public sealed record InstalledImplementationArtifactProvenance(
@@ -529,7 +540,17 @@ public static class InstalledPlatformLibraryMaterializer
                 library.Identity),
             library.Identity,
             library.ContentLength,
-            _ => library.OpenRead());
+            _ => library.OpenRead(),
+            library.Documentation is not { } documentation
+                ? null
+                : new(
+                    new InstalledReferenceDocumentationArtifactProvenance(
+                        reference.Value.Generation,
+                        reference.Value.Coordinate,
+                        documentation.FileName,
+                        library.Identity),
+                    documentation.ContentLength,
+                    _ => documentation.OpenRead()));
 
     static bool TryPrepareImplementationPopulation(
         PlatformHouseRequest request,

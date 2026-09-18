@@ -629,8 +629,30 @@ export interface BrowserPackageIcon {
   readonly base64: string;
 }
 
+export interface BrowserPackageInfoMeasurementInspection {
+  readonly content: BrowserPackageInfoMeasurements;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageInfoMeasurements {
+  readonly status: string;
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly compressedPackageBytes: number | null;
+  readonly selectedTargetFramework: string | null;
+  readonly availableTargetFrameworkCount: number | null;
+  readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
+  readonly selectedLibraryPayloadBytes: number | null;
+  readonly selectedLibraryCount: number | null;
+  readonly detail: string | null;
+  readonly unavailableReason: string | null;
+  readonly hasSelectedSlice: boolean;
+}
+
 export interface BrowserPackageLoadResult {
   readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+  readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
   readonly surface: BrowserPackageSurface | null;
 }
 

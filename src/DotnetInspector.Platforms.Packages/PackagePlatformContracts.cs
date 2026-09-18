@@ -180,21 +180,51 @@ public sealed class PackagePlatformTargetInventory
     }
 }
 
+/// <summary>
+/// Private immutable compiled-XML bytes, readable after Package Source
+/// settlement.
+/// </summary>
+public sealed class PackageReferenceDocumentation
+{
+    private readonly byte[] _content;
+
+    internal PackageReferenceDocumentation(
+        string path,
+        byte[] content)
+    {
+        Path = path;
+        _content = content;
+    }
+
+    public string Path { get; }
+    public long ContentLength => _content.LongLength;
+    public Stream OpenRead() =>
+        new MemoryStream(_content, writable: false);
+}
+
 /// <summary>Private immutable bytes, readable after Package Source settlement.</summary>
 public sealed class PackageReferenceLibrary
 {
     private readonly byte[] _content;
 
-    internal PackageReferenceLibrary(string path, AssemblyReferenceIdentity identity, byte[] content)
+    internal PackageReferenceLibrary(
+        string path,
+        AssemblyReferenceIdentity identity,
+        byte[] content,
+        PackageReferenceDocumentation? documentation = null)
     {
         Path = path;
         Identity = identity;
         _content = content;
+        Documentation = documentation;
     }
 
     public string Path { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public long ContentLength => _content.LongLength;
+    public PackageReferenceDocumentation? Documentation { get; }
+    public long TotalContentLength =>
+        ContentLength + (Documentation?.ContentLength ?? 0);
     public Stream OpenRead() => new MemoryStream(_content, writable: false);
 }
 
