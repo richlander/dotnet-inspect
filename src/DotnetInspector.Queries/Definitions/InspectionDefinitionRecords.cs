@@ -11,9 +11,10 @@ public static class InspectionDefinitionSchema
     public const int Version1 = 1;
     public const int Version2 = 2;
     public const int Version3 = 3;
+    public const int Version4 = 4;
 
     internal static bool IsSupported(int value) =>
-        value is Version1 or Version2 or Version3;
+        value is Version1 or Version2 or Version3 or Version4;
 }
 
 /// <summary>
@@ -109,14 +110,25 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         // Freeze first, then validate the retained snapshot (emptiness and uniqueness).
         var frozenContexts = DefinitionCollections.Freeze(contexts);
         var frozenRegistrations = DefinitionCollections.Freeze(registrations);
-        if (schemaVersion != InspectionDefinitionSchema.Version3
+        if (schemaVersion is not (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4)
             && frozenRegistrations.Count != 0)
         {
             throw new ArgumentException(
-                "Workspace registrations require schema version 3.",
+                "Workspace registrations require schema version 3 or 4.",
                 nameof(registrations));
         }
-        if (schemaVersion != InspectionDefinitionSchema.Version3
+        if (schemaVersion == InspectionDefinitionSchema.Version4)
+        {
+            if (frozenContexts.Count == 0 && frozenRegistrations.Count == 0)
+            {
+                throw new ArgumentException(
+                    "A schema-version-4 workspace definition requires at least one context or registration.",
+                    nameof(contexts));
+            }
+        }
+        else if (schemaVersion != InspectionDefinitionSchema.Version3
             && frozenContexts.Count == 0)
         {
             throw new ArgumentException(
@@ -167,7 +179,7 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CatalogGroupDefinition> Groups { get; }
 
     /// <summary>
-    /// Ordered resource-free registrations. Present only in schema version 3.
+    /// Ordered resource-free registrations. Present only in schema versions 3 and 4.
     /// </summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
 }
@@ -238,7 +250,7 @@ public sealed record QueryDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// A schema-version-2-or-3 query preset with one canonical portable identity.
+/// A schema-version-2-through-4 query preset with one canonical portable identity.
 /// </summary>
 public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
 {
@@ -250,12 +262,13 @@ public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
     {
         if (schemaVersion is not (
             InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3))
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedQueryDefinition requires schema version 2 or 3.");
+                "CommittedQueryDefinition requires schema version 2, 3, or 4.");
         }
 
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
@@ -784,7 +797,8 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         }
 
         if (schemaVersion is InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3)
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
         {
             if (hasWorkspace)
             {
@@ -840,7 +854,7 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2-or-3 navigation: ordered tabs and a required nullable
+/// Schema-version-2-through-4 navigation: ordered tabs and a required nullable
 /// focus. Null focus selects the committed Workspace row.
 /// </summary>
 public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
@@ -853,12 +867,13 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
         : base(schemaVersion, id)
     {
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3))
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedNavigationDefinition requires schema version 2 or 3.");
+                "CommittedNavigationDefinition requires schema version 2, 3, or 4.");
         }
 
         ArgumentNullException.ThrowIfNull(tabs);
@@ -912,7 +927,7 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2-or-3 committed view state: one Workspace row plus one row
+/// Schema-version-2-through-4 committed view state: one Workspace row plus one row
 /// for every navigation tab in exact navigation order.
 /// </summary>
 public sealed record CommittedViewDefinition : InspectionDefinitionRecord
@@ -924,16 +939,27 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
         : base(schemaVersion, id)
     {
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3))
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedViewDefinition requires schema version 2 or 3.");
+                "CommittedViewDefinition requires schema version 2, 3, or 4.");
         }
 
         ArgumentNullException.ThrowIfNull(states);
         States = DefinitionCollections.Freeze(states);
+        if (schemaVersion != InspectionDefinitionSchema.Version4
+            && States.Any(state => state.Subject is
+                PortableSubjectRequest.Library
+                or PortableSubjectRequest.Type
+                or PortableSubjectRequest.Member))
+        {
+            throw new ArgumentException(
+                $"Schema version {schemaVersion} does not support active Library, Type, or Member subjects.",
+                nameof(states));
+        }
         if (States.Count == 0)
         {
             throw new ArgumentException(
@@ -972,7 +998,7 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CommittedViewStateDefinition> States { get; }
 }
 
-/// <summary>One schema-version-2-or-3 committed state.</summary>
+/// <summary>One schema-version-2-through-4 committed state.</summary>
 public sealed record CommittedViewStateDefinition
 {
     public CommittedViewStateDefinition(
@@ -1035,6 +1061,39 @@ public sealed record CommittedViewStateDefinition
         {
             throw new ArgumentException(
                 "A Package subject requires its retained Package context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Library
+            && context is not (
+                PortableRetainedSubjectContext.AllLibraries
+                or PortableRetainedSubjectContext.Library
+                or PortableRetainedSubjectContext.Type
+                or PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedType
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Library subject requires retained all-Libraries, Library, Type, or Member context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Type
+            && context is not (
+                PortableRetainedSubjectContext.Type
+                or PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedType
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Type subject requires retained Type or Member context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Member
+            && context is not (
+                PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Member subject requires retained Member context.",
                 nameof(context));
         }
 
@@ -1122,12 +1181,33 @@ public abstract record PortableSubjectRequest
         public override PortableSubjectRequestKind Kind =>
             PortableSubjectRequestKind.Package;
     }
+
+    public sealed record Library : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Library;
+    }
+
+    public sealed record Type : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Type;
+    }
+
+    public sealed record Member : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Member;
+    }
 }
 
 public enum PortableSubjectRequestKind
 {
     Workspace,
     Package,
+    Library,
+    Type,
+    Member,
 }
 
 /// <summary>

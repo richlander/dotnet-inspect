@@ -285,6 +285,48 @@ function calleeEvidenceResult(
   };
 }
 
+function methodCostEvidenceResult(
+  evidence: AnnotatedSourceResult["findingEvidence"][number] = {
+    ...sampleCalleeEvidence,
+    state: "Method",
+    aggregateInputs: [
+      {
+        kind: "AllocationInLoop",
+        value: null,
+      },
+      {
+        kind: "Reflection",
+        value: 3,
+      },
+    ],
+    coordinates: [],
+    documentId: null,
+    nodeIds: [],
+  },
+): AnnotatedSourceResult {
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      facts: sampleDocument.facts.map(fact =>
+        fact.id === 0
+          ? { ...fact, descriptor: "cost.callee" }
+          : fact),
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      findingEvidence: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    findingEvidenceDocuments: evidence.documentId === null
+      ? []
+      : sampleCalleeEvidenceDocuments,
+    findingEvidence: [evidence],
+  };
+}
+
 test("the result preserves the validated portable document contract", () => {
   const document: AnnotatedSourceDocument = result.document;
   assert.equal(document, sampleDocument);
@@ -505,7 +547,52 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
       findingEvidenceDocuments: [],
       findingEvidence: [],
     }),
-    /does not cover every instruction-level callee Finding/,
+    /does not cover every callee Finding/,
+  );
+});
+
+test("viewer model validates method-level cost evidence without a source coordinate", () => {
+  const model = createAnnotatedSourceViewerModel(methodCostEvidenceResult());
+  const evidence = model.findingEvidence[0]!;
+
+  assert.equal(evidence.state, "Method");
+  assert.deepEqual(evidence.aggregateInputs, [
+    {
+      kind: "AllocationInLoop",
+      value: null,
+    },
+    {
+      kind: "Reflection",
+      value: 3,
+    },
+  ]);
+  assert.equal(evidence.document, null);
+  assert.deepEqual(evidence.coordinates, []);
+  assert.deepEqual(evidence.nodeIds, []);
+
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      aggregateInputs: [],
+    })),
+    /invalid aggregate inputs/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      coordinates: [{
+        ilOffset: 2,
+        kind: "Localloc",
+      }],
+    })),
+    /instruction projection/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      documentId: 0,
+    })),
+    /instruction projection/,
   );
 });
 
@@ -941,6 +1028,32 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
   });
   assert.match(unavailableHtml, /No unique callee source node\./);
   assert.doesNotMatch(unavailableHtml, /annotated-evidence-source/);
+});
+
+test("Finding detail presents method-level callee evidence without an invented line", () => {
+  const source = methodCostEvidenceResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const html = renderAnnotatedSourceModal({
+    result: source,
+    session: selectFinding(
+      openModalSession(
+        model,
+        createEmbeddedSession(model),
+      ).modal,
+      { kind: "inspector", factId: 0 },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /Caller relationship targets/);
+  assert.match(html, /Method-level aggregate evidence/);
+  assert.match(html, /no singular source line is claimed/);
+  assert.match(html, /Allocation in loop/);
+  assert.match(html, /Reflection calls[\s\S]*<strong>3<\/strong>/);
+  assert.match(html, /data-destination="member">Member<\/button>/);
+  assert.match(html, /data-destination="source">Source<\/button>/);
+  assert.doesNotMatch(html, /annotated-evidence-source/);
+  assert.doesNotMatch(html, /IL_000/);
 });
 
 test("mixed-line hidden media keeps its layout text but removes its action", () => {

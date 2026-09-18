@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using DotnetInspector.Packages;
@@ -117,7 +118,7 @@ public sealed class InspectionDefinitionRegistry
 
     /// <summary>
     /// Performs strict schema dispatch and resource-free composition. Versions
-    /// 2 and 3 remain unresolved until the portable selector-resolution
+    /// 2 through 4 remain unresolved until the portable selector-resolution
     /// participant.
     /// </summary>
     public InspectionDefinitionScenarioPreparationResult PrepareScenario(
@@ -172,7 +173,8 @@ public sealed class InspectionDefinitionRegistry
             records.Workspace as WorkspaceDefinition);
         ValidateNavigationIds(records.Navigation);
         if (scenario.SchemaVersion is InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3)
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
         {
             CommittedScenarioDefinitionSet committed =
                 CreateCommittedScenario(
@@ -183,11 +185,19 @@ public sealed class InspectionDefinitionRegistry
                 records.Workspace as WorkspaceDefinition,
                 records.Navigation,
                 targetMatchMode);
-            return scenario.SchemaVersion == InspectionDefinitionSchema.Version2
-                ? new InspectionDefinitionScenarioPreparationResult.Version2(
-                    committed)
-                : new InspectionDefinitionScenarioPreparationResult.Version3(
-                    committed);
+            return scenario.SchemaVersion switch
+            {
+                InspectionDefinitionSchema.Version2 =>
+                    new InspectionDefinitionScenarioPreparationResult.Version2(
+                        committed),
+                InspectionDefinitionSchema.Version3 =>
+                    new InspectionDefinitionScenarioPreparationResult.Version3(
+                        committed),
+                InspectionDefinitionSchema.Version4 =>
+                    new InspectionDefinitionScenarioPreparationResult.Version4(
+                        committed),
+                _ => throw new UnreachableException(),
+            };
         }
 
         return new InspectionDefinitionScenarioPreparationResult.Version1(
@@ -417,7 +427,9 @@ public sealed class InspectionDefinitionRegistry
             }
         }
         else if (workspace.Contexts.Count == 0
-            && workspace.SchemaVersion == InspectionDefinitionSchema.Version3)
+            && workspace.SchemaVersion is (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4))
         {
             return;
         }
@@ -1504,6 +1516,10 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     public sealed record Version3(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record Version4(
+        CommittedScenarioDefinitionSet Definitions)
+        : InspectionDefinitionScenarioPreparationResult;
 }
 
 /// <summary>
@@ -1557,7 +1573,7 @@ public sealed class Version1ScenarioDefinitionSet
 }
 
 /// <summary>
-/// Strictly composed schema-version-2-or-3 records before runtime selector
+/// Strictly composed schema-version-2-through-4 records before runtime selector
 /// resolution.
 /// </summary>
 public sealed class CommittedScenarioDefinitionSet

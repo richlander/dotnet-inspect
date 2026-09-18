@@ -202,7 +202,10 @@ you need them.
 
 Observed integration support is exposed through one `Integrations` section.
 Use `integration=<canonical-concept-id>` to focus one concept, or
-`ecosystem=<canonical-pack-id>` to select the concepts bound to an ecosystem.
+`ecosystem=<canonical-pack-id>` to enable the Integration concepts registered
+to an ecosystem. The current Aspire registration enables the complete
+configured Integration catalog; only concepts observed in the inspected
+library produce rows. Add `integration=...` to narrow within that enabled set.
 `@Integrations` also includes the separate `Integration Opportunities` section.
 
 Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
@@ -212,6 +215,8 @@ acquired library:
 ```bash
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -D
+dotnet-inspect ecosystem aspire -S @Ecosystem
 dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"

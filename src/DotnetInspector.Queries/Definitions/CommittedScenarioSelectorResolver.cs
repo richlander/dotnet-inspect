@@ -167,7 +167,7 @@ public sealed class ResolvedCommittedDormantViewState :
 }
 
 /// <summary>
-/// Exact resolved state for one schema-version-2-or-3 scenario composition.
+/// Exact resolved state for one schema-version-2-through-4 scenario composition.
 /// </summary>
 public sealed class CommittedScenarioSelectorResolution
 {
@@ -794,6 +794,15 @@ public static class CommittedScenarioSelectorResolver
             PortableSubjectRequest.Package => package
                 ?? throw new InvalidOperationException(
                     "A Package subject requires exact Package facts."),
+            PortableSubjectRequest.Library => context?.Library
+                ?? throw new InvalidOperationException(
+                    "A Library subject requires resolved Library context."),
+            PortableSubjectRequest.Type => context?.Type
+                ?? throw new InvalidOperationException(
+                    "A Type subject requires resolved Type context."),
+            PortableSubjectRequest.Member => context?.Member
+                ?? throw new InvalidOperationException(
+                    "A Member subject requires resolved Member context."),
             _ => throw new InvalidOperationException(
                 "Unknown portable subject-request kind."),
         };

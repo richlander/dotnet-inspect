@@ -695,9 +695,14 @@ or throwing behavior into MetadataPrimitives merely to delete similarly shaped
 methods. The shared owner is the prescan and TypeSpec admission mechanism;
 the consuming owner decides what rejection means.
 
-`StringSignatureDecodeBoundaryTests` currently scans Metadata and
-MetadataPrimitives only. Decompiler has three string-producing metadata gateway
-families:
+Metadata's string-producing boundary is exercised through hostile signature
+inputs by `SignatureDecoderSafetyTests`, including the distinct
+`GuardedSignatureText` result shapes and representative Metadata consumers.
+Gateway-specific hostile-input coverage for
+`GuardedSignatureText.MemberRefMethodText` is **unverified**. No repository-
+source census is part of the behavioral claim.
+
+Decompiler has three string-producing metadata gateway families:
 
 - `GuardedSignatureText` terminates signature text through
   `GetValueOrThrow`;
@@ -709,11 +714,10 @@ families:
   while one `IrImporter` boundary explicitly degrades to `"<type>"`.
 
 Closure across those families is **not verified**. The first implementation
-slice must add `DecompilerStringGatewayBoundaryTests`, using resolved symbols
-rather than owner-type text so extension-method calls cannot evade the census.
-Every call site must be classified by gateway and expected owner failure
-boundary. Mutations that remove, replace, bypass, or silently reclassify any
-boundary must fail.
+slice must drive malformed and adversarial signatures through each product
+gateway family and assert its expected owner failure boundary. The evidence
+must exercise the product-owned construction and consumption path rather than
+inventorying trusted source call sites.
 
 A generic decode helper belongs in MetadataPrimitives only if at least three
 consumers need the same typed outcome contract. Line-count reduction alone is
@@ -796,11 +800,12 @@ The current boundary is protected by:
 
 - `ProviderSignatureDecodeBoundaryTests` for guarded provider decodes and
   bounded nested TypeSpec re-entry;
-- `StringSignatureDecodeBoundaryTests` for Metadata and MetadataPrimitives
-  string-producing signature paths; Decompiler policy is not yet covered;
 - `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
-- `SignatureBlobGuardTests` and `SignatureDecoderSafetyTests` for malformed and
-  adversarial signature shapes;
+- `SignatureBlobGuardTests` for structural prescan and
+  `SignatureDecoderSafetyTests` for malformed and adversarial signature shapes
+  through Metadata string result shapes and representative product consumers;
+  `GuardedSignatureText.MemberRefMethodText` gateway-specific coverage is
+  **unverified**;
 - `MethodSemanticsRowReaderTests` for lossless physical rows, raw bits, index
   widths, malformed bounds, independent IL-oracle parity, and retained-row
   budgeting;

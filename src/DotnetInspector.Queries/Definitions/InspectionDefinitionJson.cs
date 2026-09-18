@@ -616,7 +616,8 @@ public static class InspectionDefinitionJson
         HashSet<string> allowed = (schemaVersion, kind) switch
         {
             (_, "catalog") => ["schemaVersion", "kind", "id", "groups"],
-            (InspectionDefinitionSchema.Version3, "workspace") =>
+            (InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4, "workspace") =>
             [
                 "schemaVersion", "kind", "id", "title", "description",
                 "contexts", "registrations", "groups",
@@ -626,7 +627,8 @@ public static class InspectionDefinitionJson
             (InspectionDefinitionSchema.Version1, "query") =>
                 ["schemaVersion", "kind", "id", "queryId"],
             (InspectionDefinitionSchema.Version2
-                or InspectionDefinitionSchema.Version3, "query") =>
+                or InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4, "query") =>
                 ["schemaVersion", "kind", "id", "queryId", "payload"],
             (InspectionDefinitionSchema.Version1, "view") =>
             [
@@ -636,10 +638,12 @@ public static class InspectionDefinitionJson
             (InspectionDefinitionSchema.Version1, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (InspectionDefinitionSchema.Version2
-                or InspectionDefinitionSchema.Version3, "view") =>
+                or InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4, "view") =>
                 ["schemaVersion", "kind", "id", "states"],
             (InspectionDefinitionSchema.Version2
-                or InspectionDefinitionSchema.Version3, "navigation") =>
+                or InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (_, "scenario") =>
             [
@@ -666,7 +670,9 @@ public static class InspectionDefinitionJson
 
             ValidateContexts(contexts);
         }
-        if (schemaVersion == InspectionDefinitionSchema.Version3
+        if (schemaVersion is (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4)
             && kind == "workspace")
         {
             if (!root.TryGetProperty(
@@ -675,7 +681,7 @@ public static class InspectionDefinitionJson
                 || registrations.ValueKind != JsonValueKind.Array)
             {
                 throw new InspectionDefinitionException(
-                    "Schema-version-3 Workspace requires a registrations array.");
+                    $"Schema-version-{schemaVersion} Workspace requires a registrations array.");
             }
 
             ValidateRegistrations(registrations);
@@ -700,9 +706,10 @@ public static class InspectionDefinitionJson
         if (root.TryGetProperty("tabs", out var tabs))
             ValidateTabs(tabs);
         if (root.TryGetProperty("states", out var states))
-            ValidateCommittedStates(states);
+            ValidateCommittedStates(states, schemaVersion);
         if ((schemaVersion == InspectionDefinitionSchema.Version2
-                || schemaVersion == InspectionDefinitionSchema.Version3)
+                || schemaVersion == InspectionDefinitionSchema.Version3
+                || schemaVersion == InspectionDefinitionSchema.Version4)
             && kind == "navigation")
         {
             if (!root.TryGetProperty("focus", out JsonElement focus)
@@ -948,7 +955,9 @@ public static class InspectionDefinitionJson
         }
     }
 
-    private static void ValidateCommittedStates(JsonElement states)
+    private static void ValidateCommittedStates(
+        JsonElement states,
+        int schemaVersion)
     {
         if (states.ValueKind != JsonValueKind.Array)
             throw new InspectionDefinitionException("states must be an array.");
@@ -975,7 +984,7 @@ public static class InspectionDefinitionJson
                     "Committed view state requires string or null navigation.");
             }
             if (state.TryGetProperty("subject", out JsonElement subject))
-                ValidateSubject(subject);
+                ValidateSubject(subject, schemaVersion);
             if (state.TryGetProperty("context", out JsonElement context))
                 ValidateRetainedContext(context);
             if (state.TryGetProperty("queries", out JsonElement queries)
@@ -989,7 +998,9 @@ public static class InspectionDefinitionJson
         }
     }
 
-    private static void ValidateSubject(JsonElement subject)
+    private static void ValidateSubject(
+        JsonElement subject,
+        int schemaVersion)
     {
         if (subject.ValueKind != JsonValueKind.Object)
         {
@@ -998,10 +1009,12 @@ public static class InspectionDefinitionJson
         }
         if (!TryGetExactString(subject, "kind", out string kind))
             throw new InspectionDefinitionException("Committed subject requires kind.");
-        if (kind is not "workspace" and not "package")
+        if (kind is not "workspace" and not "package"
+            && (schemaVersion != InspectionDefinitionSchema.Version4
+                || kind is not ("library" or "type" or "member")))
         {
             throw new InspectionDefinitionException(
-                $"Unknown committed subject kind '{kind}'.");
+                $"Committed subject kind '{kind}' is not supported by schema version {schemaVersion}.");
         }
 
         RejectUnknownProperties(subject, ["kind"], "Committed subject");
@@ -1275,17 +1288,20 @@ public static class InspectionDefinitionJson
                 (InspectionDefinitionSchema.Version1, "query") =>
                     CreateQuery(dto),
                 (InspectionDefinitionSchema.Version2
-                    or InspectionDefinitionSchema.Version3, "query") =>
+                    or InspectionDefinitionSchema.Version3
+                    or InspectionDefinitionSchema.Version4, "query") =>
                     CreateCommittedQuery(dto),
                 (InspectionDefinitionSchema.Version1, "view") =>
                     CreateView(dto),
                 (InspectionDefinitionSchema.Version1, "navigation") =>
                     CreateNavigation(dto, ref coordinateCount),
                 (InspectionDefinitionSchema.Version2
-                    or InspectionDefinitionSchema.Version3, "view") =>
+                    or InspectionDefinitionSchema.Version3
+                    or InspectionDefinitionSchema.Version4, "view") =>
                     CreateCommittedView(dto),
                 (InspectionDefinitionSchema.Version2
-                    or InspectionDefinitionSchema.Version3, "navigation") =>
+                    or InspectionDefinitionSchema.Version3
+                    or InspectionDefinitionSchema.Version4, "navigation") =>
                     CreateCommittedNavigation(dto, ref coordinateCount),
                 (_, "scenario") => CreateScenario(dto),
                 _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
@@ -1622,7 +1638,9 @@ public static class InspectionDefinitionJson
         return new CommittedViewDefinition(
             dto.SchemaVersion,
             dto.Id!,
-            MapCommittedStates(dto.States));
+            MapCommittedStates(
+                dto.States,
+                dto.SchemaVersion));
     }
 
     private static void RejectForeignRecordFields(
@@ -1707,7 +1725,8 @@ public static class InspectionDefinitionJson
                 Description = workspace.Description,
                 Contexts = workspace.Contexts.Select(ToContextDto).ToList(),
                 Registrations =
-                    workspace.SchemaVersion == InspectionDefinitionSchema.Version3
+                    workspace.SchemaVersion is InspectionDefinitionSchema.Version3
+                        or InspectionDefinitionSchema.Version4
                         ? workspace.Registrations
                             .Select(ToRegistrationDto)
                             .ToList()
@@ -1764,7 +1783,11 @@ public static class InspectionDefinitionJson
                 SchemaVersion = view.SchemaVersion,
                 Kind = "view",
                 Id = view.Id,
-                States = view.States.Select(ToCommittedStateDto).ToList(),
+                States = view.States
+                    .Select(state => ToCommittedStateDto(
+                        state,
+                        view.SchemaVersion))
+                    .ToList(),
             },
             ScenarioDefinition scenario => new InspectionDefinitionDto
             {
@@ -1790,7 +1813,9 @@ public static class InspectionDefinitionJson
     }
 
     private static IReadOnlyList<CommittedViewStateDefinition>
-        MapCommittedStates(List<CommittedViewStateDto>? states)
+        MapCommittedStates(
+            List<CommittedViewStateDto>? states,
+            int schemaVersion)
     {
         if (states is null || states.Count == 0)
         {
@@ -1809,7 +1834,7 @@ public static class InspectionDefinitionJson
 
             mapped.Add(new CommittedViewStateDefinition(
                 state.Navigation,
-                MapSubject(state.Subject),
+                MapSubject(state.Subject, schemaVersion),
                 MapRetainedContext(state.Context),
                 state.Facet,
                 state.Queries,
@@ -1820,7 +1845,8 @@ public static class InspectionDefinitionJson
     }
 
     private static PortableSubjectRequest? MapSubject(
-        PortableSubjectRequestDto? subject)
+        PortableSubjectRequestDto? subject,
+        int schemaVersion)
     {
         if (subject is null)
             return null;
@@ -1829,8 +1855,14 @@ public static class InspectionDefinitionJson
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
+            "library" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                new PortableSubjectRequest.Library(),
+            "type" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                new PortableSubjectRequest.Type(),
+            "member" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                new PortableSubjectRequest.Member(),
             _ => throw new InspectionDefinitionException(
-                $"Unknown committed subject kind '{subject.Kind}'."),
+                $"Committed subject kind '{subject.Kind}' is not supported by schema version {schemaVersion}."),
         };
     }
 
@@ -1933,11 +1965,14 @@ public static class InspectionDefinitionJson
     }
 
     private static CommittedViewStateDto ToCommittedStateDto(
-        CommittedViewStateDefinition state) =>
+        CommittedViewStateDefinition state,
+        int schemaVersion) =>
         new()
         {
             Navigation = state.Navigation,
-            Subject = state.Subject is null ? null : ToSubjectDto(state.Subject),
+            Subject = state.Subject is null
+                ? null
+                : ToSubjectDto(state.Subject, schemaVersion),
             Context = state.Context is null ? null : ToContextDto(state.Context),
             Facet = state.Facet,
             Queries = state.Queries.Count == 0
@@ -1960,15 +1995,25 @@ public static class InspectionDefinitionJson
         };
 
     private static PortableSubjectRequestDto ToSubjectDto(
-        PortableSubjectRequest subject) =>
+        PortableSubjectRequest subject,
+        int schemaVersion) =>
         new()
         {
             Kind = subject.Kind switch
             {
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
+                PortableSubjectRequestKind.Library
+                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    "library",
+                PortableSubjectRequestKind.Type
+                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    "type",
+                PortableSubjectRequestKind.Member
+                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    "member",
                 _ => throw new InspectionDefinitionException(
-                    $"Unsupported portable subject kind {subject.Kind}."),
+                    $"Portable subject kind {subject.Kind} is not supported by schema version {schemaVersion}."),
             },
         };
 
@@ -2168,7 +2213,9 @@ public static class InspectionDefinitionJson
         if (contexts is null)
             throw new InspectionDefinitionException("Workspace requires contexts.");
         if (contexts.Count == 0
-            && schemaVersion != InspectionDefinitionSchema.Version3)
+            && schemaVersion is not (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4))
         {
             throw new InspectionDefinitionException("Workspace requires at least one context.");
         }
@@ -2188,12 +2235,14 @@ public static class InspectionDefinitionJson
         List<WorkspaceRegistrationDto>? registrations,
         int schemaVersion)
     {
-        if (schemaVersion != InspectionDefinitionSchema.Version3)
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
             return [];
         if (registrations is null)
         {
             throw new InspectionDefinitionException(
-                "Schema-version-3 Workspace requires registrations.");
+                $"Schema-version-{schemaVersion} Workspace requires registrations.");
         }
 
         var mapped = new List<WorkspaceRegistration>(registrations.Count);
@@ -2357,7 +2406,9 @@ public static class InspectionDefinitionJson
         if (tabs is null)
             throw new InspectionDefinitionException("Navigation requires tabs.");
         if (tabs.Count == 0
-            && schemaVersion != InspectionDefinitionSchema.Version3)
+            && schemaVersion is not (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4))
         {
             throw new InspectionDefinitionException("Navigation requires at least one tab.");
         }

@@ -34,7 +34,11 @@ public static class WorkspaceSharePacketCodec
 {
     public const int LegacyFormatVersion = 1;
     public const int Format2Version = 2;
+
+    /// <summary>The default producer format; explicit format-4 creation does not change it.</summary>
     public const int CurrentFormatVersion = 3;
+
+    public const int Format4Version = 4;
     public const int MaxFormat1EncodedLength = 16 * 1024;
     public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
     public const int MaxFormat1JsonDepth = 16;
@@ -348,13 +352,14 @@ public static class WorkspaceSharePacketCodec
         }
         if (version is not (LegacyFormatVersion
             or Format2Version
-            or CurrentFormatVersion))
+            or CurrentFormatVersion
+            or Format4Version))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {version}; expected "
-                    + $"{LegacyFormatVersion}, {Format2Version}, or "
-                    + $"{CurrentFormatVersion}.");
+                    + $"{LegacyFormatVersion}, {Format2Version}, "
+                    + $"{CurrentFormatVersion}, or {Format4Version}.");
         }
 
         return version;
@@ -367,7 +372,10 @@ public static class WorkspaceSharePacketCodec
         {
             LegacyFormatVersion => BindFormat1(root),
             Format2Version => BindFormat2(root),
-            CurrentFormatVersion => BindFormat3(root),
+            CurrentFormatVersion => BindFormat3Or4(
+                root,
+                CurrentFormatVersion),
+            Format4Version => BindFormat3Or4(root, Format4Version),
             _ => throw new UnreachableException(),
         };
 
@@ -463,7 +471,9 @@ public static class WorkspaceSharePacketCodec
             queries);
     }
 
-    private static WorkspaceSharePacket BindFormat3(JsonElement root)
+    private static WorkspaceSharePacket BindFormat3Or4(
+        JsonElement root,
+        int formatVersion)
     {
         ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
 
@@ -486,7 +496,7 @@ public static class WorkspaceSharePacketCodec
             && tabs[focused].SourceKind != WorkspaceShareSourceKind.Package)
         {
             throw InvalidShape(
-                "Workspace share format-3 focus must name a direct Package tuple.");
+                $"Workspace share format-{formatVersion} focus must name a direct Package tuple.");
         }
 
         int? selectedContext = ReadNullableIndex(
@@ -496,37 +506,50 @@ public static class WorkspaceSharePacketCodec
         if ((contexts.Length == 0) != (selectedContext is null))
         {
             throw InvalidShape(
-                "Workspace share format-3 selected context must be null exactly when contexts are empty.");
+                $"Workspace share format-{formatVersion} selected context must be null exactly when contexts are empty.");
         }
 
         WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
             Required(root, "v"),
             tabs,
             queries,
-            CurrentFormatVersion);
+            formatVersion);
         ValidateReferencedQueries(queries, viewStates);
         if (contexts.Length == 0
             && registrations.Length == 0
-            && !IsQueryOnlyPacket(
-                tabs,
-                focusedTab,
-                selectedContext,
-                queries,
-                viewStates))
+            && (formatVersion != CurrentFormatVersion
+                || !IsQueryOnlyPacket(
+                    tabs,
+                    focusedTab,
+                    selectedContext,
+                    queries,
+                    viewStates)))
         {
             throw InvalidShape(
-                "Workspace share format 3 with no contexts or registrations "
-                    + "requires the exact query-only composition.");
+                formatVersion == CurrentFormatVersion
+                    ? "Workspace share format 3 with no contexts or registrations "
+                        + "requires the exact query-only composition."
+                    : $"Workspace share format {formatVersion} requires at least "
+                        + "one context or registration.");
         }
 
-        return new WorkspaceSharePacket(
-            tabs,
-            contexts,
-            registrations,
-            focusedTab,
-            selectedContext,
-            viewStates,
-            queries);
+        return formatVersion == Format4Version
+            ? WorkspaceSharePacket.CreateV4(
+                tabs,
+                contexts,
+                registrations,
+                focusedTab,
+                selectedContext,
+                viewStates,
+                queries)
+            : new WorkspaceSharePacket(
+                tabs,
+                contexts,
+                registrations,
+                focusedTab,
+                selectedContext,
+                viewStates,
+                queries);
     }
 
     private static void ValidateProperties(
@@ -1123,7 +1146,7 @@ public static class WorkspaceSharePacketCodec
                     : null;
             PortableSubjectRequest? subject =
                 state.TryGetProperty("u", out JsonElement requestedSubject)
-                    ? ReadSubject(requestedSubject)
+                    ? ReadSubject(requestedSubject, formatVersion)
                     : null;
             string? facet = OptionalString(state, "f");
             int[] queryIndexes = ReadQueryIndexes(state, queries.Length);
@@ -1318,7 +1341,9 @@ public static class WorkspaceSharePacketCodec
                 right.Payload);
     }
 
-    private static PortableSubjectRequest ReadSubject(JsonElement element)
+    private static PortableSubjectRequest ReadSubject(
+        JsonElement element,
+        int formatVersion)
     {
         if (element.ValueKind != JsonValueKind.Object)
             throw InvalidShape("Workspace share subject must be an object.");
@@ -1327,8 +1352,14 @@ public static class WorkspaceSharePacketCodec
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
+            "library" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Library(),
+            "type" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Type(),
+            "member" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Member(),
             _ => throw InvalidShape(
-                "Workspace share subject kind must be 'workspace' or 'package'."),
+                $"Workspace share subject kind is not supported by format {formatVersion}."),
         };
     }
 
@@ -1619,7 +1650,12 @@ public static class WorkspaceSharePacketCodec
         {
             LegacyFormatVersion => WriteFormat1CanonicalJson(packet),
             Format2Version => WriteFormat2CanonicalJson(packet),
-            CurrentFormatVersion => WriteFormat3CanonicalJson(packet),
+            CurrentFormatVersion => WriteFormat3Or4CanonicalJson(
+                packet,
+                CurrentFormatVersion),
+            Format4Version => WriteFormat3Or4CanonicalJson(
+                packet,
+                Format4Version),
             _ => throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {packet.FormatVersion}."),
@@ -1722,49 +1758,60 @@ public static class WorkspaceSharePacketCodec
         {
             if (index > 0)
                 writer.WriteByte((byte)',');
-            WriteFormat2ViewState(writer, packet.ViewStates[index]);
+            WriteCommittedViewState(
+                writer,
+                packet.ViewStates[index],
+                Format2Version);
         }
 
         writer.WriteAscii("]}"u8);
         return writer.ToArray();
     }
 
-    private static byte[] WriteFormat3CanonicalJson(WorkspaceSharePacket packet)
+    private static byte[] WriteFormat3Or4CanonicalJson(
+        WorkspaceSharePacket packet,
+        int formatVersion)
     {
         if (packet.ViewStates.Count != packet.Tabs.Count + 1)
         {
             throw InvalidShape(
-                "Workspace share format 3 requires one leading Workspace view "
+                $"Workspace share format {formatVersion} requires one leading Workspace view "
                     + "row and one row for every tuple.");
         }
         ValidateQueriesForWrite(packet);
         if (packet.Contexts.Count == 0
             && packet.Registrations.Count == 0
-            && !IsQueryOnlyPacket(
-                [.. packet.Tabs],
-                packet.FocusedTabIndex,
-                packet.SelectedContextIndex,
-                [.. packet.Queries],
-                [.. packet.ViewStates]))
+            && (formatVersion != CurrentFormatVersion
+                || !IsQueryOnlyPacket(
+                    [.. packet.Tabs],
+                    packet.FocusedTabIndex,
+                    packet.SelectedContextIndex,
+                    [.. packet.Queries],
+                    [.. packet.ViewStates])))
         {
             throw InvalidShape(
-                "Workspace share format 3 with no contexts or registrations "
-                    + "requires the exact query-only composition.");
+                formatVersion == CurrentFormatVersion
+                    ? "Workspace share format 3 with no contexts or registrations "
+                        + "requires the exact query-only composition."
+                    : $"Workspace share format {formatVersion} requires at least "
+                        + "one context or registration.");
         }
         if ((packet.Contexts.Count == 0)
             != (packet.SelectedContextIndex is null))
         {
             throw InvalidShape(
-                "Workspace share format 3 selected context must be null exactly when contexts are empty.");
+                $"Workspace share format {formatVersion} selected context must be null exactly when contexts are empty.");
         }
         if (packet.Registrations.Count > MaxRegistrations)
         {
             throw InvalidShape(
-                $"Workspace share format 3 permits at most {MaxRegistrations} registrations.");
+                $"Workspace share format {formatVersion} permits at most {MaxRegistrations} registrations.");
         }
 
         var writer = new CanonicalWriter();
-        writer.WriteAscii("{\"f\":3,\"t\":["u8);
+        writer.WriteAscii("{\"f\":"u8);
+        writer.WriteInteger(formatVersion);
+        writer.WriteAscii(",\"t\":["u8);
         WriteTabs(writer, packet.Tabs);
         writer.WriteAscii("],\"g\":["u8);
         WriteContexts(writer, packet.Contexts);
@@ -1791,7 +1838,10 @@ public static class WorkspaceSharePacketCodec
         {
             if (index > 0)
                 writer.WriteByte((byte)',');
-            WriteFormat2ViewState(writer, packet.ViewStates[index]);
+            WriteCommittedViewState(
+                writer,
+                packet.ViewStates[index],
+                formatVersion);
         }
 
         writer.WriteAscii("]}"u8);
@@ -1902,7 +1952,7 @@ public static class WorkspaceSharePacketCodec
                 if (declaration.IntegrationScanner is not null)
                 {
                     throw InvalidShape(
-                        "Workspace share format 3 cannot preserve an Ecosystem integration scanner.");
+                        "Workspace share committed formats cannot preserve an Ecosystem integration scanner.");
                 }
 
                 writer.WriteAscii("[\"e\","u8);
@@ -1929,7 +1979,7 @@ public static class WorkspaceSharePacketCodec
                 break;
             default:
                 throw InvalidShape(
-                    "Workspace share format 3 contains an unknown registration kind.");
+                    "Workspace share committed packet contains an unknown registration kind.");
         }
     }
 
@@ -1956,7 +2006,7 @@ public static class WorkspaceSharePacketCodec
                 break;
             default:
                 throw InvalidShape(
-                    "Workspace share format 3 contains an unknown Ecosystem population kind.");
+                    "Workspace share committed packet contains an unknown Ecosystem population kind.");
         }
     }
 
@@ -1990,7 +2040,7 @@ public static class WorkspaceSharePacketCodec
                 break;
             default:
                 throw InvalidShape(
-                    "Workspace share format 3 exact Library registration has no portable source coordinate.");
+                    "Workspace share exact Library registration has no portable source coordinate.");
         }
     }
 
@@ -2075,9 +2125,10 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static void WriteFormat2ViewState(
+    private static void WriteCommittedViewState(
         CanonicalWriter writer,
-        WorkspaceShareViewState state)
+        WorkspaceShareViewState state,
+        int formatVersion)
     {
         writer.WriteAscii("{\"t\":"u8);
         if (state.TabIndex is int tabIndex)
@@ -2097,7 +2148,17 @@ public static class WorkspaceSharePacketCodec
             {
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
-                _ => throw new UnreachableException(),
+                PortableSubjectRequestKind.Library
+                    when formatVersion == Format4Version =>
+                    "library",
+                PortableSubjectRequestKind.Type
+                    when formatVersion == Format4Version =>
+                    "type",
+                PortableSubjectRequestKind.Member
+                    when formatVersion == Format4Version =>
+                    "member",
+                _ => throw InvalidShape(
+                    $"Workspace share format {formatVersion} does not support subject kind {state.Subject.Kind}."),
             });
             writer.WriteByte((byte)'}');
         }

@@ -43,10 +43,10 @@ The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
 dormant non-Package inventory. The #6971 slice extends that substrate with
-state-bound query and Library-scope projection in formats 2 and 3 and the exact
-format-3 coordinate-free query-only composition. Schema-version-3 registration
-records, packet format 3, registration-only complete restoration, and the
-shared managed Browser boundary are implemented under
+state-bound query and Library-scope projection in formats 2 through 4 and the
+exact format-3 coordinate-free query-only composition. Schema-version-3
+registration records, packet format 3, registration-only complete restoration,
+and the shared managed Browser boundary are implemented under
 [#7385](https://github.com/richlander/dotnet-inspect/issues/7385). Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 host-neutral complete-restoration coordinator that consumes #7047's typed
@@ -670,12 +670,12 @@ Query-bearing sharing follows a separate five-step path under
    semantic model, canonical codec, and identity pair. Complete.
 2. **First production vocabulary.** Adopt `package-query/v1` in Package Query
    and lower both CLI and Browser requests through it. Complete.
-3. **Definitions contract.** Define the common schema-version-2/3 query record,
-   state-bound packet projection, and the format-3 query-only composition. This
-   design slice.
+3. **Definitions contract.** Define the common schema-version-2-through-4
+   query record, state-bound packet projection, and the format-3 query-only
+   composition. This design slice.
 4. **Definitions implementation.** This implementation slice adds record
    parsing, public query
-   descriptors, composition binding, format-2/3 query-table
+   descriptors, composition binding, format-2-through-4 query-table
    encoding/transposition, and the fixed-vector gates below through one
    host-neutral Definitions API.
 5. **Production-host adoption.** Have the CLI emit and replay the query-only
@@ -915,14 +915,16 @@ Field semantics:
   `members`. Schema versions 1 and 2 require at least one context. Schema
   version 3 permits an empty context array when `registrations` is nonempty or
   when the record participates in the query-only peer composition below.
-- `registrations` — required on schema-version-3 Workspace records and unknown
-  on earlier versions. It is the ordered closed Exact Library, Package Prefix,
-  or Ecosystem union defined by
+  Schema version 4 permits an empty context array only when `registrations` is
+  nonempty.
+- `registrations` — required on schema-version-3-or-4 Workspace records and
+  unknown on earlier versions. It is the ordered closed Exact Library, Package
+  Prefix, or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
   A version-3 Workspace with neither context nor registration is valid only in
   the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Versions 2 and 3 use the common closed envelope
+  optional product query ID. Versions 2 through 4 use the common closed envelope
   `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
   `payload` is one closed JSON object parsed and canonically rewritten by
   `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
@@ -1040,6 +1042,13 @@ Universe, Integration, host rendering, navigation, acquisition, or execution
 claim.
 
 ### Complete committed views
+
+[Portable active descendant views](portable-active-descendant-views.md) defines
+the schema-version-4/packet-format-4 extension under #7475. It adds
+explicit active Library, Type and Member requests without reinterpreting the
+version-2/3 subject tags specified here. Its managed records, codec,
+transposition, resolution and complete restoration are implemented; that
+focused document names the Release gates and remaining CLI/Browser adoption.
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
@@ -1508,6 +1517,13 @@ Version 3 adds two empty-context peer compositions:
 
 Neither composition requires a group catalog unless another referenced record
 uses one.
+
+Schema version 4 preserves version 3's same-version and registration
+composition rules, extends only the active structural-subject vocabulary, and
+inherits state-bound query and Library-scope composition. It requires at least
+one context or registration and therefore does not admit the version-3
+query-only composition. See
+[Portable active descendant views](portable-active-descendant-views.md).
 
 When the Workspace has contexts, all navigation, view, selected-context, query,
 and catalog validation retains version 2's semantics. A version-3 scenario
@@ -3364,9 +3380,9 @@ Definition records and product demos (this slice):
   `workspace-definitions-complete-restoration` TLA+ model checks exact
   request/plan/Workspace association, pre-construction rejection, evidence
   order, current-intent activation, and one-shot cleanup; and
-- Definitions accepts schema-version-2/3 portable query records, binds them
+- Definitions accepts schema-version-2-through-4 portable query records, binds them
   through owner-issued typed descriptors, preserves state-bound query and
-  multi-Library scope through packet formats 2 and 3, and admits the exact
+  multi-Library scope through packet formats 2 through 4, and admits the exact
   format-3 coordinate-free Package Query composition. Codec and transposer
   gates cover canonical query-table ordering, payload identity, references,
   malformed and orphan state, query-only mixtures, typed Package Query

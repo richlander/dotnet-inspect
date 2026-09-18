@@ -64,7 +64,7 @@ public sealed class WorkspaceShareContext
 }
 
 /// <summary>
-/// One committed view row in a format-2-or-3 workspace share packet.
+/// One committed view row in a format-2-through-4 workspace share packet.
 /// </summary>
 public sealed class WorkspaceShareViewState
 {
@@ -184,8 +184,39 @@ public sealed class WorkspaceSharePacket
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
         PortableQueryIdentity[]? queries = null)
+        : this(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            tabs,
+            contexts,
+            registrations,
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates,
+            queries)
     {
-        FormatVersion = WorkspaceSharePacketCodec.CurrentFormatVersion;
+    }
+
+    private WorkspaceSharePacket(
+        int formatVersion,
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries)
+    {
+        if (formatVersion is not (
+            WorkspaceSharePacketCodec.CurrentFormatVersion
+            or WorkspaceSharePacketCodec.Format4Version))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(formatVersion),
+                formatVersion,
+                "A registration-bearing packet must use format 3 or 4.");
+        }
+
+        FormatVersion = formatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
             (WorkspaceShareTab[])tabs.Clone());
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
@@ -209,16 +240,34 @@ public sealed class WorkspaceSharePacket
             (WorkspaceShareViewState[])viewStates.Clone());
     }
 
+    internal static WorkspaceSharePacket CreateV4(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null) =>
+        new(
+            WorkspaceSharePacketCodec.Format4Version,
+            tabs,
+            contexts,
+            registrations,
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates,
+            queries);
+
     public int FormatVersion { get; }
 
     public IReadOnlyList<WorkspaceShareTab> Tabs { get; }
 
     public IReadOnlyList<WorkspaceShareContext> Contexts { get; }
 
-    /// <summary>Format-3 ordered portable Workspace registrations.</summary>
+    /// <summary>Format-3-or-4 ordered portable Workspace registrations.</summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
 
-    /// <summary>Format-2-or-3 canonical packet-local query identities.</summary>
+    /// <summary>Format-2-through-4 canonical packet-local query identities.</summary>
     public IReadOnlyList<PortableQueryIdentity> Queries { get; }
 
     /// <summary>
@@ -228,14 +277,14 @@ public sealed class WorkspaceSharePacket
     public int? FocusedTabIndex { get; }
 
     /// <summary>
-    /// The format-1 active tab index. Format 2 and 3 consumers should use
+    /// The format-1 active tab index. Format 2 through 4 consumers should use
     /// <see cref="FocusedTabIndex"/>; this value is -1 when the Workspace row
     /// is selected.
     /// </summary>
     public int ActiveTabIndex { get; }
 
     /// <summary>
-    /// The selected context, or null for a format-3 registration-only
+    /// The selected context, or null for a format-3-or-4 registration-only
     /// Workspace.
     /// </summary>
     public int? SelectedContextIndex { get; }
@@ -258,7 +307,7 @@ public sealed class WorkspaceSharePacket
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }
 
-    /// <summary>Format-2-or-3 committed view rows.</summary>
+    /// <summary>Format-2-through-4 committed view rows.</summary>
     public IReadOnlyList<WorkspaceShareViewState> ViewStates { get; }
 }
 

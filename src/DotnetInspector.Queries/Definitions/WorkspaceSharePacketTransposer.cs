@@ -99,7 +99,7 @@ public static class WorkspaceSharePacketTransposer
         if (canonical.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
         {
             throw new ArgumentException(
-                "Use ToCommittedDefinitions for workspace share format 2 or 3.",
+                "Use ToCommittedDefinitions for workspace share format 2, 3, or 4.",
                 nameof(packet));
         }
 
@@ -217,10 +217,11 @@ public static class WorkspaceSharePacketTransposer
             cancellationToken);
         if (canonical.FormatVersion is not (
             WorkspaceSharePacketCodec.Format2Version
-            or WorkspaceSharePacketCodec.CurrentFormatVersion))
+            or WorkspaceSharePacketCodec.CurrentFormatVersion
+            or WorkspaceSharePacketCodec.Format4Version))
         {
             throw new ArgumentException(
-                "Workspace share packet must use format 2 or 3.",
+                "Workspace share packet must use format 2, 3, or 4.",
                 nameof(packet));
         }
 
@@ -234,7 +235,8 @@ public static class WorkspaceSharePacketTransposer
             WorkspaceId,
             contexts,
             registrations:
-                schemaVersion == InspectionDefinitionSchema.Version3
+                schemaVersion is InspectionDefinitionSchema.Version3
+                    or InspectionDefinitionSchema.Version4
                     ? canonical.Registrations
                     : null);
         var navigation = new CommittedNavigationDefinition(
@@ -401,6 +403,9 @@ public static class WorkspaceSharePacketTransposer
             (InspectionDefinitionScenarioPreparationResult.Version3 version3,
                 InspectionDefinitionSchema.Version3) =>
                 version3.Definitions,
+            (InspectionDefinitionScenarioPreparationResult.Version4 version4,
+                InspectionDefinitionSchema.Version4) =>
+                version4.Definitions,
             _ => throw new UnreachableException(),
         };
 
@@ -830,9 +835,8 @@ public static class WorkspaceSharePacketTransposer
         CommittedViewDefinition? view = definitions.View;
         ScenarioDefinition scenario = definitions.Scenario;
         int schemaVersion = scenario.SchemaVersion;
-        string format = schemaVersion == InspectionDefinitionSchema.Version3
-            ? "3"
-            : "2";
+        string format = schemaVersion.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
         if (workspace is null || navigation is null || view is null)
         {
             return InvalidDefinition(
@@ -840,10 +844,11 @@ public static class WorkspaceSharePacketTransposer
                 $"Workspace share format {format} requires workspace, navigation, and view records.");
         }
 
-        if (schemaVersion == InspectionDefinitionSchema.Version3)
+        if (schemaVersion is InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
         {
             WorkspaceSharePacketProjectionResult? registrationFailure =
-                ValidateProjectableRegistrations(workspace);
+                ValidateProjectableRegistrations(workspace, format);
             if (registrationFailure is not null)
                 return registrationFailure;
         }
@@ -954,24 +959,36 @@ public static class WorkspaceSharePacketTransposer
                 [.. state.Libraries]);
         }
 
-        WorkspaceSharePacket packet =
-            schemaVersion == InspectionDefinitionSchema.Version3
-                ? new WorkspaceSharePacket(
+        WorkspaceSharePacket packet = schemaVersion switch
+        {
+            InspectionDefinitionSchema.Version4 =>
+                WorkspaceSharePacket.CreateV4(
                     basis is null ? [] : [.. basis.Tabs],
                     basis is null ? [] : [.. basis.Contexts],
                     [.. workspace.Registrations],
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries)
-                : new WorkspaceSharePacket(
+                    packetQueries),
+            InspectionDefinitionSchema.Version3 =>
+                new WorkspaceSharePacket(
+                    basis is null ? [] : [.. basis.Tabs],
+                    basis is null ? [] : [.. basis.Contexts],
+                    [.. workspace.Registrations],
+                    focusedTabIndex,
+                    basis?.SelectedContextIndex,
+                    packetStates,
+                    packetQueries),
+            _ =>
+                new WorkspaceSharePacket(
                     [.. basis!.Tabs],
                     [.. basis.Contexts],
                     focusedTabIndex,
                     basis.SelectedContextIndex
                         ?? throw new UnreachableException(),
                     packetStates,
-                    packetQueries);
+                    packetQueries),
+        };
         try
         {
             WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
@@ -998,12 +1015,13 @@ public static class WorkspaceSharePacketTransposer
         int schemaVersion = definitions.Scenario.SchemaVersion;
         if (schemaVersion is not (
             InspectionDefinitionSchema.Version2
-            or InspectionDefinitionSchema.Version3))
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             return InvalidDefinition(
                 "scenario.schemaVersion",
                 "Workspace share committed packets require "
-                    + "schema-version-2 or schema-version-3 records.");
+                    + "schema-version-2, schema-version-3, or schema-version-4 records.");
         }
 
         foreach (InspectionDefinitionRecord record in definitions.Records)
@@ -1083,14 +1101,16 @@ public static class WorkspaceSharePacketTransposer
     }
 
     private static WorkspaceSharePacketProjectionResult?
-        ValidateProjectableRegistrations(WorkspaceDefinition workspace)
+        ValidateProjectableRegistrations(
+            WorkspaceDefinition workspace,
+            string format)
     {
         if (workspace.Registrations.Count
             > WorkspaceSharePacketCodec.MaxRegistrations)
         {
             return NonProjectable(
                 "workspace.registrations",
-                $"Packet format 3 supports at most "
+                $"Packet format {format} supports at most "
                     + $"{WorkspaceSharePacketCodec.MaxRegistrations} registrations.");
         }
 
@@ -1106,7 +1126,7 @@ public static class WorkspaceSharePacketTransposer
                     {
                         return NonProjectable(
                             path + ".coordinate",
-                            "Packet format 3 preserves only Package- or Platform-origin exact Libraries.");
+                            $"Packet format {format} preserves only Package- or Platform-origin exact Libraries.");
                     }
                     break;
                 case WorkspaceRegistration.PackagePrefix:
@@ -1116,7 +1136,7 @@ public static class WorkspaceSharePacketTransposer
                     {
                         return NonProjectable(
                             path + ".integrationScanner",
-                            "Packet format 3 cannot preserve an Ecosystem integration scanner.");
+                            $"Packet format {format} cannot preserve an Ecosystem integration scanner.");
                     }
 
                     for (int populationIndex = 0;
@@ -1135,14 +1155,14 @@ public static class WorkspaceSharePacketTransposer
                         {
                             return NonProjectable(
                                 path + $".populations[{populationIndex}]",
-                                "Packet format 3 preserves only Package- or Platform-origin exact Libraries.");
+                                $"Packet format {format} preserves only Package- or Platform-origin exact Libraries.");
                         }
                     }
                     break;
                 default:
                     return NonProjectable(
                         path,
-                        "Packet format 3 cannot preserve this registration kind.");
+                        $"Packet format {format} cannot preserve this registration kind.");
             }
         }
 

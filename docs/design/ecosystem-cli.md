@@ -54,13 +54,29 @@ Focus does not filter a fixed section list — it **builds a different one**:
 | none | `Ecosystems` | catalog-wide, every pack |
 | one ecosystem | `Ecosystem Info` | that pack's sections |
 
-This is why the command declares no section categories: scoping is structural,
-so a category door would be a second mechanism for a job already done.
+The compiled section catalog follows that structural choice. Categories
+organize the selected route; they do not select or change focus.
+
+## Categories organize the selected route
+
+`@Ecosystem` is the base category and contains every section available after
+focus is resolved. Catalog-wide and ordinary focused routes therefore have six
+members; the focused Platform route has the same focused members plus
+`Pruning`.
+
+`Integrations` is an exact section. It does not change focus and does not turn
+configured knowledge into library observation. Ecosystem publishes no
+single-member `@Integrations` category; that category remains specific to
+Library, where it composes `Integrations` and `Integration Opportunities`.
+
+Ordinary output still renders only `Ecosystems` or `Ecosystem Info`. Bare `-S`
+and explicit `@Ecosystem` compose the selected route's complete section set,
+ordered alphabetically.
 
 ## Sections
 
 Shared across every focus: `Namespace Hints`, `Core Packages`,
-`Tool Packages`, `Known Integrations`, `Demos`. Catalog-wide adds
+`Tool Packages`, `Integrations`, `Demos`. Catalog-wide adds
 `Ecosystems`; a focused view adds `Ecosystem Info`.
 
 `Core Packages` lists the ecosystem's inert concrete package roots in authored

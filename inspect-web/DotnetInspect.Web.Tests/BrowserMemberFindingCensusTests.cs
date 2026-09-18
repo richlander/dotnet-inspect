@@ -186,6 +186,8 @@ public sealed class BrowserMemberFindingCensusTests
                     identity.InstanceKey.Value,
                     "Example.Targets.Target()",
                     Target(),
+                    BrowserCalleeEvidenceState.Instruction,
+                    AggregateInputs: [],
                     [new(2, BrowserCalleeEvidenceKind.Localloc)],
                     DocumentId: 0,
                     [0],
@@ -420,6 +422,8 @@ public sealed class BrowserMemberFindingCensusTests
             identity.InstanceKey.Value,
             "Example.Targets.Target()",
             Target(),
+            BrowserCalleeEvidenceState.Instruction,
+            AggregateInputs: [],
             [new(2, BrowserCalleeEvidenceKind.Localloc)],
             DocumentId: 0,
             [0],
@@ -620,6 +624,81 @@ public sealed class BrowserMemberFindingCensusTests
         Assert.Contains("does not cover every", coverageError.Message);
     }
 
+    [Fact]
+    public void Create_ValidatesMethodLevelCostEvidenceWithoutSourceCoordinates()
+    {
+        ResearchViews.MemberProjectionResult projection = Project(
+            new ResearchFactRegistry(
+                new TestProducer(
+                [
+                    Finding(new Annotation(
+                        new AnnotationDescriptor(
+                            "cost.callee",
+                            AnnotationCategory.Cost,
+                            "callee cost"),
+                        SourceOffset: 0)),
+                ])));
+        ResearchViews.AnnotatedSourceFactIdentity identity = Assert.Single(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                    projection.SourceDocumentFactIdentities));
+        var methodEvidence = new BrowserAnnotatedSourceFindingEvidence(
+            identity.FactId,
+            identity.InstanceKey.Value,
+            "Example.Targets.Target()",
+            Target(),
+            BrowserCalleeEvidenceState.Method,
+            [
+                new(
+                    BrowserCostCalleeEvidenceInputKind.AllocationInLoop,
+                    Value: null),
+                new(
+                    BrowserCostCalleeEvidenceInputKind.Reflection,
+                    Value: 3),
+            ],
+            Coordinates: [],
+            DocumentId: null,
+            NodeIds: [],
+            UnavailableReason: null);
+
+        BrowserMemberFindingCensus envelope = Create(
+            projection,
+            [methodEvidence],
+            []);
+
+        BrowserAnnotatedSourceFindingEvidence projected = Assert.Single(
+            envelope.AnnotatedSource.FindingEvidence);
+        Assert.Equal(BrowserCalleeEvidenceState.Method, projected.State);
+        Assert.Equal(2, projected.AggregateInputs.Length);
+        Assert.Empty(projected.Coordinates);
+        Assert.Null(projected.DocumentId);
+        Assert.Empty(projected.NodeIds);
+
+        InvalidOperationException missingInputs =
+            Assert.Throws<InvalidOperationException>(() =>
+                Create(
+                    projection,
+                    [methodEvidence with { AggregateInputs = [] }],
+                    []));
+        Assert.Contains("aggregate inputs", missingInputs.Message);
+
+        InvalidOperationException inventedCoordinate =
+            Assert.Throws<InvalidOperationException>(() =>
+                Create(
+                    projection,
+                    [methodEvidence with
+                    {
+                        Coordinates =
+                        [
+                            new(
+                                2,
+                                BrowserCalleeEvidenceKind.Localloc),
+                        ],
+                    }],
+                    []));
+        Assert.Contains("instruction projection", inventedCoordinate.Message);
+    }
+
     static BrowserMemberFindingCensus Create(
         ResearchViews.MemberProjectionResult projection)
         => BrowserMemberFindingCensus.Create(
@@ -703,6 +782,8 @@ public sealed class BrowserMemberFindingCensusTests
             factId,
             default,
             member,
+            ResearchFindingEvidenceState.Instruction,
+            AggregateInputs: [],
             Coordinates: [],
             document,
             NodeIds: [],
