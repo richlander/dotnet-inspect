@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 
+using DotnetInspector.Queries.Definitions;
 using DotnetInspect.Web.Interop.Catalog;
 
 namespace DotnetInspect.Web.Tests;
@@ -21,6 +22,53 @@ public sealed class BrowserWorkspaceShareOperationsTests
         "eyJmIjozLCJ0IjpbXSwiZyI6W10sInIiOltbInAiLCJNaWNyb3NvZnQuRXh0ZW5zaW"
         + "9ucy4iXV0sImEiOm51bGwsIngiOm51bGwsInYiOlt7InQiOm51bGwsInUiOnsiayI6I"
         + "ndvcmtzcGFjZSJ9fV19";
+
+    [Fact]
+    public void ResolvedWorkspaceState_ProducesCompleteFormat3Packet()
+    {
+        BrowserWorkspaceShareState state =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(
+                    CanonicalVector).State) with
+            {
+                View = new BrowserWorkspaceShareView(
+                    Lens: null,
+                    Type: null,
+                    MemberAnchor: null,
+                    MemberSignature: null,
+                    Section: null,
+                    Libraries: []),
+            };
+
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.CaptureComplete(state);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(result.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[0].Subject);
+        Assert.Null(packet.ViewStates[1].Subject);
+        Assert.IsType<PortableSubjectRequest.Package>(
+            packet.ViewStates[2].Subject);
+        Assert.Null(packet.FocusedTabIndex);
+    }
+
+    [Fact]
+    public void LegacyPacketCanonicalization_DoesNotUpgradeFormat()
+    {
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.Canonicalize(CanonicalVector);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Packet);
+        Assert.Equal("UnsupportedFormat", result.Failure?.Kind);
+    }
 
     [Fact]
     public void CanonicalPacket_RoundTripsThroughLongFormBrowserTransport()

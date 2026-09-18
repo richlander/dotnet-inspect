@@ -44,7 +44,16 @@ const saves = createSavedWorkspaces({
   capture: async () => {
     if (params.has("projection-failure")) throw new Error("Workspace is not projectable");
     if (!state.package) throw new Error("No package is loaded");
-    return state.package.id === "Alpha" ? "fixture-alpha-packet" : "fixture-beta-packet";
+    const packet = state.package.id === "Alpha"
+      ? "fixture-alpha-packet"
+      : "fixture-beta-packet";
+    return {
+      kind: "complete-format-3" as const,
+      packet,
+      canonicalLocation: `/?w=${packet}#workspace`,
+      activeTabIndex: 0,
+      coordinateCount: 1,
+    };
   },
   open: entry => {
     const pkg = packets.get(entry.packet);

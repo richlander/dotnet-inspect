@@ -12,6 +12,45 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageInspectionAssemblyContextTests
 {
     [Fact]
+    public void CaptureEntryManifest_DetachesExactRetainedContentEntries()
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream readme = archive.CreateEntry("README.md").Open())
+                readme.Write([1, 2, 3]);
+            using (Stream assembly =
+                archive.CreateEntry("lib/net11.0/Sample.dll").Open())
+            {
+                assembly.Write(Image());
+            }
+        }
+        var content = new InMemoryPackageContent(
+            buffer.ToArray(),
+            fromCache: false,
+            producerKey: "manifest-test");
+        PackageInspectionInput input =
+            PackageInspectionInput.CreateLocal(content);
+
+        IReadOnlyList<PackageContentEntry> entries =
+            input.CaptureEntryManifest();
+
+        Assert.Contains(
+            entries,
+            static entry =>
+                entry.Path == "README.md"
+                && entry.Length == 3);
+        Assert.Contains(
+            entries,
+            static entry =>
+                entry.Path == "lib/net11.0/Sample.dll"
+                && entry.Length > 0);
+    }
+
+    [Fact]
     public async Task ExplicitSelection_PreservesAcquiredSourceWithoutInventingRootCoordinate()
     {
         var content = new Content(("lib/Sample.dll", Image()));

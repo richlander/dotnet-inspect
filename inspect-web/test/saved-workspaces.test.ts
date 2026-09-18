@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createSavedWorkspaces,
+  type SavedWorkspaceCapture,
   type SavedWorkspace,
   type SavedWorkspaceFocus,
 } from "../src/saved-workspaces.ts";
@@ -34,7 +35,13 @@ function harness(initial: string | null = null) {
     capture: () => {
       captures++;
       if (failCapture) throw new Error("Workspace is not projectable");
-      return "owner-issued-packet";
+      return {
+        kind: "complete-format-3",
+        packet: "owner-issued-packet",
+        canonicalLocation: "/?w=legacy-location#workspace",
+        activeTabIndex: 0,
+        coordinateCount: 1,
+      } satisfies SavedWorkspaceCapture;
     },
     open: (entry: SavedWorkspace) => {
       if (failOpen) throw new Error("Packet cannot be restored");
@@ -60,18 +67,32 @@ function harness(initial: string | null = null) {
   };
 }
 
-test("named saves retain the exact opaque packet and reopen across reload without recapture", () => {
+test("named saves retain an explicit complete definition and reopen across reload without recapture", () => {
   const h = harness();
   assert.equal(h.saves.state.available, true);
   assert.equal(h.captures(), 0);
   h.save("  Json study  ");
-  assert.deepEqual(h.saves.state.entries, [{ name: "Json study", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Json study",
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  }]);
   assert.equal(h.saves.state.formOpen, false);
   assert.deepEqual(h.focused.at(-1), { kind: "saved-open", name: "Json study", index: 0 });
   const reloaded = h.reload();
   assert.equal(h.captures(), 1);
   reloaded.open("Json study");
-  assert.deepEqual(h.opened, [{ name: "Json study", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.opened, [{
+    name: "Json study",
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  }]);
   assert.equal(h.captures(), 1);
 });
 
@@ -94,7 +115,14 @@ test("forget removes only its saved identity and never opens or recaptures a Wor
   h.save("First");
   h.save("Second");
   h.saves.forget("First");
-  assert.deepEqual(h.saves.state.entries, [{ name: "Second", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Second",
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  }]);
   assert.deepEqual(h.reload().state.entries, h.saves.state.entries);
   assert.deepEqual(h.opened, []);
   assert.equal(h.captures(), 2);
@@ -108,7 +136,14 @@ test("write failure preserves saved entries and draft text on save and forget", 
   h.failWrite();
   h.save("Second");
   assert.equal(h.stored(), before);
-  assert.deepEqual(h.saves.state.entries, [{ name: "First", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "First",
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  }]);
   assert.equal(h.saves.state.name, "Second");
   assert.match(h.saves.state.error, /Quota exceeded/);
   h.saves.forget("First");
@@ -129,7 +164,7 @@ test("failed projection cannot persist a partial or empty save", () => {
 
 test("overlapping Save submissions share one pending capture", async () => {
   let stored: string | null = null;
-  const capture = deferred<string>();
+  const capture = deferred<SavedWorkspaceCapture>();
   let captures = 0;
   const saves = createSavedWorkspaces({
     read: () => stored,
@@ -147,24 +182,40 @@ test("overlapping Save submissions share one pending capture", async () => {
   const first = saves.save();
   const second = saves.save();
   assert.equal(captures, 1);
-  capture.resolve("owner-issued-packet");
+  capture.resolve({
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  });
   await Promise.all([first, second]);
 
   assert.deepEqual(saves.state.entries, [{
     name: "My Workspace",
+    kind: "complete-format-3",
     packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
   }]);
   assert.equal(createSavedWorkspaces({
     read: () => stored,
     write: () => {},
-    capture: () => "unused",
+    capture: () => ({
+      kind: "complete-format-3",
+      packet: "unused",
+      canonicalLocation: "/?w=unused#workspace",
+      activeTabIndex: 0,
+      coordinateCount: 1,
+    }),
     open: () => {},
     render: () => {},
   }).state.available, true);
 });
 
 test("asynchronous capture reports a following write failure", async () => {
-  const capture = deferred<string>();
+  const capture = deferred<SavedWorkspaceCapture>();
   const saves = createSavedWorkspaces({
     read: () => null,
     write: () => { throw new Error("Quota exceeded"); },
@@ -176,7 +227,13 @@ test("asynchronous capture reports a following write failure", async () => {
   saves.beginSave();
   saves.setName("My Workspace");
   const operation = saves.save();
-  capture.resolve("owner-issued-packet");
+  capture.resolve({
+    kind: "complete-format-3",
+    packet: "owner-issued-packet",
+    canonicalLocation: "/?w=legacy-location#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  });
   await operation;
 
   assert.deepEqual(saves.state.entries, []);
@@ -186,7 +243,7 @@ test("asynchronous capture reports a following write failure", async () => {
 
 test("canceling an asynchronous save retires it before a new draft", async () => {
   let stored: string | null = null;
-  const oldCapture = deferred<string>();
+  const oldCapture = deferred<SavedWorkspaceCapture>();
   const focused: (SavedWorkspaceFocus | undefined)[] = [];
   const saves = createSavedWorkspaces({
     read: () => stored,
@@ -204,7 +261,13 @@ test("canceling an asynchronous save retires it before a new draft", async () =>
   saves.setName("New Workspace");
   const focusBeforeSettlement = focused.length;
 
-  oldCapture.resolve("old-owner-issued-packet");
+  oldCapture.resolve({
+    kind: "complete-format-3",
+    packet: "old-owner-issued-packet",
+    canonicalLocation: "/?w=old#workspace",
+    activeTabIndex: 0,
+    coordinateCount: 1,
+  });
   await oldOperation;
 
   assert.equal(stored, null);
@@ -217,9 +280,10 @@ test("canceling an asynchronous save retires it before a new draft", async () =>
 
 for (const raw of [
   "{",
-  '{"version":2,"entries":[]}',
+  '{"version":3,"entries":[]}',
   '{"version":1,"entries":[{"name":"A","packet":"p"},{"name":"a","packet":"q"}]}',
   '{"version":1,"entries":[{"name":"A","packet":null}]}',
+  '{"version":2,"entries":[{"name":"A","kind":"complete-format-3","packet":"p","canonicalLocation":"/","activeTabIndex":0}]}',
 ]) {
   test(`unreadable saved data is reported and not overwritten: ${raw}`, () => {
     const h = harness(raw);
@@ -256,6 +320,42 @@ test("a saved packet can fail to open and still be forgotten without decoding", 
   h.saves.forget("Old");
   assert.deepEqual(h.reload().state.entries, []);
   assert.equal(h.captures(), 0);
+});
+
+test("version-1 records remain explicit legacy compatibility entries", () => {
+  const h = harness(
+    '{"version":1,"entries":[{"name":"Old","packet":"legacy-packet"}]}',
+  );
+
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Old",
+    kind: "legacy-format-1",
+    packet: "legacy-packet",
+  }]);
+
+  h.save("New");
+  const persisted: unknown = JSON.parse(h.stored() ?? "");
+  assert.ok(
+    persisted !== null
+    && typeof persisted === "object"
+    && "version" in persisted
+    && "entries" in persisted);
+  assert.equal(persisted.version, 2);
+  assert.deepEqual(persisted.entries, [
+    {
+      name: "Old",
+      kind: "legacy-format-1",
+      packet: "legacy-packet",
+    },
+    {
+      name: "New",
+      kind: "complete-format-3",
+      packet: "owner-issued-packet",
+      canonicalLocation: "/?w=legacy-location#workspace",
+      activeTabIndex: 0,
+      coordinateCount: 1,
+    },
+  ]);
 });
 
 test("canceling a save changes only the transient form", () => {

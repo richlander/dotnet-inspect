@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Web;
 
@@ -34,6 +35,63 @@ internal abstract record BrowserPlatformSurfaceProjectionResult
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformSurfaceProjection
 {
+    internal static BrowserPackageSurfaceInfo Project(
+        CompleteRestorationPlatformEvaluation platform)
+    {
+        ArgumentNullException.ThrowIfNull(platform);
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                platform.Surface,
+                [
+                    .. platform.Members.Select(
+                        static member =>
+                            new BrowserSurfaceProjection.Participant(
+                                member.Participant,
+                                member.Participant.Assembly.Identity.Name,
+                                member.Participant.Assembly.Identity.Name,
+                                member.Participant.Assembly.AssetFileName
+                                    ?? $"{member.Participant.Assembly.Identity.Name}.dll")),
+                ],
+                qualifyTypeIds: true,
+                platformPack:
+                    BrowserPlatformWorkspace.Pack(platform.Family));
+        string framework = BrowserFrameworkText.Require(platform.Framework);
+        string? preferredAssembly = platform.Family switch
+        {
+            "runtime" => "System.Private.CoreLib",
+            "aspnetcore" => "Microsoft.AspNetCore",
+            _ => null,
+        };
+        string? defaultAssemblyId = projected.Assemblies.FirstOrDefault(
+                assembly => string.Equals(
+                    assembly.Id,
+                    preferredAssembly,
+                    StringComparison.Ordinal))
+            ?.Id
+            ?? projected.Assemblies.FirstOrDefault()?.Id;
+        return new BrowserPackageSurfaceInfo(
+            platform.Family switch
+            {
+                "runtime" => BrowserPlatformIdentity.PackageName,
+                "aspnetcore" => "Microsoft.AspNetCore.App",
+                _ => throw new InvalidOperationException(
+                    "The retained Platform projection has an unknown family."),
+            },
+            platform.Version,
+            [framework],
+            framework,
+            Icon: null,
+            defaultAssemblyId,
+            BrowserCompileLibraryProjection.Selected(framework),
+            projected.Assemblies,
+            projected.Types,
+            projected.Accessibility,
+            projected.TotalMembers,
+            Documents: [],
+            projected.InspectionErrors,
+            projected.InspectionError);
+    }
+
     internal static BrowserPlatformProjectionInfo Project(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,

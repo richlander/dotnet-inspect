@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -6,6 +7,12 @@ using NuGetFetch;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Retained Workspace activation",
+    DisableParallelization = true)]
+public sealed class BrowserRetainedWorkspaceActivationCollection;
+
+[Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserRetainedWorkspaceActivationTests
 {
@@ -121,6 +128,201 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 packet,
                 TestContext.Current.CancellationToken).FormatVersion);
         Assert.Equal(packet, installation.CanonicalPacket);
+    }
+
+    [Fact]
+    public async Task CompleteSavedWorkspace_InstallsWorkspaceRootAndFocusedPackage()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = CompleteWorkspaceRootPacket();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspaceInstallation installation =
+            await ActivateAsync(owner, "saved", packet);
+
+        Assert.Equal(0, installation.Navigation.ActiveStateIndex);
+        Assert.Equal("t0", installation.Definition.ActiveTabId);
+        Assert.Equal("g0", installation.Definition.SelectedContextId);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            WorkspaceSharePacketCodec.Decode(
+                packet,
+                TestContext.Current.CancellationToken).FormatVersion);
+    }
+
+    [Fact]
+    public async Task ProductionOptions_PackageOnlyActivationHasNoPlatformBuilderFailure()
+    {
+        await SeedProductionPackageAsync(
+            "System.Text.Json",
+            "9.0.4",
+            Path.Combine(
+                FindRepositoryRoot(),
+                "fixtures",
+                "services",
+                "signatures",
+                "system.text.json.9.0.4.nupkg"));
+        await using (
+            var owner = new BrowserRetainedWorkspaceActivationOwner(
+                BrowserCompleteRestorationOptions.Create))
+        {
+            BrowserRetainedWorkspaceInstallation installation =
+                await ActivateAsync(owner, "package-only", Packet());
+
+            Assert.Single(installation.Packages);
+            Assert.Equal("package", installation.Packages[0].Kind);
+        }
+        await DrainProductionCacheAsync();
+    }
+
+    [Fact]
+    public async Task ProductionOptions_PlatformActivationProjectsExactSurface()
+    {
+        string assets = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "FrameworkActivation");
+        await SeedProductionPackageAsync(
+            "Microsoft.NETCore.App.Ref",
+            "10.0.10",
+            Path.Combine(
+                assets,
+                "microsoft.netcore.app.ref.10.0.10.nupkg"));
+        await SeedProductionPackageAsync(
+            "Microsoft.NETCore.App.Runtime.linux-x64",
+            "10.0.10",
+            Path.Combine(
+                assets,
+                "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"));
+        await using (
+            var owner = new BrowserRetainedWorkspaceActivationOwner(
+                BrowserCompleteRestorationOptions.Create))
+        {
+            BrowserRetainedWorkspaceActivationResult result =
+                await owner.ActivateAsync(
+                    Request("platform", PlatformPacket()),
+                    TestContext.Current.CancellationToken);
+            var activated = Assert.IsType<
+                BrowserRetainedWorkspaceActivationResult.Activated>(result);
+            BrowserRetainedWorkspaceInstallation installation =
+                activated.Installation;
+
+            BrowserRetainedWorkspacePackage platform =
+                Assert.Single(installation.Packages);
+            Assert.Equal("platform", platform.Kind);
+            Assert.Equal("Microsoft.NETCore.App", platform.Surface.Package);
+            Assert.Equal("net10.0", platform.Surface.ActiveFramework);
+        }
+        await DrainProductionCacheAsync();
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPacket_ActivatesWorkspaceOnlyPresentation()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await owner.ActivateAsync(
+                    Request(
+                        "registration-only",
+                        RegistrationOnlyPacket(),
+                        presentationActiveTabIndex: null),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(activated.Installation.Definition.Tabs);
+        Assert.Empty(activated.Installation.Definition.Contexts);
+        Assert.Null(activated.Installation.Definition.ActiveTabId);
+        Assert.Null(activated.Installation.Definition.SelectedContextId);
+        Assert.Empty(activated.Installation.Packages);
+    }
+
+    [Fact]
+    public async Task PackagePresentation_PreservesFrameworksAndDocuments()
+    {
+        CompleteRestorationExecutionOptions options =
+            await OptionsAsync(includeReadme: true);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspaceInstallation installation =
+            await ActivateAsync(owner, "package-presentation", Packet());
+
+        BrowserPackageSurfaceInfo surface =
+            Assert.Single(installation.Packages).Surface;
+        Assert.Contains("net9.0", surface.Frameworks);
+        Assert.True(surface.Frameworks.Length > 1);
+        BrowserPackageDocumentEntry document =
+            Assert.Single(
+                surface.Documents,
+                static document => document.Kind == "readme");
+        Assert.Equal("readme", document.Kind);
+        Assert.Equal("README.md", document.Path);
+    }
+
+    [Fact]
+    public async Task PackageActionRequiresExactActiveRealizationAdmission()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspaceInstallation first =
+            await ActivateAsync(owner, "a", packet);
+
+        Assert.IsType<
+            BrowserRetainedWorkspacePackageActivationResult.Activated>(
+                await owner.ActivatePackageAsync(
+                    first.RetainedDefinitionId,
+                    first.RealizationId,
+                    "t0",
+                    TestContext.Current.CancellationToken));
+
+        _ = await ActivateAsync(owner, "b", packet);
+        Assert.IsType<
+            BrowserRetainedWorkspacePackageActivationResult.Superseded>(
+                await owner.ActivatePackageAsync(
+                    first.RetainedDefinitionId,
+                    first.RealizationId,
+                    "t0",
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task PreparedCandidateRequiresConsumerCommitBeforeCutover()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspaceActivationSession rejected =
+            owner.BeginActivation(
+                Request("rejected", Packet()),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await rejected.Preparation);
+        Assert.Null(owner.Active);
+        rejected.Supersede();
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Superseded>(
+            await rejected.Completion);
+        Assert.Null(owner.Active);
+
+        BrowserRetainedWorkspaceActivationSession accepted =
+            owner.BeginActivation(
+                Request("accepted", Packet()),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await accepted.Preparation);
+        Assert.True(accepted.Commit());
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await accepted.Completion);
+        Assert.Equal(
+            activated.Installation.RealizationId,
+            owner.Active?.RealizationId);
     }
 
     [Fact]
@@ -256,22 +458,42 @@ public sealed class BrowserRetainedWorkspaceActivationTests
 
     static BrowserRetainedWorkspaceActivationRequest Request(
         string id,
-        string packet) =>
-        new(id, $"Workspace {id}", $"/workspace/{id}", packet);
+        string packet,
+        int? presentationActiveTabIndex = 0) =>
+        new(
+            $"activation-{id}-{Guid.NewGuid():N}",
+            id,
+            $"Workspace {id}",
+            $"/workspace/{id}",
+            packet,
+            presentationActiveTabIndex);
 
     static async Task<BrowserRetainedWorkspaceInstallation> ActivateAsync(
         BrowserRetainedWorkspaceActivationOwner owner,
         string id,
         string packet)
     {
-        var activated = Assert.IsType<
-            BrowserRetainedWorkspaceActivationResult.Activated>(
-                await owner.ActivateAsync(
-                    Request(id, packet),
-                    TestContext.Current.CancellationToken));
+        BrowserRetainedWorkspaceActivationResult result =
+            await owner.ActivateAsync(
+                Request(id, packet),
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            result
+                is BrowserRetainedWorkspaceActivationResult.Activated,
+            (result as BrowserRetainedWorkspaceActivationResult.Failed)
+                ?.Failure.Message);
+        var activated =
+            (BrowserRetainedWorkspaceActivationResult.Activated)result;
         Assert.Equal(packet, activated.Installation.CanonicalPacket);
         Assert.Equal(2, activated.Installation.Navigation.States.Length);
-        Assert.Equal(1, activated.Installation.Navigation.ActiveStateIndex);
+        BrowserRetainedWorkspacePackage package =
+            Assert.Single(activated.Installation.Packages);
+        Assert.Equal("package", package.Kind);
+        Assert.Equal("t0", package.NavigationId);
+        Assert.Equal("System.Text.Json", package.Surface.Package);
+        Assert.Equal("9.0.4", package.Surface.Version);
+        Assert.Equal("t0", activated.Installation.Definition.ActiveTabId);
+        Assert.Equal("g0", activated.Installation.Definition.SelectedContextId);
         return activated.Installation;
     }
 
@@ -368,7 +590,54 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 section: null,
                 libraries: []));
 
-    static async Task<CompleteRestorationExecutionOptions> OptionsAsync()
+    static string CompleteWorkspaceRootPacket()
+    {
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "System.Text.Json",
+            "9.0.4",
+            "net9.0");
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    new WorkspaceDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.WorkspaceId,
+                        [
+                            new WorkspaceContextDefinition(
+                                "g0",
+                                "net9.0",
+                                members: [package]),
+                        ]),
+                    new NavigationDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.NavigationId,
+                        [
+                            new NavigationTabDefinition(
+                                "t0",
+                                coordinate: package),
+                        ],
+                        "t0"),
+                    new ViewDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.ViewId),
+                    new ScenarioDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.ScenarioId,
+                        workspace: WorkspaceSharePacketTransposer.WorkspaceId,
+                        context: "g0",
+                        view: WorkspaceSharePacketTransposer.ViewId,
+                        navigation:
+                            WorkspaceSharePacketTransposer.NavigationId)),
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            projection.Succeeded,
+            projection.Failure?.Message);
+        return WorkspaceSharePacketCodec.Encode(
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet));
+    }
+
+    static async Task<CompleteRestorationExecutionOptions> OptionsAsync(
+        bool includeReadme = false)
     {
         const string sourceUrl = "https://api.nuget.org/v3/index.json";
         string packagePath = Path.Combine(
@@ -380,6 +649,8 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         byte[] package = await File.ReadAllBytesAsync(
             packagePath,
             TestContext.Current.CancellationToken);
+        if (includeReadme)
+            package = AddReadme(package);
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             "System.Text.Json",
@@ -409,6 +680,79 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             FacetAvailability = (_, _) => available,
         };
     }
+
+    static byte[] AddReadme(byte[] package)
+    {
+        using var output = new MemoryStream();
+        using (var destination = new ZipArchive(
+            output,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using var input = new ZipArchive(
+                new MemoryStream(package, writable: false),
+                ZipArchiveMode.Read);
+            foreach (ZipArchiveEntry source in input.Entries)
+            {
+                ZipArchiveEntry target =
+                    destination.CreateEntry(source.FullName);
+                using Stream sourceStream = source.Open();
+                using Stream targetStream = target.Open();
+                sourceStream.CopyTo(targetStream);
+            }
+            ZipArchiveEntry readme =
+                destination.CreateEntry("README.md");
+            using var writer = new StreamWriter(readme.Open());
+            writer.Write("# System.Text.Json");
+        }
+        return output.ToArray();
+    }
+
+    static async Task SeedProductionPackageAsync(
+        string packageId,
+        string version,
+        string path)
+    {
+        byte[] package = await File.ReadAllBytesAsync(
+            path,
+            TestContext.Current.CancellationToken);
+        using BrowserPackageWorkspace.PackageDownloadReservation reservation =
+            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                BrowserPackageWorkspace.PackageKey(packageId, version),
+                package.LongLength);
+        await BrowserPackageWorkspace.SessionPackageStore.CommitAsync(
+            packageId,
+            version,
+            NuGetCache.GetSourceKey(
+                "https://api.nuget.org/v3/index.json"),
+            new MemoryStream(package, writable: false),
+            TestContext.Current.CancellationToken);
+        reservation.Complete();
+    }
+
+    static async Task DrainProductionCacheAsync()
+    {
+        using BrowserPackageWorkspace.PackageDownloadReservation reservation =
+            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"retained-activation-drain-{Guid.NewGuid():N}",
+                128L * 1024 * 1024);
+    }
+
+    static string RegistrationOnlyPacket() =>
+        WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
+                """,
+                TestContext.Current.CancellationToken));
+
+    static string PlatformPacket()
+        => WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                """,
+                TestContext.Current.CancellationToken));
 
     static string FindRepositoryRoot()
     {

@@ -138,10 +138,16 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
-    activateRetainedWorkspaceDefinition: () =>
-      unexpected("activateRetainedWorkspaceDefinition"),
+    activateRetainedWorkspacePackageOccurrence: () =>
+      unexpected("activateRetainedWorkspacePackageOccurrence"),
+    cancelRetainedWorkspaceActivation: () =>
+      unexpected("cancelRetainedWorkspaceActivation"),
+    captureCompleteWorkspaceShareState: () =>
+      unexpected("captureCompleteWorkspaceShareState"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    commitRetainedWorkspaceActivation: () =>
+      unexpected("commitRetainedWorkspaceActivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
@@ -151,6 +157,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareRetainedWorkspaceDefinition: () =>
+      unexpected("prepareRetainedWorkspaceDefinition"),
     runHomeDemo: () => unexpected("runHomeDemo"),
   },
 };
@@ -262,6 +270,48 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
   assert.deepEqual(await result, {
     succeeded: true,
     packet,
+    failure: null,
+  });
+  state.host.dispose();
+});
+
+test("complete Workspace capture crosses Browser Worker transport", async () => {
+  const stateJson = JSON.stringify({
+    tabs: [],
+    contexts: [],
+    activeTabId: "t0",
+    selectedContextId: "g0",
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  });
+  let received = "";
+  const state = fixture({
+    catalog: {
+      captureCompleteWorkspaceShareState(value) {
+        received = value;
+        return {
+          succeeded: true,
+          packet: "complete-packet",
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const result =
+    state.client.catalog.captureCompleteWorkspaceShareState(stateJson);
+  await state.environment.flushAsync();
+
+  assert.equal(received, stateJson);
+  assert.deepEqual(await result, {
+    succeeded: true,
+    packet: "complete-packet",
     failure: null,
   });
   state.host.dispose();
@@ -926,12 +976,16 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
-      "activateRetainedWorkspaceDefinition",
+      "activateRetainedWorkspacePackageOccurrence",
+      "cancelRetainedWorkspaceActivation",
+      "captureCompleteWorkspaceShareState",
       "canonicalizeWorkspaceSharePacket",
+      "commitRetainedWorkspaceActivation",
       "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareRetainedWorkspaceDefinition",
       "resolveHomeDemo",
       "runHomeDemo",
     ],
@@ -948,7 +1002,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 58);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 62);
 
   const state = fixture();
   const groups = [

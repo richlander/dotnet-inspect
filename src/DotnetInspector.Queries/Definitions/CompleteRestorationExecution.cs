@@ -19,6 +19,8 @@ public sealed record CompleteRestorationExecutionOptions
     public ApiSurfaceProjectionLimits PackageSurfaceLimits { get; init; } =
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
 
+    public bool IncludePlatformPresentation { get; init; }
+
     public CompleteRestorationProjectionProvider Projection { get; init; } =
         CompleteRestorationProjections.Classify;
 }
@@ -120,12 +122,14 @@ public sealed record CompleteRestorationResolvedViewState
     internal CompleteRestorationResolvedViewState(
         CommittedViewStateDefinition definition,
         NavigationInitialization? initialization,
-        NavigationLensActivationResult? lensResolution)
+        NavigationLensActivationResult? lensResolution,
+        NavigationPackageEvaluation? package)
     {
         Definition = definition
             ?? throw new ArgumentNullException(nameof(definition));
         Initialization = initialization;
         LensResolution = lensResolution;
+        Package = package;
     }
 
     public CommittedViewStateDefinition Definition { get; }
@@ -135,6 +139,51 @@ public sealed record CompleteRestorationResolvedViewState
     public NavigationInitialization? Initialization { get; }
 
     public NavigationLensActivationResult? LensResolution { get; }
+
+    public NavigationPackageEvaluation? Package { get; }
+}
+
+public sealed record CompleteRestorationPlatformEvaluation
+{
+    internal CompleteRestorationPlatformEvaluation(
+        string navigationId,
+        string family,
+        string version,
+        string framework,
+        ImmutableArray<WorkspaceContextMember> members,
+        AssemblyContextApiSurfaceResult surface)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(framework);
+        if (members.IsDefaultOrEmpty
+            || members.Any(static member => member is null))
+        {
+            throw new ArgumentException(
+                "Platform presentation requires exact realized members.",
+                nameof(members));
+        }
+
+        NavigationId = navigationId;
+        Family = family;
+        Version = version;
+        Framework = framework;
+        Members = members;
+        Surface = surface ?? throw new ArgumentNullException(nameof(surface));
+    }
+
+    public string NavigationId { get; }
+
+    public string Family { get; }
+
+    public string Version { get; }
+
+    public string Framework { get; }
+
+    public ImmutableArray<WorkspaceContextMember> Members { get; }
+
+    public AssemblyContextApiSurfaceResult Surface { get; }
 }
 
 public sealed record CompleteRestorationProjectionRequest(
@@ -232,6 +281,7 @@ public sealed record CompleteWorkspaceSnapshot
         WorkspaceScopeSnapshot scope,
         ImmutableArray<WorkspaceDeclarationContextReceipt> contexts,
         CompleteRestorationResolvedState resolved,
+        ImmutableArray<CompleteRestorationPlatformEvaluation> platforms,
         NavigationOperationInitialization navigation)
     {
         Definition = definition
@@ -247,6 +297,12 @@ public sealed record CompleteWorkspaceSnapshot
 
         Contexts = contexts;
         Resolved = resolved ?? throw new ArgumentNullException(nameof(resolved));
+        Platforms = !platforms.IsDefault
+            && platforms.All(static platform => platform is not null)
+                ? platforms
+                : throw new ArgumentException(
+                    "Platform presentation must be an initialized immutable array.",
+                    nameof(platforms));
         Navigation = navigation
             ?? throw new ArgumentNullException(nameof(navigation));
     }
@@ -261,6 +317,11 @@ public sealed record CompleteWorkspaceSnapshot
     }
 
     public CompleteRestorationResolvedState Resolved { get; }
+
+    public ImmutableArray<CompleteRestorationPlatformEvaluation> Platforms
+    {
+        get;
+    }
 
     public NavigationOperationInitialization Navigation { get; }
 }
@@ -553,8 +614,15 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationRecipe recipe,
         ViewFacetRegistry facets)
     {
-        var definitions =
-            ((CompleteRestorationRecipe.Version2)recipe).Definitions;
+        CommittedScenarioDefinitionSet definitions = recipe switch
+        {
+            CompleteRestorationRecipe.Version2 version2 =>
+                version2.Definitions,
+            CompleteRestorationRecipe.Version3 version3 =>
+                version3.Definitions,
+            _ => throw new InvalidOperationException(
+                "Unknown complete restoration recipe."),
+        };
         if (definitions.View is not { } view)
             return null;
 
@@ -684,10 +752,12 @@ public static class CompleteRestorationCoordinator
 
             ImmutableArray<PackageRootBinding> roots =
                 DistinctPackageRoots(packageRoots);
+            ImmutableArray<WorkspaceContextLoadOutcome.Loaded> loadedContexts =
+                contextLoads.MoveToImmutable();
             PackageNavigationRequestResolution packageRequests =
                 ResolvePackageNavigationRequests(
                     plan,
-                    contextLoads.MoveToImmutable());
+                    loadedContexts);
             if (packageRequests.Failure is not null)
             {
                 return new CompleteWorkspacePreparationResult.Failed(
@@ -721,6 +791,7 @@ public static class CompleteRestorationCoordinator
                 workspace,
                 scope,
                 roots,
+                loadedContexts,
                 packageRequests.Requests!,
                 options,
                 token).ConfigureAwait(false);
@@ -795,6 +866,7 @@ public static class CompleteRestorationCoordinator
                 snapshotAvailable.Value.Scope,
                 contextReceipts.MoveToImmutable(),
                 resolved.State!,
+                resolved.Platforms,
                 preparedNavigation.Initialization);
             CompleteRestorationProjectionResult projectionResult =
                 options.Projection(
@@ -955,6 +1027,7 @@ public static class CompleteRestorationCoordinator
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot scope,
         ImmutableArray<PackageRootBinding> roots,
+        ImmutableArray<WorkspaceContextLoadOutcome.Loaded> contexts,
         IReadOnlyDictionary<string, PackageArtifactRootRequest>
             packageRequests,
         CompleteRestorationExecutionOptions options,
@@ -1002,9 +1075,18 @@ public static class CompleteRestorationCoordinator
                     options.PackageSurfaceLimits,
                     cancellationToken).ConfigureAwait(false);
             if (evaluated.Failure is not null)
-                return new(null, null, null, evaluated.Failure);
+                return new(null, null, null, [], evaluated.Failure);
             facts.Add(new(tab.Id, evaluated.Package!));
         }
+
+        ImmutableArray<CompleteRestorationPlatformEvaluation> platforms =
+            options.IncludePlatformPresentation
+                ? EvaluatePlatforms(
+                    plan.GroupSources,
+                    contexts,
+                    options.PackageSurfaceLimits,
+                    cancellationToken)
+                : [];
 
         CommittedScenarioSelectorResolutionResult selector =
             CommittedScenarioSelectorResolver.Resolve(
@@ -1019,6 +1101,7 @@ public static class CompleteRestorationCoordinator
                 null,
                 null,
                 null,
+                [],
                 new CompleteRestorationFailure
                     .SelectorResolutionFailed(failed.Failure));
         }
@@ -1029,7 +1112,7 @@ public static class CompleteRestorationCoordinator
         DetachedCommittedResult detached =
             DetachCommitted(resolution, schemaVersion, options);
         if (detached.Failure is not null)
-            return new(null, null, null, detached.Failure);
+            return new(null, null, null, [], detached.Failure);
         NavigationInitialization initialization =
             resolution.ActiveState
                 is ResolvedCommittedPackageViewState activePackageState
@@ -1049,6 +1132,7 @@ public static class CompleteRestorationCoordinator
             initialization,
             package,
             detached.State,
+            platforms,
             null);
     }
 
@@ -1115,7 +1199,10 @@ public static class CompleteRestorationCoordinator
                 new CompleteRestorationResolvedViewState(
                     state.Definition,
                     initialization,
-                    lensResolution));
+                    lensResolution,
+                    state is ResolvedCommittedPackageViewState resolvedPackage
+                        ? resolvedPackage.Package
+                        : null));
             if (ReferenceEquals(state, resolution.ActiveState))
                 activeStateIndex = index;
         }
@@ -1140,6 +1227,69 @@ public static class CompleteRestorationCoordinator
                 "Unknown committed definition schema version."),
         };
         return new(resolvedState, null);
+    }
+
+    private static ImmutableArray<CompleteRestorationPlatformEvaluation>
+        EvaluatePlatforms(
+            IReadOnlyDictionary<string, GroupNavigationSource> groupSources,
+            ImmutableArray<WorkspaceContextLoadOutcome.Loaded> contexts,
+            ApiSurfaceProjectionLimits surfaceLimits,
+            CancellationToken cancellationToken)
+    {
+        var evaluations =
+            ImmutableArray.CreateBuilder<
+                CompleteRestorationPlatformEvaluation>();
+        foreach ((string navigationId, GroupNavigationSource source)
+            in groupSources)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            WorkspaceContextLoadOutcome.Loaded context =
+                contexts[source.ContextIndex];
+            IEnumerable<IGrouping<
+                (string Family, string Version, string Framework),
+                WorkspaceContextMember>> groups =
+                context.Members
+                    .Where(static member =>
+                        member.Realized
+                            is RealizedMemberCoordinate.Platform)
+                    .GroupBy(
+                        static member =>
+                        {
+                            var platform =
+                                (RealizedMemberCoordinate.Platform)
+                                    member.Realized;
+                            return (
+                                platform.Family,
+                                platform.Version,
+                                platform.Framework);
+                        });
+            foreach (IGrouping<
+                (string Family, string Version, string Framework),
+                WorkspaceContextMember> group in groups)
+            {
+                ImmutableArray<WorkspaceContextMember> members =
+                    [.. group];
+                AssemblyContextApiSurfaceResult surface =
+                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                        context.Group,
+                        ApiSurfaceScope.PublicWithNonPublicTypes,
+                        surfaceLimits,
+                        [
+                            .. members.Select(
+                                static member => member.Participant),
+                        ]);
+                evaluations.Add(
+                    new CompleteRestorationPlatformEvaluation(
+                        navigationId,
+                        group.Key.Family,
+                        group.Key.Version,
+                        group.Key.Framework,
+                        members,
+                        surface));
+            }
+        }
+
+        return evaluations.ToImmutable();
     }
 
     private static NavigationInitialization PreparePackageInitialization(
@@ -1307,6 +1457,7 @@ public static class CompleteRestorationCoordinator
         NavigationInitialization? Initialization,
         NavigationPackageEvaluation? Package,
         CompleteRestorationResolvedState? State,
+        ImmutableArray<CompleteRestorationPlatformEvaluation> Platforms,
         CompleteRestorationFailure? Failure);
 
     private sealed record PackageEvaluationResult(

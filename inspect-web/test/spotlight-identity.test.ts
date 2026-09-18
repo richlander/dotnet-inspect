@@ -2822,7 +2822,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     history,
-    /retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\)/);
+    /retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*historyWorkspace\.kind === "managed"[\s\S]*activateManagedRetainedWorkspaceProjection\([\s\S]*activateRetainedWorkspaceProjection\(historyWorkspace\.id, false\)[\s\S]*canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\)/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*failCanonicalWorkspaceRestore\(/);
@@ -3247,7 +3247,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*if \(packageContentLoadingSequence !== null\s*&& innerNavigationSequence\.isCurrent\(packageContentLoadingSequence\)\) \{\s*state\.loading = false;\s*\}\s*packageContentLoadingSequence = null;\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{[\s\S]*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);[\s\S]*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
@@ -3541,7 +3541,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const leftPackageQueryHandoff = currentPackageQueryHandoff\(\);\s*const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateManagedRetainedWorkspaceProjection\([\s\S]*activateRetainedWorkspaceProjection\(historyWorkspace\.id, false\)/);
   assert.match(
     appSource,
     /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
@@ -3692,7 +3692,7 @@ test("browser history reuses available identities and publishes only unavailable
 
   assert.match(
     history,
-    /historyWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
+    /const historyWorkspace = historyWorkspaceId === null[\s\S]*const historyWorkspaceAvailable = historyWorkspace !== null[\s\S]*activateManagedRetainedWorkspaceProjection\([\s\S]*activateRetainedWorkspaceProjection\(historyWorkspace\.id, false\)/);
   assert.match(
     history,
     /const restoreHistoryWorkspace = \(\) => historyWorkspaceAvailable\s*\? restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)\s*: historyWorkspaceReferenced\s*\|\| retainedWorkspaces\.activeWorkspaceId === null\s*\? restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)\s*: restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)[\s\S]*!workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)[\s\S]*restoreHistoryWorkspace\(\)/);
@@ -3731,7 +3731,7 @@ test("browser history reuses available identities and publishes only unavailable
     /function cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*const platformIndex = snapshot\.state\.platformIndex;\s*const cloned = structuredClone\(\{\s*\.\.\.snapshot\.state,\s*platformIndex: null,[\s\S]*const retainedState: AppState = \{\s*\.\.\.cloned,\s*platformIndex,/);
   assert.match(
     appSource,
-    /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*const workspaceState = workspace\.id === retainedWorkspaces\.activeWorkspaceId\s*\? publishedActiveSnapshot\?\.state \?\? state\s*: workspace\.snapshot\?\.state;[\s\S]*packageCount: workspaceState[\s\S]*workspaceState\.packages\.filter\(pkg => pkg\.source\.kind !== "platform"\)\.length\s*\+ \(workspaceState\.platformSelection \? 1 : 0\)/);
+    /function retainedWorkspaceItems\(\) \{\s*const publishedActiveSnapshot = pendingWorkspaceConstruction\s*\? pendingWorkspaceConstruction\.retainedSnapshot\s*\?\? pendingWorkspaceConstruction\.supersessionSnapshot[\s\S]*const workspaceState = workspace\.kind === "legacy"[\s\S]*packageCount: workspace\.kind === "managed"\s*\? workspace\.packageCount\s*: workspaceState[\s\S]*workspaceState\.packages\.filter\(pkg => pkg\.source\.kind !== "platform"\)\.length\s*\+ \(workspaceState\.platformSelection \? 1 : 0\)/);
   assert.match(
     appSource,
     /function workspaceKeyboardContextIsActive\(\): boolean \{\s*return pendingWorkspaceConstruction === null/);
@@ -7247,10 +7247,10 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
   assert.match(
     appSource,
-    /function selectRetainedWorkspace\(workspaceId: string\): void \{\s*navigationSequence\.begin\(\)/);
+    /function selectRetainedWorkspace\(workspaceId: string\): void \{\s*observeAsync\(\s*selectRetainedWorkspaceCore\(workspaceId\)/);
   assert.match(
     appSource,
-    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*try \{\s*navigationSequence\.begin\(\)/);
+    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*observeAsync\(\s*deleteRetainedWorkspaceCore\(workspaceId\)/);
   assert.match(
     appSource,
     /onScopeSelect: target => \{[\s\S]*if \(target === "workspace"\) \{\s*navigationSequence\.begin\(\);/);

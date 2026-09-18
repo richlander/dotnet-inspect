@@ -10,23 +10,75 @@ namespace DotnetInspect.Web.Interop.Catalog;
 public static partial class CatalogExports
 {
     [JSExport]
-    public static async Task<string> ActivateRetainedWorkspaceDefinition(
+    public static async Task<string> PrepareRetainedWorkspaceDefinition(
+        string activationIntentId,
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
-        string canonicalPacket)
+        string canonicalPacket,
+        int? presentationActiveTabIndex)
     {
-        BrowserRetainedWorkspaceActivationResult result =
-            await BrowserRetainedWorkspaceActivationService.ActivateAsync(
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService.PrepareAsync(
+                    activationIntentId,
                     retainedDefinitionId,
                     label,
                     canonicalLocation,
-                    canonicalPacket)
+                    canonicalPacket,
+                    presentationActiveTabIndex)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> CommitRetainedWorkspaceActivation(
+        string activationIntentId)
+    {
+        BrowserRetainedWorkspaceActivationResult result =
+            await BrowserRetainedWorkspaceActivationService.CommitAsync(
+                    activationIntentId)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default
                 .BrowserRetainedWorkspaceActivationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> CancelRetainedWorkspaceActivation(
+        string activationIntentId)
+    {
+        BrowserRetainedWorkspaceActivationResult result =
+            await BrowserRetainedWorkspaceActivationService.CancelAsync(
+                    activationIntentId)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceActivationResult);
+    }
+
+    [JSExport]
+    public static async Task<string>
+        ActivateRetainedWorkspacePackageOccurrence(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId)
+    {
+        BrowserRetainedWorkspacePackageActivationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .ActivatePackageAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    navigationId)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePackageActivationResult);
     }
 
     [JSExport]
@@ -61,39 +113,190 @@ public static partial class CatalogExports
 [SupportedOSPlatform("browser")]
 internal static class BrowserRetainedWorkspaceActivationService
 {
+    static readonly object Gate = new();
+    static readonly Dictionary<
+        string,
+        BrowserRetainedWorkspaceActivationSession> Sessions =
+        new(StringComparer.Ordinal);
     static BrowserRetainedWorkspaceActivationOwner _owner =
         CreateOwner();
 
     internal static BrowserRetainedWorkspaceActivationOwner Owner => _owner;
 
-    internal static async Task<BrowserRetainedWorkspaceActivationResult>
-        ActivateAsync(
-        string retainedDefinitionId,
-        string label,
-        string canonicalLocation,
-        string canonicalPacket)
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareAsync(
+            string activationIntentId,
+            string retainedDefinitionId,
+            string label,
+            string canonicalLocation,
+            string canonicalPacket,
+            int? presentationActiveTabIndex)
     {
         BrowserRetainedWorkspaceActivationRequest request;
         try
         {
-            request = new(
+            request = Request(
+                activationIntentId,
                 retainedDefinitionId,
                 label,
                 canonicalLocation,
-                canonicalPacket);
+                canonicalPacket,
+                presentationActiveTabIndex);
         }
         catch (ArgumentException ex)
         {
             return new(
                 "failed",
                 null,
+                null,
                 new("InvalidRequest", ex.Message));
         }
 
-        DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
-            activation = await _owner.ActivateAsync(request)
+        BrowserRetainedWorkspaceActivationSession session;
+        lock (Gate)
+        {
+            if (Sessions.ContainsKey(activationIntentId))
+            {
+                return new(
+                    "failed",
+                    null,
+                    null,
+                    new(
+                        "InvalidRequest",
+                        "The retained Workspace activation intent already exists."));
+            }
+            session = _owner.BeginActivation(request);
+            Sessions.Add(activationIntentId, session);
+        }
+
+        try
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                preparation = await session.Preparation.ConfigureAwait(false);
+            if (preparation
+                is not DotnetInspect.Web
+                    .BrowserRetainedWorkspacePreparationResult.Prepared)
+            {
+                lock (Gate)
+                    Sessions.Remove(activationIntentId);
+            }
+            return Preparation(preparation);
+        }
+        catch
+        {
+            lock (Gate)
+                Sessions.Remove(activationIntentId);
+            throw;
+        }
+    }
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        CommitAsync(string activationIntentId)
+    {
+        BrowserRetainedWorkspaceActivationSession? session =
+            FindSession(activationIntentId);
+        if (session is null)
+        {
+            return new(
+                "failed",
+                null,
+                new(
+                    "InvalidRequest",
+                    "The retained Workspace activation intent is unavailable."));
+        }
+
+        _ = session.Commit();
+        try
+        {
+            return Activation(
+                await session.Completion.ConfigureAwait(false));
+        }
+        finally
+        {
+            lock (Gate)
+                Sessions.Remove(activationIntentId);
+        }
+    }
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        CancelAsync(string activationIntentId)
+    {
+        BrowserRetainedWorkspaceActivationSession? session =
+            FindSession(activationIntentId);
+        if (session is null)
+        {
+            return new("superseded", null, null);
+        }
+
+        session.Supersede();
+        try
+        {
+            return Activation(
+                await session.Completion.ConfigureAwait(false));
+        }
+        finally
+        {
+            lock (Gate)
+                Sessions.Remove(activationIntentId);
+        }
+    }
+
+    internal static async Task<
+        BrowserRetainedWorkspacePackageActivationResult>
+        ActivatePackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId)
+    {
+        DotnetInspect.Web.BrowserRetainedWorkspacePackageActivationResult
+            result = await _owner.ActivatePackageAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    navigationId)
                 .ConfigureAwait(false);
-        return activation switch
+        return result switch
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspacePackageActivationResult
+                    .Activated activated =>
+                new(
+                    Activated: true,
+                    Superseded: false,
+                    BrowserCatalogWireProjection.Project(
+                        activated.Package.Surface)),
+            DotnetInspect.Web.BrowserRetainedWorkspacePackageActivationResult
+                    .Superseded =>
+                new(Activated: false, Superseded: true, Package: null),
+            _ => throw new InvalidOperationException(
+                "Retained Workspace package activation returned an unsupported result."),
+        };
+    }
+
+    static BrowserRetainedWorkspaceActivationRequest Request(
+        string activationIntentId,
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string canonicalPacket,
+        int? presentationActiveTabIndex)
+        => new(
+            activationIntentId,
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            canonicalPacket,
+            presentationActiveTabIndex);
+
+    static BrowserRetainedWorkspaceActivationSession? FindSession(
+        string activationIntentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(activationIntentId);
+        lock (Gate)
+            return Sessions.GetValueOrDefault(activationIntentId);
+    }
+
+    static BrowserRetainedWorkspaceActivationResult Activation(
+        DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult activation) =>
+        activation switch
         {
             DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
                     .Activated activated =>
@@ -115,7 +318,41 @@ internal static class BrowserRetainedWorkspaceActivationService
             _ => throw new InvalidOperationException(
                 "Retained Workspace activation returned an unsupported result."),
         };
-    }
+
+    static BrowserRetainedWorkspacePreparationResult Preparation(
+        DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+            preparation) =>
+        preparation switch
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Prepared prepared =>
+                new(
+                    "prepared",
+                    PreparedInstallation(prepared.Installation),
+                    null,
+                    null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .NoEffect noEffect =>
+                new(
+                    "noEffect",
+                    null,
+                    Installation(noEffect.Installation),
+                    null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Superseded =>
+                new("superseded", null, null, null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Failed failed =>
+                new(
+                    "failed",
+                    null,
+                    null,
+                    new(
+                        failed.Failure.GetType().Name,
+                        failed.Failure.Message)),
+            _ => throw new InvalidOperationException(
+                "Retained Workspace preparation returned an unsupported result."),
+        };
 
     internal static async Task<BrowserRetainedWorkspaceDeactivationResult>
         DeactivateAsync(
@@ -172,6 +409,17 @@ internal static class BrowserRetainedWorkspaceActivationService
 
     internal static async Task ResetForTestsAsync()
     {
+        BrowserRetainedWorkspaceActivationSession[] sessions;
+        lock (Gate)
+        {
+            sessions = [.. Sessions.Values];
+            Sessions.Clear();
+        }
+        foreach (BrowserRetainedWorkspaceActivationSession session in sessions)
+            session.Cancel();
+        await Task.WhenAll(
+                sessions.Select(static session => session.Completion))
+            .ConfigureAwait(false);
         BrowserRetainedWorkspaceActivationOwner prior = _owner;
         _owner = CreateOwner();
         await prior.DisposeAsync().ConfigureAwait(false);
@@ -189,21 +437,72 @@ internal static class BrowserRetainedWorkspaceActivationService
             installation.CanonicalPacket,
             installation.RealizationId,
             installation.PublicationOrdinal,
-            new(
-                installation.Navigation.ActiveStateIndex,
-                [
-                    .. installation.Navigation.States.Select(
-                        static state =>
-                            new BrowserRetainedWorkspaceView(
-                                state.NavigationId,
-                                state.SubjectKind,
-                                state.Facet)),
-                ]),
+            Definition(installation.Definition),
+            Packages(installation.Packages),
+            Navigation(installation.Navigation),
             installation.Predecessor is null
                 ? null
                 : new(
                     installation.Predecessor.SettlementId,
                     installation.Predecessor.Retirement.Reason.ToString()));
+
+    static BrowserRetainedWorkspacePreparedInstallation PreparedInstallation(
+        DotnetInspect.Web.BrowserRetainedWorkspacePreparedInstallation
+            installation) =>
+        new(
+            Definition(installation.Definition),
+            Packages(installation.Packages),
+            Navigation(installation.Navigation));
+
+    static BrowserRetainedWorkspaceDefinition Definition(
+        BrowserRetainedWorkspaceDefinitionState definition) =>
+        new(
+            [
+                .. definition.Tabs.Select(
+                    static tab =>
+                        new BrowserWorkspaceShareTab(
+                            tab.Id,
+                            tab.Kind,
+                            tab.Source,
+                            tab.Version,
+                            tab.Framework,
+                            tab.RuntimeIdentifier)),
+            ],
+            [
+                .. definition.Contexts.Select(
+                    static context =>
+                        new BrowserWorkspaceShareContext(
+                            context.Id,
+                            [.. context.TabIds])),
+            ],
+            definition.ActiveTabId,
+            definition.SelectedContextId);
+
+    static BrowserRetainedWorkspacePackage[] Packages(
+        IReadOnlyList<DotnetInspect.Web.BrowserRetainedWorkspacePackage>
+            packages) =>
+        [
+            .. packages.Select(
+                static package =>
+                    new BrowserRetainedWorkspacePackage(
+                        package.NavigationId,
+                        package.Kind,
+                        BrowserCatalogWireProjection.Project(
+                            package.Surface))),
+        ];
+
+    static BrowserRetainedWorkspaceNavigation Navigation(
+        BrowserRetainedWorkspaceNavigationState navigation) =>
+        new(
+            navigation.ActiveStateIndex,
+            [
+                .. navigation.States.Select(
+                    static state =>
+                        new BrowserRetainedWorkspaceView(
+                            state.NavigationId,
+                            state.SubjectKind,
+                            state.Facet)),
+            ]);
 
     static BrowserRetainedWorkspaceSettlement Settlement(
         WorkspaceRealizationSettlement settlement) =>

@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 
 namespace DotnetInspect.Web;
 
@@ -72,6 +73,45 @@ internal static class BrowserCompileLibraryProjection
             });
     }
 
+    internal static BrowserCompileLibraryInfo Project(
+        WorkspacePackageDescriptor package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        string? framework =
+            BrowserFrameworkText.Project(package.SelectedTargetFramework);
+        return new(
+            package.SelectionStatus switch
+            {
+                PackageCompileAssetSelectionStatus.Selected =>
+                    BrowserCompileLibraryState.Selected,
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    BrowserCompileLibraryState.NoCompileAssets,
+                PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                    BrowserCompileLibraryState.NoMatchingTargetFramework,
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                    BrowserCompileLibraryState.EmptyCompileGroup,
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                    BrowserCompileLibraryState.InvalidImplementationAssets,
+                _ => throw new InvalidOperationException(
+                    "Package compile-asset selection returned an unknown outcome."),
+            },
+            framework,
+            package.SelectionStatus switch
+            {
+                PackageCompileAssetSelectionStatus.Selected => null,
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    "The package contains no compile assets.",
+                PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                    "No compatible target framework was selected.",
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                    "The selected target framework declares an empty compile group.",
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                    "The package has an invalid implementation-asset layout.",
+                _ => throw new InvalidOperationException(
+                    "Package compile-asset selection returned an unknown outcome."),
+            });
+    }
+
     internal static BrowserCompileLibraryInfo Selected(string framework) =>
         new(
             BrowserCompileLibraryState.Selected,
@@ -88,15 +128,29 @@ internal static class BrowserFrameworkText
     internal static string[] Available(BrowserPackageCoordinate coordinate)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        return Available(
+            coordinate.Selection,
+            coordinate.Framework);
+    }
+
+    internal static string[] Available(
+        PackageCompileAssetSelection selection,
+        params string?[] additionalFrameworks)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        IEnumerable<string?> candidates =
+            selection.AvailableTargetFrameworks;
+        if (selection.IsSelected)
+            candidates = candidates.Concat(additionalFrameworks);
         string[] available =
         [
-            .. coordinate.Selection.AvailableTargetFrameworks
+            .. candidates
                 .Select(Project)
                 .OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
-        string active = Active(coordinate);
-        return coordinate.Selection.IsSelected
+        string active = Project(selection.TargetFramework) ?? "";
+        return selection.IsSelected
             && active.Length > 0
             && !available.Contains(active, StringComparer.OrdinalIgnoreCase)
                 ? [active, .. available]

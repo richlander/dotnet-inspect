@@ -4,6 +4,7 @@ import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDeactivationResult,
   BrowserRetainedWorkspaceInstallation,
+  BrowserRetainedWorkspacePreparationResult,
   BrowserRetainedWorkspaceSettlementResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
@@ -35,6 +36,13 @@ function installation(
     canonicalPacket: `packet-${retainedDefinitionId}`,
     realizationId,
     publicationOrdinal: Number(realizationId.split("-").at(-1)),
+    definition: {
+      tabs: [],
+      contexts: [],
+      activeTabId: null,
+      selectedContextId: null,
+    },
+    packages: [],
     navigation: {
       activeStateIndex: null,
       states: [],
@@ -49,10 +57,24 @@ function installation(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  delayCommits = false;
+  readonly activationRequests: Array<{
+    activationIntentId: string;
+    retainedDefinitionId: string;
+    presentationActiveTabIndex: number | null;
+  }> = [];
   readonly activations: Array<{
-    promise: Promise<BrowserRetainedWorkspaceActivationResult>;
+    activationIntentId: string;
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
   }> = [];
+  readonly cancellations: string[] = [];
+  readonly pending = new Map<string, {
+    preparation: ReturnType<typeof deferred<
+      BrowserRetainedWorkspacePreparationResult>>;
+    completion: ReturnType<typeof deferred<
+      BrowserRetainedWorkspaceActivationResult>>;
+    result: BrowserRetainedWorkspaceActivationResult | null;
+  }>();
   readonly settlements: string[] = [];
   readonly settlementResponses = new Map<
     string,
@@ -64,16 +86,124 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     resolve(value: BrowserRetainedWorkspaceDeactivationResult): void;
   }> = [];
 
-  activateRetainedWorkspaceDefinition():
-  Promise<BrowserRetainedWorkspaceActivationResult> {
-    let resolve!: (value: BrowserRetainedWorkspaceActivationResult) => void;
-    const promise =
-      new Promise<BrowserRetainedWorkspaceActivationResult>(accept => {
-        resolve = accept;
-      });
-    const activation = { promise, resolve };
+  prepareRetainedWorkspaceDefinition(
+    activationIntentId: string,
+    retainedDefinitionId: string,
+    _label: string,
+    _canonicalLocation: string,
+    _canonicalPacket: string,
+    presentationActiveTabIndex: number | null,
+  ):
+  Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.activationRequests.push({
+      activationIntentId,
+      retainedDefinitionId,
+      presentationActiveTabIndex,
+    });
+    const preparation =
+      deferred<BrowserRetainedWorkspacePreparationResult>();
+    const completion =
+      deferred<BrowserRetainedWorkspaceActivationResult>();
+    const pending: {
+      preparation: typeof preparation;
+      completion: typeof completion;
+      result: BrowserRetainedWorkspaceActivationResult | null;
+    } = { preparation, completion, result: null };
+    this.pending.set(activationIntentId, pending);
+    const activation = {
+      activationIntentId,
+      resolve: (value: BrowserRetainedWorkspaceActivationResult) => {
+        switch (value.status) {
+          case "activated": {
+            assert.ok(value.installation);
+            pending.result = value;
+            preparation.resolve({
+              status: "prepared",
+              preparation: {
+                definition: value.installation.definition,
+                packages: value.installation.packages,
+                navigation: value.installation.navigation,
+              },
+              installation: null,
+              failure: null,
+            });
+            break;
+          }
+          case "noEffect":
+            pending.result = value;
+            preparation.resolve({
+              status: "noEffect",
+              preparation: null,
+              installation: value.installation,
+              failure: null,
+            });
+            completion.resolve(value);
+            break;
+          case "failed":
+            pending.result = value;
+            preparation.resolve({
+              status: "failed",
+              preparation: null,
+              installation: null,
+              failure: value.failure,
+            });
+            completion.resolve(value);
+            break;
+          case "superseded":
+            pending.result = value;
+            preparation.resolve({
+              status: "superseded",
+              preparation: null,
+              installation: null,
+              failure: null,
+            });
+            completion.resolve(value);
+            break;
+        }
+      },
+    };
     this.activations.push(activation);
-    return activation.promise;
+    return preparation.promise;
+  }
+
+  commitRetainedWorkspaceActivation(
+    activationIntentId: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    const pending = this.pending.get(activationIntentId);
+    assert.ok(pending);
+    assert.ok(pending.result);
+    if (!this.delayCommits) {
+      pending.completion.resolve(pending.result);
+    }
+    return pending.completion.promise;
+  }
+
+  completeCommit(activationIntentId: string): void {
+    const pending = this.pending.get(activationIntentId);
+    assert.ok(pending);
+    assert.ok(pending.result);
+    pending.completion.resolve(pending.result);
+  }
+
+  cancelRetainedWorkspaceActivation(
+    activationIntentId: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    this.cancellations.push(activationIntentId);
+    const pending = this.pending.get(activationIntentId);
+    assert.ok(pending);
+    const result: BrowserRetainedWorkspaceActivationResult = {
+      status: "superseded",
+      installation: null,
+      failure: null,
+    };
+    pending.preparation.resolve({
+      status: "superseded",
+      preparation: null,
+      installation: null,
+      failure: null,
+    });
+    pending.completion.resolve(result);
+    return pending.completion.promise;
   }
 
   deactivateRetainedWorkspaceDefinition(
@@ -120,14 +250,20 @@ function createFixture() {
     observation: RetainedWorkspacePredecessorObservation;
     error: unknown;
   }> = [];
+  const commitEvents: string[] = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
-    install: value => installed.push(value),
+    install: value => {
+      installed.push(value);
+      commitEvents.push("installed");
+    },
     clear: () => clears++,
     predecessorSettled: (observation, result) =>
       settled.push({ observation, result }),
     predecessorObservationFailed: (observation, error) =>
       observationFailures.push({ observation, error }),
+    commitStarted: () => commitEvents.push("started"),
+    commitSettled: () => commitEvents.push("settled"),
   });
   return {
     client,
@@ -135,6 +271,7 @@ function createFixture() {
     installed,
     settled,
     observationFailures,
+    commitEvents,
     clears: () => clears,
   };
 }
@@ -145,6 +282,7 @@ test("superseded activation cannot install over the latest selection", async () 
     label: "A",
     canonicalLocation: "/a",
     canonicalPacket: "packet-a",
+    presentationActiveTabIndex: 2,
   });
   const second = fixture.controller.retain({
     label: "B",
@@ -177,6 +315,18 @@ test("superseded activation cannot install over the latest selection", async () 
     ["realization-2"],
   );
   assert.deepEqual(fixture.client.settlements, ["settlement-1"]);
+  assert.deepEqual(fixture.client.activationRequests, [
+    {
+      activationIntentId: "workspace-activation-1",
+      retainedDefinitionId: first.id,
+      presentationActiveTabIndex: 2,
+    },
+    {
+      activationIntentId: "workspace-activation-2",
+      retainedDefinitionId: second.id,
+      presentationActiveTabIndex: null,
+    },
+  ]);
   assert.equal(fixture.settled.length, 1);
 });
 
@@ -187,6 +337,7 @@ test("publication order rejects a late response from an older cutover", async ()
     canonicalLocation: "/a",
     canonicalPacket: "packet-a",
   });
+
   const second = fixture.controller.retain({
     label: "B",
     canonicalLocation: "/b",
@@ -215,7 +366,71 @@ test("publication order rejects a late response from an older cutover", async ()
   );
 });
 
-test("late publication still observes distinct predecessor settlement", async () => {
+test("consumer rejection cancels the prepared candidate before cutover", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const selection = fixture.controller.activate(
+    definition.id,
+    () => false);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(definition.id, "realization-1"),
+    failure: null,
+  });
+  const result = await selection;
+
+  assert.equal(result.status, "superseded");
+  assert.deepEqual(
+    fixture.client.cancellations,
+    ["workspace-activation-1"]);
+  assert.deepEqual(fixture.installed, []);
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+});
+
+test("navigation cannot supersede an accepted commit before installation", async () => {
+  const fixture = createFixture();
+  fixture.client.delayCommits = true;
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const selection = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(definition.id, "realization-1"),
+    failure: null,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(
+    fixture.controller.state.committingDefinitionId,
+    definition.id);
+  assert.equal(fixture.controller.cancelPending(), false);
+  assert.deepEqual(fixture.installed, []);
+
+  fixture.client.completeCommit("workspace-activation-1");
+  await selection;
+
+  assert.equal(fixture.controller.state.committingDefinitionId, null);
+  assert.equal(fixture.controller.state.activeDefinitionId, definition.id);
+  const installed = fixture.installed as BrowserRetainedWorkspaceInstallation[];
+  assert.deepEqual(
+    installed.map(value => value.realizationId),
+    ["realization-1"]);
+  assert.deepEqual(
+    fixture.commitEvents,
+    ["started", "installed", "settled"]);
+});
+
+test("late preparation is canceled before it can create predecessor settlement", async () => {
   const fixture = createFixture();
   const initial = fixture.controller.retain({
     label: "Initial",
@@ -272,9 +487,9 @@ test("late publication still observes distinct predecessor settlement", async ()
   );
   assert.deepEqual(
     fixture.client.settlements,
-    ["settlement-a", "settlement-initial"],
+    ["settlement-a"],
   );
-  assert.equal(fixture.settled.length, 2);
+  assert.equal(fixture.settled.length, 1);
 });
 
 test("out-of-order predecessor outcomes preserve originating installation association", async () => {
@@ -650,7 +865,7 @@ test("newer selection cancels successor deletion commit", async () => {
   );
   assert.deepEqual(
     fixture.installed.map(value => value.realizationId),
-    ["realization-1", "realization-2", "realization-3"],
+    ["realization-1", "realization-3"],
   );
 });
 

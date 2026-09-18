@@ -24,6 +24,69 @@ internal sealed record BrowserPackageProjectionInfo(
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageSurfaceProjection
 {
+    internal static BrowserPackageSurfaceInfo Project(
+        NavigationPackageEvaluation package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        WorkspacePackageDescriptor descriptor =
+            package.Occurrence.Occurrence.Package;
+        PackageCompileAssetSelection selection =
+            package.Binding.Root.AssetSelection;
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                package.Surface,
+                [
+                    .. package.Libraries.Select(
+                        static library =>
+                            new BrowserSurfaceProjection.Participant(
+                                library.Library.Participant,
+                                library.Asset.AssemblyName,
+                                library.Asset.Id,
+                                library.Asset.Path)),
+                ]);
+        string[] frameworks = BrowserFrameworkText.Available(
+            selection,
+            descriptor.TargetFramework,
+            descriptor.SelectedTargetFramework,
+            descriptor.RequestedTargetFramework,
+            descriptor.Coordinate.Framework);
+        string activeFramework =
+            BrowserFrameworkText.Project(descriptor.Coordinate.Framework)
+            ?? BrowserFrameworkText.Project(
+                descriptor.RequestedTargetFramework)
+            ?? BrowserFrameworkText.Project(selection.TargetFramework)
+            ?? BrowserFrameworkText.Project(descriptor.TargetFramework)
+            ?? "";
+        string? defaultAssemblyId = package.PrimaryAssetId is { } primary
+            ? projected.Assemblies.FirstOrDefault(
+                assembly => string.Equals(
+                    assembly.Id,
+                    primary,
+                    StringComparison.Ordinal))?.Id
+                ?? projected.Assemblies.FirstOrDefault()?.Id
+                ?? primary
+            : projected.Assemblies.FirstOrDefault()?.Id;
+        return new BrowserPackageSurfaceInfo(
+            descriptor.PackageId,
+            descriptor.PackageVersion,
+            frameworks,
+            activeFramework,
+            Icon: null,
+            defaultAssemblyId,
+            BrowserCompileLibraryProjection.Project(selection),
+            projected.Assemblies,
+            projected.Types,
+            projected.Accessibility,
+            projected.TotalMembers,
+            BrowserPackage.ProjectDocuments(
+                PackageInspectionInput.CreateFromBinding(package.Binding)
+                    .CaptureEntryManifest(),
+                descriptor.PackageId,
+                descriptor.PackageVersion),
+            projected.InspectionErrors,
+            projected.InspectionError);
+    }
+
     internal static BrowserPackageSurfaceInfo ProjectSurface(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate) =>

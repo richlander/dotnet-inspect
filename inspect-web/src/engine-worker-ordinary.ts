@@ -93,12 +93,16 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
-  | "activateRetainedWorkspaceDefinition"
+  | "activateRetainedWorkspacePackageOccurrence"
+  | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
+  | "commitRetainedWorkspaceActivation"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareRetainedWorkspaceDefinition"
   | "resolveHomeDemo"
   | "runHomeDemo";
 
@@ -1119,15 +1123,35 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
-    activateRetainedWorkspaceDefinition: valueOperation(
-      "ordinary-catalog-activate-retained-workspace-definition",
-      4,
+    activateRetainedWorkspacePackageOccurrence: valueOperation(
+      "ordinary-catalog-activate-retained-workspace-package-occurrence",
+      3,
       (
         facades,
         ...args: Parameters<
-          CatalogFacade["activateRetainedWorkspaceDefinition"]
+          CatalogFacade["activateRetainedWorkspacePackageOccurrence"]
         >
-      ) => facades.catalog.activateRetainedWorkspaceDefinition(...args),
+      ) => facades.catalog.activateRetainedWorkspacePackageOccurrence(...args),
+    ),
+    cancelRetainedWorkspaceActivation: valueOperation(
+      "ordinary-catalog-cancel-retained-workspace-activation",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["cancelRetainedWorkspaceActivation"]
+        >
+      ) => facades.catalog.cancelRetainedWorkspaceActivation(...args),
+    ),
+    captureCompleteWorkspaceShareState: valueOperation(
+      "ordinary-catalog-capture-complete-workspace-share-state",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["captureCompleteWorkspaceShareState"]
+        >
+      ) => facades.catalog.captureCompleteWorkspaceShareState(...args),
     ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
@@ -1138,6 +1162,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["canonicalizeWorkspaceSharePacket"]
         >
       ) => facades.catalog.canonicalizeWorkspaceSharePacket(...args),
+    ),
+    commitRetainedWorkspaceActivation: valueOperation(
+      "ordinary-catalog-commit-retained-workspace-activation",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["commitRetainedWorkspaceActivation"]
+        >
+      ) => facades.catalog.commitRetainedWorkspaceActivation(...args),
     ),
     deactivateRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-deactivate-retained-workspace-definition",
@@ -1182,6 +1216,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["observeRetainedWorkspaceSettlement"]
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
+    ),
+    prepareRetainedWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-retained-workspace-definition",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareRetainedWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareRetainedWorkspaceDefinition(...args),
     ),
     runHomeDemo: valueOperation(
       "ordinary-catalog-run-home-demo",
@@ -1416,13 +1460,25 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
-      activateRetainedWorkspaceDefinition: bind(
+      activateRetainedWorkspacePackageOccurrence: bind(
         engineWorkerOrdinaryOperations.catalog
-          .activateRetainedWorkspaceDefinition,
+          .activateRetainedWorkspacePackageOccurrence,
+      ),
+      cancelRetainedWorkspaceActivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .cancelRetainedWorkspaceActivation,
+      ),
+      captureCompleteWorkspaceShareState: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .captureCompleteWorkspaceShareState,
       ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog
           .canonicalizeWorkspaceSharePacket,
+      ),
+      commitRetainedWorkspaceActivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .commitRetainedWorkspaceActivation,
       ),
       deactivateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
@@ -1442,6 +1498,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareRetainedWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareRetainedWorkspaceDefinition,
       ),
       runHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.runHomeDemo,

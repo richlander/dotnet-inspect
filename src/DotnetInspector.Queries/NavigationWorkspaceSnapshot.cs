@@ -126,6 +126,7 @@ public sealed record NavigationPackageEvaluation
         }
 
         Occurrence = occurrence;
+        Binding = binding;
         PrimaryAssetId =
             binding.Root.AssetSelection.DefaultAsset?.Id;
         Libraries = libraries;
@@ -133,6 +134,8 @@ public sealed record NavigationPackageEvaluation
     }
 
     public WorkspacePackageOccurrenceDescriptor Occurrence { get; }
+
+    public PackageRootBinding Binding { get; }
 
     public string? PrimaryAssetId { get; }
 

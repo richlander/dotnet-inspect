@@ -24,23 +24,23 @@ public static partial class CatalogExports
     [JSExport]
     public static string EncodeWorkspaceShareState(string stateJson)
     {
-        BrowserWorkspaceShareEncodeResult result;
-        try
-        {
-            BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.ReadAndEncode(
                 stateJson,
-                BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
-            result = state is null
-                ? BrowserWorkspaceShareOperations.InvalidState(
-                    "Workspace share state must be one object.")
-                : BrowserWorkspaceShareOperations.Encode(state);
-        }
-        catch (JsonException)
-        {
-            result = BrowserWorkspaceShareOperations.InvalidState(
-                "Workspace share state is not valid Browser transport JSON.");
-        }
+                BrowserWorkspaceShareOperations.Encode);
 
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
+    }
+
+    [JSExport]
+    public static string CaptureCompleteWorkspaceShareState(string stateJson)
+    {
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.ReadAndEncode(
+                stateJson,
+                BrowserWorkspaceShareOperations.CaptureComplete);
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
@@ -183,6 +183,57 @@ namespace DotnetInspect.Web.Interop.Catalog
             }
         }
 
+        internal static BrowserWorkspaceShareEncodeResult CaptureComplete(
+            BrowserWorkspaceShareState state)
+        {
+            ArgumentNullException.ThrowIfNull(state);
+
+            try
+            {
+                WorkspaceSharePacketDefinitionSet definitions =
+                    ToDefinitions(state);
+                WorkspaceSharePacketProjectionResult projection =
+                    WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                        definitions);
+                if (!projection.Succeeded)
+                {
+                    WorkspaceSharePacketProjectionFailure failure =
+                        projection.Failure
+                        ?? throw new InvalidOperationException(
+                            "A failed complete Workspace projection requires a failure.");
+                    return new BrowserWorkspaceShareEncodeResult(
+                        Succeeded: false,
+                        Packet: null,
+                        Failure: new BrowserWorkspaceShareFailure(
+                            failure.Kind.ToString(),
+                            failure.Path,
+                            failure.Message));
+                }
+
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: true,
+                    WorkspaceSharePacketCodec.Encode(
+                        projection.Packet
+                        ?? throw new InvalidOperationException(
+                            "A successful complete Workspace projection requires a packet.")),
+                    Failure: null);
+            }
+            catch (WorkspaceSharePacketException ex)
+            {
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: false,
+                    Packet: null,
+                    Failure: new BrowserWorkspaceShareFailure(
+                        ex.Kind.ToString(),
+                        "state",
+                        ex.Message));
+            }
+            catch (ArgumentException ex)
+            {
+                return InvalidState(ex.Message);
+            }
+        }
+
         internal static BrowserWorkspaceShareEncodeResult Canonicalize(
             string encoded)
         {
@@ -262,6 +313,30 @@ namespace DotnetInspect.Web.Interop.Catalog
                     "InvalidBrowserState",
                     "state",
                     message));
+
+        internal static BrowserWorkspaceShareEncodeResult ReadAndEncode(
+            string stateJson,
+            Func<
+                BrowserWorkspaceShareState,
+                BrowserWorkspaceShareEncodeResult> encode)
+        {
+            ArgumentNullException.ThrowIfNull(stateJson);
+            ArgumentNullException.ThrowIfNull(encode);
+            try
+            {
+                BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
+                    stateJson,
+                    BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
+                return state is null
+                    ? InvalidState("Workspace share state must be one object.")
+                    : encode(state);
+            }
+            catch (JsonException)
+            {
+                return InvalidState(
+                    "Workspace share state is not valid Browser transport JSON.");
+            }
+        }
 
         private static WorkspaceSharePacketDefinitionSet ToDefinitions(
             BrowserWorkspaceShareState state)

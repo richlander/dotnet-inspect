@@ -1,7 +1,21 @@
-export interface SavedWorkspace {
+export interface LegacySavedWorkspace {
   name: string;
+  kind: "legacy-format-1";
   packet: string;
 }
+
+export interface CompleteSavedWorkspace {
+  name: string;
+  kind: "complete-format-3";
+  packet: string;
+  canonicalLocation: string;
+  activeTabIndex: number;
+  coordinateCount: number;
+}
+
+export type SavedWorkspace = LegacySavedWorkspace | CompleteSavedWorkspace;
+
+export type SavedWorkspaceCapture = Omit<CompleteSavedWorkspace, "name">;
 
 export type SavedWorkspaceFocus =
   | { kind: "saved-open" | "saved-remove"; name: string; index: number }
@@ -35,10 +49,12 @@ function readEntries(raw: string | null): SavedWorkspace[] {
   if (raw === null) return [];
   const value: unknown = JSON.parse(raw);
   if (typeof value !== "object" || value === null
-    || !("version" in value) || value.version !== 1
+    || !("version" in value)
     || !("entries" in value) || !Array.isArray(value.entries)) {
     throw new Error("The saved Workspace data has an unsupported format.");
   }
+  if (value.version !== 1 && value.version !== 2)
+    throw new Error("The saved Workspace data has an unsupported format.");
   const names = new Set<string>();
   return value.entries.map((entry: unknown) => {
     if (typeof entry !== "object" || entry === null
@@ -50,14 +66,48 @@ function readEntries(raw: string | null): SavedWorkspace[] {
     if (name !== entry.name || names.has(name.toLowerCase()))
       throw new Error("The saved Workspace data contains invalid or duplicate names.");
     names.add(name.toLowerCase());
-    return { name, packet: entry.packet };
+    if (value.version === 1) {
+      return {
+        name,
+        kind: "legacy-format-1",
+        packet: entry.packet,
+      };
+    }
+    if (!("kind" in entry) || typeof entry.kind !== "string") {
+      throw new Error("A saved Workspace entry has no stored definition kind.");
+    }
+    if (entry.kind === "legacy-format-1") {
+      return { name, kind: entry.kind, packet: entry.packet };
+    }
+    if (entry.kind === "complete-format-3"
+      && "canonicalLocation" in entry
+      && typeof entry.canonicalLocation === "string"
+      && entry.canonicalLocation.length > 0
+      && "activeTabIndex" in entry
+      && typeof entry.activeTabIndex === "number"
+      && Number.isInteger(entry.activeTabIndex)
+      && entry.activeTabIndex >= 0
+      && "coordinateCount" in entry
+      && typeof entry.coordinateCount === "number"
+      && Number.isInteger(entry.coordinateCount)
+      && entry.coordinateCount > 0) {
+      return {
+        name,
+        kind: entry.kind,
+        packet: entry.packet,
+        canonicalLocation: entry.canonicalLocation,
+        activeTabIndex: entry.activeTabIndex,
+        coordinateCount: entry.coordinateCount,
+      };
+    }
+    throw new Error("A saved Workspace entry has an unsupported definition kind.");
   });
 }
 
 export function createSavedWorkspaces(options: {
   read: () => string | null;
   write: (value: string) => void;
-  capture: () => string | Promise<string>;
+  capture: () => SavedWorkspaceCapture | Promise<SavedWorkspaceCapture>;
   open: (entry: SavedWorkspace) => void;
   render: (focus?: SavedWorkspaceFocus) => void;
 }) {
@@ -79,7 +129,7 @@ export function createSavedWorkspaces(options: {
 
   function persist(entries: readonly SavedWorkspace[]): void {
     if (!state.available) throw new Error("Read saved Workspaces successfully before changing them.");
-    options.write(JSON.stringify({ version: 1, entries }));
+    options.write(JSON.stringify({ version: 2, entries }));
     state.entries = entries;
   }
 
@@ -95,8 +145,11 @@ export function createSavedWorkspaces(options: {
     readonly promise: Promise<void>;
   } | null = null;
 
-  function persistSave(name: string, packet: string): SavedWorkspaceFocus {
-    const entry = { name, packet };
+  function persistSave(
+    name: string,
+    capture: SavedWorkspaceCapture,
+  ): SavedWorkspaceFocus {
+    const entry: CompleteSavedWorkspace = { name, ...capture };
     persist([...state.entries, entry]);
     state.formOpen = false;
     state.name = "";
@@ -113,16 +166,16 @@ export function createSavedWorkspaces(options: {
         throw new Error(`A saved Workspace named "${name}" already exists. Choose another name.`);
       }
       const captured = options.capture();
-      if (typeof captured === "string") {
+      if (!(captured instanceof Promise)) {
         options.render(persistSave(name, captured));
         return Promise.resolve();
       }
       const revision = saveRevision;
       let focus: SavedWorkspaceFocus = { kind: "save-name" };
       const operation = captured
-        .then(packet => {
+        .then(capture => {
           if (revision !== saveRevision) return undefined;
-          focus = persistSave(name, packet);
+          focus = persistSave(name, capture);
           return undefined;
         })
         .catch((error: unknown) => {

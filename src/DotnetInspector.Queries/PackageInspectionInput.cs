@@ -39,6 +39,21 @@ public sealed class PackageInspectionInput
     public PackageContentGenerationIdentity ContentGenerationIdentity { get; }
 
     /// <summary>
+    /// Captures the exact retained package entry manifest without exposing the
+    /// content authority that produced it.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry> CaptureEntryManifest()
+    {
+        if (Content is not IPackageContentEntryManifest manifest)
+        {
+            throw new InvalidOperationException(
+                "The retained package content does not expose declared entry lengths.");
+        }
+
+        return Array.AsReadOnly([.. manifest.EnumerateEntriesWithLengths()]);
+    }
+
+    /// <summary>
     /// Consumes an admitted source payload without requiring a portable Root
     /// coordinate or interpreting its producer as cache authority.
     /// </summary>

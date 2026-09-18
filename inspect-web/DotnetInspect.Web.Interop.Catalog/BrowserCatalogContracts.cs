@@ -399,6 +399,30 @@ public sealed record BrowserRetainedWorkspacePredecessor(
     string SettlementId,
     string Reason);
 
+/// <summary>One detached package presentation from the exact activated Workspace.</summary>
+public sealed record BrowserRetainedWorkspacePackage(
+    string NavigationId,
+    string Kind,
+    BrowserPackageSurface Surface);
+
+/// <summary>
+/// Resource-free retained definition evidence. Workspace-only definitions have
+/// no active tab or selected context.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceDefinition(
+    BrowserWorkspaceShareTab[] Tabs,
+    BrowserWorkspaceShareContext[] Contexts,
+    string? ActiveTabId,
+    string? SelectedContextId);
+
+/// <summary>
+/// Detached candidate evidence offered to Navigation Consumer before cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparedInstallation(
+    BrowserRetainedWorkspaceDefinition Definition,
+    BrowserRetainedWorkspacePackage[] Packages,
+    BrowserRetainedWorkspaceNavigation Navigation);
+
 /// <summary>
 /// Detached managed evidence TypeScript installs after a successful cutover.
 /// </summary>
@@ -409,6 +433,8 @@ public sealed record BrowserRetainedWorkspaceInstallation(
     string CanonicalPacket,
     string RealizationId,
     long PublicationOrdinal,
+    BrowserRetainedWorkspaceDefinition Definition,
+    BrowserRetainedWorkspacePackage[] Packages,
     BrowserRetainedWorkspaceNavigation Navigation,
     BrowserRetainedWorkspacePredecessor? Predecessor);
 
@@ -425,6 +451,24 @@ public sealed record BrowserRetainedWorkspaceActivationResult(
     string Status,
     BrowserRetainedWorkspaceInstallation? Installation,
     BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Candidate preparation result. Status is <c>prepared</c>,
+/// <c>noEffect</c>, <c>superseded</c>, or <c>failed</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparationResult(
+    string Status,
+    BrowserRetainedWorkspacePreparedInstallation? Preparation,
+    BrowserRetainedWorkspaceInstallation? Installation,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Exact admitted package action for the current retained realization.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePackageActivationResult(
+    bool Activated,
+    bool Superseded,
+    BrowserPackageSurface? Package);
 
 /// <summary>
 /// Active-retained-definition deletion result. Status is <c>deactivated</c>,
@@ -457,6 +501,8 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePackageActivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

@@ -11,8 +11,10 @@ restoration under
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes its
 format-2 and format-3 packet paths through the production Browser facade. The
 format-1 Browser URL projection remains intentionally partial and cannot enter
-this transaction. Producer migration and retirement of the compatibility
-snapshot collection remain
+this transaction. Newly saved Workspace definitions now capture format 3 and
+Saved Workspace Open uses retained activation; stored format-1 saves remain
+explicit compatibility records on the legacy path. The other producer
+migrations and retirement of the compatibility snapshot collection remain
 [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
 [Adoption and retirement](#adoption-and-retirement) records the remaining
 production boundaries.
@@ -273,10 +275,12 @@ Selection is asynchronous and transactional:
 5. continue restoration against the candidate's
    `WorkspaceRealizationConstructionLease.Workspace`,
 6. complete construction with the exact definition snapshot,
-7. cut over only if the intent is still current,
-8. hand the authorized Navigation outcome to Inspect Web Navigation Consumer
+7. offer the detached candidate result to Inspect Web Navigation Consumer and
+   continue only if that exact consumer intent remains current,
+8. cut over only after that acceptance remains current,
+9. hand the authorized Navigation outcome to Inspect Web Navigation Consumer
    for installation, canonical location, history, focus, and announcement, and
-9. observe predecessor settlement independently.
+10. observe predecessor settlement independently.
 
 Definition lowering cannot require a live Workspace and cannot run through a
 different temporary Workspace. The continuation receives the
@@ -289,6 +293,16 @@ presentation is discarded.
 
 Candidate construction may derive initial presentation in private, but that
 presentation cannot become current before successful cutover.
+
+Navigation may supersede the candidate until consumer acceptance. After the
+consumer accepts and requests cutover, Inspect Web makes the short commit and
+installation boundary non-interactive; later Navigation waits for that exact
+result rather than canceling an irreversible commit between managed cutover
+and matching presentation installation.
+
+If browser-history publication fails after cutover, Inspect Web keeps the
+matching new presentation installed and reports the history failure. It does
+not delete the new active definition or activate a neighbor as rollback.
 
 ### Selecting the active definition
 
@@ -382,6 +396,12 @@ Opening the same saved name twice creates two retained-definition identities
 unless the user explicitly selected the already retained entry. Packet equality
 does not authorize host-level deduplication.
 
+Opening a stored format-1 compatibility record while a managed definition is
+active does not snapshot that managed presentation. The compatibility restore
+remains private while the UI is inert; failure reinstalls the incumbent from
+its detached managed installation evidence, while success removes managed
+authority before publishing the new compatibility entry and history result.
+
 ### Spotlight and package-query handoff
 
 An external package result that is not represented by the active definition
@@ -441,6 +461,11 @@ The current four-entry presentation bound may remain during migration as a
 Browser UX policy, but it no longer represents four open scopes or four live
 realizations. Changing that count is a separate presentation decision.
 
+During producer migration, the visible retained list is one ordered collection
+of explicitly typed compatibility and managed entries. Both kinds count toward
+the four-entry presentation policy and carry the exact retained identity used
+by browser history. A managed entry carries no compatibility snapshot.
+
 During activation:
 
 - the incumbent result surface remains current,
@@ -487,6 +512,11 @@ scope.
 Every operation that reads realization-bound state must enter the exact active
 realization through `WorkspaceRealizationCoordinator.EnterOperationAsync`.
 
+The migrated Saved Workspace root projects its package rows from the exact
+candidate and admits each package-row activation against the matching retained
+definition and realization identities. It does not invoke the compatibility
+package-occurrence builder, which constructs a separate Workspace.
+
 This includes:
 
 - package, assembly, Library, Type, and Member inspection,
@@ -500,6 +530,11 @@ An operation carries the admitted realization identity through its result
 publication check. Results from a predecessor may finish, but the
 retained-realization owner rejects their realization association before
 Navigation Consumer or another presentation owner can install effects.
+
+The Browser repeats the exact retained-definition and realization check when an
+admitted managed package-row result returns across the Worker boundary. A
+replacement after managed execution but before TypeScript publication therefore
+cannot install the predecessor's package presentation.
 
 Exact target identity determines whether an operation belongs to the active
 realization. Labels, coordinates, assembly names, Platform names, and content
@@ -563,7 +598,11 @@ tracks the end-to-end architecture retirement.
    [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
    packages, package-query handoff, demos, shared links, and initial/history
-   restoration through the one activation transaction. Tracked by
+   restoration through the one activation transaction. Newly created saved
+   Workspaces and their Open action use the transaction; existing format-1
+   saved records remain typed compatibility state. Spotlight, package-query
+   handoff, demos, shared links, and initial/history restoration remain on
+   their compatibility paths. Tracked by
    [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
 4. **Package and exact-subject operations.** Move package, assembly, Library,
    Type, Member, metadata, and source paths to exact active-realization
@@ -714,6 +753,13 @@ definitions added during sole-active drainage, deterministic active deletion,
 and bounded resource-free retained definitions.
 Generated-facade and ordinary Worker inventory gates keep the transaction
 callable through the production Browser/Wasm boundary.
+The first slice-3 gates add Definitions-owned format-3 capture, saved-storage
+compatibility tests, managed package-presentation projection from the exact
+candidate Workspace, pre-cutover Navigation Consumer acceptance, package-only,
+Platform, and registration-only activation, exact admitted Workspace-root
+package actions, unified compatibility/managed retention and capacity, and
+production Saved Open tests for success, failure, retry, supersession, focus,
+and history commitment.
 
 Existing package, Platform, Navigation, and analysis entry points remain on
 their current paths until their counted adoption slices. The retained
@@ -727,7 +773,8 @@ hosts. No new platform exception is introduced by this design.
 
 This design does not:
 
-- change Workspace definition lowering or complete restoration,
+- change general Workspace definition lowering outside complete restoration's
+  exact pinned `:Platform` packet representation,
 - redefine `WorkspaceRealizationCoordinator`,
 - permit multiple simultaneously selectable Workspaces,
 - design simultaneous multi-Workspace tabs,

@@ -421,6 +421,56 @@ public sealed class InspectionDefinitionRegistry
                         StringComparer.Ordinal));
     }
 
+    internal static IReadOnlyDictionary<
+        string,
+        GroupNavigationSource> ResolveGroupNavigationSources(
+            WorkspaceDefinition workspace,
+            InspectionDefinitionRecord? navigation,
+            NavigationTargetMatchMode targetMatchMode)
+    {
+        if (navigation is null)
+        {
+            return new ReadOnlyDictionary<
+                string,
+                GroupNavigationSource>(
+                    new Dictionary<
+                        string,
+                        GroupNavigationSource>());
+        }
+
+        IReadOnlyDictionary<string, ResolvedNavigationSource> sources =
+            ResolveNavigationSources(
+                workspace,
+                navigation,
+                targetMatchMode);
+        IReadOnlyList<NavigationTabDefinition> tabs = navigation switch
+        {
+            NavigationDefinition legacy => legacy.Tabs,
+            CommittedNavigationDefinition committed => committed.Tabs,
+            _ => throw new InspectionDefinitionException(
+                $"Navigation '{navigation.Id}' has an incompatible record kind."),
+        };
+        IReadOnlyDictionary<string, NavigationTabDefinition> tabsById =
+            tabs.ToDictionary(static tab => tab.Id, StringComparer.Ordinal);
+        return new ReadOnlyDictionary<
+            string,
+            GroupNavigationSource>(
+                sources
+                    .Where(pair =>
+                        pair.Value.EffectiveCoordinate is null
+                        && pair.Value.MemberIndex is null)
+                    .ToDictionary(
+                        static pair => pair.Key,
+                        pair => new GroupNavigationSource(
+                            pair.Value.ContextIndex,
+                            tabsById[pair.Key].Subscribe
+                                ?? throw new InvalidOperationException(
+                                    "A resolved group source requires its subscription."),
+                            pair.Value.Framework,
+                            pair.Value.RuntimeIdentifier),
+                        StringComparer.Ordinal));
+    }
+
     private static IReadOnlyDictionary<string, ResolvedNavigationSource>
         ResolveNavigationSources(
             WorkspaceDefinition workspace,
@@ -1062,6 +1112,60 @@ public sealed class InspectionDefinitionRegistry
                 .Select(context => ResolveContextInput(workspace, context))
                 .ToArray());
 
+    internal static WorkspacePlan CreateCompleteRestorationWorkspacePlan(
+        WorkspaceDefinition workspace) =>
+        new(
+            [.. workspace.Registrations],
+            workspace.Contexts
+                .Select(context =>
+                    ResolveCompleteRestorationContextInput(
+                        workspace,
+                        context))
+                .ToArray());
+
+    private static WorkspaceContextInput
+        ResolveCompleteRestorationContextInput(
+            WorkspaceDefinition workspace,
+            WorkspaceContextDefinition context)
+    {
+        if (string.IsNullOrWhiteSpace(context.Subscribe))
+            return ResolveContextInput(workspace, context);
+        if (context.Framework is null
+            || !WorkspaceSharePacketCodec.TryParseGroupExpression(
+                context.Subscribe,
+                out IReadOnlyList<GroupExpressionPin> pins)
+            || pins is not [{ SegmentIndex: 0 } pin]
+            || pin.SeparatorIndex != ":Platform".Length
+            || pin.ValueStart + pin.ValueLength != context.Subscribe.Length
+            || !context.Subscribe.StartsWith(
+                ":Platform@",
+                StringComparison.Ordinal))
+        {
+            throw new InspectionDefinitionException(
+                $"Workspace '{workspace.Id}' context '{context.Name}' uses "
+                    + $"unsupported complete-restoration group "
+                    + $"'{context.Subscribe}'.");
+        }
+
+        string version = context.Subscribe.Substring(
+            pin.ValueStart,
+            pin.ValueLength);
+        return new WorkspaceContextInput
+        {
+            Framework = context.Framework,
+            RuntimeIdentifier = context.RuntimeIdentifier,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    version: version,
+                    framework: context.Framework),
+                .. context.Members.Select(
+                    DefinitionCoordinateLowering.ToWorkspaceMember),
+            ],
+        };
+    }
+
     private static ResolvedNavigation ResolveNavigation(
         NavigationDefinition navigation)
     {
@@ -1147,6 +1251,12 @@ internal sealed record PackageNavigationSource(
     int ContextIndex,
     int MemberIndex,
     DefinitionMemberCoordinate.PackageCoordinate EffectiveCoordinate);
+
+internal sealed record GroupNavigationSource(
+    int ContextIndex,
+    string Subscription,
+    string? Framework,
+    string? RuntimeIdentifier);
 
 internal sealed record ScenarioRecordComposition(
     ScenarioDefinition Scenario,

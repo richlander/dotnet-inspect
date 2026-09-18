@@ -6,11 +6,16 @@ using DotnetInspector.Queries.Definitions;
 namespace DotnetInspect.Web;
 
 internal sealed record BrowserRetainedWorkspaceActivationRequest(
+    string ActivationIntentId,
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    string CanonicalPacket)
+    string CanonicalPacket,
+    int? PresentationActiveTabIndex)
 {
+    internal string ActivationIntentId { get; } =
+        RequireText(ActivationIntentId, nameof(ActivationIntentId));
+
     internal string RetainedDefinitionId { get; } =
         RequireText(RetainedDefinitionId, nameof(RetainedDefinitionId));
 
@@ -21,6 +26,12 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
 
     internal string CanonicalPacket { get; } =
         RequireText(CanonicalPacket, nameof(CanonicalPacket));
+
+    internal int? PresentationActiveTabIndex { get; } =
+        PresentationActiveTabIndex is null or >= 0
+            ? PresentationActiveTabIndex
+            : throw new ArgumentOutOfRangeException(
+                nameof(PresentationActiveTabIndex));
 
     static string RequireText(string value, string paramName)
     {
@@ -42,15 +53,66 @@ internal sealed record BrowserRetainedWorkspacePredecessor(
     string SettlementId,
     BrowserWorkspaceRealizationRetirement Retirement);
 
+internal sealed record BrowserRetainedWorkspaceDefinitionTab(
+    string Id,
+    string Kind,
+    string Source,
+    string? Version,
+    string? Framework,
+    string? RuntimeIdentifier);
+
+internal sealed record BrowserRetainedWorkspaceDefinitionContext(
+    string Id,
+    ImmutableArray<string> TabIds);
+
+internal sealed record BrowserRetainedWorkspaceDefinitionState(
+    ImmutableArray<BrowserRetainedWorkspaceDefinitionTab> Tabs,
+    ImmutableArray<BrowserRetainedWorkspaceDefinitionContext> Contexts,
+    string? ActiveTabId,
+    string? SelectedContextId);
+
+internal sealed record BrowserRetainedWorkspacePackage(
+    string NavigationId,
+    string Kind,
+    BrowserPackageSurfaceInfo Surface);
+
 internal sealed record BrowserRetainedWorkspaceInstallation(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
     string CanonicalPacket,
     string RealizationId,
+    InspectionWorkspaceIdentity Realization,
     long PublicationOrdinal,
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    ImmutableArray<BrowserRetainedWorkspacePackage> Packages,
     BrowserRetainedWorkspaceNavigationState Navigation,
     BrowserRetainedWorkspacePredecessor? Predecessor);
+
+internal sealed record BrowserRetainedWorkspacePreparedInstallation(
+    string CanonicalPacket,
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    ImmutableArray<BrowserRetainedWorkspacePackage> Packages,
+    BrowserRetainedWorkspaceNavigationState Navigation);
+
+internal abstract record BrowserRetainedWorkspacePreparationResult
+{
+    private protected BrowserRetainedWorkspacePreparationResult() { }
+
+    internal sealed record Prepared(
+        BrowserRetainedWorkspacePreparedInstallation Installation)
+        : BrowserRetainedWorkspacePreparationResult;
+
+    internal sealed record NoEffect(
+        BrowserRetainedWorkspaceInstallation Installation)
+        : BrowserRetainedWorkspacePreparationResult;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspacePreparationResult;
+
+    internal sealed record Failed(CompleteRestorationFailure Failure)
+        : BrowserRetainedWorkspacePreparationResult;
+}
 
 internal abstract record BrowserRetainedWorkspaceActivationResult
 {
@@ -99,6 +161,17 @@ internal abstract record BrowserRetainedWorkspaceSettlementResult
 
     internal sealed record Unknown
         : BrowserRetainedWorkspaceSettlementResult;
+}
+
+internal abstract record BrowserRetainedWorkspacePackageActivationResult
+{
+    private protected BrowserRetainedWorkspacePackageActivationResult() { }
+
+    internal sealed record Activated(BrowserRetainedWorkspacePackage Package)
+        : BrowserRetainedWorkspacePackageActivationResult;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspacePackageActivationResult;
 }
 
 internal sealed record BrowserCompleteWorkspaceActivation(
@@ -153,7 +226,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         }
     }
 
-    internal async Task<BrowserRetainedWorkspaceActivationResult> ActivateAsync(
+    internal BrowserRetainedWorkspaceActivationSession BeginActivation(
         BrowserRetainedWorkspaceActivationRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -165,54 +238,123 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         {
             if (_closing)
             {
-                return new BrowserRetainedWorkspaceActivationResult.Failed(
-                    HostFailure("The retained Workspace activation owner is closed."));
+                return BrowserRetainedWorkspaceActivationSession.Completed(
+                    new BrowserRetainedWorkspacePreparationResult.Failed(
+                        HostFailure(
+                            "The retained Workspace activation owner is closed.")),
+                    new BrowserRetainedWorkspaceActivationResult.Failed(
+                        HostFailure(
+                            "The retained Workspace activation owner is closed.")));
             }
             if (_deactivating)
             {
-                return new BrowserRetainedWorkspaceActivationResult.Failed(
-                    HostFailure(
-                        "The active Browser Workspace is still draining."));
+                CompleteRestorationFailure failure = HostFailure(
+                    "The active Browser Workspace is still draining.");
+                return BrowserRetainedWorkspaceActivationSession.Completed(
+                    new BrowserRetainedWorkspacePreparationResult.Failed(
+                        failure),
+                    new BrowserRetainedWorkspaceActivationResult.Failed(
+                        failure));
             }
             if (_cleanupFailed)
             {
-                return new BrowserRetainedWorkspaceActivationResult.Failed(
-                    new CompleteRestorationFailure.CleanupFailed(
-                        "A prior Browser Workspace failed to settle."));
+                var failure = new CompleteRestorationFailure.CleanupFailed(
+                    "A prior Browser Workspace failed to settle.");
+                return BrowserRetainedWorkspaceActivationSession.Completed(
+                    new BrowserRetainedWorkspacePreparationResult.Failed(
+                        failure),
+                    new BrowserRetainedWorkspaceActivationResult.Failed(
+                        failure));
             }
 
             _latestIntent?.Supersede();
             if (_active?.RetainedDefinitionId == request.RetainedDefinitionId)
             {
                 _latestIntent = null;
-                return new BrowserRetainedWorkspaceActivationResult.NoEffect(
-                    _active);
+                var noEffect =
+                    new BrowserRetainedWorkspaceActivationResult.NoEffect(
+                        _active);
+                return BrowserRetainedWorkspaceActivationSession.Completed(
+                    new BrowserRetainedWorkspacePreparationResult.NoEffect(
+                        _active),
+                    noEffect);
             }
 
             intent = new(this, request);
             _latestIntent = intent;
         }
 
+        Task<BrowserRetainedWorkspaceActivationResult> completion =
+            RunActivationAsync(intent, cancellationToken);
+        return new BrowserRetainedWorkspaceActivationSession(
+            intent,
+            completion);
+    }
+
+    internal async Task<BrowserRetainedWorkspaceActivationResult> ActivateAsync(
+        BrowserRetainedWorkspaceActivationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        BrowserRetainedWorkspaceActivationSession session =
+            BeginActivation(request, cancellationToken);
+        if (await session.Preparation.ConfigureAwait(false)
+            is BrowserRetainedWorkspacePreparationResult.Prepared)
+        {
+            _ = session.Commit();
+        }
+        return await session.Completion.ConfigureAwait(false);
+    }
+
+    private async Task<BrowserRetainedWorkspaceActivationResult>
+        RunActivationAsync(
+            BrowserRetainedWorkspaceActivationIntent intent,
+            CancellationToken cancellationToken)
+    {
         using var cancellationRegistration = cancellationToken.Register(
             static state =>
                 ((BrowserRetainedWorkspaceActivationIntent)state!).Cancel(),
             intent);
-        CompleteRestorationResult<BrowserCompleteWorkspaceActivation> result;
         try
         {
             CompleteRestorationPreparationResult preparation =
                 CompleteRestorationPreparation.FromPacket(
-                    request.CanonicalPacket,
+                    intent.Request.CanonicalPacket,
                     intent,
                     cancellationToken);
             var host = new BrowserCompleteRestorationHost(_host, intent);
-            result = await CompleteRestorationCoordinator.RestoreAsync(
+            CompleteRestorationResult<BrowserCompleteWorkspaceActivation>
+                result = await CompleteRestorationCoordinator.RestoreAsync(
                         preparation,
                         intent,
                         host,
                         _optionsFactory(),
                         cancellationToken)
                     .ConfigureAwait(false);
+            BrowserRetainedWorkspaceActivationResult activation =
+                result switch
+                {
+                    CompleteRestorationResult<
+                            BrowserCompleteWorkspaceActivation>.Activated
+                                activated =>
+                        Activated(intent, activated),
+                    CompleteRestorationResult<
+                            BrowserCompleteWorkspaceActivation>.Superseded =>
+                        new BrowserRetainedWorkspaceActivationResult
+                            .Superseded(),
+                    CompleteRestorationResult<
+                            BrowserCompleteWorkspaceActivation>.Failed failed =>
+                        new BrowserRetainedWorkspaceActivationResult.Failed(
+                            failed.Failure),
+                    _ => throw new InvalidOperationException(
+                        "Complete restoration returned an unsupported Browser outcome."),
+                };
+            intent.CompletePreparation(activation);
+            return activation;
+        }
+        catch (Exception ex)
+        {
+            intent.FailPreparation(ex);
+            throw;
         }
         finally
         {
@@ -224,22 +366,6 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             cancellationRegistration.Dispose();
             intent.Dispose();
         }
-
-        return result switch
-        {
-            CompleteRestorationResult<
-                    BrowserCompleteWorkspaceActivation>.Activated activated =>
-                Activated(intent, activated),
-            CompleteRestorationResult<
-                    BrowserCompleteWorkspaceActivation>.Superseded =>
-                new BrowserRetainedWorkspaceActivationResult.Superseded(),
-            CompleteRestorationResult<
-                    BrowserCompleteWorkspaceActivation>.Failed failed =>
-                new BrowserRetainedWorkspaceActivationResult.Failed(
-                    failed.Failure),
-            _ => throw new InvalidOperationException(
-                "Complete restoration returned an unsupported Browser outcome."),
-        };
     }
 
     internal async ValueTask<WorkspaceRealizationOperationAdmission>
@@ -260,6 +386,54 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         }
         return await host.EnterOperationAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal async Task<BrowserRetainedWorkspacePackageActivationResult>
+        ActivatePackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(
+                    retainedDefinitionId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserRetainedWorkspacePackageActivationResult
+                .Superseded();
+        }
+
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(
+                    active.Realization,
+                    operation.Realization))
+            {
+                return new BrowserRetainedWorkspacePackageActivationResult
+                    .Superseded();
+            }
+
+            BrowserRetainedWorkspacePackage? package =
+                active.Packages.FirstOrDefault(candidate =>
+                    candidate.Kind == "package"
+                    && candidate.NavigationId == navigationId);
+            return package is null
+                ? new BrowserRetainedWorkspacePackageActivationResult
+                    .Superseded()
+                : new BrowserRetainedWorkspacePackageActivationResult
+                    .Activated(package);
+        }
     }
 
     internal async Task<BrowserRetainedWorkspaceDeactivationResult>
@@ -352,10 +526,12 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
     internal BrowserRetainedWorkspaceCommitResult TryCommit(
         BrowserRetainedWorkspaceActivationIntent intent,
         CompleteWorkspaceActivation workspace,
+        BrowserRetainedWorkspacePreparedInstallation prepared,
         Func<BrowserWorkspaceRealizationCutoverResult> cutOver)
     {
         ArgumentNullException.ThrowIfNull(intent);
         ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(cutOver);
 
         lock (_gate)
@@ -387,40 +563,18 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                 predecessor = new(settlementId, activated.Predecessor);
             }
 
-            CompleteRestorationProjection.Projectable projection =
-                workspace.Projection
-                    as CompleteRestorationProjection.Projectable
-                ?? throw new InvalidOperationException(
-                    "Packet restoration must retain its canonical packet.");
-            (ImmutableArray<CompleteRestorationResolvedViewState> states,
-                int? activeStateIndex) =
-                workspace.Snapshot.Resolved switch
-                {
-                    CompleteRestorationResolvedState.Version2 version2 =>
-                        (version2.States, version2.ActiveStateIndex),
-                    CompleteRestorationResolvedState.Version3 version3 =>
-                        (version3.States, version3.ActiveStateIndex),
-                    _ => throw new InvalidOperationException(
-                        "Unknown complete restoration resolved state."),
-                };
             long publicationOrdinal = ++_nextRealization;
             var installation = new BrowserRetainedWorkspaceInstallation(
                 intent.Request.RetainedDefinitionId,
                 intent.Request.Label,
                 intent.Request.CanonicalLocation,
-                projection.CanonicalPacket,
+                prepared.CanonicalPacket,
                 $"workspace-realization-{publicationOrdinal}",
+                activated.Realization.Identity,
                 publicationOrdinal,
-                new BrowserRetainedWorkspaceNavigationState(
-                    activeStateIndex,
-                    [
-                        .. states.Select(
-                            static state =>
-                                new BrowserRetainedWorkspaceViewState(
-                                    state.NavigationId,
-                                    state.Definition.Subject?.Kind.ToString(),
-                                    state.Definition.Facet)),
-                    ]),
+                prepared.Definition,
+                prepared.Packages,
+                prepared.Navigation,
                 predecessor);
             _active = installation;
             return new BrowserRetainedWorkspaceCommitResult.Committed(
@@ -489,12 +643,58 @@ internal abstract record BrowserRetainedWorkspaceCommitResult
 }
 
 [SupportedOSPlatform("browser")]
+internal sealed class BrowserRetainedWorkspaceActivationSession
+{
+    readonly BrowserRetainedWorkspaceActivationIntent? _intent;
+
+    internal BrowserRetainedWorkspaceActivationSession(
+        BrowserRetainedWorkspaceActivationIntent intent,
+        Task<BrowserRetainedWorkspaceActivationResult> completion)
+    {
+        _intent = intent ?? throw new ArgumentNullException(nameof(intent));
+        Completion = completion
+            ?? throw new ArgumentNullException(nameof(completion));
+        Preparation = intent.Preparation;
+    }
+
+    BrowserRetainedWorkspaceActivationSession(
+        BrowserRetainedWorkspacePreparationResult preparation,
+        BrowserRetainedWorkspaceActivationResult completion)
+    {
+        Preparation = Task.FromResult(preparation);
+        Completion = Task.FromResult(completion);
+    }
+
+    internal Task<BrowserRetainedWorkspacePreparationResult> Preparation
+        { get; }
+
+    internal Task<BrowserRetainedWorkspaceActivationResult> Completion
+        { get; }
+
+    internal bool Commit() => _intent?.Commit() ?? false;
+
+    internal void Cancel() => _intent?.Cancel();
+
+    internal void Supersede() => _intent?.Supersede();
+
+    internal static BrowserRetainedWorkspaceActivationSession Completed(
+        BrowserRetainedWorkspacePreparationResult preparation,
+        BrowserRetainedWorkspaceActivationResult completion) =>
+        new(preparation, completion);
+}
+
+[SupportedOSPlatform("browser")]
 internal sealed class BrowserRetainedWorkspaceActivationIntent(
     BrowserRetainedWorkspaceActivationOwner owner,
     BrowserRetainedWorkspaceActivationRequest request)
     : ICompleteRestorationIntentAuthority, IDisposable
 {
     readonly CancellationTokenSource _revocation = new();
+    readonly TaskCompletionSource<BrowserRetainedWorkspacePreparationResult>
+        _preparation = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource<bool> _commit =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     int _status = (int)CompleteRestorationIntentStatus.Current;
 
     public CompleteRestorationIntentIdentity Identity { get; } = new();
@@ -507,18 +707,72 @@ internal sealed class BrowserRetainedWorkspaceActivationIntent(
     internal BrowserRetainedWorkspaceActivationRequest Request { get; } =
         request;
 
+    internal Task<BrowserRetainedWorkspacePreparationResult> Preparation =>
+        _preparation.Task;
+
     internal BrowserRetainedWorkspaceInstallation? CommittedInstallation
     {
         get;
         private set;
     }
 
+    internal bool PublishPrepared(
+        BrowserRetainedWorkspacePreparedInstallation installation)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        if (Status != CompleteRestorationIntentStatus.Current)
+            return false;
+        return _preparation.TrySetResult(
+            new BrowserRetainedWorkspacePreparationResult.Prepared(
+                installation));
+    }
+
+    internal Task<bool> WaitForCommitAsync() => _commit.Task;
+
+    internal bool Commit()
+    {
+        if (Status != CompleteRestorationIntentStatus.Current)
+            return false;
+        return _commit.TrySetResult(true);
+    }
+
+    internal void CompletePreparation(
+        BrowserRetainedWorkspaceActivationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        _ = result switch
+        {
+            BrowserRetainedWorkspaceActivationResult.NoEffect noEffect =>
+                _preparation.TrySetResult(
+                    new BrowserRetainedWorkspacePreparationResult.NoEffect(
+                        noEffect.Installation)),
+            BrowserRetainedWorkspaceActivationResult.Superseded =>
+                _preparation.TrySetResult(
+                    new BrowserRetainedWorkspacePreparationResult.Superseded()),
+            BrowserRetainedWorkspaceActivationResult.Failed failed =>
+                _preparation.TrySetResult(
+                    new BrowserRetainedWorkspacePreparationResult.Failed(
+                        failed.Failure)),
+            BrowserRetainedWorkspaceActivationResult.Activated =>
+                true,
+            _ => throw new InvalidOperationException(
+                "Unknown Browser retained Workspace activation result."),
+        };
+    }
+
+    internal void FailPreparation(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        _preparation.TrySetException(failure);
+    }
+
     internal BrowserRetainedWorkspaceCommitResult TryCommit(
         CompleteWorkspaceActivation workspace,
+        BrowserRetainedWorkspacePreparedInstallation prepared,
         Func<BrowserWorkspaceRealizationCutoverResult> cutOver)
     {
         BrowserRetainedWorkspaceCommitResult result =
-            owner.TryCommit(this, workspace, cutOver);
+            owner.TryCommit(this, workspace, prepared, cutOver);
         if (result
             is BrowserRetainedWorkspaceCommitResult.Committed committed)
         {
@@ -542,6 +796,7 @@ internal sealed class BrowserRetainedWorkspaceActivationIntent(
             == (int)CompleteRestorationIntentStatus.Current)
         {
             _revocation.Cancel();
+            _commit.TrySetResult(false);
         }
     }
 
@@ -674,9 +929,51 @@ internal sealed class BrowserCompleteRestorationHost(
                     BrowserCompleteWorkspaceActivation>.Failed(cleanup);
         }
 
+        BrowserRetainedWorkspacePreparedInstallation installation;
+        try
+        {
+            installation = PrepareInstallation(
+                intent.Request,
+                preparedWorkspace.Activation);
+        }
+        catch (Exception ex)
+        {
+            CompleteRestorationFailure? cleanup =
+                await SettleCandidateAsync(prepared.Candidate)
+                    .ConfigureAwait(false);
+            return cleanup is null
+                ? Failed(
+                    $"Browser Workspace presentation could not be prepared: "
+                        + $"{ex.Message}")
+                : new CompleteRestorationHostResult<
+                    BrowserCompleteWorkspaceActivation>.Failed(cleanup);
+        }
+        if (!intent.PublishPrepared(installation)
+            || !await intent.WaitForCommitAsync().ConfigureAwait(false))
+        {
+            CompleteRestorationFailure? cleanup =
+                await SettleCandidateAsync(prepared.Candidate)
+                    .ConfigureAwait(false);
+            if (cleanup is not null)
+            {
+                return new CompleteRestorationHostResult<
+                    BrowserCompleteWorkspaceActivation>.Failed(cleanup);
+            }
+            return intent.Status switch
+            {
+                CompleteRestorationIntentStatus.Superseded =>
+                    new CompleteRestorationHostResult<
+                        BrowserCompleteWorkspaceActivation>.Superseded(),
+                CompleteRestorationIntentStatus.Cancelled =>
+                    Failed("Browser Workspace activation was cancelled."),
+                _ => new CompleteRestorationHostResult<
+                    BrowserCompleteWorkspaceActivation>.Superseded(),
+            };
+        }
         BrowserRetainedWorkspaceCommitResult commit =
             intent.TryCommit(
                 preparedWorkspace.Activation,
+                installation,
                 () => host.CutOver(prepared.Candidate));
         if (commit
             is BrowserRetainedWorkspaceCommitResult.Committed committed)
@@ -736,6 +1033,131 @@ internal sealed class BrowserCompleteRestorationHost(
                     + $"{settlement.Reason}.");
     }
 
+    static BrowserRetainedWorkspacePreparedInstallation PrepareInstallation(
+        BrowserRetainedWorkspaceActivationRequest request,
+        CompleteWorkspaceActivation workspace)
+    {
+        CompleteRestorationProjection.Projectable projection =
+            workspace.Projection
+                as CompleteRestorationProjection.Projectable
+            ?? throw new InvalidOperationException(
+                "Packet restoration must retain its canonical packet.");
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            projection.CanonicalPacket);
+        int? activeTabIndex =
+            request.PresentationActiveTabIndex
+            ?? packet.FocusedTabIndex;
+        int? selectedContextIndex = packet.SelectedContextIndex;
+        if (activeTabIndex is < 0
+            || activeTabIndex >= packet.Tabs.Count
+            || selectedContextIndex is < 0
+            || selectedContextIndex >= packet.Contexts.Count)
+        {
+            throw new InvalidOperationException(
+                "Browser Workspace installation selected an unavailable tab or context.");
+        }
+
+        ImmutableArray<BrowserRetainedWorkspaceDefinitionTab> tabs =
+        [
+            .. packet.Tabs.Select(
+                static (tab, index) =>
+                    new BrowserRetainedWorkspaceDefinitionTab(
+                        $"t{index}",
+                        tab.SourceKind == WorkspaceShareSourceKind.Package
+                            ? "package"
+                            : "group",
+                        tab.Source,
+                        tab.Version,
+                        tab.Framework,
+                        tab.RuntimeIdentifier)),
+        ];
+        ImmutableArray<BrowserRetainedWorkspaceDefinitionContext> contexts =
+        [
+            .. packet.Contexts.Select(
+                static (context, index) =>
+                    new BrowserRetainedWorkspaceDefinitionContext(
+                        $"g{index}",
+                        [
+                            .. context.TabIndexes.Select(
+                                static tabIndex => $"t{tabIndex}"),
+                        ])),
+        ];
+        (ImmutableArray<CompleteRestorationResolvedViewState> states,
+            int? activeStateIndex) =
+            workspace.Snapshot.Resolved switch
+            {
+                CompleteRestorationResolvedState.Version2 version2 =>
+                    (version2.States, version2.ActiveStateIndex),
+                CompleteRestorationResolvedState.Version3 version3 =>
+                    (version3.States, version3.ActiveStateIndex),
+                _ => throw new InvalidOperationException(
+                    "Unknown complete restoration resolved state."),
+            };
+        var packages = new Dictionary<
+            string,
+            BrowserRetainedWorkspacePackage>(StringComparer.Ordinal);
+        foreach (CompleteRestorationResolvedViewState state in states)
+        {
+            if (state.NavigationId is not { } navigationId
+                || state.Package is not { } package)
+            {
+                continue;
+            }
+            packages.Add(
+                navigationId,
+                new(
+                    navigationId,
+                    "package",
+                    BrowserPackageSurfaceProjection.Project(package)));
+        }
+        foreach (CompleteRestorationPlatformEvaluation platform
+            in workspace.Snapshot.Platforms.Where(
+                static platform => platform.Family == "runtime"))
+        {
+            packages.Add(
+                platform.NavigationId,
+                new(
+                    platform.NavigationId,
+                    "platform",
+                    BrowserPlatformSurfaceProjection.Project(platform)));
+        }
+        foreach (BrowserRetainedWorkspaceDefinitionTab tab in tabs)
+        {
+            if ((tab.Kind == "package"
+                    || (tab.Kind == "group"
+                        && tab.Source == ":Platform"))
+                && !packages.ContainsKey(tab.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Browser Workspace tab '{tab.Id}' has no exact presentation.");
+            }
+        }
+
+        return new(
+            projection.CanonicalPacket,
+            new(
+                tabs,
+                contexts,
+                activeTabIndex is int tabIndex
+                    ? tabs[tabIndex].Id
+                    : null,
+                selectedContextIndex is int contextIndex
+                    ? contexts[contextIndex].Id
+                    : null),
+            [.. tabs.Select(tab => packages.GetValueOrDefault(tab.Id))
+                .OfType<BrowserRetainedWorkspacePackage>()],
+            new BrowserRetainedWorkspaceNavigationState(
+                activeStateIndex,
+                [
+                    .. states.Select(
+                        static state =>
+                            new BrowserRetainedWorkspaceViewState(
+                                state.NavigationId,
+                                state.Definition.Subject?.Kind.ToString(),
+                                state.Definition.Facet)),
+                ]));
+    }
+
     static CompleteRestorationHostResult<
         BrowserCompleteWorkspaceActivation>.Failed Failed(string message) =>
         new(new CompleteRestorationFailure.HostConstructionFailed(message));
@@ -771,6 +1193,7 @@ internal static class BrowserCompleteRestorationOptions
                 BrowserPackageWorkspace.PackageChangesOperationTimeout),
             Facets = registry,
             FacetAvailability = (_, _) => executableEntries,
+            IncludePlatformPresentation = true,
         };
     }
 }

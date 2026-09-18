@@ -128,7 +128,7 @@ export function renderWorkspaceSubject(
   return `<aside class="type-browser workspace-nav">
     <header class="browser-head"><span>WORKSPACES</span></header>
     <div class="workspace-list">
-      ${rows || '<p class="workspace-empty">No live Workspaces.</p>'}
+      ${rows || '<p class="workspace-empty">No retained Workspaces.</p>'}
     </div>
   </aside>`;
 }
