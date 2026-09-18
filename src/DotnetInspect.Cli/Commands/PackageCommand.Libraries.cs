@@ -103,7 +103,7 @@ public partial class PackageCommand
         if (options.ListTfms)
             conflicts.Add("--tfms");
         if (options.ListVersions)
-            conflicts.Add("--versions/--version/--latest-version");
+            conflicts.Add("--versions/--version");
         if (options.Print)
             conflicts.Add("--print");
         if (options.ShowDependencies)

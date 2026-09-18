@@ -57,10 +57,11 @@ select the vocabularies consumed by those query families; bare output and bare
 `-S` retain the `Vocabulary Sections` index.
 Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
 operand first chooses the catalog-wide, focused-pack, or focused-Platform
-section set; `@Ecosystem` then composes that complete set. `@Integrations`
-selects the product-configured `Known Integrations` domain. Ordinary output
-retains `Ecosystems` or `Ecosystem Info`, while bare `-S` retains the complete
-route-specific composition.
+section set; `@Ecosystem` then composes that complete set. Exact
+`Integrations` selects the product-configured bindings. Ecosystem has no
+single-member `@Integrations` category. Ordinary output retains `Ecosystems`
+or `Ecosystem Info`, while bare `-S` retains the complete route-specific
+composition.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit

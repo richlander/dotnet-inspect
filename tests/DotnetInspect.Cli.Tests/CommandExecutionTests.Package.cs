@@ -329,7 +329,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Newtonsoft.Json@13.0.4", "--version", null)]
-    [InlineData("Newtonsoft.Json", "--latest-version", null)]
+    [InlineData("Newtonsoft.Json@latest", "--version", null)]
     [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
         string package,
@@ -358,8 +358,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            "Newtonsoft.Json",
-            "--latest-version",
+            "Newtonsoft.Json@latest",
+            "--version",
             "--include-unlisted",
             "--count",
             "--columns",

@@ -420,7 +420,7 @@ public partial class PackageCommand
     {
         List<string> conflicts = [];
         if (options.ExplicitVersion != null) conflicts.Add("--version");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
@@ -496,7 +496,7 @@ public partial class PackageCommand
             List<string> conflicts = [];
             if (options.ListLayout) conflicts.Add("--layout");
             if (options.ListTfms) conflicts.Add("--tfms");
-            if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+            if (options.ListVersions) conflicts.Add("--versions/--version");
             if (options.ShowDependencies) conflicts.Add("--dependencies");
             if (options.PackageLibrary != null) conflicts.Add("--library");
             if (options.AggregateLibraries) conflicts.Add("Library section inspection");

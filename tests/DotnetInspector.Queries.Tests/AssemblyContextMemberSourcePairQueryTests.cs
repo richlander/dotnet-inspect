@@ -172,7 +172,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             var selected = Assert.IsType<SourceHouseTarget.MemberTarget>(house.Request.Target);
             Assert.Equal(endpoint.Request.MetadataToken, selected.MetadataToken);
             Assert.Equal(endpoint.Request.Member, selected.Member);
-            var pdb = Assert.IsType<AssemblyMemberSourcePairPdbProvenance>(
+            var pdb = Assert.IsType<AssemblyMemberSourcePdbProvenance>(
                 house.PdbContribution.Content!.ArtifactReference.Provenance);
             Assert.Same(endpoint.Subject.Registration, pdb.SourceRegistration);
         }

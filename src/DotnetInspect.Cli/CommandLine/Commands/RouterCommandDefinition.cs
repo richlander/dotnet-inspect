@@ -78,6 +78,15 @@ public static class RouterCommandDefinition
                     CommandError.Write(error.Message);
                 return 1;
             }
+            if (PackageOptionsParser.GetUnrecognizedOption(
+                    sourceParseResult,
+                    packageArgs) is { } removedOption
+                && ArgumentPreprocessor.GetRemovedPackageOptionError(removedOption)
+                    is { } removed)
+            {
+                CommandError.Write(removed);
+                return 1;
+            }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(sourceParseResult);
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
@@ -821,9 +830,6 @@ public static class RouterCommandDefinition
                     && !hasPackageRelativeLibrary);
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
-                || CommandLineHelpers.IsBooleanOptionEnabled(
-                    tokens,
-                    "--latest-version")
                 || ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
