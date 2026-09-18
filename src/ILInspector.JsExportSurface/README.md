@@ -154,6 +154,20 @@ runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
 method leaves `ReturnWireType` unset.
+
+Deserialize roots retain both their unpositioned type inventory and, when
+provable, an exact `JsExportParameterWireBinding`. A binding requires the
+deserializer's JSON operand to resolve through Analysis's
+`DirectCall.ResolvedArgumentValues` to one original argument slot of the same
+physical static export body. Direct loads and transparent unaddressed locals
+qualify. Transformed values, fields, call results, merged or address-taken
+locals, lifted bodies, and conflicting DTO roots do not acquire a guessed
+parameter association. If any reachable authenticated deserialize root lacks
+one exact association, the function publishes no parameter bindings; the
+unpositioned inventory remains available as diagnostic evidence. This remains
+target-language-neutral evidence; consumers decide whether a bound JSON string
+becomes an object parameter.
+
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
 and
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`

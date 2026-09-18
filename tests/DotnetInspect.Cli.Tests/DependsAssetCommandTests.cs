@@ -814,6 +814,66 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
+    public async Task MarkdownRendersSelectedSectionsWithoutCompletionDocument()
+    {
+        string[] arguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Hierarchy,Dependencies",
+        ];
+
+        (int markdownExit, string markdown, string markdownError) =
+            await RunCapturedAsync(arguments);
+        (int projectedExit, string projected, string projectedError) =
+            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
+        (int jsonExit, string json, string jsonError) =
+            await RunCapturedAsync([.. arguments, "--json", "--compact"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, projectedExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(projectedError);
+        Assert.Empty(jsonError);
+        Assert.StartsWith(
+            "## Dependency Hierarchy",
+            markdown.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            markdown.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+        Assert.StartsWith(
+            "## Dependency Hierarchy",
+            projected.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            projected,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            projected.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
     public async Task RestoredDependencies_ExposeResolvedVersionInEveryTableShape()
     {
         string[] arguments =
