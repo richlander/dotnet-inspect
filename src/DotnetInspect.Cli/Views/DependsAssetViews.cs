@@ -220,7 +220,7 @@ public sealed class DependsRootView
                 DependencyEvidenceViewText.Optional(evidence?.PackageVersion),
             IdentityTrustText = DependencyEvidenceViewText.Optional(
                 evidence?.IdentityProvenance?.ToString()),
-            ProducerText = evidence?.Source?.Producer.Display,
+            ProducerText = evidence?.Source?.ProducerDisplay,
             SourceAssociation = evidence?.Source is { } source
                 ? tokens.Project(source)?.Association
                 : null,
@@ -871,7 +871,7 @@ public sealed class DependsFailureView
 
     private static string DescribeTraversalFailure(
         DependencyInspectionTraversalFailure row) =>
-        row.CandidateOutcome switch
+        row.RuntimeCandidateOutcome switch
         {
             PackageDependencyTraversalCandidateResult.Failed =>
                 "No exact package candidate was issued for this declaration.",
@@ -885,14 +885,16 @@ public sealed class DependsFailureView
                 is DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                        RestoredProjectDependencyTraversalFailure.Document
+                        DependencyInspectionRestoredTraversalOutcomeFailure
+                            .Document
                             document,
             } => document.Failure.Message,
             _ when row.RestoredFailure
                 is DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                        RestoredProjectDependencyTraversalFailure.Graph graph,
+                        DependencyInspectionRestoredTraversalOutcomeFailure
+                            .Graph graph,
             } => graph.Failure.Message,
             _ when row.RestoredFailure
                 is DependencyInspectionRestoredTraversalFailure.Graph graph =>
@@ -941,7 +943,7 @@ public sealed class DependsFailureView
             DependencyInspectionPruningFailure.Candidate candidate => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
-                Reason = candidate.Outcome switch
+                Reason = candidate.RuntimeOutcome switch
                 {
                     PackageDependencyCandidateResult.Failed failed =>
                         failed.Failure.GetType().Name,

@@ -160,6 +160,11 @@ public class NuspecParserTests : IDisposable
         var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("MIT", result.License);
+        Assert.Equal(
+            new PackageLicenseDeclaration(
+                PackageLicenseDeclarationKind.Expression,
+                "MIT"),
+            result.LicenseDeclaration);
     }
 
     [Fact]
@@ -179,6 +184,11 @@ public class NuspecParserTests : IDisposable
         var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("(file: LICENSE.txt)", result.License);
+        Assert.Equal(
+            new PackageLicenseDeclaration(
+                PackageLicenseDeclarationKind.File,
+                "LICENSE.txt"),
+            result.LicenseDeclaration);
     }
 
     [Fact]
@@ -198,6 +208,11 @@ public class NuspecParserTests : IDisposable
         var result = NuspecParser.Parse(nuspec);
 
         Assert.Equal("Apache-2.0", result.License);
+        Assert.Equal(
+            new PackageLicenseDeclaration(
+                PackageLicenseDeclarationKind.Url,
+                "https://licenses.nuget.org/Apache-2.0"),
+            result.LicenseDeclaration);
     }
 
     [Fact]

@@ -201,6 +201,7 @@ public sealed class PackageIndexCacheTests
         value.BuiltDate = DateTimeOffset.UtcNow;
         value.Published = DateTimeOffset.UtcNow;
         value.TotalDownloads = 42;
+        value.DeclaredLicenseFile = "legal/OSMFEULA.txt";
         value.Files = [new PackageFile("payload.txt", 1)];
 
         PackageIndexCache.Set(Complete(subject, value));
@@ -220,6 +221,7 @@ public sealed class PackageIndexCacheTests
         Assert.Equal(2, cached.BinarySignals!.SymbolsAvailable);
         Assert.Equal(1, cached.BinarySignals.SourceLinkAvailable);
         Assert.Equal(0, cached.BinarySignals.SnupkgPdbs);
+        Assert.Equal("legal/OSMFEULA.txt", cached.DeclaredLicenseFile);
         Assert.Null(cached.BuiltDate);
         Assert.Null(cached.Published);
         Assert.Null(cached.TotalDownloads);
