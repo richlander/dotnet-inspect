@@ -117,7 +117,8 @@ Issue #7423 is the end-to-end tracker:
    per-manifest default selection as its ordinary mode.
 3. Call-graph operations declare traversal semantics and consume the same
    governing-target contract.
-4. CLI and Browser/Wasm configure and preserve the same host-neutral policy.
+4. The CLI configures and preserves the host-neutral policy.
+5. Browser/Wasm configures and preserves the same host-neutral policy.
 
 PackageHouse selection, Package Info measurements, all-library aggregation, and
 host aggregate navigation are separate #7423 slices. They do not adopt this
