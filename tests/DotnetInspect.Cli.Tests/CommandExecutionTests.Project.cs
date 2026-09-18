@@ -104,6 +104,335 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_SkillsSection_SemanticTailSelectsSameRowAcrossOutputs()
+    {
+        var firstSkill =
+            CompliantProjectSkill("skills/first/SKILL.md", "first");
+        var secondSkill =
+            CompliantProjectSkill("skills/second/SKILL.md", "second");
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.First",
+                "1.0.0",
+                "README.md",
+                "first readme",
+                Skills: [firstSkill]),
+            new ProjectDocPackage(
+                "B.Project.Second",
+                "1.0.0",
+                "README.md",
+                "second readme",
+                Skills: [secondSkill]));
+
+        try
+        {
+            var markdown = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--markdown");
+            var table = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--table");
+            var tsv = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--tsv");
+            var jsonl = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--jsonl");
+            var json = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--json");
+            var count = await RunProjectFixtureAsync(
+                projectPath,
+                "-S",
+                "-n", "1", "--tail",
+                "--count");
+            var paths = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--paths");
+            var value = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--fields", "Name",
+                "--value");
+            var bare = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1", "--tail",
+                "--bare", "--body");
+
+            foreach (var result in new[]
+                     {
+                         markdown,
+                         table,
+                         tsv,
+                         jsonl,
+                         json,
+                     })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+                Assert.Contains("B.Project.Second", result.Output);
+                Assert.DoesNotContain("A.Project.First", result.Output);
+            }
+
+            Assert.Equal((0, "1\n", ""), count);
+            Assert.Equal((0, "skills/second/SKILL.md\n", ""), paths);
+            Assert.Equal((0, "second\n", ""), value);
+            Assert.Equal(0, bare.Exit);
+            Assert.Empty(bare.Error);
+            Assert.Equal("second", bare.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SingleSection_UnavailableSemanticWindowWithholdsOutput()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.One",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/only/SKILL.md",
+                        "only"),
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--rows", "1..2",
+                "--json");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Project document row selection stage 1 requires row 2, "
+                + "but only 1 rows are available.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SingleSection_SemanticHeadCannotHideInvalidLaterRow()
+    {
+        var invalidSkill = """
+            ---
+            name: invalid
+            ---
+            # Invalid skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.Valid",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/valid/SKILL.md",
+                        "valid"),
+                ]),
+            new ProjectDocPackage(
+                "B.Project.Invalid",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc(
+                        "skills/invalid/SKILL.md",
+                        invalidSkill),
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1",
+                "--json");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "must declare an Agent Skills-compliant description",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SingleSection_ExplicitLinesClipsRenderedText()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.First",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/first/SKILL.md",
+                        "first"),
+                ]),
+            new ProjectDocPackage(
+                "B.Project.Second",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/second/SKILL.md",
+                        "second"),
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "2", "--lines",
+                "--table");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+            Assert.Contains("A.Project.First", output);
+            Assert.DoesNotContain("B.Project.Second", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--rows", "1", "--rows requires N..M")]
+    [InlineData("-n", "1 --lines", "Rendered-line selection cannot be combined with JSON output")]
+    public async Task Project_SingleSection_RejectsInvalidRowRequestBeforeProjectResolution(
+        string option,
+        string operand,
+        string expectedError)
+    {
+        string[] arguments = operand.Split(' ');
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "project",
+                "missing-project",
+                "-S", "Skills",
+                option,
+                .. arguments,
+                "--json",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("project.assets.json", error);
+    }
+
+    [Fact]
+    public async Task Project_MultiSection_RetainsLegacyWindowValidation()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.First",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/first/SKILL.md",
+                        "first"),
+                ]),
+            new ProjectDocPackage(
+                "B.Project.Second",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/second/SKILL.md",
+                        "second"),
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "@Project",
+                "--rows", "1",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("A.Project.First", output);
+            Assert.Contains("\"package_readme_file\"", output);
+            Assert.DoesNotContain("B.Project.Second", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_MultiSection_InferredLinesRejectJsonBeforeProjectResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "missing-project",
+            "-S", "@Project",
+            "-n", "1",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            error);
+        Assert.DoesNotContain("project.assets.json", error);
+    }
+
+    [Fact]
     public async Task SkillDocuments_ReportBoundedContainmentRanges()
     {
         const string bidi = "\u202E";
@@ -1214,7 +1543,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_SkillsCount_CountsSkillFiles()
+    public async Task Project_SkillsCount_ObservesSemanticHead()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "readme", Skills:
@@ -1229,7 +1558,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--count");
             var (windowedExit, windowedOutput, windowedError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--count", "--rows", "1");
+                projectPath, "-S", "Skills", "--count", "-n", "1");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -1497,7 +1826,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_ReadmeSection_PrintUsesWindowedRowSelection()
+    public async Task Project_ReadmeSection_SemanticWindowReindexesPrintRows()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
@@ -1518,7 +1847,7 @@ public partial class CommandExecutionTests
                 "-S", "Package README file",
                 "--print",
                 "--rows", "2..2",
-                "--row", "2");
+                "--row", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1531,7 +1860,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_ReadmePaths_AppliesRowsBeforeRowSelection()
+    public async Task Project_ReadmePaths_SemanticWindowReindexesBeforeRowSelection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
@@ -1552,14 +1881,14 @@ public partial class CommandExecutionTests
                 "-S", "Package README file",
                 "--paths",
                 "--rows", "2..2",
-                "--row", "2",
+                "--row", "1",
                 "--json");
             var excluded = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Package README file",
                 "--paths",
                 "--rows", "2..2",
-                "--row", "1",
+                "--row", "2",
                 "--json");
 
             Assert.Equal(0, selected.Exit);
@@ -1567,7 +1896,7 @@ public partial class CommandExecutionTests
             using (JsonDocument json = JsonDocument.Parse(selected.Output))
             {
                 Assert.Equal(
-                    2,
+                    1,
                     json.RootElement.GetProperty("row").GetInt32());
                 Assert.Equal(
                     "B.Project.SecondReadme",
@@ -1576,7 +1905,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, excluded.Exit);
             Assert.Empty(excluded.Output);
-            Assert.Contains("row 1 is not in this section", excluded.Error);
+            Assert.Contains("row 2 is not in this section", excluded.Error);
         }
         finally
         {

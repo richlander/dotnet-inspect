@@ -458,7 +458,6 @@ function detailHtml() {
               versions: ["10.0.0", "9.0.0"],
               currentVersionInsertionIndex: 0,
               previousVersion: "9.0.0",
-              previousVersionUnavailableReason: null,
             },
           },
         }, escapeHtml)}

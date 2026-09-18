@@ -12,6 +12,11 @@ optimization-opportunity queries onto that boundary. Those queries are
 production inputs to Inspect Web Analysis exports; method analysis also feeds
 the shared matched-member query.
 
+The next consumer-led adoption moves
+`AssemblyPairClusterRootPathQuery` onto the same immutable-image boundary. That
+query composes Analysis path evidence with Metadata public roots for the
+production `library call-use` CLI.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. Each later implementation slice moves at least one
 production consumer and retires its corresponding compatibility call.
@@ -152,6 +157,9 @@ optimization opportunities through its existing query exports. The change is
 architectural: the result no longer acts as the production service. The
 browser host remains compiler-banned from calling the Analysis service
 directly; Workspace queries own service execution and project its evidence.
+The cluster root-path query follows the same request/service shape for
+`MethodEvidence`; its existing section and CLI continue to own composition and
+presentation.
 
 ## Evidence
 
@@ -169,6 +177,9 @@ The initial Release gates are:
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
+- existing `AssemblyPairCallUseQueryTests` cluster root-path cases for public
+  root composition, exact path witnesses, completion boundaries, owner
+  diagnostics, and stale-selection rejection;
 - `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor` and
   `EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface` for the
   query-owned Browser/Wasm boundary; and

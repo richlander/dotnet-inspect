@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ILInspector.JsExportSurface.PolymorphicContractsFixtures;
@@ -32,6 +33,8 @@ public abstract record PackageDocumentationOutcome(
         : PackageDocumentationOutcome(Subject)
     {
         public override string Detail => "available";
+
+        public JsonElement? Evidence { get; init; }
     }
 
     public sealed record Absent(

@@ -523,6 +523,8 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Packages.PackageCoordinateResolver",
             "DotnetInspector.Packages.PackageExtractor",
             "DotnetInspector.Packages.SymbolPackageDownloader",
+            // Constructs a PDB document selector, not a filesystem inspection entry point.
+            "DotnetInspector.Queries.AssemblyTypeSourceRequest",
             "DotnetInspector.Services.DepsJsonParser",
             "DotnetInspector.Services.GitHubUrlResolver",
             "DotnetInspector.Services.LocalRepoSourceAcquisition",
