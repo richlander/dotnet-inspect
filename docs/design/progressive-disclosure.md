@@ -62,6 +62,11 @@ section set; `@Ecosystem` then composes that complete set. Exact
 single-member `@Integrations` category. Ordinary output retains `Ecosystems`
 or `Ecosystem Info`, while bare `-S` retains the complete route-specific
 composition.
+`graph libraries` uses `@Libraries` as its base category for the pair-wide
+`Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, and `Provider API
+Types` projections. Ordinary output remains `Call Sites`, while bare `-S`
+retains the two summary projections. Coordinate-gated `Public Root Paths`
+remains exact-name-only and outside the category.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
