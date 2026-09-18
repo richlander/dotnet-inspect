@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
@@ -13,6 +14,8 @@ public sealed partial class PackageDependencyEvidenceQueryTests
     [Fact]
     public void Serialization_RoundTripsValidatedFrameworkIdentities()
     {
+        const string factsDigest =
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         string opaqueIdentity =
             RestoredProjectIdentityText.Opaque("custom-framework");
         InertString sourceSpelling =
@@ -37,6 +40,19 @@ public sealed partial class PackageDependencyEvidenceQueryTests
                 "custom-framework"),
             AuthoredProjectTargetFrameworkIdentity.Unresolved(
                 "$(TargetFramework)"),
+        ];
+        RestoredProjectSelectionIdentity[] restoredIdentities =
+        [
+            new("net11.0", factsDigest),
+            new(opaqueIdentity, factsDigest),
+            new(
+                $"net11.0/{RestoredProjectIdentityText.Opaque("custom-runtime")}",
+                factsDigest),
+        ];
+        RuntimeDependencyManifestIdentity[] runtimeIdentities =
+        [
+            new("net11.0/linux-x64", factsDigest),
+            new(opaqueIdentity, factsDigest),
         ];
 
         foreach (PackageDependencyFrameworkScopeIdentity scope in
@@ -67,6 +83,16 @@ public sealed partial class PackageDependencyEvidenceQueryTests
             Assert.Equal(
                 identity.ComparisonIdentity,
                 roundTripped.ComparisonIdentity);
+        }
+        foreach (RestoredProjectSelectionIdentity identity in
+            restoredIdentities)
+        {
+            Assert.Equal(identity, RoundTrip(identity));
+        }
+        foreach (RuntimeDependencyManifestIdentity identity in
+            runtimeIdentities)
+        {
+            Assert.Equal(identity, RoundTrip(identity));
         }
     }
 
@@ -110,6 +136,65 @@ public sealed partial class PackageDependencyEvidenceQueryTests
 
         Assert.Throws<JsonException>(
             () => JsonSerializer.Deserialize(json, typeInfo));
+    }
+
+    [Theory]
+    [InlineData(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("NET8.0")]
+    [InlineData("net8.0/WIN-X64")]
+    public void Serialization_RejectsInvalidTargetIdentities(
+        string targetIdentity)
+    {
+        const string factsDigest =
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        string json =
+            $$"""{"target_identity":"{{targetIdentity}}","facts_digest":"{{factsDigest}}"}""";
+
+        AssertInvalidTargetIdentity<RestoredProjectSelectionIdentity>(json);
+        AssertInvalidTargetIdentity<RuntimeDependencyManifestIdentity>(json);
+    }
+
+    [Fact]
+    public void Serialization_RoundTripsProductionRestoredOpaqueTargetIdentity()
+    {
+        const string sourceFramework = "custom-framework";
+        byte[] assets = MutateRestoredAssets(
+            static root =>
+            {
+                JsonObject targets = root["targets"]!.AsObject();
+                KeyValuePair<string, JsonNode?> sourceTarget = targets.First();
+                JsonNode target = sourceTarget.Value!.DeepClone();
+                targets.Remove(sourceTarget.Key);
+                targets[sourceFramework] = target;
+            });
+        RestoredProjectDependencyFacts restored = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                assets,
+                new RestoredProjectTargetRequest(sourceFramework)));
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery
+                            .CreateRestoredProjectInput(
+                                restored,
+                                PackageDependencyEvidenceAcquisitionForm
+                                    .ProjectAssets),
+                    ]));
+        PackageDependencyEvidenceRoot root = Assert.Single(outcome.Roots);
+        PackageDependencyEvidenceRoot roundTripped = RoundTrip(root);
+        var identity = Assert.IsType<
+            PackageDependencyEvidenceRootIdentity.RestoredProject>(
+                roundTripped.Identity);
+
+        Assert.StartsWith(
+            RestoredProjectIdentityText.OpaquePrefix,
+            identity.Identity.Selection.TargetIdentity,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            restored.SelectionIdentity.TargetIdentity,
+            identity.Identity.Selection.TargetIdentity);
     }
 
     [Fact]
@@ -409,6 +494,18 @@ public sealed partial class PackageDependencyEvidenceQueryTests
         string json = JsonSerializer.Serialize(value, typeInfo);
 
         return JsonSerializer.Deserialize(json, typeInfo)!;
+    }
+
+    private static void AssertInvalidTargetIdentity<T>(string json)
+    {
+        JsonTypeInfo<T> typeInfo = (JsonTypeInfo<T>)
+            DependencyInspectionJsonContext.Default.GetTypeInfo(typeof(T))!;
+        Exception? exception = Record.Exception(
+            () => JsonSerializer.Deserialize(json, typeInfo));
+
+        Assert.True(
+            exception is JsonException or ArgumentException,
+            $"Expected invalid target identity rejection; received {exception?.GetType().Name ?? "no exception"}.");
     }
 
     private static void AssertPortableSource(
