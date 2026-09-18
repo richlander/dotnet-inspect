@@ -346,8 +346,9 @@ cancellation produces no result.
 the normalized request, authoritative-or-partial completeness, ordered
 deduplicated version rows, and per-authority source rows. Typed non-success
 retains inert reason text, operation timeout, and credential-safe authority
-failures. Available source failures become ordered diagnostics rather than
-disappearing or invalidating usable raw rows.
+failures. Available partial Content retains the same typed authority failures
+for host policy while excluding them from serialized Content; they also become
+ordered diagnostics rather than disappearing or invalidating usable raw rows.
 
 CLI `package Package --versions`, `--versions-with-feed`,
 `--include-unlisted`, and Count are the first production adopter. Existing
@@ -363,8 +364,14 @@ adopter. `BrowserPackageWorkspace` supplies its existing built-in Gallery
 authorization and bounded operation lease to the same inspection, then the
 inventory consumes the detached listing Document while retaining Browser-owned
 current-version insertion and previous-version presentation. The direct
-Gallery version-result input is retired from that inventory path. Exact pinned
-verification, latest selection, range vectors and cells, offline queries, and
+Gallery version-result input is retired from that inventory path.
+
+Online exact pinned CLI verification is the third production adopter. It
+requests prerelease and unlisted rows, applies the existing exact NuGet
+release-version match over detached Content, and uses typed partial authority
+failures to distinguish unavailable version evidence from incomplete listing
+state. The direct desktop version-discovery call is retired from that exact-
+pinned path. Latest selection, range vectors and cells, offline queries, and
 payload acquisition remain outside this listing operation.
 
 ## Version-population settlement
