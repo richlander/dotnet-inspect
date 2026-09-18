@@ -580,6 +580,8 @@ source fact to anchor; the source projection omits that witness and reports
 The same operation can classify exact physical relationships that synchronously
 observe `Task` completion. Analysis authenticates only framework
 `Task.Wait(...)`, `Task<T>.Result`, and task-awaiter `GetResult()` members and
+matches their complete ordinary instance signatures, including exact parameter
+and return types, non-generic method arity, and default calling convention. It
 returns a typed operation kind; Research joins each positive observation to the
 existing physical `call.edge` fact. The classification needs no graph expansion,
 body reopening, ownership result, or inferred source text. It deliberately does

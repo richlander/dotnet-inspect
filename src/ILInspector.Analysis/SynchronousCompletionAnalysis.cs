@@ -26,6 +26,21 @@ public sealed record SynchronousCompletionObservation(
 /// </summary>
 public static class SynchronousCompletionAnalysis
 {
+    const byte InstanceDefaultSignature = 0x20;
+
+    static readonly TypeRef s_boolean =
+        TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef s_cancellationToken =
+        TypeRef.CoreLib(
+            "System.Threading",
+            "CancellationToken");
+    static readonly TypeRef s_int32 =
+        TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_timeSpan =
+        TypeRef.CoreLib("System", "TimeSpan");
+    static readonly TypeRef s_void =
+        TypeRef.CoreLib("System", "Void");
+
     public static ImmutableArray<SynchronousCompletionObservation> Inspect(
         IEnumerable<DirectCall> calls)
     {
@@ -49,36 +64,25 @@ public static class SynchronousCompletionAnalysis
 
         MemberRef callee = call.Callee;
         if (call.Kind is not (CallKind.Call or CallKind.CallVirtual)
-            || !callee.HasThis)
+            || !HasOrdinaryInstanceSignature(callee))
         {
             kind = default;
             return false;
         }
 
-        if (callee.Name == "Wait"
-            && FrameworkIdentity.IsCoreLibraryType(
-                callee.DeclaringType,
-                "System.Threading.Tasks",
-                "Task"))
+        if (IsTaskWait(callee))
         {
             kind = SynchronousCompletionKind.TaskWait;
             return true;
         }
 
-        if (callee.Name == "get_Result"
-            && callee.ParameterTypes.Length == 0
-            && FrameworkIdentity.IsCoreLibraryType(
-                callee.DeclaringType,
-                "System.Threading.Tasks",
-                "Task`1"))
+        if (IsTaskResult(callee))
         {
             kind = SynchronousCompletionKind.TaskResult;
             return true;
         }
 
-        if (callee.Name == "GetResult"
-            && callee.ParameterTypes.Length == 0
-            && IsTaskAwaiter(callee.DeclaringType))
+        if (IsTaskAwaiterGetResult(callee))
         {
             kind = SynchronousCompletionKind.TaskAwaiterGetResult;
             return true;
@@ -88,21 +92,95 @@ public static class SynchronousCompletionAnalysis
         return false;
     }
 
-    static bool IsTaskAwaiter(TypeRef type) =>
-        FrameworkIdentity.IsCoreLibraryType(
-            type,
-            "System.Runtime.CompilerServices",
-            "TaskAwaiter")
-        || FrameworkIdentity.IsCoreLibraryType(
-            type,
-            "System.Runtime.CompilerServices",
-            "TaskAwaiter`1")
-        || FrameworkIdentity.IsCoreLibraryType(
-            type,
-            "System.Runtime.CompilerServices",
-            "ConfiguredTaskAwaitable+ConfiguredTaskAwaiter")
-        || FrameworkIdentity.IsCoreLibraryType(
-            type,
-            "System.Runtime.CompilerServices",
-            "ConfiguredTaskAwaitable`1+ConfiguredTaskAwaiter");
+    static bool HasOrdinaryInstanceSignature(MemberRef callee) =>
+        callee.HasThis
+        && callee.SignatureHeader == InstanceDefaultSignature
+        && callee.GenericArity == 0
+        && callee.RequiredParameterCount
+            == callee.ParameterTypes.Length;
+
+    static bool IsTaskWait(MemberRef callee)
+    {
+        if (callee.Name != "Wait"
+            || !FrameworkIdentity.IsCoreLibraryType(
+                callee.DeclaringType,
+                "System.Threading.Tasks",
+                "Task"))
+        {
+            return false;
+        }
+
+        if (callee.ReturnType.Equals(s_void))
+        {
+            return callee.ParameterTypes.Length == 0
+                || callee.ParameterTypes.Length == 1
+                    && callee.ParameterTypes[0].Equals(
+                        s_cancellationToken);
+        }
+
+        if (!callee.ReturnType.Equals(s_boolean))
+            return false;
+
+        return callee.ParameterTypes.Length == 1
+                && IsTaskWaitTimeout(
+                    callee.ParameterTypes[0])
+            || callee.ParameterTypes.Length == 2
+                && IsTaskWaitTimeout(
+                    callee.ParameterTypes[0])
+                && callee.ParameterTypes[1].Equals(
+                    s_cancellationToken);
+    }
+
+    static bool IsTaskWaitTimeout(TypeRef type) =>
+        type.Equals(s_int32)
+        || type.Equals(s_timeSpan);
+
+    static bool IsTaskResult(MemberRef callee) =>
+        callee.Name == "get_Result"
+        && callee.ParameterTypes.Length == 0
+        && callee.DeclaringType.Kind
+            == TypeRefKind.GenericInstance
+        && callee.DeclaringType.TypeArguments is
+            [var resultType]
+        && callee.ReturnType.Equals(resultType)
+        && FrameworkIdentity.IsCoreLibraryType(
+            callee.DeclaringType,
+            "System.Threading.Tasks",
+            "Task`1");
+
+    static bool IsTaskAwaiterGetResult(MemberRef callee)
+    {
+        if (callee.Name != "GetResult"
+            || callee.ParameterTypes.Length != 0)
+        {
+            return false;
+        }
+
+        TypeRef declaringType = callee.DeclaringType;
+        if (FrameworkIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Runtime.CompilerServices",
+                "TaskAwaiter")
+            || FrameworkIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Runtime.CompilerServices",
+                "ConfiguredTaskAwaitable+ConfiguredTaskAwaiter"))
+        {
+            return callee.ReturnType.Equals(s_void);
+        }
+
+        return declaringType.Kind
+                == TypeRefKind.GenericInstance
+            && declaringType.TypeArguments is
+                [var resultType]
+            && callee.ReturnType.Equals(resultType)
+            && (FrameworkIdentity.IsCoreLibraryType(
+                    declaringType,
+                    "System.Runtime.CompilerServices",
+                    "TaskAwaiter`1")
+                || FrameworkIdentity.IsCoreLibraryType(
+                    declaringType,
+                    "System.Runtime.CompilerServices",
+                    "ConfiguredTaskAwaitable`1+ConfiguredTaskAwaiter"));
+    }
 }
