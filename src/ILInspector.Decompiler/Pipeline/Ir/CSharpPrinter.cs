@@ -281,8 +281,13 @@ public sealed partial class CSharpPrinter
             current is not null and not IrFunction;
             current = current.Parent)
         {
-            if (current is WhileLoop or DoWhileLoop or ForLoop)
+            // Declaration expressions in these headers are scoped to the
+            // statement or catch clause rather than the containing block.
+            if (current is WhileLoop or DoWhileLoop or ForLoop
+                or UsingStatement or ForeachStatement or Fixed or CatchClause)
+            {
                 return current;
+            }
             if (current is Block block)
                 return block.Parent is BlockContainer container ? container : block;
         }

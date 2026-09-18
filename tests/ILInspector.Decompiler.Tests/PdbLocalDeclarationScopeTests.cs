@@ -261,6 +261,97 @@ public sealed class PdbLocalDeclarationScopeTests
         }
     }
 
+    [Theory]
+    [InlineData("using")]
+    [InlineData("foreach")]
+    [InlineData("fixed")]
+    [InlineData("catch-filter")]
+    public void OutArgumentInStatementHeaderWithLaterUse_LeavesCollisionVisible(
+        string header)
+    {
+        TypeRef returnType = header == "catch-filter" ? Boolean : Object;
+        TypeRef headerLocalType = header == "fixed"
+            ? TypeRef.Pinned(TypeRef.ByRef(Int32))
+            : header == "using"
+                ? Object
+                : Int32;
+        var callee = new MethodRef(
+            Owner,
+            "Open",
+            returnType,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        entry.Add(HeaderAndObserve(outLocal: 0, headerLocal: 2));
+        entry.Add(HeaderAndObserve(outLocal: 1, headerLocal: 3));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32, headerLocalType, headerLocalType],
+            body)
+        {
+            LocalNames = ["same", "same", "header1", "header2"],
+            LocalDeclaredInNestedScope = [true, true, false, false],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+        Assert.DoesNotContain("out int same", result.Output);
+
+        Block HeaderAndObserve(int outLocal, int headerLocal)
+        {
+            var call = new Call(
+                callee,
+                isVirtual: false,
+                [new LoadLocalAddress(outLocal, Int32)]);
+            IrNode statement = header switch
+            {
+                "using" => new UsingStatement(
+                    headerLocal,
+                    Object,
+                    call,
+                    Container()),
+                "foreach" => new ForeachStatement(
+                    headerLocal,
+                    Int32,
+                    call,
+                    new Block()),
+                "fixed" => new Fixed(
+                    Int32,
+                    headerLocal,
+                    call,
+                    Container(),
+                    sourceIsAddress: false),
+                "catch-filter" => new TryCatch(
+                    Container(),
+                    [new CatchClause(Object, Container(), call)]),
+                _ => throw new ArgumentOutOfRangeException(nameof(header)),
+            };
+            var lexical = new Block();
+            lexical.Add(statement);
+            lexical.Add(Observe(outLocal));
+            return lexical;
+        }
+
+        static BlockContainer Container()
+        {
+            var container = new BlockContainer();
+            container.Add(new Block());
+            return container;
+        }
+    }
+
     [Fact]
     public void UniqueOutArgument_RemainsAtFunctionScope()
     {
