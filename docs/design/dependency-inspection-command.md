@@ -574,6 +574,19 @@ semantics model. The Content value carries references to or copies of owner-
 issued identities and evidence plus dependency-inspection occurrence
 identities, graph endpoint indices, and stable semantic ordering.
 
+Package candidate, source failure, authority failure, manifest failure,
+restored-traversal failure, and pruning-result Content use closed portable
+projections. A package source projection retains credential-free producer
+identity and transport kind but never the configured source, credential,
+runtime source association, or acquisition correspondence. A candidate retains
+its coordinate, kind, and discovery contract but no configured authorities or
+acquisition capability. The CLI presentation aggregate may retain those live
+runtime values only for immediate compatibility rendering of the existing
+ordinary output. They are not part of the issued
+`DependencyInspectionContent`: Content construction copies only the portable
+values, so both in-memory host delivery and generated serialization are
+authority-free and remain usable after the operation ends.
+
 This selected-plan document is baseline Content for envelope adoption.
 Root-set and requested-phase completion, graph meaning, normalized
 dependencies, pruning results, and typed failures remain here whether or not
@@ -762,8 +775,8 @@ baseline consumer to understand `TEvidence`.
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption are implemented. Generated sidecar serialization and
-Browser/Wasm adoption remain proposed.
+CLI consumption, and closed generated serialization are implemented. Generated
+sidecar serialization and Browser/Wasm adoption remain proposed.
 
 The dependency service issues one named settled Document:
 
@@ -792,6 +805,14 @@ baseline root and graph facts do not become a synthetic package input. A
 zero-root `PackageInputs` outcome is therefore a complete empty package
 evidence value only when baseline Content establishes that no admitted root was
 applicable.
+
+Package-source provenance uses
+`PackageDependencyEvidenceSourceIdentity`, not the runtime
+`PackageSourceResultIdentity`. It retains credential-free producer identity,
+inert display, transport kind, and a one-based document-local association.
+The association correlates prefix completion, admitted roots, and failures
+without serializing the opaque caller association or granting acquisition
+authority.
 
 The wrapper is a Document rather than another Outcome. Package-root rejection,
 phase unavailability, incomplete evidence, and typed producer failure already
@@ -901,6 +922,14 @@ pathological fixtures. They cover:
 
 - semantic equality between the extracted `DependencyInspectionContent` and
   the existing asset-mode command projection before host rendering;
+- exclusion of configured source locations, credentials, runtime source
+  associations, acquisition correspondence, and live authority objects from
+  both in-memory Content and its generated wire form while ordinary CLI
+  rendering remains unchanged;
+- round-trip of every reachable closed candidate, manifest,
+  restored-traversal, and pruning outcome, including default immutable
+  collections, plus rejection of noncanonical framework and portable producer
+  identities;
 - exact admitted and failed occurrence association, including mixed root kinds
   and a package-prefix failure without an explicit occurrence, while rejecting
   an unassociated failure for a non-prefix request;
@@ -915,7 +944,7 @@ pathological fixtures. They cover:
   recapture; and
 - exact `asset-dependencies` version `1` framing for baseline and enriched
   forms, rejection of a missing or mismatched registration, and round-trip of
-  both concrete source-generated serializers; and
+  both concrete source-generated serializers;
 - parsed-wire equality for existing `DependsAssetDocument` JSON with and
   without the sidecar, including selected-section presence and row windows;
   rejection of standalone asset-mode `--envelope`; and
