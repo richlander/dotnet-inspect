@@ -6,6 +6,7 @@ namespace ILInspector.Analysis;
 internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
+    readonly HashSet<int> _invalidMethodTokens = [];
     readonly Dictionary<(TypeRef DeclaringType, string Name), List<MethodIdentity>>
         _methodsByDeclaringTypeAndName = [];
     readonly SameImageSignatureComparer _signatureComparer;
@@ -26,6 +27,9 @@ internal sealed class MethodDefinitionMap
             }
 
             _methodTokens.Add(method.MetadataToken);
+            if (method.HasInvalidGenericParameterDeclaration)
+                _invalidMethodTokens.Add(method.MetadataToken);
+
             var key = (method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(
                     key,
@@ -55,13 +59,15 @@ internal sealed class MethodDefinitionMap
 
     public int Resolve(DirectCall call)
     {
-        if (!TryGetDeclaringTypeParameterCount(
-                call.Caller.DeclaringType,
+        MethodIdentity scope = call.EvidenceMethod;
+        if (scope.HasInvalidGenericParameterDeclaration
+            || !TryGetDeclaringTypeParameterCount(
+                scope.DeclaringType,
                 out int callerTypeParameterCount)
             || SignatureTypeFacts.IsMalformed(
                 call.Callee.DeclaringType,
                 callerTypeParameterCount,
-                call.Caller.GenericArity))
+                scope.GenericArity))
         {
             return 0;
         }
@@ -93,7 +99,10 @@ internal sealed class MethodDefinitionMap
         if (_methodTokens.Contains(
                 calleeDefinitionToken))
         {
-            return calleeDefinitionToken;
+            return _invalidMethodTokens.Contains(
+                    calleeDefinitionToken)
+                ? 0
+                : calleeDefinitionToken;
         }
         if (callee.Kind == MemberKind.Unsupported
             || !_signatureComparer.CanResolveToCurrentModule(
@@ -151,21 +160,22 @@ internal sealed class MethodDefinitionMap
         MethodIdentity candidate,
         int declaringTypeParameterCount,
         MemberRef callee)
-        => SignatureMatches(
-            candidate.ParameterTypes,
-            candidate.ReturnType,
-            declaringTypeParameterCount,
-            candidate.GenericArity,
-            candidate.IsStatic,
-            candidate.SignatureHeader,
-            candidate.RequiredParameterCount,
-            callee.OpenSignatureParameters,
-            callee.OpenSignatureReturn,
-            callee.GenericArity,
-            callee.HasThis,
-            callee.SignatureHeader,
-            callee.RequiredParameterCount,
-            _signatureComparer.Matches);
+        => !candidate.HasInvalidGenericParameterDeclaration
+            && SignatureMatches(
+                candidate.ParameterTypes,
+                candidate.ReturnType,
+                declaringTypeParameterCount,
+                candidate.GenericArity,
+                candidate.IsStatic,
+                candidate.SignatureHeader,
+                candidate.RequiredParameterCount,
+                callee.OpenSignatureParameters,
+                callee.OpenSignatureReturn,
+                callee.GenericArity,
+                callee.HasThis,
+                callee.SignatureHeader,
+                callee.RequiredParameterCount,
+                _signatureComparer.Matches);
 
     internal static bool SignatureMatches(
         ImmutableArray<TypeRef> candidateParameterTypes,

@@ -39,7 +39,8 @@ public static class DiffHistoryInspector
                     request.WorkspaceDeadline,
                     request.ApiInspection);
             PackageVersionCellMetadataInspectionOutcome outcome =
-                await PackageVersionCellMetadataInspector.ExecuteAsync(
+                await PackageVersionCellMetadataInspector
+                    .ExecuteForApiComparisonAsync(
                         cellRequest,
                         executor,
                         cancellationToken)
@@ -76,7 +77,9 @@ public static class DiffHistoryInspector
             [.. points.Select(static point => point.Row)],
             correlation,
             transitions,
-            changedVersionAssessments);
+            changedVersionAssessments,
+            request.ComparisonOptions,
+            request.MatchAcceptanceThreshold);
         return new DiffHistoryOutcome.Available(
             new DiffHistoryDocument.ApiMembers(content));
     }
@@ -145,7 +148,7 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .NoApplicableInput(),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
 
         var matches =
@@ -192,7 +195,7 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .SubjectAbsent(),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
         if (matches.Count > 1)
         {
@@ -216,10 +219,18 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .Ambiguous(assemblies),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
 
         PackageVersionCellApiFindingSet match = matches[0];
+        ApiSurface comparisonSurface =
+            match.Assembly.Value.Surface;
+        IEnumerable<ApiSurface> contextualSurfaces =
+            api.Surfaces.Assemblies.Assemblies
+                .OfType<
+                    AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .Select(static participant =>
+                    participant.Value.Surface);
         return new(
             new(
                 cell.Address,
@@ -229,7 +240,12 @@ public static class DiffHistoryInspector
                 new DiffHistoryApiMemberSubjectResolution.Resolved(
                     Resolve(match.Assembly.Subject)),
                 participants: participants),
-            match.Assembly.Value.Surface);
+            MetadataFindings.IsApiMemberComparisonComplete(
+                comparisonSurface,
+                request.ApiInspection.TypeFullName,
+                contextualSurfaces)
+                    ? comparisonSurface
+                    : null);
     }
 
     static EvaluatedApiMembers Failed(
@@ -253,7 +269,7 @@ public static class DiffHistoryInspector
                 new DiffHistoryApiMemberSubjectResolution.Failed(),
                 projectionTruncation,
                 participants),
-            Surface: null);
+            ComparisonSurface: null);
 
     static DiffHistoryApiParticipantEvidence DetachParticipant(
         AssemblyContextEntry<AssemblyApiSurface> participant)
@@ -432,8 +448,8 @@ public static class DiffHistoryInspector
         }
 
         return MetadataFindings.CompareApiMembers(
-            source.Surface,
-            destination.Surface,
+            source.ComparisonSurface,
+            destination.ComparisonSurface,
             Subject(request.ApiInspection.TypeFullName),
             request.ApiInspection.TypeFullName,
             request.ComparisonOptions,
@@ -445,5 +461,5 @@ public static class DiffHistoryInspector
 
     sealed record EvaluatedApiMembers(
         DiffHistoryApiMemberEvaluation Row,
-        ApiSurface? Surface);
+        ApiSurface? ComparisonSurface);
 }

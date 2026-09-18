@@ -13,8 +13,12 @@ The first shared terminal slice is tracked by
 already-settled package population and exact full or sparse evaluation
 selection, evaluates Count-free whole-Type `api.member` censuses, and returns
 the typed resource-free Document through `InspectionEnvelope<DiffHistoryOutcome>`.
-Population discovery, Count, exact-Member Analysis, serializer/output
-lowering, and host adoption remain later slices.
+The second shared terminal slice is tracked by
+[#7229](https://github.com/richlander/dotnet-inspect/issues/7229): it makes
+Changed Versions an evidence-bearing row cohort and binds optional exact Count
+success or typed Count non-success into that same available Outcome. Population
+discovery, exact-Member Analysis, serializer/output lowering, and host adoption
+remain later slices.
 
 The **Diff History inspection** owner defines temporal inspection and the
 related metadata-only version-population reduction:
@@ -705,7 +709,10 @@ The CLI cutover in #7126 retires the old selected-cohort Timeline count and
 no-`--at` discovery behavior, disclosing the changed unit and evaluation
 authorization under the existing breaking-change policy. There is no
 compatibility alias or second host counting algorithm.
-Issue #7229 continues to track the unimplemented Count adoption and its evidence.
+Issue #7229 tracks the shared Count terminal and its remaining CLI and
+Browser/Wasm adoption. The host-neutral Type Count implementation and evidence
+are complete; command admission, rendering, and both production consumers
+remain downstream.
 
 Call Graph/canvas, Library-wide History, and the future duration example remain
 outside that path. The new envelope requirement does not hold already-shipped

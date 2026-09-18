@@ -9,8 +9,11 @@ const beforeSource = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE;
 const afterSource = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE;
 
 async function openPublishedSite(page: Page): Promise<void> {
-  await page.goto(site!, { waitUntil: "networkidle" });
-  await page.setContent("<!doctype html><title>Source facade test</title>");
+  await page.route(site!, route => route.fulfill({
+    contentType: "text/html",
+    body: "<!doctype html><title>Source facade test</title>",
+  }), { times: 1 });
+  await page.goto(site!, { waitUntil: "domcontentloaded" });
   await page.evaluate(async origin => {
     const host = await import("/inspect-web-host.js");
     const packages = await import("/inspect-web-package.js");
