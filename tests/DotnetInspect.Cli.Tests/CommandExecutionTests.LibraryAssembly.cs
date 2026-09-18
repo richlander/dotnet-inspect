@@ -3012,6 +3012,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(
+            coordinatePath,
+            ["0x06000001+0x2", "0x06000001+0x0"],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "@Context",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Context: Member", output);
+            Assert.Contains("Context: Instruction", output);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields()
     {
         var (token, offset) = FindIlCoordinate(
@@ -3045,6 +3081,68 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("| Operand Token | field |", output);
             Assert.DoesNotContain("| Branch Targets | field |", output);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersListFields()
+    {
+        int catchToken = typeof(ILOffsetExceptionFixture)
+            .GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!
+            .MetadataToken;
+        int filterToken = typeof(ILOffsetExceptionFixture)
+            .GetMethod(nameof(ILOffsetExceptionFixture.FilteredCatch))!
+            .MetadataToken;
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{catchToken:X8}+0x1",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Exception",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain("| Filter Range | column |", singleOutput);
+
+            await File.AppendAllTextAsync(
+                coordinatePath,
+                $"{Environment.NewLine}0x{filterToken:X8}+0x1",
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Exception",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains("| Filter Range | column |", unionOutput);
         }
         finally
         {

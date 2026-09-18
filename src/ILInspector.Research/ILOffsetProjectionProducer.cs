@@ -68,7 +68,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (instructionContext is null
-            && Includes(request, ILOffsetProjectionCapabilities.InstructionContext))
+            && Includes(request, ILOffsetProjectionCapabilities.InstructionContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.InstructionUnavailable,
@@ -101,7 +102,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (callsiteError is not null
-            && Includes(request, ILOffsetProjectionCapabilities.CallsiteContext))
+            && Includes(request, ILOffsetProjectionCapabilities.CallsiteContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.CallsiteUnavailable,
@@ -121,7 +123,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (returnAddressError is not null
-            && Includes(request, ILOffsetProjectionCapabilities.ReturnAddressContext))
+            && Includes(request, ILOffsetProjectionCapabilities.ReturnAddressContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.ReturnAddressUnavailable,

@@ -222,8 +222,12 @@ Release CLI gates cover:
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
   for population-wide evidence availability; and
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields` and
+  `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersListFields` and
   `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields` for
-  population-wide field presence across list and scalar contexts.
+  population-wide field presence across list and scalar contexts; and
+- `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
+  for preserving section evidence when a coordinate is not an instruction
+  boundary.
 
 ## Other candidate surfaces
 

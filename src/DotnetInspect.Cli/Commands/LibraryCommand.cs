@@ -1636,7 +1636,8 @@ public class LibraryCommand
         bool isPlatformAssembly,
         LibraryOptions options,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool allowNonBoundaryContextAbsence = false)
     {
         var queryOptions = options with
         {
@@ -1654,14 +1655,23 @@ public class LibraryCommand
             Urls = false,
             Paths = false
         };
-        return ILOffsetQuery.ResolveBatchAsync(
-            service,
-            packageName,
-            packageVersion,
-            isPlatformAssembly,
-            queryOptions,
-            httpClient,
-            logger);
+        return allowNonBoundaryContextAbsence
+            ? ILOffsetQuery.ResolveDiscoveryAsync(
+                service,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                queryOptions,
+                httpClient,
+                logger)
+            : ILOffsetQuery.ResolveBatchAsync(
+                service,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                queryOptions,
+                httpClient,
+                logger);
     }
 
     private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
@@ -2287,7 +2297,8 @@ public class LibraryCommand
                 isPlatformAssembly,
                 options,
                 httpClient,
-                logger);
+                logger,
+                allowNonBoundaryContextAbsence: true);
             if (resolved.Result is { } result)
             {
                 projections.Add(result);
@@ -3428,7 +3439,7 @@ public class LibraryCommand
             writerOpts,
             schema);
 
-        return DiscoverOutput.FilterSchemaToRenderedFields(
+        return DiscoverOutput.FilterSchemaToRenderedItems(
             effectiveSections,
             schema,
             renderManifest,

@@ -1069,6 +1069,18 @@ public partial class CommandExecutionTests
                 GC.KeepAlive(value);
             }
         }
+
+        public int FilteredCatch(int value)
+        {
+            try
+            {
+                return 100 / value;
+            }
+            catch (DivideByZeroException) when (value == 0)
+            {
+                return -1;
+            }
+        }
     }
 
     private sealed class ILOffsetFunctionPointerFixture

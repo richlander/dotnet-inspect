@@ -32,7 +32,8 @@ internal static class ILOffsetQuery
             options,
             httpClient,
             logger,
-            writeErrors: true);
+            writeErrors: true,
+            allowNonBoundaryContextAbsence: false);
 
     internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)> ResolveBatchAsync(
         SourceLinkService service,
@@ -51,7 +52,31 @@ internal static class ILOffsetQuery
             options,
             httpClient,
             logger,
-            writeErrors: false);
+            writeErrors: false,
+            allowNonBoundaryContextAbsence: false);
+        return (exitCode, result, exitCode == 0 ? null : "could not resolve");
+    }
+
+    internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)>
+        ResolveDiscoveryAsync(
+            SourceLinkService service,
+            string? packageName,
+            string? packageVersion,
+            bool isPlatformAssembly,
+            LibraryOptions options,
+            HttpClient httpClient,
+            VerboseLogger logger)
+    {
+        var (exitCode, result) = await ResolveAsync(
+            service,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            options,
+            httpClient,
+            logger,
+            writeErrors: false,
+            allowNonBoundaryContextAbsence: true);
         return (exitCode, result, exitCode == 0 ? null : "could not resolve");
     }
 
@@ -63,7 +88,8 @@ internal static class ILOffsetQuery
         LibraryOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool writeErrors)
+        bool writeErrors,
+        bool allowNonBoundaryContextAbsence)
     {
         if (options.CoordinateRequest
             is not LibraryCoordinateRequest.IlPoint coordinate)
@@ -94,7 +120,9 @@ internal static class ILOffsetQuery
             coordinate.ILOffset,
             capabilities,
             options.BrowsableUrls,
-            logger.Log));
+            logger.Log,
+            AllowNonBoundaryContextAbsence:
+                allowNonBoundaryContextAbsence));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
