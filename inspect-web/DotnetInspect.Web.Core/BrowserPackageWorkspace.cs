@@ -44,6 +44,12 @@ internal sealed record BrowserPackageAcquisition(
     BrowserPackage Package,
     InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement);
 
+internal sealed record BrowserPackageRealization(
+    BrowserPackageCoordinate Coordinate,
+    string SelectionRequest,
+    InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement,
+    InspectionEnvelope<PackageInfoMeasurements> PackageInfo);
+
 internal abstract record BrowserPackageAcquisitionResult
 {
     private BrowserPackageAcquisitionResult() { }
@@ -54,6 +60,18 @@ internal abstract record BrowserPackageAcquisitionResult
     internal sealed record NotSettled(
         InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement)
         : BrowserPackageAcquisitionResult;
+}
+
+internal abstract record BrowserPackageRealizationResult
+{
+    private BrowserPackageRealizationResult() { }
+
+    internal sealed record Realized(BrowserPackageRealization Realization)
+        : BrowserPackageRealizationResult;
+
+    internal sealed record NotSettled(
+        InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement)
+        : BrowserPackageRealizationResult;
 }
 
 /// <summary>
@@ -206,6 +224,10 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
     static readonly Dictionary<PendingAcquisitionKey, BrowserSharedPackageAcquisition>
         PendingAcquisitions = [];
+    static readonly Dictionary<
+        PendingRealizationKey,
+        BrowserSharedOperation<BrowserPackageRealizationResult>>
+        PendingRealizations = [];
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
@@ -229,7 +251,9 @@ internal static class BrowserPackageWorkspace
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
 
     static BrowserSessionPackageStore StoreFor(IPackageSourceClient source) =>
-        SourceStores.GetValue(source, static _ => new BrowserSessionPackageStore());
+        SourceStores.GetValue(
+            source,
+            static client => new BrowserSessionPackageStore(client));
 
     sealed record CacheEntry
     {
@@ -311,6 +335,21 @@ internal static class BrowserPackageWorkspace
             PackageOperationTimeout,
             cancellationToken);
 
+    internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => RealizeCoreAsync(
+                packageId,
+                version,
+                targetFramework,
+                Gallery,
+                deadline),
+            PackageOperationTimeout,
+            cancellationToken);
+
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
         string? version,
@@ -368,6 +407,203 @@ internal static class BrowserPackageWorkspace
                 epochWork),
             operationTimeout,
             cancellationToken);
+
+    internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken) =>
+        RunPackageOperationAsync(
+            deadline => RealizeCoreAsync(
+                packageId,
+                version,
+                targetFramework,
+                source,
+                deadline),
+            operationTimeout,
+            cancellationToken);
+
+    static async Task<BrowserPackageRealizationResult> RealizeCoreAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+
+        string? requestedVersion =
+            string.IsNullOrWhiteSpace(version)
+            || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : version;
+        string normalizedPackageId = packageId.ToLowerInvariant();
+        var pendingKey = new PendingRealizationKey(
+            RealizationRequestKey(
+                packageId,
+                requestedVersion,
+                targetFramework),
+            source);
+        BrowserSharedOperation<BrowserPackageRealizationResult> pending;
+        bool created = false;
+        lock (PendingRealizations)
+        {
+            if (PendingRealizations.TryGetValue(pendingKey, out var existing)
+                && !existing.IsCompleted)
+            {
+                pending = existing;
+            }
+            else
+            {
+                TimeSpan remaining = deadline.Remaining;
+                pending = new BrowserSharedOperation<BrowserPackageRealizationResult>(
+                    () => RunPackageOperationAsync(
+                        sharedDeadline => RealizeOneAsync(
+                            packageId,
+                            normalizedPackageId,
+                            requestedVersion,
+                            targetFramework,
+                            source,
+                            sharedDeadline),
+                        remaining),
+                    BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
+                    "Package realization");
+                PendingRealizations[pendingKey] = pending;
+                created = true;
+            }
+        }
+        if (created)
+            ObserveAndRemovePendingRealization(pendingKey, pending);
+
+        return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+    }
+
+    static async Task<BrowserPackageRealizationResult> RealizeOneAsync(
+        string packageId,
+        string normalizedPackageId,
+        string? requestedVersion,
+        string? targetFramework,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
+        var coordinateRequest = new PackageCoordinate(
+            normalizedPackageId,
+            requestedVersion);
+        InspectionEnvelope<PackageVersionSettlementOutcome> versionSettlement =
+            await SettleCoordinateAsync(
+                coordinateRequest,
+                source,
+                deadline,
+                deadline.Token).ConfigureAwait(false);
+        if (versionSettlement.Content
+            is PackageVersionSettlementOutcome.NotSettled)
+        {
+            return new BrowserPackageRealizationResult.NotSettled(
+                versionSettlement);
+        }
+
+        var settled = (PackageVersionSettlementOutcome.Settled)
+            versionSettlement.Content;
+        PackageHouseTargetContext targetContext =
+            string.IsNullOrWhiteSpace(targetFramework)
+                ? PackageHouseTargetContext.OwnerDefault()
+                : PackageHouseTargetContext.Exact(targetFramework);
+        TimeSpan operationTimeout =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize,
+            requestTimeout: operationTimeout,
+            operationTimeout: operationTimeout);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(settled.Result.Coordinate),
+            operation,
+            targetContext,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+        BrowserSessionPackageStore store = StoreFor(source);
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "The package realization requested another configured source."));
+        using PackageSourceOperationLease sourceOperation =
+            sourceLease.IssueOperationLease(
+                deadline.Token,
+                operation.RequestTimeout,
+                operation.OperationTimeout);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan(
+                (authority, _) => ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                    ? store
+                    : throw new InvalidOperationException(
+                        "The package realization requested another configured source."),
+                PayloadLimits,
+                new BrowserPackageOperationTransferPolicy(
+                    store,
+                    deadline)));
+        PackageHouseSettlement houseSettlement =
+            await house.ExecuteAsync(
+                request,
+                sourceOperation).ConfigureAwait(false);
+        if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
+        {
+            throw new InvalidOperationException(
+                "Package realization did not acquire the settled package "
+                + $"({DescribePackageHouseResult(houseSettlement.Result)}).");
+        }
+        if (PackageHouseRootContributionAdapter.Create(houseSettlement)
+            is not PackageHouseRootContributionOutcome.Contributed contributed)
+        {
+            throw new InvalidOperationException(
+                "Package realization did not produce a reusable package Root "
+                + $"({DescribePackageHouseResult(houseSettlement.Result)}).");
+        }
+
+        string key = store.PackageKey(
+            acquired.Payload.Coordinate.PackageId,
+            acquired.Payload.Coordinate.Version);
+        if (!Cache.TryGetValue(key, out CacheEntry? cached)
+            || !store.ProducerKeysMatch(
+                cached.ProducerKey,
+                acquired.Payload.ProducerKey)
+            || !ReferenceEquals(
+                cached.Content.GenerationIdentity,
+                acquired.Payload.Content.GenerationIdentity))
+        {
+            throw new InvalidOperationException(
+                "PackageHouse realization did not publish the acquired generation "
+                + "in the Browser cache.");
+        }
+
+        Cache[key] = cached with { LastAccess = ++_clock };
+        var package = new BrowserPackage(
+            packageId,
+            acquired.Payload,
+            cached.Bytes,
+            store);
+        var coordinate = new BrowserPackageCoordinate(
+            package,
+            contributed.Contribution.Binding);
+        return new BrowserPackageRealizationResult.Realized(
+            new BrowserPackageRealization(
+                coordinate,
+                SelectionRequestToken(targetFramework),
+                versionSettlement,
+                PackageInfoMeasurementInspection.Project(acquired)));
+    }
 
     static async Task<BrowserPackageAcquisitionResult> AcquireCoreAsync(
         string packageId,
@@ -440,9 +676,9 @@ internal static class BrowserPackageWorkspace
             await pending.WaitAsync(waitCancellation.Token).ConfigureAwait(false);
 
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !cached.ProducerKey.Equals(
-                payload.ProducerKey,
-                StringComparison.Ordinal)
+            || !store.ProducerKeysMatch(
+                cached.ProducerKey,
+                payload.ProducerKey)
             || !ReferenceEquals(
                 cached.Content.GenerationIdentity,
                 payload.Content.GenerationIdentity))
@@ -875,7 +1111,9 @@ internal static class BrowserPackageWorkspace
             available.Payload.Coordinate.PackageId,
             available.Payload.Coordinate.Version);
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !cached.ProducerKey.Equals(available.Payload.ProducerKey, StringComparison.Ordinal)
+            || !store.ProducerKeysMatch(
+                cached.ProducerKey,
+                available.Payload.ProducerKey)
             || !ReferenceEquals(cached.Content.GenerationIdentity, available.Payload.Content.GenerationIdentity))
         {
             throw new InvalidOperationException(
@@ -956,6 +1194,31 @@ internal static class BrowserPackageWorkspace
     }
 
     /// <summary>
+    /// Opens — or joins — the ordinary package workspace for a PackageHouse realization. The
+    /// first request constructs the workspace from the exact contributed Root. A later equivalent
+    /// request may join it by acquired generation and selection request even though PackageHouse
+    /// issued a fresh binding for that request.
+    /// </summary>
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        BrowserPackageRealization realization,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(realization);
+        BrowserPackageCoordinate coordinate = realization.Coordinate;
+        string packageKey = PackageKey(coordinate);
+        var demand = new UnboundScopeDemand(
+            packageKey,
+            realization.SelectionRequest,
+            coordinate.Package.Content.ProducerKey,
+            coordinate.Package.Content.GenerationIdentity);
+        return OpenPackageScopeAsync(
+            demand,
+            [coordinate],
+            cancellationToken,
+            requireExactCoordinatesOnJoin: false);
+    }
+
+    /// <summary>
     /// Joins a retained workspace for this demand, or reserves a counted entry and builds one.
     /// The entry's full image allowance is reserved before construction starts, and the caller's
     /// protected use is taken before it suspends.
@@ -963,7 +1226,8 @@ internal static class BrowserPackageWorkspace
     static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenPackageScopeAsync(
         ScopeDemand demand,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireExactCoordinatesOnJoin = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var construction = new PackageLeaseSet();
@@ -977,17 +1241,26 @@ internal static class BrowserPackageWorkspace
                 packageKeys,
                 cancellationToken)
             .ConfigureAwait(false);
-        return await UseAdmittedPackageScopeAsync(admission, coordinates, cancellationToken)
+        return await UseAdmittedPackageScopeAsync(
+                admission,
+                coordinates,
+                cancellationToken,
+                requireExactCoordinatesOnJoin)
             .ConfigureAwait(false);
     }
 
     static Task<BrowserScopeLease<BrowserInspectionScope>> UseAdmittedPackageScopeAsync(
         ScopeAdmission admission,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireExactCoordinatesOnJoin = true)
     {
         if (!admission.IsNew)
-            return UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken);
+        {
+            return requireExactCoordinatesOnJoin
+                ? UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken)
+                : UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken);
+        }
 
         ScopeEntry entry = admission.Use.Entry;
         entry.Key = PackageScopeKey(coordinates);
@@ -1631,6 +1904,17 @@ internal static class BrowserPackageWorkspace
             ? "(default)"
             : targetFramework.Trim().ToLowerInvariant();
 
+    static string RealizationRequestKey(
+        string packageId,
+        string? requestedVersion,
+        string? targetFramework) =>
+        CompositeKey(
+            packageId,
+            requestedVersion is null ? "floating" : "exact",
+            requestedVersion ?? "",
+            string.IsNullOrWhiteSpace(targetFramework) ? "default" : "exact",
+            targetFramework ?? "");
+
     /// <summary>
     /// Resolves and temporarily leases every requested coordinate until the aggregate workspace
     /// entry owns them. A later package acquisition cannot evict an earlier coordinate while a
@@ -1872,6 +2156,29 @@ internal static class BrowserPackageWorkspace
             TaskScheduler.Default);
     }
 
+    static void ObserveAndRemovePendingRealization(
+        PendingRealizationKey key,
+        BrowserSharedOperation<BrowserPackageRealizationResult> realization)
+    {
+        _ = realization.Completion.ContinueWith(
+            completed =>
+            {
+                lock (PendingRealizations)
+                {
+                    if (PendingRealizations.TryGetValue(key, out var current)
+                        && ReferenceEquals(current, realization))
+                    {
+                        PendingRealizations.Remove(key);
+                    }
+                }
+
+                _ = completed.Exception;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
     internal sealed class PendingAcquisitionKey
         : IEquatable<PendingAcquisitionKey>
     {
@@ -1901,6 +2208,38 @@ internal static class BrowserPackageWorkspace
         public override int GetHashCode() =>
             HashCode.Combine(
                 StringComparer.Ordinal.GetHashCode(_coordinateKey),
+                RuntimeHelpers.GetHashCode(_source));
+    }
+
+    internal sealed class PendingRealizationKey
+        : IEquatable<PendingRealizationKey>
+    {
+        readonly string _requestKey;
+        readonly IPackageSourceClient _source;
+
+        internal PendingRealizationKey(
+            string requestKey,
+            IPackageSourceClient source)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(requestKey);
+            ArgumentNullException.ThrowIfNull(source);
+            _requestKey = requestKey;
+            _source = source;
+        }
+
+        public bool Equals(PendingRealizationKey? other) =>
+            other is not null
+            && _requestKey.Equals(
+                other._requestKey,
+                StringComparison.Ordinal)
+            && ReferenceEquals(_source, other._source);
+
+        public override bool Equals(object? obj) =>
+            obj is PendingRealizationKey other && Equals(other);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.Ordinal.GetHashCode(_requestKey),
                 RuntimeHelpers.GetHashCode(_source));
     }
 
@@ -2369,9 +2708,9 @@ internal static class BrowserPackageWorkspace
                 || !ReferenceEquals(
                     entry.Bytes,
                     coordinate.Package.RetainedBytes)
-                || !entry.ProducerKey.Equals(
-                    coordinate.Root.ProducerKey,
-                    StringComparison.Ordinal))
+                || !ReferenceEquals(
+                    entry.Content.GenerationIdentity,
+                    coordinate.Package.Content.GenerationIdentity))
             {
                 throw new InvalidOperationException(
                     "A resolved browser package escaped aggregate cache accounting before its "
@@ -2837,12 +3176,30 @@ internal static class BrowserPackageWorkspace
     internal sealed class BrowserSessionPackageStore
         : IPackageStore, IPackagePayloadTransferPolicy
     {
+        readonly string[] _producerKeys;
+
         // This namespace represents one exact runtime client, not its producer or endpoint.
         // Only the adapter is per-client; all retained state and budgets remain session-wide.
         readonly string _cacheNamespace = Guid.NewGuid().ToString("N");
 
+        internal BrowserSessionPackageStore(IPackageSourceClient source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            _producerKeys =
+            [
+                source.Source.Producer.Key,
+                NuGetCache.GetSourceKey(
+                    ConfiguredSourceIdentityFor(source).Value),
+            ];
+        }
+
         internal string PackageKey(string packageId, string version) =>
             CompositeKey(_cacheNamespace, CoordinateKey(packageId, version));
+
+        internal bool ProducerKeysMatch(string left, string right) =>
+            left.Equals(right, StringComparison.Ordinal)
+            || _producerKeys.Contains(left, StringComparer.Ordinal)
+                && _producerKeys.Contains(right, StringComparer.Ordinal);
 
         public IPackageContent? TryGetCached(
             string packageName,
@@ -2852,17 +3209,20 @@ internal static class BrowserPackageWorkspace
         {
             string key = PackageKey(packageName, version);
             if (!Cache.TryGetValue(key, out CacheEntry? entry)
-                || allowedSourceKeys is null
-                || !allowedSourceKeys.Contains(
-                    entry.ProducerKey,
-                    StringComparer.Ordinal))
+                || allowedSourceKeys is null)
             {
                 return null;
             }
+            string? producerKey = allowedSourceKeys.FirstOrDefault(
+                candidate => ProducerKeysMatch(
+                    entry.ProducerKey,
+                    candidate));
+            if (producerKey is null)
+                return null;
 
             Cache[key] = entry with { LastAccess = ++_clock };
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return entry.Content.AsCacheHit();
+            return entry.Content.AsCacheHitForProducer(producerKey);
         }
 
         public async ValueTask<IPackageContent> CommitAsync(
@@ -2876,6 +3236,11 @@ internal static class BrowserPackageWorkspace
             ArgumentException.ThrowIfNullOrWhiteSpace(version);
             ArgumentException.ThrowIfNullOrWhiteSpace(sourceKey);
             ArgumentNullException.ThrowIfNull(nupkg);
+            if (!_producerKeys.Contains(sourceKey, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The Browser package store rejected content from another producer.");
+            }
 
             string key = PackageKey(packageName, version);
             if (!Reservations.TryGetValue(

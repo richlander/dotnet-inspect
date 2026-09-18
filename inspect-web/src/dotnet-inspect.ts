@@ -127,6 +127,7 @@ import {
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
+  createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
@@ -245,6 +246,7 @@ import {
   renderOverviewSurface,
   renderPackageOverviewContent,
 } from "./overview-surface.ts";
+import { renderPackageInfo } from "./package-info.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
@@ -4421,7 +4423,10 @@ async function activateWorkspacePackageOccurrence(action: string) {
     return;
   }
 
-  const packageModel = createNuGetPackageModel(result.package);
+  const packageModel = createWorkspaceOccurrencePackageModel(
+    result.package,
+    state.package,
+    state.packages);
   retainPackageModel(packageModel);
   selectWorkspacePackage(packageModel, { navigationSeq });
 }
@@ -7526,6 +7531,9 @@ function renderPackageOverview() {
     </section>`;
   const contentHtml = renderPackageOverviewContent({
     inventoryHtml,
+    packageInfoHtml: pkg.packageInfo
+      ? renderPackageInfo(pkg.packageInfo, escapeHtml)
+      : "",
     comparisonHtml,
     documentsHtml: documentsSection,
   });

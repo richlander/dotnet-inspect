@@ -25,6 +25,22 @@ public sealed record PackageReferenceArtifactProvenance(
     AssemblyReferenceIdentity Identity) : IArtifactProvenance;
 
 /// <summary>
+/// Resource-free provenance for one package-backed reference compiled-XML
+/// companion snapshot.
+/// </summary>
+public sealed record PackageReferenceDocumentationArtifactProvenance(
+    PackagePlatformSourceGeneration SourceGeneration,
+    PackageReferencePackCoordinate Coordinate,
+    string Path,
+    PackageAcquisitionCandidate Candidate,
+    ConfiguredPackageAuthority Authority,
+    PackageSourceResultIdentity Source,
+    PackageContentGenerationIdentity ContentGeneration,
+    PackagePayloadOrigin Origin,
+    AssemblyReferenceIdentity AssociatedAssemblyIdentity) :
+    IArtifactProvenance;
+
+/// <summary>
 /// Resource-free provenance for one package-backed implementation assembly
 /// snapshot.
 /// </summary>
@@ -590,7 +606,22 @@ public static class PackagePlatformLibraryMaterializer
                 library.Identity),
             library.Identity,
             library.ContentLength,
-            _ => library.OpenRead());
+            _ => library.OpenRead(),
+            library.Documentation is not { } documentation
+                ? null
+                : new(
+                    new PackageReferenceDocumentationArtifactProvenance(
+                        reference.Value.Generation,
+                        reference.Value.Coordinate,
+                        documentation.Path,
+                        reference.Value.Candidate,
+                        reference.Value.Authority,
+                        reference.Value.Source,
+                        reference.Value.ContentGeneration,
+                        reference.Value.Origin,
+                        library.Identity),
+                    documentation.ContentLength,
+                    _ => documentation.OpenRead()));
 
     static PlatformLibraryArtifactMaterializationItem ImplementationItem(
         PackagePlatformHouseResult<

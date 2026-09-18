@@ -13,6 +13,31 @@ internal enum PlatformLibraryArtifactPreparationKind
 }
 
 /// <summary>
+/// One source-prepared immutable companion snapshot for the common Platform
+/// Artifact and Library handoff.
+/// </summary>
+public sealed class PlatformLibraryArtifactCompanionMaterializationItem
+{
+    public PlatformLibraryArtifactCompanionMaterializationItem(
+        IArtifactProvenance provenance,
+        long contentLength,
+        Func<CancellationToken, Stream> openRead)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        ArgumentOutOfRangeException.ThrowIfNegative(contentLength);
+        ArgumentNullException.ThrowIfNull(openRead);
+        Provenance = provenance;
+        ContentLength = contentLength;
+        OpenRead = openRead;
+    }
+
+    internal IArtifactProvenance Provenance { get; }
+    internal long ContentLength { get; }
+    internal Func<CancellationToken, Stream> OpenRead { get; }
+    internal ArtifactIdentity? ArtifactIdentity { get; set; }
+}
+
+/// <summary>
 /// One source-prepared immutable assembly snapshot for the common Platform
 /// Artifact and Library handoff.
 /// </summary>
@@ -23,7 +48,9 @@ public sealed class PlatformLibraryArtifactMaterializationItem
         IArtifactProvenance provenance,
         AssemblyReferenceIdentity identity,
         long contentLength,
-        Func<CancellationToken, Stream> openRead)
+        Func<CancellationToken, Stream> openRead,
+        PlatformLibraryArtifactCompanionMaterializationItem?
+            compiledXmlDocumentation = null)
     {
         ArgumentNullException.ThrowIfNull(contribution);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -35,6 +62,8 @@ public sealed class PlatformLibraryArtifactMaterializationItem
         Identity = identity;
         ContentLength = contentLength;
         OpenRead = openRead;
+        CompiledXmlDocumentation =
+            compiledXmlDocumentation;
     }
 
     internal PlatformSourceContribution.Realization Contribution { get; }
@@ -42,6 +71,8 @@ public sealed class PlatformLibraryArtifactMaterializationItem
     internal AssemblyReferenceIdentity Identity { get; }
     internal long ContentLength { get; }
     internal Func<CancellationToken, Stream> OpenRead { get; }
+    internal PlatformLibraryArtifactCompanionMaterializationItem?
+        CompiledXmlDocumentation { get; }
     internal ArtifactIdentity? ArtifactIdentity { get; set; }
 }
 
@@ -55,6 +86,10 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
         Items = items;
         TotalContentLength = totalContentLength;
         MaxContentLength = maxContentLength;
+        ArtifactCount = items.Count
+            + items.Count(
+                static item =>
+                    item.CompiledXmlDocumentation is not null);
     }
 
     internal IReadOnlyList<PlatformLibraryArtifactMaterializationItem> Items
@@ -64,6 +99,7 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
 
     internal long TotalContentLength { get; }
     internal int MaxContentLength { get; }
+    internal int ArtifactCount { get; }
     internal IEnumerable<PlatformSourceContribution> Contributions =>
         Items.Select(static item => item.Contribution);
 
@@ -131,11 +167,33 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
             }
         }
 
+        bool compiledXmlRequested =
+            operation.ContentDemand.HasFlag(
+                PlatformLibraryContentDemand
+                    .CompiledXmlDocumentation);
+        int compiledXmlCount = items.Count(
+            static item =>
+                item.CompiledXmlDocumentation is not null);
+        if ((!compiledXmlRequested && compiledXmlCount != 0)
+            || compiledXmlCount > 1
+            || consumedWork.XmlDocuments < compiledXmlCount
+            || items.Any(
+                item =>
+                    item.CompiledXmlDocumentation is not null
+                    && item.Contribution.Facet
+                        != PlatformSourceFacet.Reference))
+        {
+            return PlatformLibraryArtifactPreparationKind.Invalid;
+        }
+
         long totalContentLength;
         try
         {
             totalContentLength = checked(items.Sum(
-                static item => item.ContentLength));
+                static item =>
+                    item.ContentLength
+                    + (item.CompiledXmlDocumentation?.ContentLength
+                        ?? 0)));
         }
         catch (OverflowException)
         {
@@ -154,8 +212,13 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
         plan = new(
             items,
             totalContentLength,
-            checked((int)items.Max(
-                static item => item.ContentLength)));
+            checked(
+                (int)items.Max(
+                    static item => Math.Max(
+                        item.ContentLength,
+                        item.CompiledXmlDocumentation
+                            ?.ContentLength
+                            ?? 0))));
         return PlatformLibraryArtifactPreparationKind.Prepared;
     }
 }
@@ -274,12 +337,12 @@ public static class PlatformHouseArtifactMaterializer
         var session = new ArtifactSetSession(
             new ArtifactSetSessionLimits
             {
-                MaxArtifacts = preparedPlan.Items.Count,
+                MaxArtifacts = preparedPlan.ArtifactCount,
                 MaxArtifactBytes = preparedPlan.MaxContentLength,
                 MaxRetainedBytes = preparedPlan.TotalContentLength,
             });
         var contentLeases = new List<ArtifactContentLease>(
-            preparedPlan.Items.Count);
+            preparedPlan.ArtifactCount);
         ArtifactQueryLease? queryLease = null;
         try
         {
@@ -306,6 +369,26 @@ public static class PlatformHouseArtifactMaterializer
                                 contribution.Descriptor.Identity;
                             item.ArtifactIdentity = identity;
                             artifactIdentities.Add(identity);
+                        }
+                        foreach (
+                            PlatformLibraryArtifactMaterializationItem item
+                            in preparedPlan.Items)
+                        {
+                            PlatformLibraryArtifactCompanionMaterializationItem?
+                                documentation =
+                                    item.CompiledXmlDocumentation;
+                            if (documentation is null)
+                                continue;
+
+                            ArtifactContribution contribution =
+                                scope.Register(
+                                    new PlatformLibraryArtifactProvenance(
+                                        item.Contribution,
+                                        documentation.Provenance),
+                                    documentation.OpenRead);
+                            contributions.Add(contribution);
+                            documentation.ArtifactIdentity =
+                                contribution.Descriptor.Identity;
                         }
                         return ValueTask.FromResult<
                             ArtifactAcquisitionOutcome>(
@@ -367,6 +450,27 @@ public static class PlatformHouseArtifactMaterializer
                         content,
                         queryLease));
             }
+            ArtifactContentReference? compiledXmlDocumentation =
+                null;
+            PlatformLibraryArtifactCompanionMaterializationItem?
+                documentationItem =
+                    preparedPlan.Items
+                        .Select(
+                            static item =>
+                                item.CompiledXmlDocumentation)
+                        .SingleOrDefault(
+                            static item => item is not null);
+            if (documentationItem is not null)
+            {
+                compiledXmlDocumentation =
+                    session.GetContentReference(
+                        documentationItem.ArtifactIdentity!,
+                        queryLease);
+                contentLeases.Add(
+                    session.IssueContentLease(
+                        compiledXmlDocumentation,
+                        queryLease));
+            }
             queryLease.Dispose();
             queryLease = null;
 
@@ -375,6 +479,7 @@ public static class PlatformHouseArtifactMaterializer
                     request,
                     view,
                     selections,
+                    compiledXmlDocumentation,
                     contentLeases,
                     consumedWork,
                     identityPrefix);
@@ -448,6 +553,16 @@ public static class PlatformHouseArtifactMaterializer
         string identityPrefix,
         CancellationToken cancellationToken)
     {
+        ArtifactIdentity artifact = view.Artifact;
+        if (plan.Items.Any(
+                item => ReferenceEquals(
+                    item.CompiledXmlDocumentation
+                        ?.ArtifactIdentity,
+                    artifact)))
+        {
+            return null;
+        }
+
         ArtifactAssemblyProjectionOutcome outcome =
             ArtifactAssemblyInspection.Project(
                 view,
@@ -460,7 +575,6 @@ public static class PlatformHouseArtifactMaterializer
                 "Metadata could not project one Platform assembly snapshot.");
         }
 
-        ArtifactIdentity artifact = view.Artifact;
         PlatformLibraryArtifactMaterializationItem item =
             plan.Items.Single(
                 candidate => ReferenceEquals(
@@ -483,25 +597,35 @@ public static class PlatformHouseArtifactMaterializer
         PlatformHouseRequest request,
         PlatformViewDemand view,
         IReadOnlyList<PlatformLibraryContentSelection> selections,
+        ArtifactContentReference? compiledXmlDocumentation,
         IReadOnlyList<ArtifactContentLease> leases,
         PlatformHouseConsumedWork consumedWork,
         string identityPrefix) =>
         view switch
         {
             PlatformViewDemand.Reference =>
-                PlatformHouseLibraryRealizer.RealizeReference(
+                PlatformHouseLibraryRealizer
+                    .RealizeReferenceWithCompanion(
                     request,
                     selections[0],
                     leases[0],
+                    compiledXmlDocumentation,
+                    compiledXmlDocumentation is null
+                        ? null
+                        : leases[^1],
                     consumedWork),
             PlatformViewDemand.ReferenceAndImplementation =>
                 PlatformHouseLibraryRealizer
-                    .RealizeReferenceAndImplementation(
+                    .RealizeReferenceAndImplementationWithCompanion(
                         request,
                         selections[0],
                         leases[0],
                         selections[1],
                         leases[1],
+                        compiledXmlDocumentation,
+                        compiledXmlDocumentation is null
+                            ? null
+                            : leases[^1],
                         new PlatformLibraryViewCorrespondence(
                             selections[0],
                             selections[1],
