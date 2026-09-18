@@ -149,7 +149,9 @@ LibraryBodyIndex index =
 
 Inspect Web continues to consume the same method evidence and ranked
 optimization opportunities through its existing query exports. The change is
-architectural: the result no longer acts as the production service.
+architectural: the result no longer acts as the production service. The
+browser host remains compiler-banned from calling the Analysis service
+directly; Workspace queries own service execution and project its evidence.
 
 ## Evidence
 
@@ -166,6 +168,9 @@ The initial Release gates are:
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
+- `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor` and
+  `EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface` for the
+  query-owned Browser/Wasm boundary; and
 - the normal build for the Inspect Web consumers of both adopted queries.
 
 No source-code absence gate enforces service usage. Consumer migration is
