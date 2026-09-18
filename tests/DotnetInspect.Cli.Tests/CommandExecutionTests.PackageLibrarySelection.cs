@@ -45,20 +45,22 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var arguments = new List<string>
-            {
-                "library",
-                packagePath,
-                "-S",
-                projection == "--print"
-                    ? "Context: Source Location"
-                    : "Library Info",
-            };
-            if (projection == "--print")
-                arguments.AddRange(["--il-offset", "0x06000001+0x0"]);
-            arguments.AddRange([projection, "--tips", "q"]);
+            string[] arguments = projection == "--print"
+                ?
+                [
+                    "library", "coordinate", "0x06000001+0x0",
+                    "--package", packagePath,
+                    "-S", "Context: Source Location",
+                    projection, "--tips", "q",
+                ]
+                :
+                [
+                    "library", packagePath,
+                    "-S", "Library Info",
+                    projection, "--tips", "q",
+                ];
 
-            var result = await RunAppAsync(arguments.ToArray());
+            var result = await RunAppAsync(arguments);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -302,20 +304,32 @@ public partial class CommandExecutionTests
                 offsetsPath,
                 "0x06000001+0x0");
 
-            foreach (string[] coordinate in new[]
+            foreach (string[] arguments in new[]
             {
-                new[] { "--il-offset", "0x06000001+0x0" },
-                new[] { "--il-offsets", offsetsPath },
-                new[] { "--heap", "#Strings:0x1" },
                 new[]
                 {
-                    "-S", "Resources",
+                    "library", "coordinate", "0x06000001+0x0",
+                    "--package", packagePath,
+                },
+                new[]
+                {
+                    "library", "coordinate", "--file", offsetsPath,
+                    "--package", packagePath,
+                },
+                new[]
+                {
+                    "library", "coordinate", "#Strings:0x1",
+                    "--package", packagePath,
+                },
+                new[]
+                {
+                    "library", packagePath, "-S", "Resources",
                     "--extract-resources", Path.Combine(tempDir, "resources"),
                 },
             })
             {
                 var result = await RunAppAsync(
-                    ["library", packagePath, .. coordinate, "--tips", "q"]);
+                    [.. arguments, "--tips", "q"]);
 
                 Assert.Equal(1, result.Exit);
                 Assert.Empty(result.Output);

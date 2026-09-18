@@ -969,10 +969,7 @@ public class LibraryCommand
                 }
                 if ((aggregatePackageSelection
                         || assemblyPaths.Count > 1)
-                    && (HasILOffsetCoordinate(options)
-                        || !string.IsNullOrWhiteSpace(
-                            options.ILOffsetsPath)
-                        || HasHeapCoordinate(options)
+                    && (options.CoordinateRequest is not null
                         || options.ExtractResources is not null
                         || CloneCandidatesCommand.IsSelected(
                             options.IncludeSections)
