@@ -1334,11 +1334,11 @@ need to know `Aspire.` before opening the catalog. This flow ends with the
 prefix value, not a package-result table or an inspection workspace.
 Running a package-prefix query would be a separate operation.
 
-For a neighboring pack with no prefix contribution, such as the planned
-Platform row, the view says **No recorded package prefixes**. That describes
-the catalog, not a search that found no packages.
+For a catalog entry with no prefix contribution, the view says **No recorded
+package prefixes**. That describes the catalog, not a search that found no
+packages.
 
-Both catalog prefix registration and this host-facing discovery remain staged.
+Catalog prefix registration is present; host-facing discovery remains staged.
 The already implemented package-query page is a different surface and is not
 the source of the prefix in this example.
 
