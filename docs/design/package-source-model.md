@@ -975,8 +975,8 @@ cause PackageHouse to inspect process-global offline state.
 
 The API and top-level `timeline` consumers below have not yet migrated to the
 House population substrate. Their behavior remains current product evidence
-until subject-owned Diff History and package version Count adopt the new
-operation and the command-placement owner performs the atomic cutover.
+until top-level Diff History and package version Count adopt the new operation
+and the command-placement owner performs the atomic cutover.
 
 Online API inspection with an omitted version, `@latest`, or a wildcard uses
 the same complete current selection and reporting-authority handoff as ordinary

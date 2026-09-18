@@ -161,32 +161,21 @@ still belong in `ILInspector.Research`, whose `IResearchFactProducer` /
 ```csharp
 public sealed class MethodBodyInspectionSession
 {
-    public LibraryBodyIndex BodyIndex { get; }
     public string SourceName { get; }
 
-    public static MethodBodyInspectionSession Open(
-        string assemblyPath,
-        IAssemblyReferenceResolver? resolver = null,
-        bool includeAllocations = true,
-        bool includeOpportunities = true,
-        IReadOnlySet<int>? bodyScope = null,
-        Func<TypeRef, bool>? bodyTypeScope = null);
-
-    public CallTreeNode CallerTree(
-        int methodToken,
-        IReadOnlyList<MethodBodyInspectionSession> scopes);
-
-    public ImmutableArray<CallerEdge> CallerEdges(
-        int targetToken,
-        IReadOnlyList<MethodBodyInspectionSession>? scopes = null);
+    // The session shares one LibraryBodyAnalysisService execution.
+    // Migrated queries receive focused Analysis-owned result types.
+    // LibraryBodyIndex remains available only to compatibility consumers.
 }
 ```
 
-The exact method names can change. The boundary should not:
+The exact method names and execution-publication shape land with the first
+section migration. The boundary should not:
 
 - `Open` captures command-selected capability and body-scope policy
-- one session builds and reuses one Analysis index per command
-- neutral Analysis queries stay on `LibraryBodyIndex` or Analysis projections
+- one session builds and reuses one Analysis service execution per command
+- neutral Analysis queries consume focused Analysis-owned results
+- `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -230,15 +219,15 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-`LibraryBodyIndex` remains the temporary compatibility query facade over one
-shared body acquisition. The
+`LibraryBodyIndex` remains a temporary compatibility facade over one shared
+body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
-stateless path and immutable-image execution, while `LibraryBodyIndex` is the
-detached evidence result. `LibraryBodyAnalysisPlan` owns producer dependencies
-and scope; execution returns cohesive method, safety, allocation,
-optimization, and resource-lifecycle results. Topic-specific Analysis services
-consume those results rather than adding more unrelated algorithms to the
-facade.
+stateless path and immutable-image execution plus publication of focused
+detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
+scope; execution returns cohesive method, safety, allocation, optimization,
+resource-occurrence, and resource-lifecycle results. Section queries and
+topic-specific Analysis services consume those typed results rather than
+adding more properties or algorithms to the facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and
 Analysis-owned loop regions and decoded local types, together with the neutral
@@ -806,7 +795,7 @@ Research.
 Owns composition:
 
 - open or receive the assembly inspection session
-- build/reuse one command-configured `LibraryBodyIndex`
+- build/reuse one command-configured `LibraryBodyAnalysisService` execution
 - retain source attribution and compose cross-assembly caller data
 - coordinate metadata, analysis, source acquisition, and Research without
   re-exporting their neutral query surfaces
@@ -836,8 +825,10 @@ Owns only:
 - render the resulting shape
 - write command-line diagnostics for invalid user input
 
-The CLI may depend on `LibraryBodyIndex` as an Analysis query type. It must not
-copy Analysis classification, matching, or aggregation rules into formatters.
+The CLI may depend on `LibraryBodyIndex` only for compatibility consumers
+named by the migration plan. New and migrated sections consume focused
+Analysis result types. The CLI must not copy Analysis classification, matching,
+or aggregation rules into formatters.
 
 ## Relationship to assembly inspection
 
@@ -880,11 +871,12 @@ Move in reviewable slices.
    calls, and graph semantics in Analysis; keep metadata, source, decompiler,
    and overlay semantics in their owning layers.
 2. **Centralize command policy.** Use `MethodBodyInspectionSession.Open` for
-   capability flags, body scope, source attribution, and one index build per
-   command.
-3. **Delete neutral forwarders.** Let CLI consumers query `BodyIndex` and
-   Analysis projections directly instead of mirroring the Analysis API on the
-   session.
+   capability flags, body scope, source attribution, and one service execution
+   per command.
+3. **Migrate section inputs.** In the sequence owned by
+   [Library Body Analysis Service](library-body-analysis-service.md), make
+   library sections consume focused Analysis result types and remove their
+   `BodyIndex` dependency in the same slice.
 4. **Raise remaining semantic construction.** Move any classification,
    matching, or aggregation still implemented in CLI code to its canonical
    owner. Thin CLI row mapping is presentation, not a second semantic surface.
@@ -897,12 +889,11 @@ Move in reviewable slices.
 
 The command-owned path-backed acquisitions for `diff` body-signal comparison,
 implementation comparison, and PDB-source target indexing, plus `timeline`
-analysis inspection, use `MethodBodyInspectionSession` for their selected
-capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
-This adopts the step 2 boundary without claiming command-wide reuse: separate
-`diff` phases retain distinct indexes and capability policies, and
+analysis inspection, remain named compatibility consumers. They migrate after
+the library sections establish the service-execution and focused-result path.
+Separate `diff` phases may retain distinct executions and capability policies;
 `diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff`.
+`ResearchDiff` until its focused migration.
 
 ## Acceptance tests for the architecture
 
@@ -910,7 +901,11 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
   `member` and `library coordinate`.
 - Adding a neutral Analysis query does not require a
   `MethodBodyInspectionSession` forwarding method.
-- One command builds one index with the requested capability and body scope.
+- One command performs one service execution with the requested capability and
+  body scope even when several migrated sections consume different result
+  types.
+- A migrated section accepts no `LibraryBodyIndex` and does not run unrelated
+  producers.
 - Cross-assembly caller results retain source attribution.
 - Member-level and coordinate-level allocation/safety/cost rows agree for the
   same method and offset.
