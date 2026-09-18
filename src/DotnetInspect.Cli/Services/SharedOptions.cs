@@ -23,8 +23,7 @@ public class SharedOptions
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
     public Option<bool> Bare { get; } = new("--bare") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
-    public Option<bool> RawUrls { get; } = new("--raw") { Description = "Emit GitHub URLs as raw/fetchable URLs (default; URL-shape modifier, not an output-shape modifier)" };
-    public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
+    public Option<bool> PreferRenderedUrls { get; } = new("--prefer-rendered-urls") { Description = "Prefer rendered browser-view URLs when supported; otherwise keep the original URL" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
     public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Use the default readable local-name synthesis even when configuration disables it; byte-preserving (names do not affect IL)" };
@@ -482,7 +481,7 @@ public class SharedOptions
         [
             Json, Markdown, PlainText, Table, Tsv, Jsonl, Tree, Mermaid,
             NoHeaders, Bare, Columns, Fields, Print, Value, Urls, Paths,
-            JsonArray, RawUrls, BrowsableUrls,
+            JsonArray, PreferRenderedUrls,
             .. incompatibleOptions
         ];
         command.Validators.Add(result =>

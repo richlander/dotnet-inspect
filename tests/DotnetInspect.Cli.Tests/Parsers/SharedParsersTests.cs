@@ -236,30 +236,23 @@ public class SharedParsersTests
     // ── ParseTypeFilter ──────────────────────────────────────────────────
 
     [Fact]
-    public void ParseTypeFilter_Null_ReturnsNulls()
+    public void ParseTypeFilter_Null_ReturnsNull()
     {
-        var (filter, limit) = SharedParsers.ParseTypeFilter(null);
-
-        Assert.Null(filter);
-        Assert.Null(limit);
+        Assert.Null(SharedParsers.ParseTypeFilter(null));
     }
 
     [Fact]
-    public void ParseTypeFilter_Number_ReturnsLimit()
+    public void ParseTypeFilter_Number_ReturnsFilter()
     {
-        var (filter, limit) = SharedParsers.ParseTypeFilter("10");
-
-        Assert.Null(filter);
-        Assert.Equal(10, limit);
+        Assert.Equal("10", SharedParsers.ParseTypeFilter("10"));
     }
 
     [Fact]
     public void ParseTypeFilter_Pattern_ReturnsFilter()
     {
-        var (filter, limit) = SharedParsers.ParseTypeFilter("*Json*");
-
-        Assert.Equal("*Json*", filter);
-        Assert.Null(limit);
+        Assert.Equal(
+            "*Json*",
+            SharedParsers.ParseTypeFilter("*Json*"));
     }
 
     // ── ParsePackageVersion ──────────────────────────────────────────────

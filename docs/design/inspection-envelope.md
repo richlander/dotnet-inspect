@@ -604,8 +604,9 @@ owns the JSON-only `--envelope` spelling and its distinction from content
 public passthrough. The generic envelope does not define CLI option
 interactions or migrate existing machine schemas implicitly.
 
-Passthrough preserves the already constructed envelope exactly. `--raw`
-remains the separate raw/fetchable GitHub URL shape.
+Passthrough preserves the already constructed envelope exactly.
+`--prefer-rendered-urls` remains a separate URL preference, not a service-output
+selector.
 
 ## Non-claims
 

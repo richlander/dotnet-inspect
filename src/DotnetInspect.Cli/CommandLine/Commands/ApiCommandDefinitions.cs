@@ -79,8 +79,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
-        typeCommand.Options.Add(opts.RawUrls);
-        typeCommand.Options.Add(opts.BrowsableUrls);
+        typeCommand.Options.Add(opts.PreferRenderedUrls);
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
@@ -115,6 +114,31 @@ public static class ApiCommandDefinitions
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
         structuralArgs = commandArgs;
+
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                !result.GetValue(matchOption)
+                && TypeOptionsParser.IsTypeListingRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -325,8 +349,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Limit);
         memberCommand.Options.Add(opts.Json);
         memberCommand.Options.Add(compactOption);
-        memberCommand.Options.Add(opts.RawUrls);
-        memberCommand.Options.Add(opts.BrowsableUrls);
+        memberCommand.Options.Add(opts.PreferRenderedUrls);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);

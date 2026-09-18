@@ -205,6 +205,44 @@ public sealed class ExactLibraryWorkspaceRouteTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task RowSelectedJsonUsesCompatibilityPath()
+    {
+        string[] arguments =
+        [
+            "type",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--library",
+            "System.Text.Json.dll",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--compact",
+            "-n",
+            "1",
+            "-T",
+            "q",
+        ];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed =
+            CommandLineBuilder.PreprocessArgs(arguments, root);
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeAsync(
+                    root.Parse(processed),
+                    processed));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement json = document.RootElement;
+        Assert.True(json.TryGetProperty("types", out JsonElement types));
+        Assert.Equal(1, types.GetArrayLength());
+        Assert.False(json.TryGetProperty("outcome", out _));
+    }
+
+    [Fact]
     public async Task EnvelopeContentMatchesUnprojectedJson()
     {
         var store = await CachedStoreAsync();
