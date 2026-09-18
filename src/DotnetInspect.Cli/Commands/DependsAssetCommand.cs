@@ -1861,14 +1861,6 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string> includeSections)
     {
-        string summary = MarkoutSerializer.Serialize(
-            BuildAssetView(
-                projection,
-                NoAssetSections,
-                options.Rows,
-                options.EmbeddedMermaid),
-            DependsAssetViewContext.Default,
-            new MarkoutWriterOptions());
         var sections = new HashSet<string>(
             includeSections,
             StringComparer.OrdinalIgnoreCase);
@@ -1900,7 +1892,7 @@ public partial class DependsCommand
         }
 
         Console.Out.WriteLine(
-            JoinMarkdown(summary, graph, evidence));
+            JoinMarkdown(graph, evidence));
     }
 
     private static void WriteProjectedAssetMarkdown(

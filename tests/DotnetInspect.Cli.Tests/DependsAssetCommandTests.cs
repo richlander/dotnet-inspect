@@ -811,6 +811,50 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
+    public async Task MarkdownRendersSelectedSectionsWithoutCompletionDocument()
+    {
+        string[] arguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Graph,Dependencies",
+        ];
+
+        (int markdownExit, string markdown, string markdownError) =
+            await RunCapturedAsync(arguments);
+        (int jsonExit, string json, string jsonError) =
+            await RunCapturedAsync([.. arguments, "--json", "--compact"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(jsonError);
+        Assert.StartsWith(
+            "## Dependency Graph",
+            markdown.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            markdown.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
     public async Task RestoredDependencies_ExposeResolvedVersionInEveryTableShape()
     {
         string[] arguments =
