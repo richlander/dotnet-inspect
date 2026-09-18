@@ -3089,13 +3089,31 @@ public class ApiCommand
 
         if (projectedFactsJson)
         {
-            if (view.MemberCode is not { } memberCode)
+            if (view.MemberCode is not { FactRows: { } factRows } memberCode)
             {
                 CommandError.Write(
                     $"section '{SectionNames.Facts}' produced no payload.");
                 return 1;
             }
 
+            RowSelectionIntent<string>? rowSelection =
+                (options as MemberOptions)?.FactsRowSelection;
+            if (!CliSemanticRowSelection.TrySelect(
+                    rowSelection,
+                    factRows,
+                    "Member Facts",
+                    failure =>
+                        $"Member Facts row selection stage "
+                        + $"{failure.Failure.StageNumber} requires fact row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} fact rows are "
+                        + "available.",
+                    out IReadOnlyList<FactRow> selectedFacts))
+            {
+                return 1;
+            }
+
+            memberCode.FactRows = [.. selectedFacts];
             OutputFormatter.WriteProjectedJson(
                 sink,
                 options.Columns,
@@ -3110,8 +3128,7 @@ public class ApiCommand
                         ApiViewContext.Default,
                         writerOptions);
                 },
-                !options.CompactJson,
-                GetProjectedFactsRowWindow(options));
+                !options.CompactJson);
             return 0;
         }
 
@@ -4820,20 +4837,6 @@ public class ApiCommand
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.Facts)
            && HasOnlyExplicitFactsSelectors(options);
-
-    private static RowWindow? GetProjectedFactsRowWindow(
-        ApiOptions options)
-    {
-        if (options.Rows is { } rows)
-            return rows;
-        if (ArgumentPreprocessor.TailLines is int tail)
-            return RowWindow.Tail(tail);
-        if (ArgumentPreprocessor.HeadLines is int head)
-            return RowWindow.Head(head);
-        return options.Limit is int limit
-            ? RowWindow.Head(limit)
-            : null;
-    }
 
     private static bool IsInvalidFactsJsonSelection(ApiOptions options)
         => options.JsonOutput
