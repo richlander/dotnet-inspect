@@ -627,6 +627,7 @@ public enum InspectionGraphIntegrationFailureKind
     TargetTypeMissing,
     TargetTypeAmbiguous,
     TargetTypeForwarded,
+    TargetTypeBudgetExceeded,
     TargetTypeRejected,
     OpportunityTargetMissing,
     OpportunityTargetAmbiguous,
@@ -1297,6 +1298,15 @@ public static class InspectionGraphIntegrationsQuery
                     + $"was rejected ({failure.Mechanism}/"
                     + $"{failure.Kind}: {failure.Detail}).");
             }
+            if (validation
+                is DeclarationValidation.BudgetExceeded budgetExceeded)
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its metadata declaration "
+                    + "lookup exceeded its finite work limit "
+                    + $"({budgetExceeded.Detail}).");
+            }
 
             if (validation is not DeclarationValidation.Declared)
                 throw SubjectNotPresent(subject);
@@ -1329,6 +1339,8 @@ public static class InspectionGraphIntegrationsQuery
                 {
                     TypeDeclarationResult.Defined =>
                         new Declared(),
+                    TypeDeclarationResult.BudgetExceeded exceeded =>
+                        new BudgetExceeded(exceeded.Detail),
                     TypeDeclarationResult.Rejected rejected =>
                         new Rejected(rejected.Rejection),
                     _ => new Absent(),
@@ -1337,6 +1349,8 @@ public static class InspectionGraphIntegrationsQuery
             internal sealed record Declared :
                 DeclarationValidation;
             internal sealed record Absent :
+                DeclarationValidation;
+            internal sealed record BudgetExceeded(string Detail) :
                 DeclarationValidation;
             internal sealed record Rejected(
                 MetadataTypeNameFailure Failure) :
@@ -2031,6 +2045,9 @@ public static class InspectionGraphIntegrationsQuery
                         or TypeDeclarationResult.ExportedFromModule =>
                         InspectionGraphIntegrationFailureKind
                             .TargetTypeForwarded,
+                    TypeDeclarationResult.BudgetExceeded =>
+                        InspectionGraphIntegrationFailureKind
+                            .TargetTypeBudgetExceeded,
                     TypeDeclarationResult.Rejected =>
                         InspectionGraphIntegrationFailureKind
                             .TargetTypeRejected,
