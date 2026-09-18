@@ -1033,6 +1033,35 @@ gates terminal cancellation after owned cleanup in Release.
 gates Artifact publication cleanup failure as primary over cancellation in
 Release.
 
+### Installed successful-result binding adoption
+
+The installed adapter admits the exact one-assembly Reference population
+implied by an applicable `ResolveAssemblyReference` operation. Its authoritative
+contribution preserves the exact House request, target, installed capability,
+source generation, source coordinate identity, and one-assembly population.
+The paired owner-issued value carries the installed generation, reference-pack
+coordinate, file name, assembly identity, and immutable bytes. The installed
+execution adapter binds those facts as Artifact provenance, converts the
+snapshot to the common source-neutral materialization item, and delegates the
+operation unchanged to `PlatformHouseAssemblyReferenceResolver`.
+
+This adapter does not duplicate Artifact publication, Library ownership,
+Metadata projection, terminal precedence, cleanup, or receipt construction.
+The returned decision therefore remains detached terminal data: the shared
+executor settles the exact installed contribution once and retires every
+temporary Library and Artifact authority before publication. Installed
+source-terminal orchestration, source fallback, source-relative lineage, and
+ladder or host composition remain later owner-adoption slices.
+
+`InstalledPlatformHouseAdapterTests.RealizeReference_BindingProducesExactAssemblyContribution`
+gates the authoritative one-assembly installed contribution in Release.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_PreservesInstalledProvenanceAndSettlesContribution`
+gates real installed reference-pack provenance and exact source settlement in
+Release.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsSuccessfulResultForDifferentRequest`
+gates exact successful-result correspondence in Release. The source-neutral
+before-source-access validation gates above own the delegated ordering claim.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the
