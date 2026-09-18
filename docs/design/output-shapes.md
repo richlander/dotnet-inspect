@@ -49,7 +49,7 @@ columns, or rows.
 
 This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
-the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
+the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -217,14 +217,15 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, `package P@A..B --count --envelope` serializes the package
-version-population operation's complete envelope. Available Content contains
-the population Document and its requested typed Count component; it does not
-count envelope members, replace the Document with a scalar, or force a second
-inspection. Ordinary `--count`, including `--count --json`, projects that same
-component to the existing scalar output. A row window already bound into a
-semantic Count plan selects the counted population cohort; it is not an
-instruction to slice serialized JSON.
+For example, Count is a terminal semantic projection for package version
+populations rather than post-service output shaping. `package P@A..B
+--count --envelope` therefore serializes an `InspectionEnvelope<int>` whose
+Content is the owner-issued Count result. Ordinary `--count`, including
+`--count --json`, projects that same integer, so content-only JSON equals the
+envelope's Content subtree. Without Count, the population envelope retains the
+complete Document and no redundant Count property. A row window already bound
+into the semantic Count plan selects the counted population cohort; it is not
+an instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
@@ -261,7 +262,7 @@ Debug-only exception.
 The #6719 path has locked the CLI contract and adopted the common transport
 with type dependencies. Exercising Library API Diff as the second content kind
 remains. The wider CLI and Browser adoption remains in
-[the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
+[the operation/section production path](operation-command-and-subject-section-composition.md#production-adoption).
 
 The first production scenario is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`, target
@@ -364,7 +365,7 @@ document is useful human output but is not `LibraryApiDiffOutcome`.
 non-empty file value. Neither has a short alias or requires `--json`.
 Missing, blank, or option-shaped evidence paths are rejected by
 [CLI option-value validation](cli-option-value-validation.md); `-` is not a
-stdout shorthand. `--raw` keeps its unrelated URL-shape meaning.
+stdout shorthand. URL preferences remain separate from evidence output.
 
 The evidence path is resolved against the invocation's current directory
 during admission. Its parent directory must already exist, and a directory is
@@ -477,7 +478,7 @@ Debug-only machine contract; its availability does not make it an ad-hoc dump.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
-Browser UI, History, or subject-owned command cutover. Those consumers reuse
+Browser UI, History, or Diff command/section cutover. Those consumers reuse
 this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff
@@ -612,8 +613,8 @@ of the ladder families contributes in one of four ways:
   changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
   `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
   `--mermaid`).
-- **URL-shape modifiers** change only the form of GitHub URLs emitted as data
-  (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
+- **URL-shape modifiers** prefer rendered browser views for emitted URLs
+  (`--prefer-rendered-urls`). They are orthogonal to the output-shape ladder.
 
 The proposed `--envelope` is a separate
 [service-output selector](#content-shapes-and-service-envelopes), not another
@@ -642,14 +643,13 @@ eligibility against the resulting Scalar or one count Table as defined below.
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
 exist to be selected. The family has two currencies: the IL coordinate, and the
-heap coordinate `--heap` carries (see
+heap coordinate accepted by `library coordinate` (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not syntax elements, because one currency
 can have more than one spelling. `library coordinate` accepts either one exact
-IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
-and `--il-offsets` parent options carry the same currency. Exact and file modes
-are mutually exclusive, so they are one member of this family rather than two.
+IL coordinate or `--file` for batch reporting. Exact and file modes are
+mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -663,7 +663,7 @@ Carriers behave consistently:
   so `-D` reflects the carrier (see the IL-offset case study below).
 - Absent the carrier, requesting a coordinate-scoped section is an error that
   names the missing carrier, for example
-  `IL coordinate sections require --il-offset`.
+  `IL coordinate sections require library coordinate <token>+<offset>`.
 - Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
   `--columns`, `--count`, and the rest of the ladder like any other.
 
@@ -1260,10 +1260,9 @@ resolved by discarding one.
 
 A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library coordinate --file`, transitional `library --il-offsets`, and the
-`-D`/`--discover` listing. Each renders a payload it computes itself and
-returns before the section pipeline, so the section-selection vocabulary does
-not describe what the caller is looking at.
+`library coordinate --file` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1423,15 +1422,53 @@ project every selected row in that set.
 
 | Flag | Effect |
 | --- | --- |
-| `--raw` | emit GitHub URLs as raw/fetchable URLs (default) |
-| `--blob` | emit GitHub URLs as browser-friendly `/blob/` URLs |
+| No flag | emit direct, fetchable content URLs |
+| `--prefer-rendered-urls` | prefer a rendered browser view when a supported provider mapping exists; otherwise retain the original URL |
 
-These flags are orthogonal to the output-shape ladder. They change the form of
-GitHub URLs that the tool emits as data (source links, sample links, link rows),
-but they do not change the selected shape or the framing around the payload.
-The safe default direction is `blob → raw`; the reverse is a browser-oriented
-mode and should not be applied to user-authored README/markdown content unless a
-separate opt-in path is introduced.
+The CLI owns this preference. It changes emitted links, not the selected shape,
+payload framing, or source acquisition. Structured source-print output keeps
+the selected presentation URL in its `url` field, not the acquisition URL.
+`--bare` still removes document decoration; `--print` still requests content.
+The former `--raw` and `--blob` flags are removed, not retained as aliases.
+
+Conversion is provider-aware. GitHub raw-content URLs use the existing
+SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can
+select its `/blob/` view. An unknown provider or unsupported URL stays unchanged:
+the presence of `/raw/` elsewhere in a URL does not authorize rewriting it.
+General source URL presentation preserves an authored fragment across either
+supported GitHub form. This preference does not add network probes or new
+provider support and does not broaden provenance attribution.
+Coordinate source-line locators replace any existing fragment on the selected
+URL; composing the locator preserves that URL's path and query.
+
+Package README and skill presentation preserves the existing distinction:
+the default normalizes authored GitHub file links to fetchable form, while
+`--prefer-rendered-urls` preserves authored links verbatim. It does not rewrite
+every link inside an authored document into a browser view. Exact-content
+transfer retains its existing byte-preservation rules.
+
+This one-step CLI adoption, tracked by #7619, replaces option registration,
+parsers, and consumers together; Browser/Wasm does not parse these flags and
+gains no new UI or policy.
+Existing typed sections, Markout rendering, and payload lowering are unchanged.
+Real evidence uses `Newtonsoft.Json@13.0.3` source links and this repository's
+[SourceLinkService.cs at 0cdbe500d](https://github.com/richlander/dotnet-inspect/blob/0cdbe500d11cb77ae7fb3c8612a5ba7bcc83ff86/src/ILInspector.SourceLink/SourceLinkService.cs)
+source URL. PR-fast CLI parsing and service URL-conversion tests cover unknown
+providers and literal `/raw/` path segments; focused package/member/library
+source-output tests cover the production preference and unchanged default.
+`SourceUrls_PreserveAuthoredFragment` covers type/member/library output across
+both supported GitHub forms and an unknown provider under both preferences;
+`SupportedGitHubSource_PreservesAuthoredFragment` covers general, line-range,
+and escaped fragments in the shared mapping.
+`SourcePrint_EmitsPreferredUrlAndUnchangedContent` covers type/member JSON,
+JSONL, and JSON-array source printing with both preferences, authored fragments,
+both GitHub forms, and unknown-provider fallback, preserving the acquired text.
+`CoordinateUrls_ApplyPreferenceAndPreserveLine` covers production coordinate
+output for both GitHub forms, the default, replacement of existing fragments
+with line locators, preserved queries, and unknown providers.
+`RenderedUrlPreference_SourceLocationRetainsUnmappedUrl` also covers
+the Research fallback. `TypeSourceFilesPrint_SelectsExactRepositoryDocument`
+proves that preferring rendered URLs does not change selected authored text.
 
 ### Walking the ladder — one example
 
@@ -1453,7 +1490,7 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Metho
 
 ### Case study: IL offset as a shape catalogue
 
-`library --il-offset` is a compact example of the shape ladder because one
+`library coordinate` is a compact example of the shape ladder because one
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
@@ -1466,7 +1503,7 @@ The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll
 ```
 
 ```md
@@ -1555,7 +1592,7 @@ dotnet-inspect library My.dll -D
 # Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
 # Context: Callsite, and Context: Return Address are omitted.
 
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll -D
 # Context: Source Location
 # Context: Member
 # Context: Instruction
@@ -1568,27 +1605,27 @@ The source-location section then projects cleanly:
 
 ```bash
 # Scalar
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the visually encoded resolved source line
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --print --bare
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --count
 # 1
 ```
@@ -1629,15 +1666,14 @@ The stable vocabulary is:
   later item/range window or projection may renumber it.
 - `--bare` is a presentation modifier: for one selected payload, it strips the
   surrounding frame and payload gutter.
-- `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
-  GitHub links, not the shape of the payload itself.
+- `--prefer-rendered-urls` is a URL-shape preference, not a payload-shape or
+  decoration modifier.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
-  `--heap`, supplies coordinate input that has no other expression and gates
-  the sections it makes meaningful. Coordinate input does not narrow a shape,
-  and syntax qualifies for this family only if its input is a new currency.
-  Exact and file IL coordinates spell the same currency, so
-  they are one member; `--heap` is the second.
+- `library coordinate` supplies coordinate input that has no other expression
+  and gates the sections it makes meaningful. Coordinate input does not narrow
+  a shape, and syntax qualifies for this family only if its input is a new
+  currency. Exact and file IL coordinates spell the same currency, so they are
+  one member; metadata heap coordinates are the second.
 
 New flags should fit one of those buckets rather than blending concepts.

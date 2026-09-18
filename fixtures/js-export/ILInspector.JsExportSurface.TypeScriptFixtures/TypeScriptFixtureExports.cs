@@ -68,6 +68,35 @@ public sealed record BlobDto(
     byte[]?[] Blobs,
     IReadOnlyDictionary<string, byte[]?> BlobsByName);
 
+public sealed record InspectionEvidence(JsonElement? Payload);
+
+public sealed record ConditionalOutputDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? AlwaysNullable { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int DefaultHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int? NullableDefaultHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NullHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NonNullableNullHidden { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WidgetDto?[]? NullableItems { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonElement Payload { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? NullablePayload { get; init; }
+}
+
 public sealed class HiddenTypeJsonIncludeDto
 {
     public string Public { get; set; } = "public";
@@ -87,9 +116,11 @@ public sealed class HiddenTypeJsonIncludeDto
 }
 
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(InertWidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(ConditionalOutputDto))]
 [JsonSerializable(typeof(HiddenTypeJsonIncludeDto))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
 [JsonSerializable(typeof(global::@byte), TypeInfoPropertyName = "ByteDto")]
@@ -99,6 +130,13 @@ public sealed class HiddenTypeJsonIncludeDto
     TypeInfoPropertyName = "StringDtoMap")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(InspectionEvidence))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+internal sealed partial class InspectionEvidenceJsonContext
+    : JsonSerializerContext;
 
 [JsonSerializable(typeof(BlobDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -127,6 +165,18 @@ public static partial class TypeScriptFixtureExports
 
     [JSExport]
     public static string Echo(string value) => value;
+
+    [JSExport]
+    public static bool MatchWidgetCandidates(
+        string requestedName,
+        string candidatesJson)
+    {
+        WidgetDto[] candidates = JsonSerializer.Deserialize(
+            candidatesJson,
+            FixtureJsonContext.Default.WidgetDtoArray)!;
+        return candidates.Any(candidate =>
+            candidate.Name == requestedName);
+    }
 
     [JSExport]
     public static string Undefined(string value) => value;
@@ -164,6 +214,25 @@ public static partial class TypeScriptFixtureExports
         return JsonSerializer.Serialize(
             new WidgetDto(name, count),
             FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static string GetConditionalOutput(string name) =>
+        JsonSerializer.Serialize(
+            new ConditionalOutputDto(name),
+            FixtureJsonContext.Default.ConditionalOutputDto);
+
+    [JSExport]
+    public static string GetInspectionEvidence(bool includePayload)
+    {
+        using JsonDocument document =
+            JsonDocument.Parse("""{"source":"package.xml"}""");
+        JsonElement? payload = includePayload
+            ? document.RootElement.Clone()
+            : null;
+        return JsonSerializer.Serialize(
+            new InspectionEvidence(payload),
+            InspectionEvidenceJsonContext.Default.InspectionEvidence);
     }
 
     [JSExport]

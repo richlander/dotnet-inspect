@@ -102,6 +102,9 @@
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
+    <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
@@ -111,6 +114,8 @@
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="..\Inspector.Artifacts.Local\Inspector.Artifacts.Local.csproj" />
+    <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 

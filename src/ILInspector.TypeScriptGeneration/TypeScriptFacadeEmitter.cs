@@ -25,6 +25,7 @@ internal static class TypeScriptFacadeEmitter
         "$managedExports",
         "$initialization",
         "$initializationFailure",
+        "$serializeJsonInput",
         "$initializeRuntimeCore",
         "$requireRuntime",
         "$requireManagedExports",
@@ -82,6 +83,12 @@ internal static class TypeScriptFacadeEmitter
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
         EmitLifecycle(sb, assemblyName, functions);
+        if (signatures.Values.Any(
+            signature => signature.Parameters.Any(
+                parameter => parameter.SerializesJson)))
+        {
+            EmitJsonInputSerializer(sb);
+        }
 
         foreach (JsExportFunction function in functions)
         {
@@ -203,7 +210,8 @@ internal static class TypeScriptFacadeEmitter
                 .Append(string.Join(
                     ", ",
                     signature.Parameters.Select(
-                        parameter => $"{parameter.Name}: {parameter.Type}")))
+                        parameter =>
+                            $"{parameter.Name}: {parameter.RawType}")))
                 .Append(") => ")
                 .Append(signature.RawReturnType)
                 .Append(";\n");
@@ -335,6 +343,28 @@ internal static class TypeScriptFacadeEmitter
             .Append("\n\n");
     }
 
+    static void EmitJsonInputSerializer(StringBuilder sb)
+    {
+        sb.Append(
+            """
+            function $serializeJsonInput(
+              value: unknown,
+              operation: string,
+              parameter: string,
+            ): string {
+              const json = JSON.stringify(value);
+              if (json === undefined) {
+                throw new TypeError(
+                  `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+                );
+              }
+              return json;
+            }
+
+            """)
+            .Append('\n');
+    }
+
     static void EmitFunction(
         StringBuilder sb,
         JsExportFunction function,
@@ -343,10 +373,22 @@ internal static class TypeScriptFacadeEmitter
         string parameters = string.Join(
             ", ",
             signature.Parameters.Select(
-                parameter => $"{parameter.Name}: {parameter.Type}"));
+                parameter =>
+                    $"{parameter.Name}: {parameter.PublicType}"));
         string arguments = string.Join(
             ", ",
-            signature.Parameters.Select(parameter => parameter.Name));
+            signature.Parameters.Select(parameter =>
+                parameter.SerializesJson
+                    ? "$serializeJsonInput("
+                        + parameter.Name
+                        + ", "
+                        + Quote(
+                            $"{function.DeclaringType}."
+                            + $"{function.RuntimeDispatchKey}")
+                        + ", "
+                        + Quote(parameter.Name)
+                        + ")"
+                    : parameter.Name));
         string call = "$requireManagedExports()"
             + string.Concat(
                 function.DeclaringType.Split('.').Select(
@@ -459,6 +501,8 @@ internal static class TypeScriptFacadeEmitter
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
+            if (DtsEmitter.UsesJsonValue(surface))
+                moduleBindings.Add("JsonValue");
             ApiTypeReferenceIdentity? inertStringIdentity =
                 DtsEmitter.FindInertStringIdentity(surface);
             string? inertStringName = inertStringIdentity is null

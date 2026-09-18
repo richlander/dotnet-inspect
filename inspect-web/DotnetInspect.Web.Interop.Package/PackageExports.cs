@@ -569,8 +569,8 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Published package versions from the browser acquisition owner's bounded version-index
-    /// reader. The JavaScript host does not fetch or parse the untrusted index independently.
+    /// Published package versions from the browser acquisition owner's bounded PackageHouse
+    /// listing. The JavaScript host does not fetch or parse untrusted source data independently.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageVersions(

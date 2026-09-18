@@ -246,18 +246,21 @@ descriptor is preferred unchanged; otherwise the command consumes
 platform resolver's typed provenance. The command does not decode metadata to
 reclassify that result.
 
-A `Rejected` selection is reported with the selected path before SourceLink
-probing, ordinary inspection, or an IL-coordinate early return. A
-`Descriptorless` selection keeps the path-only compatibility route. The same
-subject supplies local SourceLink probing, `LibraryMetadataService`, and both
-single and batch IL-coordinate resolution. Package selection remains
-participant-scoped: a rejected participant contributes a warning and non-zero
-exit status without suppressing healthy participants.
+The Coordinate child admits exact points and files before source resolution.
+After admission, a `Rejected` selection is reported with the selected path
+before SourceLink probing, ordinary inspection, or single/batch coordinate
+resolution. A `Descriptorless` selection keeps the path-only compatibility
+route. The same subject supplies local SourceLink probing,
+`LibraryMetadataService`, and both single and batch IL-coordinate resolution.
+Package selection remains participant-scoped: a rejected participant
+contributes a warning and non-zero exit status without suppressing healthy
+participants.
 
 `LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
-`LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates`,
-`LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates`,
-`LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates`,
+`LibraryCoordinateCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
+`LibraryCoordinateCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryCoordinateCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryCoordinateCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
 and
 `LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
 gate this composition.

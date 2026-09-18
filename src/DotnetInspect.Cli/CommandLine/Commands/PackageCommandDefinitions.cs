@@ -96,8 +96,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
-        packageCommand.Options.Add(opts.RawUrls);
-        packageCommand.Options.Add(opts.BrowsableUrls);
+        packageCommand.Options.Add(opts.PreferRenderedUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
@@ -118,6 +117,10 @@ public static class PackageCommandDefinitions
                 !result.GetValue(versionsOption)
                 && !result.GetValue(versionsWithFeedOption)
                 && !PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsPackageFileRowSelection(
                     result,
                     opts,
                     commandArgs));
@@ -214,6 +217,10 @@ public static class PackageCommandDefinitions
                         out string? rangeError)
                     && rangeError is null)
                 || PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageFileRowSelection(
                     result,
                     opts,
                     commandArgs),

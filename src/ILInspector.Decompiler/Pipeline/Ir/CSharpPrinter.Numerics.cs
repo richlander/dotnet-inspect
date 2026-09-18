@@ -1,3 +1,5 @@
+using System.Numerics;
+using ILInspector.CSharp;
 using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -657,24 +659,102 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Renders an integer constant occupying an enum-typed position: the member
-    /// name when the value resolves to a single named member, else the
-    /// overflow-aware enum cast. The one name-or-cast rule for enum constants —
-    /// <c>switch</c> labels, retyped constants, and enum-typed sinks all spell
-    /// through here. The cast path re-types the payload to its raw integer so
-    /// <see cref="EnumIntegerCast"/> renders the literal, not a recursive
-    /// enum-typed spelling.
+    /// Renders an integer constant occupying an enum-typed position: an exact
+    /// member or complete single-bit flags decomposition when available, else
+    /// the overflow-aware enum cast. The cast path re-types the payload to its
+    /// raw integer so <see cref="EnumIntegerCast"/> renders the literal, not a
+    /// recursive enum-typed spelling.
     /// </summary>
     string EnumConstantText(Constant constant, TypeRef enumType)
     {
         long value = constant.Value is int i ? i : (long)constant.Value!;
-        if (EnumMemberName(new Constant(value, enumType)) is { } named)
-            return named;
+        if (EnumSymbolicConstant(new Constant(value, enumType)) is { } symbolic)
+            return symbolic.Text;
         var raw = constant.Value is int iv
             ? new Constant(iv, TypeRef.CoreLib("System", "Int32"))
             : new Constant(value, TypeRef.CoreLib("System", "Int64"));
         return EnumIntegerCast(raw, enumType);
     }
+
+    readonly record struct EnumSymbolicText(
+        string Text,
+        string Kind,
+        Precedence Precedence,
+        bool IsCombination);
+
+    EnumSymbolicText? EnumSymbolicConstant(Constant constant)
+    {
+        if (EnumMemberName(constant) is { } named)
+        {
+            return new(
+                named,
+                "MemberAccessExpression",
+                Precedence.Primary,
+                IsCombination: false);
+        }
+        if (constant.Value is not (int or long)
+            || !_function.FlagsEnumTypes.Contains(NamedDefinition(constant.Type))
+            || !_function.EnumMembers.TryGetValue(
+                NamedDefinition(constant.Type),
+                out var members)
+            || EnumUnderlyingType(constant.Type) is not { } underlying
+            || EnumBitMask(underlying) is not { } mask)
+        {
+            return null;
+        }
+
+        long value = constant.Value is int i ? i : (long)constant.Value;
+        ulong target = unchecked((ulong)value) & mask;
+        if (target == 0)
+            return null;
+
+        var terms = members
+            .Select(pair => (
+                Bits: unchecked((ulong)pair.Key) & mask,
+                Name: pair.Value))
+            .Where(pair =>
+                pair.Bits != 0
+                && BitOperations.PopCount(pair.Bits) == 1
+                && (target & pair.Bits) != 0
+                && CSharpNaming.IsEscapableIdentifier(pair.Name))
+            .OrderBy(static pair => pair.Bits)
+            .ThenBy(static pair => pair.Name, StringComparer.Ordinal)
+            .ToArray();
+        if (terms.Length == 0
+            || terms.Aggregate(0UL, static (covered, term) => covered | term.Bits) != target)
+        {
+            return null;
+        }
+
+        string qualifier = TypeQualifierText(constant.Type);
+        string text = string.Join(
+            " | ",
+            terms.Select(term =>
+                $"{qualifier}.{CSharpNaming.ContainedIdentifier(term.Name)}"));
+        bool isCombination = terms.Length > 1;
+        return new(
+            text,
+            isCombination ? "BinaryExpression" : "MemberAccessExpression",
+            isCombination ? Precedence.BitwiseOr : Precedence.Primary,
+            isCombination);
+    }
+
+    static ulong? EnumBitMask(TypeRef underlying)
+        => underlying is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+        }
+            ? underlying.Name switch
+            {
+                "SByte" or "Byte" => byte.MaxValue,
+                "Int16" or "UInt16" => ushort.MaxValue,
+                "Int32" or "UInt32" => uint.MaxValue,
+                "Int64" or "UInt64" => ulong.MaxValue,
+                _ => null,
+            }
+            : null;
 
     /// <summary>
     /// Coerces a value meeting an enum-typed sibling or arm target — the shared
@@ -686,12 +766,19 @@ public sealed partial class CSharpPrinter
     /// spelling with the cast: <c>(E)(cond ? 1 : 0)</c>. Null when the position
     /// needs no enum coercion, so the caller keeps its own spelling.
     /// </summary>
-    string? TryCoerceEnumOperand(IrExpression value, TypeRef? enumSide)
+    Rendered? TryCoerceEnumOperand(IrExpression value, TypeRef? enumSide)
     {
         if (enumSide is null || !IsEnumLikeInteger(enumSide))
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
-            return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({RenderedCondition(value).At(Precedence.NullCoalescing)} ? 1 : 0)");
+        {
+            return new(
+                CheckedSafeEnumCast(
+                    value,
+                    enumSide,
+                    () => $"({TypeText(enumSide)})({RenderedCondition(value).At(Precedence.NullCoalescing)} ? 1 : 0)"),
+                Precedence.Unary);
+        }
         // An enum shift — or a bitwise chain over one — renders as its underlying
         // integer (ShiftEnumLeftOperand: `(int)e << n`), not the enum its stale
         // Binary ResultType still reports. Flowing into an enum-typed position (a
@@ -705,13 +792,19 @@ public sealed partial class CSharpPrinter
             && BitwiseOperandRenderedType(value) is { } renderedInteger
             && CoercionRendering.CanSpellIntegerToEnum(renderedInteger, enumSide, _function.TypeShapes))
         {
-            return EnumIntegerCast(value, enumSide);
+            return new(EnumIntegerCast(value, enumSide), Precedence.Unary);
         }
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
-        return value is Constant { Value: int or long } konst
-            ? EnumConstantText(konst, enumSide)
-            : EnumIntegerCast(value, enumSide);
+        if (value is Constant { Value: int or long } konst)
+        {
+            long enumValue = konst.Value is int i ? i : (long)konst.Value;
+            var symbolic = EnumSymbolicConstant(new Constant(enumValue, enumSide));
+            return new(
+                symbolic?.Text ?? EnumConstantText(konst, enumSide),
+                symbolic?.Precedence ?? Precedence.Unary);
+        }
+        return new(EnumIntegerCast(value, enumSide), Precedence.Unary);
     }
 
     /// <summary>
@@ -944,12 +1037,12 @@ public sealed partial class CSharpPrinter
             if (!BitwiseOperandRendersAsInteger(binary.Left)
                 && TryCoerceEnumOperand(binary.Right, binary.Left.ResultType) is { } coercedRight)
             {
-                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {coercedRight}";
+                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {coercedRight.At(CSharpPrecedence.Of(binary))}";
             }
             if (!BitwiseOperandRendersAsInteger(binary.Right)
                 && TryCoerceEnumOperand(binary.Left, binary.Right.ResultType) is { } coercedLeft)
             {
-                return $"{coercedLeft} {BinaryOperator(binary)} {Operand(binary.Right)}";
+                return $"{coercedLeft.At(CSharpPrecedence.Of(binary))} {BinaryOperator(binary)} {Operand(binary.Right)}";
             }
         }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
@@ -1664,10 +1757,10 @@ public sealed partial class CSharpPrinter
         // down-coercion above owns that shape.
         if (!BitwiseOperandRendersAsInteger(left)
             && TryCoerceEnumOperand(right, left.ResultType) is { } coercedRight)
-            return $"{Operand(left)} {ComparisonOperator(kind)} {coercedRight}";
+            return $"{Operand(left)} {ComparisonOperator(kind)} {coercedRight.At(ComparisonPrecedence(kind))}";
         if (!BitwiseOperandRendersAsInteger(right)
             && TryCoerceEnumOperand(left, right.ResultType) is { } coercedLeft)
-            return $"{coercedLeft} {ComparisonOperator(kind)} {Operand(right)}";
+            return $"{coercedLeft.At(ComparisonPrecedence(kind))} {ComparisonOperator(kind)} {Operand(right)}";
         // An equality test between a same-width signed/unsigned integer pair
         // (`ulong != (long)i`, `nuint == nint`) has no C# common type (CS0034),
         // yet `ceq`/`bne.un` compare the raw bits regardless of sign. Reinterpret
@@ -2107,19 +2200,34 @@ public sealed partial class CSharpPrinter
         // into an enum (`flag ? 1 : 0`) is a real CS0266, and the cast wraps the
         // whole merge — `(StringComparison)(flag ? 1 : 0)` — which is legal off a
         // concrete enum target (the bail's CS0030 risk is type-parameter-only).
+        // When every ternary arm has a complete symbolic spelling, distribute
+        // the enum target instead: this recovers named flag combinations while
+        // retaining the whole-cast fallback for any unnamed or partial arm.
+        if (value is Conditional enumConditional
+            && target is { } symbolicEnumTarget
+            && IsEnumLikeInteger(symbolicEnumTarget)
+            && EnumConditionalHasCompleteSymbolicArms(
+                enumConditional,
+                symbolicEnumTarget)
+            && TryConditionalTextForTarget(
+                enumConditional,
+                symbolicEnumTarget) is { } symbolicConditional)
+        {
+            return new(symbolicConditional, "ConditionalExpression");
+        }
         if (target is { } enumTarget
             && CoercionRendering.CanSpellIntegerToEnum(EffectiveType(value), enumTarget, _function.TypeShapes))
         {
             if (value is Constant { Value: int or long } enumKonst)
             {
                 long enumValue = enumKonst.Value is int i ? i : (long)enumKonst.Value!;
-                bool hasName = EnumMemberName(new Constant(enumValue, enumTarget)) is not null;
-                if (!hasName)
+                var symbolic = EnumSymbolicConstant(new Constant(enumValue, enumTarget));
+                if (symbolic is null)
                     Expression(enumKonst);
                 return new(
                     EnumConstantText(enumKonst, enumTarget),
-                    hasName ? "MemberAccessExpression" : "ConversionExpression",
-                    IsContextualWrapper: !hasName);
+                    symbolic?.Kind ?? "ConversionExpression",
+                    IsContextualWrapper: symbolic is null);
             }
             return new(
                 EnumIntegerCast(value, enumTarget),
@@ -2195,11 +2303,14 @@ public sealed partial class CSharpPrinter
             && target is { } unknownEnum
             && CoercionRendering.CanSpellUnknownEnumConstant(EffectiveType(value), unknownEnum, _function.TypeShapes))
         {
-            Expression(unknownKonst);
+            long enumValue = unknownKonst.Value is int i ? i : (long)unknownKonst.Value;
+            var symbolic = EnumSymbolicConstant(new Constant(enumValue, unknownEnum));
+            if (symbolic is null)
+                Expression(unknownKonst);
             return new(
                 EnumConstantText(unknownKonst, unknownEnum),
-                "ConversionExpression",
-                IsContextualWrapper: true);
+                symbolic?.Kind ?? "ConversionExpression",
+                IsContextualWrapper: symbolic is null);
         }
         // A bool-valued expression flowing into an integer target is IL's
         // comparison/test result consumed as a number — `cgt.un; ret` from an int
@@ -2272,9 +2383,10 @@ public sealed partial class CSharpPrinter
                     : "ConversionExpression",
                 IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
         }
-        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
+        var numericSource = CoercionSourceType(value);
+        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(numericSource, numericTarget))
             return TransparentCoercion(value);
-        if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
+        if (!CSharpConversionRules.NeedsNumericCast(numericSource, target))
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
@@ -2297,18 +2409,37 @@ public sealed partial class CSharpPrinter
             }
             return new(
                 CheckedSafeNumericCast(
-                    EffectiveType(conv.Operand),
+                    CoercionSourceType(conv.Operand),
                     numericTarget,
                     () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}"),
                 "ConversionExpression");
         }
         return new(
             CheckedSafeNumericCast(
-                EffectiveType(value),
+                numericSource,
                 numericTarget,
                 () => $"({TypeText(numericTarget)}){Operand(value)}"),
             "ConversionExpression",
             IsContextualWrapper: true);
+    }
+
+    TypeRef? CoercionSourceType(IrExpression value)
+        => value is Unary && TypeFamilies.Of(value.ResultType) is StackFamily.I8 or StackFamily.I
+            ? WideIndexOperandType(value)
+            : EffectiveType(value);
+
+    bool EnumConditionalHasCompleteSymbolicArms(
+        Conditional conditional,
+        TypeRef enumType)
+        => EnumArmHasSymbolicSpelling(conditional.WhenTrue, enumType)
+            && EnumArmHasSymbolicSpelling(conditional.WhenFalse, enumType);
+
+    bool EnumArmHasSymbolicSpelling(IrExpression arm, TypeRef enumType)
+    {
+        if (arm is not Constant { Value: int or long } constant)
+            return false;
+        long value = constant.Value is int i ? i : (long)constant.Value;
+        return EnumSymbolicConstant(new Constant(value, enumType)) is not null;
     }
 
     string CheckedSafeNumericCast(TypeRef? source, TypeRef target, Func<string> renderCast)
@@ -2604,21 +2735,21 @@ public sealed partial class CSharpPrinter
         }
         if (TryCoerceEnumOperand(arm, target) is { } coerced)
         {
-            string kind = arm is Constant { Value: int or long } constant
+            var symbolic = arm is Constant { Value: int or long } constant
                 && target is not null
-                && EnumMemberName(new Constant(
+                ? EnumSymbolicConstant(new Constant(
                     constant.Value is int i ? i : (long)constant.Value!,
-                    target)) is not null
-                    ? "MemberAccessExpression"
-                    : "ConversionExpression";
-            if (kind == "ConversionExpression" && arm is Constant)
+                    target))
+                : null;
+            string kind = symbolic?.Kind ?? "ConversionExpression";
+            if (symbolic is null && arm is Constant)
                 Expression(arm);
             return BindJoinArm(
                 arm,
-                coerced,
-                Precedence.Unary,
+                coerced.Text,
+                coerced.Precedence,
                 kind,
-                isContextualWrapper: kind == "ConversionExpression");
+                isContextualWrapper: symbolic is null);
         }
         // Same stack family only: `(int)longBackedEnum` would truncate. The
         // importer's family merge should never build such a join, but the cast
@@ -2823,7 +2954,7 @@ public sealed partial class CSharpPrinter
             return null;
         if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))
             return CoalesceText(coalesce, target);
-        return TryCoerceEnumOperand(coalesce, target);
+        return TryCoerceEnumOperand(coalesce, target)?.Text;
     }
 
     static bool IsCoreChar(TypeRef type)
@@ -3002,4 +3133,9 @@ public sealed partial class CSharpPrinter
         ComparisonKind.GreaterThan => ">",
         _ => ">=",
     };
+
+    static Precedence ComparisonPrecedence(ComparisonKind kind)
+        => kind is ComparisonKind.Equal or ComparisonKind.NotEqual
+            ? Precedence.Equality
+            : Precedence.Relational;
 }

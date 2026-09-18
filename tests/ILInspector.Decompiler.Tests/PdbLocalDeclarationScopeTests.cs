@@ -17,6 +17,7 @@ public sealed class PdbLocalDeclarationScopeTests
     [Theory]
     [InlineData(nameof(PdbScopeFixtures.DisjointScopeLocals))]
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocals))]
+    [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto))]
     [InlineData(nameof(PdbScopeFixtures.LambdaScopes))]
     [InlineData(nameof(PdbScopeFixtures.LocalFunctionScopes))]
     public void DisjointCompilerScopes_PreserveBothExactNames(string method)
@@ -35,6 +36,12 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.Contains("Increment(ref same);", result.Output);
         Assert.Contains("KeepAlive(ref same);", result.Output);
         Assert.DoesNotContain("V_", result.Output);
+        if (method == nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto))
+        {
+            Assert.Contains(
+                function.Descendants,
+                node => node is Branch or ConditionalBranch or Leave);
+        }
     }
 
     [Fact]
@@ -161,6 +168,382 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.DoesNotContain(" V_", result.Output);
     }
 
+    [Fact]
+    public void SequentialOutVariableScopes_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialOutVariables))!;
+
+        var result = CSharpPrinter.PrintRaised(function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "out int value", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(" V_", result.Output);
+    }
+
+    [Fact]
+    public void SwitchExpressionOutVariableScopes_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SwitchExpressionOutVariables))!;
+
+        var result = CSharpPrinter.PrintRaised(function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "out int value", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(" V_", result.Output);
+    }
+
+    [Theory]
+    [InlineData(ArgumentRefKind.Ref, ParameterRefKindFacts.Known)]
+    [InlineData(ArgumentRefKind.Out, ParameterRefKindFacts.Unknown)]
+    public void NonVerifiedOutArguments_LeaveCollisionVisible(
+        ArgumentRefKind refKind,
+        ParameterRefKindFacts facts)
+    {
+        var function = SequentialAddressCalls(refKind, facts);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Fact]
+    public void OutArgumentAfterEarlierUse_LeavesCollisionVisible()
+    {
+        var function = SequentialAddressCalls(
+            ArgumentRefKind.Out,
+            ParameterRefKindFacts.Known,
+            readSecondBeforeCall: true);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Fact]
+    public void OutArgumentInWhileConditionWithLaterUse_LeavesCollisionVisible()
+    {
+        var callee = new MethodRef(
+            Owner,
+            "TryRead",
+            Boolean,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        entry.Add(LoopAndObserve(0));
+        entry.Add(LoopAndObserve(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+        Assert.DoesNotContain("out int same", result.Output);
+
+        Block LoopAndObserve(int index)
+        {
+            var lexical = new Block();
+            lexical.Add(new WhileLoop(
+                new Call(
+                    callee,
+                    isVirtual: false,
+                    [new LoadLocalAddress(index, Int32)]),
+                new Block()));
+            lexical.Add(Observe(index));
+            return lexical;
+        }
+    }
+
+    [Theory]
+    [InlineData("using")]
+    [InlineData("foreach")]
+    [InlineData("fixed")]
+    [InlineData("catch-filter")]
+    public void OutArgumentInStatementHeaderWithLaterUse_LeavesCollisionVisible(
+        string header)
+    {
+        TypeRef returnType = header == "catch-filter" ? Boolean : Object;
+        TypeRef headerLocalType = header == "fixed"
+            ? TypeRef.Pinned(TypeRef.ByRef(Int32))
+            : header == "using"
+                ? Object
+                : Int32;
+        var callee = new MethodRef(
+            Owner,
+            "Open",
+            returnType,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        entry.Add(HeaderAndObserve(outLocal: 0, headerLocal: 2));
+        entry.Add(HeaderAndObserve(outLocal: 1, headerLocal: 3));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32, headerLocalType, headerLocalType],
+            body)
+        {
+            LocalNames = ["same", "same", "header1", "header2"],
+            LocalDeclaredInNestedScope = [true, true, false, false],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+        Assert.DoesNotContain("out int same", result.Output);
+
+        Block HeaderAndObserve(int outLocal, int headerLocal)
+        {
+            var call = new Call(
+                callee,
+                isVirtual: false,
+                [new LoadLocalAddress(outLocal, Int32)]);
+            IrNode statement = header switch
+            {
+                "using" => new UsingStatement(
+                    headerLocal,
+                    Object,
+                    call,
+                    Container()),
+                "foreach" => new ForeachStatement(
+                    headerLocal,
+                    Int32,
+                    call,
+                    new Block()),
+                "fixed" => new Fixed(
+                    Int32,
+                    headerLocal,
+                    call,
+                    Container(),
+                    sourceIsAddress: false),
+                "catch-filter" => new TryCatch(
+                    Container(),
+                    [new CatchClause(Object, Container(), call)]),
+                _ => throw new ArgumentOutOfRangeException(nameof(header)),
+            };
+            var lexical = new Block();
+            lexical.Add(statement);
+            lexical.Add(Observe(outLocal));
+            return lexical;
+        }
+
+        static BlockContainer Container()
+        {
+            var container = new BlockContainer();
+            container.Add(new Block());
+            return container;
+        }
+    }
+
+    [Fact]
+    public void UniqueOutArgument_RemainsAtFunctionScope()
+    {
+        var callee = new MethodRef(
+            Owner,
+            "TryRead",
+            Boolean,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var then = new Block();
+        then.Add(Observe(0));
+        var lexical = new Block();
+        lexical.Add(new IfStatement(
+            new Call(callee, isVirtual: false, [new LoadLocalAddress(0, Int32)]),
+            then,
+            null));
+        var entry = new Block();
+        entry.Add(lexical);
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32],
+            body)
+        {
+            LocalNames = ["value"],
+            LocalDeclaredInNestedScope = [true],
+        };
+
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.StartsWith("int value;\n\n{\n", output);
+        Assert.DoesNotContain("{\n    int value;", output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
+    public void TransfersOutOfCandidateRanges_PreserveExactNames(string transferKind)
+    {
+        var entry = new Block();
+        entry.Add(new StoreLocal(0, Boolean, new Constant(true, Boolean)));
+        entry.Add(Transfer(transferKind, 30));
+        entry.Add(ObserveLocal(0, Boolean));
+        entry.Add(Marker(30));
+        entry.Add(new StoreLocal(1, Boolean, new Constant(false, Boolean)));
+        entry.Add(Transfer(transferKind, 60));
+        entry.Add(ObserveLocal(1, Boolean));
+        entry.Add(Marker(60));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Boolean, Boolean],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "bool same =", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
+    public void ExternalTransferIntoCandidateRange_LeavesCollisionVisible(
+        string transferKind)
+    {
+        var entry = new Block();
+        entry.Add(Transfer(transferKind, 20));
+        var firstDeclaration = new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32));
+        entry.Add(firstDeclaration);
+        entry.Add(Marker(20, 0));
+        entry.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        entry.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Same(entry, firstDeclaration.Parent);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Fact]
+    public void SequentialConstructorOutArguments_PreserveBothExactNames()
+    {
+        var constructor = new MethodRef(
+            Owner,
+            ".ctor",
+            Void,
+            [TypeRef.ByRef(Int32)],
+            HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        entry.Add(Construction(0));
+        entry.Add(Construction(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "out int same", StringSplitOptions.None).Length - 1);
+
+        Block Construction(int index)
+        {
+            var block = new Block();
+            block.Add(new ExpressionStatement(new NewObject(
+                constructor,
+                [new LoadLocalAddress(index, Int32)])));
+            block.Add(Observe(index));
+            return block;
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -273,6 +656,53 @@ public sealed class PdbLocalDeclarationScopeTests
         };
     }
 
+    static IrFunction SequentialAddressCalls(
+        ArgumentRefKind refKind,
+        ParameterRefKindFacts facts,
+        bool readSecondBeforeCall = false)
+    {
+        var callee = new MethodRef(
+            Owner,
+            "TryRead",
+            Boolean,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [refKind],
+            ParameterRefKindsFacts = facts,
+        };
+        var entry = new Block();
+        entry.Add(OutCall(0));
+        if (readSecondBeforeCall)
+            entry.Add(Observe(1));
+        entry.Add(OutCall(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        IfStatement OutCall(int index)
+        {
+            var then = new Block();
+            then.Add(Observe(index));
+            return new IfStatement(
+                new Call(
+                    callee,
+                    isVirtual: false,
+                    [new LoadLocalAddress(index, Int32)]),
+                then,
+                null);
+        }
+    }
+
     static IrNode Observe(int index)
         => new ExpressionStatement(new Call(
             new MethodRef(Owner, "Observe", Void, [Int32], false),
@@ -284,4 +714,30 @@ public sealed class PdbLocalDeclarationScopeTests
             new MethodRef(Owner, "Observe", Void, [type], false),
             false,
             [new LoadLocal(index, type)]));
+
+    static IrNode Transfer(string kind, int targetOffset)
+        => kind switch
+        {
+            "branch" => new Branch(targetOffset),
+            "conditional" => new ConditionalBranch(
+                new Constant(true, Boolean),
+                targetOffset),
+            "switch" => new SwitchBranch(
+                new Constant(0, Int32),
+                [targetOffset]),
+            "leave" => new Leave(targetOffset),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
+    static IrNode Marker(int offset, int? local = null)
+    {
+        IrNode statement = local is { } index
+            ? Observe(index)
+            : new ExpressionStatement(new Call(
+                new MethodRef(Owner, "Observe", Void, [], false),
+                false,
+                []));
+        statement.SetSourceOffset(offset);
+        return statement;
+    }
 }

@@ -34,6 +34,9 @@ fi
 
 fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
 fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+polymorphic_fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures/ILInspector.JsExportSurface.PolymorphicExportFixtures.csproj"
+polymorphic_fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicExportFixtures/release/ILInspector.JsExportSurface.PolymorphicExportFixtures.dll"
+polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicContractsFixtures/release/ILInspector.JsExportSurface.PolymorphicContractsFixtures.dll"
 
 "$dotnet_exe" build "$fixture_project" -c Release --nologo >/dev/null
 "$dotnet_exe" run \
@@ -43,6 +46,16 @@ fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixt
   "$fixture_dll" \
   --runtime-module ./dotnet.js \
   --output "$scratch/facade.ts"
+
+"$dotnet_exe" build "$polymorphic_fixture_project" -c Release --nologo >/dev/null
+"$dotnet_exe" run \
+  --project "$repo_root/src/ts-jsexport" \
+  -c Release \
+  -- \
+  "$polymorphic_fixture_dll" \
+  --assembly-search-path "$polymorphic_contracts_dll" \
+  --runtime-module ./dotnet.js \
+  --output "$scratch/polymorphic-facade.ts"
 
 cat > "$scratch/callback-usage.ts" <<'TS'
 import { observeValue, transformValue } from "./facade.js";
@@ -74,6 +87,85 @@ export async function readInertDisplay(): Promise<string> {
 // A plain string has not crossed the authenticated inert-text wire boundary.
 // @ts-expect-error
 export const untreated: InertString = "plain text";
+TS
+
+cat > "$scratch/typed-input-usage.ts" <<'TS'
+import { matchWidgetCandidates } from "./facade.js";
+import type { WidgetDto } from "./facade.js";
+
+const candidates: ReadonlyArray<WidgetDto> = [
+  { name: "primary", count: 1 },
+  { name: "fallback", count: 2 },
+];
+
+export const matched: boolean =
+  matchWidgetCandidates("primary", candidates);
+
+// The public facade accepts the authenticated JSON value, not its raw ABI
+// envelope.
+// @ts-expect-error
+export const rawEnvelope = matchWidgetCandidates("primary", JSON.stringify(candidates));
+TS
+
+cat > "$scratch/conditional-usage.ts" <<'TS'
+import { getConditionalOutput } from "./facade.js";
+import type {
+  ConditionalOutputDto,
+  JsonValue,
+  WidgetDto,
+} from "./facade.js";
+
+export function readConditionalOutput(value: ConditionalOutputDto): string {
+  const alwaysNullable: string | null = value.alwaysNullable;
+  const defaultHidden: number | undefined = value.defaultHidden;
+  const nullableDefaultHidden: number | undefined =
+    value.nullableDefaultHidden;
+  const nullHidden: string | undefined = value.nullHidden;
+  const nonNullableNullHidden: string | undefined =
+    value.nonNullableNullHidden;
+  const nullableItems: ReadonlyArray<WidgetDto | null> | undefined =
+    value.nullableItems;
+  const payload: JsonValue | undefined = value.payload;
+  const nullablePayload: JsonValue | undefined = value.nullablePayload;
+
+  return [
+    alwaysNullable ?? "null",
+    defaultHidden ?? "default",
+    nullableDefaultHidden ?? "default",
+    nullHidden ?? "missing",
+    nonNullableNullHidden ?? "missing",
+    nullableItems?.[0]?.name ?? "missing",
+    payload === undefined ? "missing" : "json",
+    nullablePayload === undefined ? "missing" : "json",
+  ].join("|");
+}
+
+export async function loadConditionalOutput(): Promise<string> {
+  return readConditionalOutput(await getConditionalOutput("sample"));
+}
+
+declare const output: ConditionalOutputDto;
+
+// Exact optional properties permit absence, not an explicit undefined value.
+// @ts-expect-error
+export const invalidConditionalOutput: ConditionalOutputDto = {
+  ...output,
+  nullHidden: undefined,
+};
+
+// Arbitrary JSON includes null but never an explicitly present undefined.
+// @ts-expect-error
+export const invalidConditionalJson: ConditionalOutputDto = {
+  ...output,
+  payload: undefined,
+};
+
+// Nullable JsonElement consumes CLR null as absence but preserves JSON null.
+// @ts-expect-error
+export const invalidConditionalNullableJson: ConditionalOutputDto = {
+  ...output,
+  nullablePayload: undefined,
+};
 TS
 
 cat > "$scratch/union-usage.ts" <<'TS'
@@ -351,8 +443,11 @@ cat > "$scratch/tsconfig.json" <<'JSON'
   },
   "include": [
     "facade.ts",
+    "polymorphic-facade.ts",
     "callback-usage.ts",
+    "conditional-usage.ts",
     "inert-usage.ts",
+    "typed-input-usage.ts",
     "union-usage.ts"
   ]
 }

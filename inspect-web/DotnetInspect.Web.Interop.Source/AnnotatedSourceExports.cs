@@ -65,7 +65,10 @@ public static partial class SourceExports
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             callRelationships: source.CallRelationships,
             callRelationshipsUnavailableReason:
-                source.CallRelationshipsUnavailableReason);
+                source.CallRelationshipsUnavailableReason,
+            callCycles: source.CallCycles,
+            callCyclesUnavailableReason:
+                source.CallCyclesUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -115,7 +118,9 @@ public static partial class SourceExports
             source.FindingEvidence,
             source.FindingEvidenceUnavailableReason,
             source.CallRelationships,
-            source.CallRelationshipsUnavailableReason);
+            source.CallRelationshipsUnavailableReason,
+            source.CallCycles,
+            source.CallCyclesUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -165,7 +170,8 @@ public static partial class SourceExports
                         FindingEvidence: factRows,
                         InvocationDestinations: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
-                        CallRelationships: factRows))),
+                        CallRelationships: factRows,
+                        CallCycles: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -268,6 +274,34 @@ public static partial class SourceExports
                                     scope.SurfaceParticipants)))),
             ];
         }
+        BrowserAnnotatedSourceCallCycleInspection? callCycles = null;
+        if (projection.CallCycles is { } projectedCycles)
+        {
+            callCycles = new BrowserAnnotatedSourceCallCycleInspection(
+                Available: true,
+                UnavailableReason: null,
+                projectedCycles.IsComplete,
+                [
+                    .. CycleLimits(projectedCycles.Limits),
+                ],
+                [
+                    .. projectedCycles.Findings.Select(finding =>
+                        new BrowserAnnotatedSourceCallCycle(
+                            finding.Key.IdentityKey,
+                            finding.Ordinal,
+                            [.. finding.EdgeRows],
+                            [.. finding.FactIds],
+                            [
+                                .. finding.Targets.Select(target =>
+                                    BrowserSourceWireProjection.Project(
+                                        BrowserCallGraphProjection.Target(
+                                            target,
+                                            [participant.Assembly.Identity],
+                                            null,
+                                            scope.SurfaceParticipants))),
+                            ])),
+                ]);
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -289,6 +323,12 @@ public static partial class SourceExports
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             callRelationships,
             callRelationships is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            callCycles,
+            callCycles is null
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
@@ -369,6 +409,41 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static IEnumerable<BrowserAnnotatedSourceCallCycleLimit> CycleLimits(
+        AnnotatedCallGraphCycleLimit limits)
+    {
+        if (limits.HasFlag(
+                AnnotatedCallGraphCycleLimit.TraversalBoundary))
+        {
+            yield return
+                BrowserAnnotatedSourceCallCycleLimit.TraversalBoundary;
+        }
+        if (limits.HasFlag(
+                AnnotatedCallGraphCycleLimit.IncompleteCorrespondence))
+        {
+            yield return
+                BrowserAnnotatedSourceCallCycleLimit.IncompleteCorrespondence;
+        }
+        if (limits.HasFlag(
+                AnnotatedCallGraphCycleLimit.WitnessBudget))
+        {
+            yield return
+                BrowserAnnotatedSourceCallCycleLimit.WitnessBudget;
+        }
+        if (limits.HasFlag(
+                AnnotatedCallGraphCycleLimit.PathBudget))
+        {
+            yield return
+                BrowserAnnotatedSourceCallCycleLimit.PathBudget;
+        }
+        if (limits.HasFlag(
+                AnnotatedCallGraphCycleLimit.AnalysisFailure))
+        {
+            yield return
+                BrowserAnnotatedSourceCallCycleLimit.AnalysisFailure;
+        }
+    }
+
     private sealed record MemberSourceProjection(
         ResearchViews.MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
@@ -383,5 +458,8 @@ public static partial class SourceExports
             FindingEvidenceUnavailableReason,
         BrowserAnnotatedSourceCallRelationship[]? CallRelationships,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            CallRelationshipsUnavailableReason);
+            CallRelationshipsUnavailableReason,
+        BrowserAnnotatedSourceCallCycleInspection? CallCycles,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            CallCyclesUnavailableReason);
 }

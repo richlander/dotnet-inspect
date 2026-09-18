@@ -242,6 +242,8 @@ public static class IrImporter
             MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName);
         if (result is TypeDeclarationResult.Missing)
             return null;
+        if (result is TypeDeclarationResult.BudgetExceeded budget)
+            throw new TypeDeclarationBudgetExceededException(budget.Detail);
         if (result is TypeDeclarationResult.Rejected rejected)
             throw new BadImageFormatException(rejected.Rejection.Detail);
         if (result is TypeDeclarationResult.Ambiguous)
@@ -269,6 +271,9 @@ public static class IrImporter
             overloadIndex,
             publicOnly);
     }
+
+    sealed class TypeDeclarationBudgetExceededException(string message)
+        : Exception(message);
 
     /// <summary>
     /// Type-handle form of <see cref="ResolveMethodHandle(MetadataReader, string, string, int, bool)"/>.
@@ -843,6 +848,7 @@ public static class IrImporter
         var shapes = new Dictionary<TypeRef, TypeShape>();
         Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? enums = null;
         Dictionary<TypeRef, TypeRef>? enumUnderlyingTypes = null;
+        var flagsEnumTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var collectionInitializerTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var unionTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var byRefLikeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
@@ -908,6 +914,7 @@ public static class IrImporter
                 shapes[type] = TypeShape.Unknown;
                 enums?.Remove(type);
                 enumUnderlyingTypes?.Remove(type);
+                flagsEnumTypes.Remove(type);
                 foreach (var candidate in collectionInitializerTypes
                     .Where(candidate => NamedDefinition(candidate).Equals(type))
                     .ToArray())
@@ -942,6 +949,8 @@ public static class IrImporter
                     enumUnderlyingTypes ??= [];
                     enumUnderlyingTypes[type] = underlying;
                 }
+                if (source.ResolveEnumIsFlags(type))
+                    flagsEnumTypes.Add(type);
             }
         }
 
@@ -988,6 +997,8 @@ public static class IrImporter
             function.EnumMembers = enums;
         if (enumUnderlyingTypes is not null)
             function.EnumUnderlyingTypes = enumUnderlyingTypes;
+        if (flagsEnumTypes.Count > 0)
+            function.FlagsEnumTypes = flagsEnumTypes.ToImmutable();
         if (collectionInitializerTypes.Count > 0)
             function.CollectionInitializerTypes = collectionInitializerTypes.ToImmutable();
         if (unionTypes.Count > 0)

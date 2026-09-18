@@ -59,6 +59,48 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        SameImageCalls_AttributedLocalUsesPhysicalGenericScope()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog
+                .Get(FixtureIds.AnalysisCallGenericScope)
+                .AssemblyPath());
+        MethodIdentity caller = Assert.Single(
+            index.Methods,
+            method =>
+                method.Name
+                    == "CallAttributedLocal");
+        MethodIdentity target = Assert.Single(
+            index.Methods,
+            method =>
+                method.DeclaringType.Name
+                    == "Target`1"
+                && method.Name == "Invoke");
+        CallTreeNode child = Assert.Single(
+            index.BuildCallTree(
+                    caller.MetadataToken,
+                    maxDepth: 2,
+                    maxNodes: 10)
+                .Children,
+            node =>
+                node.Member.Name == "Invoke");
+        MethodLeverage leverage = Assert.Single(
+            index.TopLeverage(
+                count: 1,
+                scope: method =>
+                    method.MetadataToken
+                        == target.MetadataToken));
+
+        Assert.Equal(
+            CallTreeStatus.Leaf,
+            child.Status);
+        Assert.Equal(
+            3,
+            leverage.DirectCallerCount);
+    }
+
+    [Fact]
     public void SameImageCalls_UseNormalizedCallerContracts()
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(

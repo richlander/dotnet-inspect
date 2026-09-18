@@ -37,9 +37,9 @@ public record InspectionOptions : IProjectionOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// Prefer rendered browser-view URLs when supported; otherwise keep the original URL.
     /// </summary>
-    public bool BrowsableUrls { get; init; }
+    public bool PreferRenderedUrls { get; init; }
 
     /// <summary>
     /// Library inside the package to inspect. Null means package inspection; empty string means select
@@ -176,6 +176,11 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for a single package's SourceLink file rows.
     /// </summary>
     public RowSelectionIntent<string>? SourceLinkFileRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one single-package file-list section.
+    /// </summary>
+    public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.

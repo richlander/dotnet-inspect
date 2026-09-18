@@ -14,6 +14,7 @@ public sealed class PdbLocalScopeFidelityTests
         [
             nameof(PdbScopeFixtures.DisjointScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocals),
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto),
             nameof(PdbScopeFixtures.SequentialValueTypeScopeLocals),
         ];
         var results = FidelityCheck.Evaluate(
@@ -38,6 +39,34 @@ public sealed class PdbLocalScopeFidelityTests
 
         Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    public void DisjointOutVariableNames_CompileBackExactly()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(PdbScopeFixtures).Assembly.Location,
+            type => type == typeof(PdbScopeFixtures).FullName,
+            method => method.Method == nameof(PdbScopeFixtures.SequentialOutVariables)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
+    public void SwitchExpressionOutVariableNames_CompileBackSuccessfully()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(PdbScopeFixtures).Assembly.Location,
+            type => type == typeof(PdbScopeFixtures).FullName,
+            method => method.Method == nameof(PdbScopeFixtures.SwitchExpressionOutVariables)));
+
+        Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
             $"{result.Method}: {result.Status}: {result.Detail}");
     }
 }

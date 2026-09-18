@@ -1062,6 +1062,84 @@ Release.
 gates exact successful-result correspondence in Release. The source-neutral
 before-source-access validation gates above own the delegated ordering claim.
 
+### Package-backed successful-result binding adoption
+
+The package-backed adapter admits the exact one-assembly Reference population
+implied by an applicable `ResolveAssemblyReference` operation. Its authoritative
+contribution preserves the exact House request, target, package capability,
+source generation, source coordinate identity, and one-assembly population.
+The paired adapter-issued value carries the package source generation,
+reference-pack coordinate, member path, assembly identity, candidate,
+configured authority, producer identity, content generation, payload origin,
+and immutable bytes.
+
+The package execution adapter binds those facts as Artifact provenance,
+converts the snapshot to the common source-neutral materialization item, and
+delegates the operation unchanged to
+`PlatformHouseAssemblyReferenceResolver`. Package Source operation settlement
+completes before this bridge consumes the successful result; no Package Source
+lease, payload, or store lifetime enters the Artifact, temporary Library, or
+House result.
+
+This adapter does not duplicate Artifact publication, Library ownership,
+Metadata projection, terminal precedence, cleanup, or receipt construction.
+The returned decision therefore remains detached terminal data: the shared
+executor settles the exact package contribution once and retires every
+temporary Library and Artifact authority before publication. Package
+source-terminal orchestration, fallback or aggregation, source-relative
+lineage, and ladder or host composition remain later owner-adoption slices.
+
+`PackagePlatformAssemblyReferenceResolverTests.AdapterProducesExactBindingContributionAfterPackageSettlement`
+gates the authoritative one-assembly package contribution after Package Source
+operation settlement in Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_PreservesPackageProvenanceAndSettlesContribution`
+gates package-backed reference provenance and exact source settlement in
+Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsSuccessfulResultForDifferentRequest`
+gates exact successful-result correspondence in Release. The source-neutral
+before-source-access validation gates above own the delegated ordering claim.
+
+### Package reference-source terminal adoption
+
+For one exact global assembly-reference operation whose Reference source plan
+authorizes only the package capability, an adapter-issued package
+`NotSucceeded` result closes as one source-neutral House terminal outcome. The
+projector accepts only the exact request snapshot, Reference facet, authorized
+capability, and settled target. It performs no package discovery, acquisition,
+content opening, Artifact publication, Library construction, or Metadata work.
+
+An accepted `Unavailable`, `Rejected`, `Incomplete`, or `Failed` contribution
+appears exactly once in the House receipt as `OutcomeRelevant`. The House
+terminal arm preserves the contribution kind; source failure records
+`PlatformHouseFailureKind.Source`. Package rejection diagnostics classify
+invalid selection as `InvalidRequest`, invalid coordinates as
+`InvalidTargetCorrespondence`, and rejected source-owned content or evidence as
+`InvalidOwnerResult`. The source-specific diagnostic remains on the
+caller-owned package adapter result beside the House outcome rather than being
+copied into the host-neutral receipt.
+
+After exact request validation, a corresponding source failure remains
+`Failed`. Otherwise, budget exhaustion produces `Incomplete`; a corresponding
+terminal contribution is retained, while a foreign or otherwise unusable one
+is not settled. Within budget, foreign, unauthorized, mismatched-facet,
+mismatched-target, successful, or otherwise unusable contributions produce
+`Rejected(InvalidOwnerResult)` with no source settlement. Cancellation remains
+`OperationCanceledException`.
+
+This is single-source terminal projection, not source selection. It does not
+add installed projection, target discovery, precedence, fallback, aggregation,
+source-relative lineage, ladder composition, or host adoption.
+
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsPackageSourceTerminalOutcomes`
+gates the four package terminal arms, exact outcome-relevant settlement, source
+failure stage, retained package diagnostic, and absence of further source work
+in Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignPackageSourceTerminal`
+gates foreign unavailable and incomplete owner evidence before settlement in
+Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal`
+gates typed incomplete precedence without settling that foreign evidence.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the

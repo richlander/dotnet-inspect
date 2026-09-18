@@ -345,7 +345,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     },
   });
 
-  const sync = state.client.package.searchTypes("String", "[]");
+  const sync = state.client.package.searchTypes("String", []);
   const asyncDto =
     state.client.package.activateWorkspacePackageOccurrence("open");
   const voidResult =
@@ -359,12 +359,18 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   );
   const pruning = state.client.package.queryPackagePruning(
     "Example",
@@ -390,7 +396,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
@@ -399,7 +405,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(matchArguments, [
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   ]);
   assert.equal((await pruning).completion, "Complete");
   assert.deepEqual(pruningArguments, [
@@ -757,8 +769,6 @@ test("large generated results cross the former ordinary transport bounds", async
       queryPackageVersions: async () => ({
         versions,
         currentVersionInsertionIndex: 0,
-        previousVersion: null,
-        previousVersionUnavailableReason: null,
       }),
     },
   });

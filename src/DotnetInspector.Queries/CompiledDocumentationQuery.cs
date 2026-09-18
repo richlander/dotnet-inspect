@@ -234,6 +234,30 @@ public static class CompiledDocumentationQuery
         return new(outcome, Content(outcome));
     }
 
+    public static async ValueTask<
+        IReadOnlyList<CompiledDocumentationQueryResult>> ExecuteManyAsync(
+            IReadOnlyList<DocumentationHouseRequest> requests,
+            LibraryOperationLease operationLease,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(operationLease);
+        IReadOnlyList<DocumentationHouseOutcome> outcomes =
+            await DocumentationHouse.DocumentationHouse.ExecuteManyAsync(
+                    requests,
+                    operationLease,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return
+        [
+            .. outcomes.Select(
+                static outcome =>
+                    new CompiledDocumentationQueryResult(
+                        outcome,
+                        Content(outcome))),
+        ];
+    }
+
     private static CompiledDocumentationOutcome Content(
         DocumentationHouseOutcome outcome)
     {

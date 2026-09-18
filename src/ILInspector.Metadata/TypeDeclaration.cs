@@ -222,6 +222,20 @@ public abstract class TypeDeclarationResult
         public ImmutableArray<TypeDeclarationCandidate> Candidates { get; }
     }
 
+    public sealed class BudgetExceeded : TypeDeclarationResult
+    {
+        internal BudgetExceeded(long budget, string detail)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(budget);
+            ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+            Budget = budget;
+            Detail = detail;
+        }
+
+        public long Budget { get; }
+        public string Detail { get; }
+    }
+
     public sealed class Rejected : TypeDeclarationResult
     {
         internal Rejected(MetadataTypeNameFailure rejection) =>

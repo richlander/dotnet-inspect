@@ -168,7 +168,7 @@ public class WideArrayIndexTests
         // `checked` never changes an expression's C# type: a `checked` `ulong` sum
         // used as a signed index is still `ulong`, so the recovery keeps the
         // `(long)` cast. Stripping bare would re-insert `conv.ovf.i.un`.
-        Assert.Equal("return a[(long)checked(v[j] + x)];", Print(nameof(CfgSampleClass.CheckedULongSumIndexAsSigned)));
+        Assert.Equal("return a[(long)checked(unchecked((ulong)v[j]) + x)];", Print(nameof(CfgSampleClass.CheckedULongSumIndexAsSigned)));
     }
 
     [Fact]

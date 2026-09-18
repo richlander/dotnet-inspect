@@ -98,7 +98,7 @@ public class LibraryCommand
         {
             Command = new InertString(
                 TextPolicy.Field,
-                options.IsCoordinateCommand
+                options.CoordinateRequest is not null
                     ? "library coordinate"
                     : "library"),
             Target = new InertString(
@@ -160,8 +160,7 @@ public class LibraryCommand
             return 1;
         }
         if (options.IntegrationQuery.HasFilter
-            && (options.ILOffsetParameter is not null || options.ILOffsetsPath is not null
-                || options.HeapParameter is not null || options.ExtractResources is not null
+            && (options.ExtractResources is not null
                 || options.Print || options.Value || options.Urls || options.Paths))
         {
             CommandError.Write(
@@ -215,7 +214,9 @@ public class LibraryCommand
         {
             return StructuralViewRegistry.Execute(
                 StructuralViewRegistry.Route(
-                    StructuralViewIdentity.DirectLibrary,
+                    options.CoordinateRequest is null
+                        ? StructuralViewIdentity.DirectLibrary
+                        : StructuralViewIdentity.LibraryCoordinate,
                     InspectionCatalogIdentity.Library),
                 StructuralDiscoveryRequest.From(options));
         }
@@ -229,35 +230,20 @@ public class LibraryCommand
             bool requiresInspection = hasInputSource
                 && !options.Schema
                 && (options.Effective
-                    || options.Discover.Length == 0
-                    || HasILOffsetCoordinate(options)
-                    || HasHeapCoordinate(options));
+                    || options.Discover.Length == 0);
             if (requiresInspection)
             {
                 // Handled after data collection below.
             }
             else
             {
-                return DiscoverOutput.Execute(options.Discover, schemaMap,
-                    DiscoveryOutputRequest.Create(
-                        OutputFormatResolver.ResolveStored(
-                            options.Format,
-                            options.JsonOutput,
-                            options.PlainText,
-                            options.Tabular,
-                            options.Tsv,
-                            options.Jsonl),
-                        options.Tree,
-                        options.TabularExplicitlySet,
-                        options.NoHeader,
-                        (int)options.Verbosity,
-                        options),
-                    sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: sections.SelectionCategoryMap,
-                    // --schema reveals every registered section. Structural category drill-down
-                    // keeps the curated top-level scope when no target inspection is requested.
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                return StructuralViewRegistry.Execute(
+                    StructuralViewRegistry.Route(
+                        options.CoordinateRequest is null
+                            ? StructuralViewIdentity.DirectLibrary
+                            : StructuralViewIdentity.LibraryCoordinate,
+                        InspectionCatalogIdentity.Library),
+                    StructuralDiscoveryRequest.From(options));
             }
         }
 
@@ -280,7 +266,7 @@ public class LibraryCommand
         if (fullEffectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
-        var normalized = NormalizeILOffsetSelection(options);
+        var normalized = NormalizeILCoordinateSelection(options);
         if (normalized.Error is not null)
         {
             CommandError.Write(normalized.Error);
@@ -288,7 +274,7 @@ public class LibraryCommand
         }
         options = normalized.Options;
 
-        var heapNormalized = NormalizeHeapSelection(options);
+        var heapNormalized = NormalizeHeapCoordinateSelection(options);
         if (heapNormalized.Error is not null)
         {
             CommandError.Write(heapNormalized.Error);
@@ -529,52 +515,38 @@ public class LibraryCommand
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(options.HeapParameter)
+        if (options.CoordinateRequest
+                is LibraryCoordinateRequest.HeapPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
-            string requestName = options.IsCoordinateCommand
-                ? "library coordinate"
-                : "--heap";
-            CommandError.Write($"{requestName} requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            CommandError.Write(
+                $"library coordinate requires the heap coordinate section. "
+                + $"Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
-        if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+        if (options.CoordinateRequest
+                is LibraryCoordinateRequest.IlPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            string requestName = options.IsCoordinateCommand
-                ? "library coordinate"
-                : "--il-offset";
-            CommandError.Write($"{requestName} requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
-            return 1;
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
-            && !string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-        {
             CommandError.Write(
-                options.IsCoordinateCommand
-                    ? "library coordinate accepts either one exact coordinate "
-                        + "or --file, not both."
-                    : "--il-offset cannot be combined with --il-offsets.");
+                $"library coordinate requires an IL coordinate section. "
+                + $"Omit -S or include -S \"{SectionNames.ILOffset}\", "
+                + $"-S \"{SectionNames.MemberContext}\", "
+                + $"-S \"{SectionNames.InstructionContext}\", "
+                + $"-S \"{SectionNames.ExceptionContext}\", "
+                + $"-S \"{SectionNames.CallsiteContext}\", or "
+                + $"-S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
         // Coordinate file mode counts resolved coordinate rows, not section rows, so it does not
         // need a section filter to make --count meaningful.
-        var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
-        if (ilOffsetsBatchMode && options.SelectExplicitlySet)
-        {
-            string requestName = options.IsCoordinateCommand
-                ? "library coordinate --file"
-                : "--il-offsets";
-            CommandError.Write(
-                $"-S/--select is not available with {requestName}, which renders "
-                + "its own payload rather than sections.");
-            return 1;
-        }
+        var ilOffsetsBatchMode =
+            options.CoordinateRequest
+                is LibraryCoordinateRequest.FilePopulation;
 
         // Discovery renders its own rows, so a section requirement describes a filter it does
         // not use. -S still narrows effective discovery, so it stays permitted.
@@ -697,8 +669,7 @@ public class LibraryCommand
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
-            && !HasILOffsetCoordinate(options)
-            && !HasHeapCoordinate(options)
+            && options.CoordinateRequest is null
             && options.MetadataRoot == MetadataRootKind.Cli;
 
         if (trace is not null)
@@ -818,7 +789,9 @@ public class LibraryCommand
                         framework!,
                         version,
                         "library --platform");
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                if (options.CoordinateRequest
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -866,7 +839,9 @@ public class LibraryCommand
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
-                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery
+                    && options.CoordinateRequest
+                        is not LibraryCoordinateRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -964,7 +939,9 @@ public class LibraryCommand
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
 
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                if (options.CoordinateRequest
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -1040,7 +1017,8 @@ public class LibraryCommand
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
                     && primaryReady is not null
-                    && !HasILOffsetCoordinate(options)
+                    && options.CoordinateRequest
+                        is not LibraryCoordinateRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         primaryReady.Subject,
                         context.HttpClient,
@@ -1211,7 +1189,9 @@ public class LibraryCommand
 
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Local("library path");
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                if (options.CoordinateRequest
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -1257,7 +1237,9 @@ public class LibraryCommand
                 }
 
                 // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery
+                    && options.CoordinateRequest
+                        is not LibraryCoordinateRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -1544,17 +1526,14 @@ public class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        ILCoordinatePopulationOutcome populationOutcome =
-            options.ILCoordinatePopulation is { } admittedPopulation
-                ? ILCoordinatePopulationOutcome.Success(admittedPopulation)
-                : ILOffsetQuery.ReadPopulation(options.ILOffsetsPath!);
-        if (!populationOutcome.Succeeded)
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.FilePopulation
+            {
+                Population: { } population,
+            })
         {
-            CommandError.Write(
-                ILOffsetQuery.PopulationFailureMessage(
-                    populationOutcome.Failure!,
-                    options.IsCoordinateCommand));
-            return 1;
+            throw new UnreachableException(
+                "Coordinate file execution requires an admitted population.");
         }
 
         HashSet<string> sections = options.IncludeSections is { Count: > 0 }
@@ -1562,19 +1541,7 @@ public class LibraryCommand
             : [.. BatchCoordinateSections];
 
         IEnumerable<ILCoordinatePopulationRecord> records =
-            populationOutcome.Population!.Records;
-        if (!options.IsCoordinateCommand)
-        {
-            records =
-                records
-                    .OrderBy(
-                        record =>
-                            record
-                                is ILCoordinatePopulationRecord.Malformed
-                                    ? 0
-                                    : 1)
-                    .ThenBy(record => record.LineNumber);
-        }
+            population.Records;
 
         var rows = new List<ILCoordinateBatchRow>();
         using var service = subject.OpenSourceLink(logger.Log);
@@ -1595,29 +1562,25 @@ public class LibraryCommand
 
             var coordinate =
                 (ILCoordinatePopulationRecord.Coordinate)record;
-            var queryOptions = options with
-            {
-                ILOffsetParameter = coordinate.Value,
-                IncludeSections = sections,
-                Select = [.. sections],
-                Discover = null,
-                Print = false,
-                Count = false,
-                Value = false,
-                Urls = false,
-                Paths = false
-            };
-            var resolved = await ILOffsetQuery.ResolveBatchAsync(
+            var resolved = await ResolveILCoordinateAsync(
                 service,
+                coordinate,
+                sections,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
-                queryOptions,
+                options,
                 httpClient,
                 logger);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
-                : new ILCoordinateBatchRow(coordinate.Value, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
+                : new ILCoordinateBatchRow(
+                    coordinate.Value,
+                    coordinate.Label,
+                    null,
+                    null,
+                    "error",
+                    ILOffsetQuery.FormatFailure(resolved.Failure)));
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
@@ -1640,9 +1603,7 @@ public class LibraryCommand
         // non-zero exit remains the signal that some coordinate did not resolve.
         if (LensProjection.TryProject(
                 options,
-                options.IsCoordinateCommand
-                    ? "library coordinate --file"
-                    : "--il-offsets",
+                "library coordinate --file",
                 visibleRows.Count,
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
@@ -1668,6 +1629,56 @@ public class LibraryCommand
         SectionNames.SafetyContext,
         SectionNames.CostContext
     ];
+
+    private static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)> ResolveILCoordinateAsync(
+        SourceLinkService service,
+        ILCoordinatePopulationRecord.Coordinate coordinate,
+        HashSet<string> sections,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool allowNonBoundaryContextAbsence = false)
+    {
+        var queryOptions = options with
+        {
+            CoordinateRequest =
+                new LibraryCoordinateRequest.IlPoint(
+                    coordinate.Value,
+                    coordinate.MethodToken,
+                    coordinate.ILOffset),
+            IncludeSections = sections,
+            Select = [.. sections],
+            Discover = null,
+            Print = false,
+            Count = false,
+            Value = false,
+            Urls = false,
+            Paths = false
+        };
+        return allowNonBoundaryContextAbsence
+            ? ILOffsetQuery.ResolveDiscoveryAsync(
+                service,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                queryOptions,
+                httpClient,
+                logger)
+            : ILOffsetQuery.ResolveBatchAsync(
+                service,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                queryOptions,
+                httpClient,
+                logger);
+    }
 
     private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
         ILCoordinatePopulationRecord.Coordinate input,
@@ -1765,10 +1776,13 @@ public class LibraryCommand
         }, options.Rows);
     }
 
-    private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
+    private static (LibraryOptions Options, string? Error) NormalizeILCoordinateSelection(
+        LibraryOptions options)
     {
         var select = options.Select?.ToList() ?? [];
-        string? ilOffset = options.ILOffsetParameter;
+        bool hasILCoordinate =
+            options.CoordinateRequest
+                is LibraryCoordinateRequest.IlPoint;
         bool hasExplicitSelect = select.Count > 0;
 
         // Reject "<coordinate section>:<offset>" selectors. The legacy spellings ("IL Offset",
@@ -1786,19 +1800,15 @@ public class LibraryCommand
             var value = select[i].Trim();
             if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             {
-                return options.IsCoordinateCommand
-                    ? (options,
-                        "IL coordinate parameters belong in the coordinate argument, "
-                        + $"not in -S. Use library coordinate 0x06000001+0x5 "
-                        + $"--library <path> -S \"{SectionNames.ILOffset}\".")
-                    : (options,
-                        $"IL offset parameters belong in --il-offset, not in -S. "
-                        + $"Use --il-offset 0x06000001+0x5 "
-                        + $"-S \"{SectionNames.ILOffset}\".");
+                return (
+                    options,
+                    "IL coordinate parameters belong in the coordinate argument, "
+                    + $"not in -S. Use library coordinate 0x06000001+0x5 "
+                    + $"--library <path> -S \"{SectionNames.ILOffset}\".");
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(ilOffset)
+        if (hasILCoordinate
             && options.Discover == null
             && !hasExplicitSelect)
         {
@@ -1809,10 +1819,8 @@ public class LibraryCommand
             select.Add(SectionNames.CallsiteContext);
             select.Add(SectionNames.ReturnAddressContext);
         }
-
         return (options with
         {
-            ILOffsetParameter = ilOffset,
             Select = select.Count == 0 ? null : [.. select]
         }, null);
     }
@@ -1827,9 +1835,12 @@ public class LibraryCommand
             return null;
 
         const string ilCoordinateRequired =
-            "IL coordinate sections require --il-offset <token>+<offset>.";
+            "IL coordinate sections require library coordinate "
+            + "<token>+<offset>.";
         var heapCoordinateRequired =
-            $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+            $"\"{MetadataSectionNames.Heap}\" requires library coordinate "
+            + "\"<heap>:<address>\", for example library coordinate "
+            + "\"#Strings:0x1a4\".";
         var bodyKindRequired =
             $"\"{sections.FirstOrDefault(section => BodyKindQueryOptions.Sections.Contains(
                 section, StringComparer.OrdinalIgnoreCase)) ?? SectionNames.BodyShapes}\" "
@@ -1839,7 +1850,7 @@ public class LibraryCommand
         var removedBodyShapesSection = false;
 
         if (sections.Overlaps(ILCoordinateSections)
-            && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+            && !HasILCoordinateRequest(options))
         {
             if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
             {
@@ -1854,7 +1865,8 @@ public class LibraryCommand
         }
 
         if (sections.Contains(MetadataSectionNames.Heap)
-            && string.IsNullOrWhiteSpace(options.HeapParameter))
+            && options.CoordinateRequest
+                is not LibraryCoordinateRequest.HeapPoint)
         {
             // Reached through @Metadata the section is dropped because a category selects whatever
             // applies. An exact selector is an error because the section cannot exist without its
@@ -1967,16 +1979,6 @@ public class LibraryCommand
         SectionNames.SafetyContext,
         SectionNames.CostContext
     ];
-
-    private static bool HasILOffsetCoordinate(LibraryOptions options)
-        => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
-
-    /// <summary>
-    /// True when a heap coordinate was supplied. Like an IL coordinate, it changes which sections
-    /// exist, so a discovery catalog computed with one must not be served to a run without one.
-    /// </summary>
-    private static bool HasHeapCoordinate(LibraryOptions options)
-        => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
     private static string? MetadataRootSelectionError(LibraryOptions options)
     {
@@ -2113,27 +2115,16 @@ public class LibraryCommand
     }
 
     /// <summary>
-    /// Validates the <c>--heap</c> coordinate and, when no selection was given, selects the
-    /// section it feeds.
-    ///
-    /// The coordinate is parsed here — before any assembly is opened — so a malformed one fails
-    /// immediately with a diagnostic naming the wrong half, rather than after the cost of an
-    /// inspection.
+    /// Selects the heap-coordinate section when the child admitted a heap point
+    /// and no explicit section was given.
     /// </summary>
-    private static (LibraryOptions Options, string? Error) NormalizeHeapSelection(LibraryOptions options)
+    private static (LibraryOptions Options, string? Error)
+        NormalizeHeapCoordinateSelection(
+            LibraryOptions options)
     {
-        if (string.IsNullOrWhiteSpace(options.HeapParameter))
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.HeapPoint)
             return (options, null);
-
-        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
-        {
-            string requestName = options.IsCoordinateCommand
-                ? "coordinate"
-                : "--heap value";
-            return (
-                options,
-                $"invalid {requestName} '{options.HeapParameter}': {error}");
-        }
 
         if (options.Discover != null || options.Select is { Length: > 0 })
             return (options, null);
@@ -2142,9 +2133,9 @@ public class LibraryCommand
     }
 
     /// <summary>
-    /// Reads the heap value <c>--heap</c> named onto the model, which is what makes the
+    /// Reads the heap value named by the Coordinate child onto the model, which makes the
     /// coordinate-scoped section applicable. Returns a process exit code, having written its own
-    /// diagnostic, exactly as the <c>--il-offset</c> resolution above it does.
+    /// diagnostic, exactly as the IL-coordinate resolution above it does.
     ///
     /// A coordinate that does not resolve is an <em>error</em>, not a malformed cell in an
     /// otherwise successful render. The two cases look alike but are not: a bad heap reference
@@ -2152,23 +2143,21 @@ public class LibraryCommand
     /// <c>!malformed</c> and the command succeeds; a coordinate is the caller's own input, and the
     /// caller asked for exactly one thing that does not exist. Rendering that as a successful row
     /// would exit 0 while answering nothing, and — worse — <c>-D</c> would go on advertising
-    /// <c>Metadata: Heap</c> as an available section. <c>--il-offset</c> already draws the line
-    /// here (<c>IL offset 0x… is not an instruction boundary</c>, exit 1) and this matches it.
+    /// <c>Metadata: Heap</c> as an available section.
     /// </summary>
     private static int PopulateMetadataHeapIfRequested(
         LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(options.HeapParameter)
+        if (options.CoordinateRequest
+                is not LibraryCoordinateRequest.HeapPoint coordinate
             || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
             return 0;
 
         if (inspection.MetadataAssemblyPath is not { } path)
             return 0;
 
-        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out var heap, out int address, out _))
-            throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
-
-        string name = MetadataHeapCoordinate.StreamName(heap);
+        string name =
+            MetadataHeapCoordinate.StreamName(coordinate.Heap);
         if (inspection.MetadataImageResult
             is not MetadataImageResult.Available available)
         {
@@ -2180,33 +2169,49 @@ public class LibraryCommand
         {
             if (available.Root is { } root)
             {
-                value = root.HeapValue(heap, address);
+                value = root.HeapValue(
+                    coordinate.Heap,
+                    coordinate.Address);
             }
             else
             {
                 using var session = AssemblyInspectionSession.Open(path);
-                value = session.MetadataHeapValue(heap, address);
+                value = session.MetadataHeapValue(
+                    coordinate.Heap,
+                    coordinate.Address);
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Error reading {name} heap at {address} in {path}: {ex.Message}");
-            CommandError.Write($"could not read {name} heap at {address}: {ex.Message}");
+            logger.LogWarning(
+                $"Error reading {name} heap at {coordinate.Address} "
+                + $"in {path}: {ex.Message}");
+            CommandError.Write(
+                $"could not read {name} heap at {coordinate.Address}: "
+                + ex.Message);
             return 1;
         }
 
         switch (value)
         {
             case null:
-                CommandError.Write($"could not read {name} heap at {address}: {path} carries no metadata.");
+                CommandError.Write(
+                    $"could not read {name} heap at {coordinate.Address}: "
+                    + $"{path} carries no metadata.");
                 return 1;
 
             case MetadataValue.Malformed malformed:
-                CommandError.Write($"could not read {name} heap at {address}: {malformed.Detail}");
+                CommandError.Write(
+                    $"could not read {name} heap at {coordinate.Address}: "
+                    + malformed.Detail);
                 return 1;
 
             default:
-                inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
+                inspection.MetadataHeap =
+                    new MetadataHeapLookup(
+                        coordinate.Heap,
+                        coordinate.Address,
+                        value);
                 return 0;
         }
     }
@@ -2221,7 +2226,23 @@ public class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(options.ILOffsetParameter)
+        if (options.CoordinateRequest
+                is LibraryCoordinateRequest.FilePopulation
+            && options.Discover is not null)
+        {
+            return await PopulateILCoordinatePopulationForDiscoveryAsync(
+                inspection,
+                subject,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                options,
+                httpClient,
+                logger);
+        }
+
+        if (options.CoordinateRequest
+                is not LibraryCoordinateRequest.IlPoint
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
@@ -2235,6 +2256,259 @@ public class LibraryCommand
         inspection.ILOffset = resolved.Result;
         return 0;
     }
+
+    private static async Task<int> PopulateILCoordinatePopulationForDiscoveryAsync(
+        LibraryInspection inspection,
+        LibraryInspectionSubject subject,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.FilePopulation
+            {
+                Population: { } population,
+            })
+        {
+            throw new UnreachableException(
+                "Coordinate discovery requires an admitted population.");
+        }
+
+        HashSet<string> sections = options.IncludeSections is { Count: > 0 }
+            ? [.. options.IncludeSections]
+            : [];
+        var projections = new List<ILOffsetProjection>();
+        var failed = false;
+        using var service = subject.OpenSourceLink(logger.Log);
+        foreach (ILCoordinatePopulationRecord record in population.Records)
+        {
+            if (record is ILCoordinatePopulationRecord.Malformed malformed)
+            {
+                CommandError.Write(malformed.Error);
+                failed = true;
+                continue;
+            }
+
+            var coordinate =
+                (ILCoordinatePopulationRecord.Coordinate)record;
+            var resolved = await ResolveILCoordinateAsync(
+                service,
+                coordinate,
+                sections,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                options,
+                httpClient,
+                logger,
+                allowNonBoundaryContextAbsence: true);
+            if (resolved.Result is { } result)
+            {
+                projections.Add(result);
+            }
+            else
+            {
+                CommandError.Write(
+                    $"Could not resolve coordinate '{coordinate.Value}': "
+                    + ILOffsetQuery.FormatFailure(resolved.Failure));
+                failed = true;
+            }
+        }
+
+        if (failed)
+            return 1;
+        if (projections.Count == 0)
+        {
+            CommandError.Write(
+                "Coordinate file contains no resolvable records for effective discovery.");
+            return 1;
+        }
+
+        inspection.ILOffset =
+            MergeILCoordinateProjectionsForDiscovery(projections);
+        return 0;
+    }
+
+    private static ILOffsetProjection MergeILCoordinateProjectionsForDiscovery(
+        List<ILOffsetProjection> projections)
+    {
+        ILOffsetProjection first = projections[0];
+        ILOffsetMemberContext[] members =
+            [.. projections
+                .Select(projection => projection.MemberContext)
+                .OfType<ILOffsetMemberContext>()];
+        ILOffsetInstructionContext[] instructions =
+            [.. projections
+                .Select(projection => projection.InstructionContext)
+                .OfType<ILOffsetInstructionContext>()];
+        ILOffsetCallsiteContext[] callsites =
+            [.. projections
+                .Select(projection => projection.CallsiteContext)
+                .OfType<ILOffsetCallsiteContext>()];
+        ILOffsetReturnAddressContext[] returnAddresses =
+            [.. projections
+                .Select(projection => projection.ReturnAddressContext)
+                .OfType<ILOffsetReturnAddressContext>()];
+        List<ILOffsetExceptionContext> exceptions =
+            projections
+                .SelectMany(projection =>
+                    projection.ExceptionContext ?? [])
+                .ToList();
+        List<ILOffsetAllocationContext> allocations =
+            projections
+                .SelectMany(projection =>
+                    projection.AllocationContext ?? [])
+                .ToList();
+        List<ILOffsetSafetyContext> safety =
+            projections
+                .SelectMany(projection =>
+                    projection.SafetyContext ?? [])
+                .ToList();
+        List<ILOffsetCostContext> costs =
+            projections
+                .SelectMany(projection =>
+                    projection.CostContext ?? [])
+                .ToList();
+
+        // Effective discovery asks which evidence exists anywhere in the admitted population.
+        // The aggregate is never rendered as one coordinate; it only drives section applicability
+        // and field filtering before DiscoverOutput lowers the discovery document.
+        return new ILOffsetProjection
+        {
+            Method = first.Method,
+            Token = first.Token,
+            ILOffset = first.ILOffset,
+            MatchedOffset = projections
+                .Select(projection => projection.MatchedOffset)
+                .FirstOrDefault(value => value is not null),
+            File = projections
+                .Select(projection => projection.File)
+                .FirstOrDefault(value => value is not null),
+            Line = projections
+                .Select(projection => projection.Line)
+                .FirstOrDefault(value => value is not null),
+            Url = projections
+                .Select(projection => projection.Url)
+                .FirstOrDefault(value => value is not null),
+            SourceChecksum = projections
+                .Select(projection => projection.SourceChecksum)
+                .FirstOrDefault(value => value is not null),
+            SourceChecksumAlgorithm = projections
+                .Select(projection => projection.SourceChecksumAlgorithm)
+                .FirstOrDefault(value => value is not null),
+            MemberContext = MergeMemberContextsForDiscovery(members),
+            InstructionContext = MergeInstructionContextsForDiscovery(instructions),
+            ExceptionContext = exceptions.Count == 0 ? null : exceptions,
+            CallsiteContext = MergeCallsiteContextsForDiscovery(callsites),
+            ReturnAddressContext =
+                MergeReturnAddressContextsForDiscovery(returnAddresses),
+            AllocationContext = allocations.Count == 0 ? null : allocations,
+            SafetyContext = safety.Count == 0 ? null : safety,
+            CostContext = costs.Count == 0 ? null : costs,
+        };
+    }
+
+    private static ILOffsetMemberContext? MergeMemberContextsForDiscovery(
+        ILOffsetMemberContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetMemberContext
+            {
+                Assembly = FirstPresentReference(contexts, context => context.Assembly),
+                Type = FirstPresentReference(contexts, context => context.Type),
+                TypeKind = FirstPresentReference(contexts, context => context.TypeKind),
+                Member = FirstPresentReference(contexts, context => context.Member),
+                Signature = FirstPresentReference(contexts, context => context.Signature),
+                MemberKind = FirstPresentReference(contexts, context => context.MemberKind),
+                Visibility = FirstPresentReference(contexts, context => context.Visibility),
+                Static = FirstPresentReference(contexts, context => context.Static),
+                Async = FirstPresentReference(contexts, context => context.Async),
+                MetadataToken = FirstPresentReference(
+                    contexts,
+                    context => context.MetadataToken),
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset)
+            };
+
+    private static ILOffsetInstructionContext? MergeInstructionContextsForDiscovery(
+        ILOffsetInstructionContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetInstructionContext
+            {
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset),
+                Boundary = FirstPresentReference(contexts, context => context.Boundary),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                OperandKind = FirstPresentReference(
+                    contexts,
+                    context => context.OperandKind),
+                Operand = FirstPresentReference(contexts, context => context.Operand),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken),
+                BranchTargets = FirstPresentReference(
+                    contexts,
+                    context => context.BranchTargets),
+                NextOffset = FirstPresentReference(contexts, context => context.NextOffset),
+                Length = FirstPresentValue(contexts, context => context.Length),
+                Block = FirstPresentValue(contexts, context => context.Block),
+                TerminatesBlock =
+                    FirstPresentReference(contexts, context => context.TerminatesBlock),
+                FallsThrough =
+                    FirstPresentReference(contexts, context => context.FallsThrough)
+            };
+
+    private static ILOffsetCallsiteContext? MergeCallsiteContextsForDiscovery(
+        ILOffsetCallsiteContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetCallsiteContext
+            {
+                CallOffset = FirstPresentReference(contexts, context => context.CallOffset),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                CallKind = FirstPresentReference(contexts, context => context.CallKind),
+                Callee = FirstPresentReference(contexts, context => context.Callee),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken),
+                ReturnAddress = FirstPresentReference(
+                    contexts,
+                    context => context.ReturnAddress)
+            };
+
+    private static ILOffsetReturnAddressContext? MergeReturnAddressContextsForDiscovery(
+        ILOffsetReturnAddressContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetReturnAddressContext
+            {
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset),
+                CallOffset = FirstPresentReference(contexts, context => context.CallOffset),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                CallKind = FirstPresentReference(contexts, context => context.CallKind),
+                Callee = FirstPresentReference(contexts, context => context.Callee),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken)
+            };
+
+    private static T? FirstPresentReference<TContext, T>(
+        IEnumerable<TContext> contexts,
+        Func<TContext, T?> selector)
+        where T : class
+        => contexts
+            .Select(selector)
+            .FirstOrDefault(value => value is not null);
+
+    private static T? FirstPresentValue<TContext, T>(
+        IEnumerable<TContext> contexts,
+        Func<TContext, T?> selector)
+        where T : struct
+        => contexts
+            .Select(selector)
+            .FirstOrDefault(value => value is not null);
 
     private static bool ValidateLibraryPrintSelection(HashSet<string>? sections)
     {
@@ -2269,7 +2543,7 @@ public class LibraryCommand
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {
         if (!IsAllTfmPackageSelection(options)
-            || (options.Discover != null && string.IsNullOrWhiteSpace(options.ILOffsetsPath)))
+            || options.Discover != null)
         {
             return true;
         }
@@ -2280,9 +2554,6 @@ public class LibraryCommand
             : options.Urls ? "--urls"
             : options.Paths ? "--paths"
             : options.ExtractResources != null ? "--extract-resources"
-            : !string.IsNullOrWhiteSpace(options.ILOffsetParameter) ? "--il-offset"
-            : !string.IsNullOrWhiteSpace(options.ILOffsetsPath) ? "--il-offsets"
-            : !string.IsNullOrWhiteSpace(options.HeapParameter) ? "--heap"
             : null;
 
         if (incompatibleShape is not null)
@@ -3093,16 +3364,30 @@ public class LibraryCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
-        if (!HasILOffsetCoordinate(options))
-            sections = sections.Where(s => !ILCoordinateSections.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
-        // Belt and braces, matching the IL-coordinate line above: the cache is never written while
-        // a heap coordinate is present, so a cached listing should not carry this section — but a
-        // catalog that advertises a section the coordinate cannot produce is exactly the failure
-        // this family exists to avoid, so it is filtered rather than assumed absent.
-        if (!HasHeapCoordinate(options))
-            sections = sections.Where(s => !s.Equals(MetadataSectionNames.Heap, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (!HasILCoordinateRequest(options))
+        {
+            sections = sections
+                .Where(section => !ILCoordinateSections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase))
+                .ToList();
+        }
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.HeapPoint)
+        {
+            sections = sections
+                .Where(section => !section.Equals(
+                    MetadataSectionNames.Heap,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
         return sections;
     }
+
+    private static bool HasILCoordinateRequest(LibraryOptions options) =>
+        options.CoordinateRequest
+            is LibraryCoordinateRequest.IlPoint
+                or LibraryCoordinateRequest.FilePopulation;
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
@@ -3149,7 +3434,7 @@ public class LibraryCommand
         var filteredSections = new HashSet<string>(
             targetSections.Where(name =>
                 string.Equals(name, LibrarySections.LibraryInfo.Name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, SectionNames.MemberContext, StringComparison.OrdinalIgnoreCase)),
+                || ILCoordinateSections.Contains(name, StringComparer.OrdinalIgnoreCase)),
             StringComparer.OrdinalIgnoreCase);
         if (filteredSections.Count == 0)
             return schema;
@@ -3162,7 +3447,7 @@ public class LibraryCommand
             writerOpts,
             schema);
 
-        return DiscoverOutput.FilterSchemaToRenderedFields(
+        return DiscoverOutput.FilterSchemaToRenderedItems(
             effectiveSections,
             schema,
             renderManifest,

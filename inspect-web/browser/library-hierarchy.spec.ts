@@ -487,16 +487,20 @@ async function installFacades(
       }
       export async function queryPackageVersions() {
         const versions = packageLoading.versions ?? ["1.0.0", "0.9.0"];
-        return { versions, currentVersionInsertionIndex: 0, previousVersion: versions[1], previousVersionUnavailableReason: null };
+        return {
+          versions,
+          currentVersionInsertionIndex: 0,
+          ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
+        };
       }
       export async function loadRuntimePack(framework, version) {
         document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
         const surface = surfaceFor("Microsoft.NETCore.App");
         return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
       }
-      export function searchTypes(query, candidatesJson) {
+      export function searchTypes(query, candidates) {
         const normalized = query.toLowerCase();
-        return JSON.parse(candidatesJson)
+        return candidates
           .filter(candidate => candidate.name.toLowerCase().includes(normalized)
             || candidate.full.toLowerCase().includes(normalized))
           .map(candidate => ({ key: candidate.key, kind: "substring" }));
@@ -914,14 +918,18 @@ async function installFacades(
       document.addEventListener("hold-workspace-encode", () => {
         holdNextWorkspaceEncode = true;
       });
-      export async function encodeWorkspaceShareState(json) {
+      export async function encodeWorkspaceShareState(state) {
         if (holdNextWorkspaceEncode) {
           holdNextWorkspaceEncode = false;
           document.documentElement.dataset.workspaceEncodePending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-workspace-encode", resolve, { once: true }));
         }
-        return { succeeded: true, packet: btoa(json), failure: null };
+        return {
+          succeeded: true,
+          packet: btoa(JSON.stringify(state)),
+          failure: null,
+        };
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
@@ -3386,6 +3394,18 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator("#package-diff-target").selectOption("previous");
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("Previous listed release");
+});
+
+test("Package comparison targets consume an omitted predecessor", async ({ page }) => {
+  await installFacades(
+    page, surface, [], "ready", "ready", undefined,
+    "ready", "ready", undefined, {}, { versions: [] },
+  );
+  await page.goto(root);
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("No earlier listed version is available.");
+  await expect(page.locator("#package-diff-target option:checked"))
+    .toHaveText("Automatic: no earlier version");
 });
 
 for (const initialWidth of [1440, 390]) {

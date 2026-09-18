@@ -76,7 +76,7 @@ public static class TypeCommand
             ShowDocs = options.DocsExplicitlySet && options.ShowDocs,
             DocsExplicitlySet = options.DocsExplicitlySet,
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
-            BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
+            PreferRenderedUrls = options.PreferRenderedUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
@@ -263,7 +263,12 @@ public static class TypeCommand
                     listOptions = options with { ShowDocs = true };
 
                 if (pdbLookupPath != null && listOptions.ShowDocs)
-                    SourceEnricher.EnrichFromLocalXmlDocs(api.Types, pdbLookupPath, listOptions, logger);
+                    await CompiledDocumentationEnricher.EnrichAsync(
+                        api.Types,
+                        source,
+                        loaded,
+                        listOptions,
+                        includeMembers: false);
 
                 if (options.EffectiveDiscovery)
                 {
@@ -469,7 +474,11 @@ public static class TypeCommand
                     {
                         var dllPath = runtimeAssemblyPath ?? apiDllPath;
                         if (dllPath != null && effectiveOptions.ShowDocs)
-                            SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
+                            await CompiledDocumentationEnricher.EnrichAsync(
+                                [apiType],
+                                source,
+                                loaded,
+                                effectiveOptions);
                     }
 
                     if (effectiveOptions.EffectiveDiscovery)
@@ -527,7 +536,8 @@ public static class TypeCommand
                             var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
-                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly);
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
+                            sourceClient: context.HttpClient);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -537,7 +547,8 @@ public static class TypeCommand
                     {
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
-                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly);
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
+                            sourceClient: context.HttpClient);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
@@ -701,7 +712,7 @@ public static class TypeCommand
             || options.ShowDocs
             || options.DocsExplicitlySet
             || options.ShowSamples
-            || options.BrowsableUrls
+            || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
             || options.UnsafeOnly
@@ -769,7 +780,7 @@ public static class TypeCommand
             || options.ShowDocs
             || options.DocsExplicitlySet
             || options.ShowSamples
-            || options.BrowsableUrls
+            || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
             || options.UnsafeOnly

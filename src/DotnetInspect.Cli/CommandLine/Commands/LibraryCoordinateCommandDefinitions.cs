@@ -36,7 +36,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 return;
 
             string value = result.Tokens[^1].Value;
-            if (!TryClassifyCoordinate(value, out _, out string? error))
+            if (!TryParseCoordinate(value, out _, out string? error))
                 result.AddError(error!);
         });
         var fileOption = new Option<string?>("--file")
@@ -90,8 +90,7 @@ internal static class LibraryCoordinateCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(fileOption);
         command.Options.Add(metadataRootOption);
-        command.Options.Add(opts.RawUrls);
-        command.Options.Add(opts.BrowsableUrls);
+        command.Options.Add(opts.PreferRenderedUrls);
         command.Options.Add(opts.Trace);
         command.Options.Add(opts.Effective);
         command.Options.Add(opts.Json);
@@ -174,6 +173,19 @@ internal static class LibraryCoordinateCommandDefinitions
                 return 1;
             }
 
+            string[]? select = opts.ParseSelect(parseResult);
+            bool selectDefault = opts.ParseSelectDefault(parseResult);
+            bool hasExplicitSelect =
+                select is { Length: > 0 } || selectDefault;
+            if (hasCoordinateFile && hasExplicitSelect)
+            {
+                CommandError.Write(
+                    "-S/--select is not available with library coordinate "
+                    + "--file, which renders its own payload rather than "
+                    + "sections.");
+                return 1;
+            }
+
             if (!CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
                         parseResult,
@@ -192,11 +204,11 @@ internal static class LibraryCoordinateCommandDefinitions
             string? version = parseResult.GetValue(versionOption);
             string? tfm = parseResult.GetValue(tfmOption);
             bool includePrerelease = parseResult.GetValue(prereleaseOption);
-            CoordinateFamily family = default;
+            LibraryCoordinateRequest? coordinateRequest = null;
             if (hasCoordinate
-                && !TryClassifyCoordinate(
+                && !TryParseCoordinate(
                     coordinate!,
-                    out family,
+                    out coordinateRequest,
                     out string? coordinateError))
             {
                 CommandError.Write(coordinateError!);
@@ -228,10 +240,8 @@ internal static class LibraryCoordinateCommandDefinitions
                 return 1;
             }
 
-            ILCoordinatePopulation? coordinatePopulation = null;
             bool structuralDiscovery =
-                opts.IsDiscoveryMode(parseResult)
-                && opts.ParseSchema(parseResult);
+                IsStructuralDiscovery(opts, parseResult);
             if (hasCoordinateFile && !structuralDiscovery)
             {
                 ILCoordinatePopulationOutcome population =
@@ -240,18 +250,22 @@ internal static class LibraryCoordinateCommandDefinitions
                 {
                     CommandError.Write(
                         ILOffsetQuery.PopulationFailureMessage(
-                            population.Failure!,
-                            coordinateCommand: true));
+                            population.Failure!));
                     return 1;
                 }
 
-                coordinatePopulation = population.Population;
+                coordinateRequest =
+                    new LibraryCoordinateRequest.FilePopulation(
+                        coordinateFile!,
+                        population.Population);
             }
-
-            string[]? select = opts.ParseSelect(parseResult);
-            bool selectDefault = opts.ParseSelectDefault(parseResult);
-            bool hasExplicitSelect =
-                select is { Length: > 0 } || selectDefault;
+            else if (hasCoordinateFile)
+            {
+                coordinateRequest =
+                    new LibraryCoordinateRequest.FilePopulation(
+                        coordinateFile!,
+                        Population: null);
+            }
             OutputFormat format = opts.ResolveFormat(parseResult);
 
             return await LibraryCommand.ExecuteAsync(new LibraryOptions
@@ -264,23 +278,10 @@ internal static class LibraryCoordinateCommandDefinitions
                 PlatformFramework = framework,
                 PlatformVersion = version,
                 Tfm = tfm,
-                ILOffsetParameter =
-                    hasCoordinate
-                    && family == CoordinateFamily.IL
-                        ? coordinate
-                        : null,
-                ILOffsetsPath = coordinateFile,
-                ILCoordinatePopulation = coordinatePopulation,
-                HeapParameter =
-                    hasCoordinate
-                    && family == CoordinateFamily.Heap
-                        ? coordinate
-                        : null,
+                CoordinateRequest = coordinateRequest,
                 MetadataRoot = metadataRoot,
-                IsCoordinateCommand = true,
-                BrowsableUrls =
-                    parseResult.GetValue(opts.BrowsableUrls)
-                    && !parseResult.GetValue(opts.RawUrls),
+                PreferRenderedUrls =
+                    parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = format == OutputFormat.Json,
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),
@@ -331,36 +332,41 @@ internal static class LibraryCoordinateCommandDefinitions
         return command;
     }
 
-    private enum CoordinateFamily
-    {
-        IL,
-        Heap,
-    }
-
-    private static bool TryClassifyCoordinate(
+    private static bool TryParseCoordinate(
         string value,
-        out CoordinateFamily family,
+        out LibraryCoordinateRequest? request,
         out string? error)
     {
-        if (ILOffsetQuery.TryParse(value, out _, out _))
+        if (ILOffsetQuery.TryParse(
+                value,
+                out int methodToken,
+                out int ilOffset))
         {
-            family = CoordinateFamily.IL;
+            request =
+                new LibraryCoordinateRequest.IlPoint(
+                    value,
+                    methodToken,
+                    ilOffset);
             error = null;
             return true;
         }
 
         if (MetadataHeapCoordinate.TryParse(
                 value,
-                out _,
-                out _,
+                out HeapKind heap,
+                out int address,
                 out string? heapError))
         {
-            family = CoordinateFamily.Heap;
+            request =
+                new LibraryCoordinateRequest.HeapPoint(
+                    value,
+                    heap,
+                    address);
             error = null;
             return true;
         }
 
-        family = default;
+        request = null;
         if (LooksLikeHeapCoordinate(value))
         {
             error = $"Invalid coordinate '{value}': {heapError}";
@@ -437,8 +443,7 @@ internal static class LibraryCoordinateCommandDefinitions
         }
 
         bool structuralDiscovery =
-            opts.IsDiscoveryMode(parseResult)
-            && opts.ParseSchema(parseResult);
+            IsStructuralDiscovery(opts, parseResult);
         if (!hasLibrary && !hasPackage && !hasPlatform
             && !structuralDiscovery)
         {
@@ -449,5 +454,16 @@ internal static class LibraryCoordinateCommandDefinitions
         }
 
         return true;
+    }
+
+    private static bool IsStructuralDiscovery(
+        SharedOptions options,
+        ParseResult parseResult)
+    {
+        string[]? discover = options.ParseDiscover(parseResult);
+        return discover is not null
+            && (options.ParseSchema(parseResult)
+                || (!parseResult.GetValue(options.Effective)
+                    && discover.Length > 0));
     }
 }

@@ -165,6 +165,30 @@ dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --jsonl
 dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
+For an integration-style explanation of calls leaving one package assembly,
+use `graph calls`. It resolves one exact member in `--root-package`, admits
+repeatable explicit `--package` participants, and retains only external
+boundary calls plus their shortest local connectors. This is always
+external-focused; it does not change the general bidirectional
+`member -S "Call Graph"` view.
+
+```bash
+dnx dotnet-inspect -y -- graph calls \
+  Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
+  AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
+  --root-package OpenTelemetry@1.18.0 \
+  --package OpenTelemetry.Api@1.18.0 \
+  --tfm net10.0 \
+  --all
+```
+
+Each logical edge has a typed `connector`, `boundary`, or
+`unclassified-boundary` role. Table, TSV, JSONL, and JSON retain physical call
+receipts; Markdown, Mermaid, and plaintext lower the same Markout graph. Calls
+into assemblies outside the explicit package context remain visible as
+unclassified boundaries with an incompleteness warning. `-n`, `--tail`, and
+`--rows` select complete logical edges after bounded graph construction.
+
 ## What does it integrate with? (ecosystem)
 
 All integrations are enabled by default. Discover and narrow the ordinary

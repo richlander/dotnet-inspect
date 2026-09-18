@@ -36,6 +36,60 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("package", "Newtonsoft.Json")]
+    [InlineData("library", "Example.dll")]
+    [InlineData("type", "JsonReader", "--package", "Newtonsoft.Json")]
+    [InlineData("member", "JsonReader", "Read:1", "--package", "Newtonsoft.Json")]
+    [InlineData("library", "coordinate", "0x06000001+0x0", "--library", "Example.dll")]
+    public async Task RenderedUrlPreference_ReplacesLegacyFlags(params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var baseline = root.Parse(arguments);
+        Assert.Empty(baseline.Errors);
+        var option = Assert.IsType<Option<bool>>(
+            Assert.Single(baseline.CommandResult.Command.Options,
+                option => option.Name == "--prefer-rendered-urls"));
+        Assert.False(baseline.GetValue(option));
+
+        var rendered = root.Parse([.. arguments, "--prefer-rendered-urls"]);
+        Assert.Empty(rendered.Errors);
+        Assert.True(rendered.GetValue(option));
+
+        foreach (string removed in new[] { "--raw", "--blob" })
+        {
+            string[] tokens = [.. arguments, removed];
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Unrecognized", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains($"'{removed}'", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void RenderedUrlPreference_SourceLocationRetainsUnmappedUrl()
+    {
+        var method = typeof(DotnetInspector.Queries.EmbeddedFixtures.EmbeddedSourceFixture)
+            .GetMethod(nameof(DotnetInspector.Queries.EmbeddedFixtures.EmbeddedSourceFixture.Echo))!;
+        using var source = ILInspector.SourceLink.SourceLinkService.Open(
+            method.DeclaringType!.Assembly.Location);
+        var location = Assert.IsType<ILInspector.SourceLink.SourceLinkResolver.ILOffsetSourceInfo>(
+            source.ResolveByILOffset(method.MetadataToken, 0));
+        Assert.Null(location.GitHubBrowseUrl);
+        Assert.StartsWith("https://example.test/", location.SourceUrl);
+
+        var result = ILInspector.Research.ResearchViews.ProjectILOffset(
+            new ILInspector.Research.ILOffsetProjectionRequest(
+                source, method.MetadataToken, 0,
+                ILInspector.Research.ILOffsetProjectionCapabilities.SourceLocation,
+                BrowsableUrls: true));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal($"{location.SourceUrl}#L{location.Line}", result.Projection!.Url);
+    }
+
+    [Theory]
     [InlineData("package", "Newtonsoft.Json", "--out")]
     [InlineData("package", "Newtonsoft.Json", "--output")]
     [InlineData("package", "Newtonsoft.Json", "-o")]
@@ -848,8 +902,6 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--path", "-n1")]
-    [InlineData("--path", "-1")]
     [InlineData("--library", "-n1")]
     [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
@@ -861,6 +913,23 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public void PreprocessArgs_PackagePathPreservesSemanticLimit(
+        string rowLimit)
+    {
+        string[] args = ["package", "Foo", "--path", rowLimit];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        string[] result =
+            CommandLineBuilder.PreprocessArgs(args, root);
+
+        Assert.Equal(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
@@ -1142,7 +1211,6 @@ public class CommandLineTests
     [InlineData("--where", "Field=Value", "System.Text.Json")]
     [InlineData("--match", "first", "System.Text.Json")]
     [InlineData("--path", "lib/*", "System.Text.Json")]
-    [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
     [InlineData("--metadata-root", "r2r-manifest", "System.Text.Json")]
     [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
     [InlineData("--row", "1", "System.Text.Json")]

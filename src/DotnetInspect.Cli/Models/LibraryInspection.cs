@@ -794,7 +794,8 @@ public class LibraryInspection
     public string? MetadataAssemblyPath { get; set; }
 
     /// <summary>
-    /// The heap value <c>--heap</c> named, or null when no heap coordinate was given.
+    /// The heap value named by <c>library coordinate</c>, or null when no heap coordinate was
+    /// given.
     ///
     /// This is the carrier that makes the coordinate-scoped heap section exist: like
     /// <see cref="ILOffset"/>, the section is applicable exactly when this is non-null, so a

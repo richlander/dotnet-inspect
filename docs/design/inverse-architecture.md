@@ -302,7 +302,7 @@ a pretty print:
 
 Guardrails: the lane is opt-in, and it lives in the harness, where attribute reflection
 is fine. The shipped decompiler stays SRM-only and NativeAOT-clean — the product
-`--il-offset` / CLI path does not reflect assertions. It is sequenced last: it needs
+IL-coordinate CLI path does not reflect assertions. It is sequenced last: it needs
 both the annotations and the `Check()` predicates in place.
 
 ## Declared non-inverse boundaries
@@ -332,7 +332,7 @@ a `[NotInverted(reason)]` row so the boundary is visible, not implicit.
 - **Node annotations applied across the IR:** the conversion family (`Convert`,
   `Coerce`, `Box`) is annotated and enforced by the coverage test; the remaining
   in-domain nodes follow, applied where they are low-conflict with in-flight
-  value-typed-emission work on `IrNodes.cs`.
+  value-typed-emission work on the `IrNodes*.cs` family.
 - **Generated ledger:** generated from the annotations at
   [inverse-ledger.generated.md](inverse-ledger.generated.md) (drift-gated); it is the
   authoritative table. The conversion-family rows in [The node ledger](#the-node-ledger--the-type-assertions)

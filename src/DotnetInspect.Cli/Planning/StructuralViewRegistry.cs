@@ -20,6 +20,7 @@ public enum StructuralViewIdentity
     PackageSingleLibrary,
     PackageAllLibraries,
     DirectLibrary,
+    LibraryCoordinate,
     Type,
     MemberType,
     MemberTarget,
@@ -273,8 +274,16 @@ public static class StructuralViewRegistry
                 SharedProjectionCapabilities
                 | StructuralParserCapabilities.Print
                 | StructuralParserCapabilities.TypeFilter
-                | StructuralParserCapabilities.Coordinates
                 | StructuralParserCapabilities.BodyKindFilter),
+            new(
+                StructuralViewIdentity.LibraryCoordinate,
+                45,
+                "library coordinate",
+                "coordinate",
+                [InspectionCatalogIdentity.Library],
+                SharedProjectionCapabilities
+                | StructuralParserCapabilities.Print
+                | StructuralParserCapabilities.Coordinates),
             new(
                 StructuralViewIdentity.Type,
                 50,
@@ -424,7 +433,7 @@ public static class StructuralViewRegistry
         string? typeOptionValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
-        var (typeOptionFilter, _) =
+        string? typeOptionFilter =
             SharedParsers.ParseTypeFilter(typeOptionValue);
         bool typeOptionSelectsListing =
             new TypeGestureIntent(typeOptionFilter)
@@ -613,7 +622,7 @@ public static class StructuralViewRegistry
         string? typeMarkerValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
-        var (typeFilter, typeLimit) =
+        string? typeFilter =
             SharedParsers.ParseTypeFilter(typeMarkerValue);
         string? typeCatalogTarget =
             (isPackageIdentity || isPlatformIdentity)
@@ -676,7 +685,6 @@ public static class StructuralViewRegistry
             bool exactTypeGesture =
                 !hasTypeFilter
                 && ((hasTypeMarker
-                        && typeLimit is null
                         && typeCatalogTarget is not null)
                     || exactGenericType);
             if (!exactTypeGesture)

@@ -20,13 +20,6 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
-        // No new scope may turn a retained transfer into an entry past a
-        // declaration. This pass leaves unstructured control flow unchanged.
-        if (function.DescendantsOutsideNestedFunctions.Any(node =>
-            node is Branch or ConditionalBranch or Leave))
-        {
-            return;
-        }
         var reserved = ExactLocalNameAllocation.ReservedNames(
             function, function.Signature.Parameters, function.Signature.GenericParameterNames);
         foreach (var group in duplicates)
@@ -60,6 +53,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 || node is LoadLocalAddress address && address.Index == index) => store,
             LoadLocalAddress address when address.Parent is InitObject init
                 && ReferenceEquals(init.Address, address) => init,
+            LoadLocalAddress address => OutArgumentStatement(address, index),
             IsPattern pattern => PatternStatement(pattern, references),
             RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
             _ => null,
@@ -86,6 +80,10 @@ public sealed class PdbLocalScopePass : IIrPass
         }
 
         var range = block.Children.Skip(first).Take(last - first + 1).ToArray();
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+        {
+            return;
+        }
         bool Inside(IrNode node) => range.Any(statement => ExactLocalNameAllocation.Contains(statement, node));
         if (sameName.Any(other => other != index
             && IrFunction.LocalSlotReferencesInScope(function.Body, other).Any(Inside)))
@@ -116,6 +114,29 @@ public sealed class PdbLocalScopePass : IIrPass
                 block.Add(statements[position]);
         }
         context.Stepper.StepOver($"retain scope for local {index}", lexical);
+    }
+
+    static IrNode? OutArgumentStatement(LoadLocalAddress address, int index)
+    {
+        MethodRef? callee;
+        int parameterIndex;
+        switch (address.Parent)
+        {
+            case Call call:
+                callee = call.Callee;
+                parameterIndex = address.ChildIndex - (callee.HasThis ? 1 : 0);
+                break;
+            case NewObject creation:
+                callee = creation.Constructor;
+                parameterIndex = address.ChildIndex;
+                break;
+            default:
+                return null;
+        }
+        return callee.TryGetVerifiedOutLocal(parameterIndex, address, out int local)
+            && local == index
+                ? StatementInBlock(address)
+                : null;
     }
 
     static IrNode? StatementInBlock(IrNode node)

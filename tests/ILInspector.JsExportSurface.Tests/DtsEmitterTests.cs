@@ -12,6 +12,7 @@ using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures.Contexts;
 using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -40,6 +41,33 @@ public sealed class DtsEmitterTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
         var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+    }
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildTypeScriptFixtureSurface(string method)
+    {
+        string path = typeof(TypeScriptFixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        foreach (ApiMember member
+            in apiSurface.Types.SelectMany(type => type.Members))
+        {
+            if (member.HasRuntimeJsExport
+                && member.Name != method)
+            {
+                member.HasRuntimeJsExport = false;
+                member.RuntimeJsExportAttributeCount = 0;
+                member.HasMalformedRuntimeJsExportAttribute = false;
+            }
+        }
+
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
@@ -665,6 +693,58 @@ public sealed class DtsEmitterTests
                 diagnostic.Location == "Ping delegate parameters");
     }
 
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public void Emit_RejectsInvalidJsonInputParameterAssociations(
+        int parameterIndex,
+        bool duplicate)
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        JsExportParameterWireBinding fact = new()
+        {
+            ParameterIndex = parameterIndex,
+            WireType = "System.Int32",
+        };
+        var facts = new List<JsExportParameterWireBinding> { fact };
+        if (duplicate)
+            facts.Add(fact);
+
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "ReadCount",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "CountJson",
+                            Type = "string",
+                        },
+                    ],
+                    ParameterWireBindings = facts,
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function readCount("
+                + "countJson: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "ReadCount JSON input parameters");
+    }
+
     [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {
@@ -954,12 +1034,42 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
+    public void Emit_WithWireContracts_ProjectsOnlyAuthenticatedJsonInputParameter()
     {
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function renameWidget(widgetJson: string, newName: string): WidgetDto;",
+            "export declare function renameWidget("
+                + "widgetJson: WidgetDto, newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function renameWidgetForOwner("
+                + "owner: string, widgetJson: WidgetDto, "
+                + "newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function renameNormalizedWidget("
+                + "widgetJson: string, newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_ProjectsIndependentJsonInputParameters()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function widgetMatchesAudit("
+                + "widgetJson: WidgetDto, auditJson: WidgetAudit): boolean;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function readWidgetOrAudit("
+                + "payload: string, summaryJson: string, "
+                + "readAudit: boolean): string;",
             dts,
             StringComparison.Ordinal);
     }
@@ -3067,7 +3177,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_PreservesWhenReadingMemberInSerializeOnlyDeclaration()
+    public void Emit_UsesExactOptionalPropertiesForConditionalOutputMembers()
     {
         string dts = EmitFixtureDtsWithWireContracts();
 
@@ -3077,9 +3187,194 @@ public sealed class DtsEmitterTests
               readonly name: string;
               readonly serverNote: DirectionalNote | null;
               readonly alwaysPresent: string;
+              readonly alwaysNullable: string | null;
+              readonly defaultHidden?: number;
+              readonly nullableDefaultHidden?: number;
+              readonly nullHidden?: string;
+              readonly nonNullableNullHidden?: string;
+              readonly nullableItems?: ReadonlyArray<DirectionalNote | null>;
+              readonly conditionalNote?: DirectionalConditionalNote;
             }
             """,
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void
+        Emit_DeclaresJsonValueForContextDefaultConditionalJsonElement()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildTypeScriptFixtureSurface(
+                nameof(TypeScriptFixtureExports.GetInspectionEvidence));
+
+        Assert.Single(surface.Functions);
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("export type JsonValue =", dts, StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface InspectionEvidence {
+              readonly payload?: JsonValue;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            """{"payload":{"source":"package.xml"}}""",
+            TypeScriptFixtureExports.GetInspectionEvidence(
+                includePayload: true));
+        Assert.Equal(
+            "{}",
+            TypeScriptFixtureExports.GetInspectionEvidence(
+                includePayload: false));
+    }
+
+    [Fact]
+    public void Emit_KeepsUnauthenticatedContextDefaultMemberRequired()
+    {
+        var packageIdentity = new ApiType
+        {
+            Name = "PackageIdentity",
+        };
+        var packageSnapshot = new ApiType
+        {
+            Name = "PackageSnapshot",
+            JsonDefaultIgnoreCondition =
+                JsonWireIgnoreCondition.WhenWritingNull,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Identity",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "PackageIdentity",
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [packageIdentity, packageSnapshot],
+                WireDirections = new Dictionary<
+                    ApiType,
+                    JsonWireDirection>
+                {
+                    [packageIdentity] = JsonWireDirection.Serialize,
+                    [packageSnapshot] = JsonWireDirection.Serialize,
+                },
+            });
+
+        Assert.Contains(
+            "  readonly Identity: PackageIdentity;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "  readonly Identity?:",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_KeepsWritingConditionRequiredForDeserializeOnlyRecord()
+    {
+        var record = new ApiType
+        {
+            Name = "Input",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasSetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "string?",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [record],
+                WireDirections = new Dictionary<
+                    ApiType,
+                    JsonWireDirection>
+                {
+                    [record] = JsonWireDirection.Deserialize,
+                },
+            });
+
+        Assert.Contains(
+            "  readonly Value: string | null;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "  readonly Value?:",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RejectsNameCollisionWithConditionalMember()
+    {
+        var record = new ApiType
+        {
+            Name = "Output",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Always",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "int",
+                    JsonPropertyName = "value",
+                },
+                new ApiMember
+                {
+                    Name = "Sometimes",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "int",
+                    JsonPropertyName = "value",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                    ],
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(
+                    new ILInspector.JsExportSurface.JsExportSurface
+                    {
+                        Records = [record],
+                        WireDirections = new Dictionary<
+                            ApiType,
+                            JsonWireDirection>
+                        {
+                            [record] = JsonWireDirection.Serialize,
+                        },
+                    }));
+
+        Assert.Contains(
+            "multiple members resolve to the same JSON property name",
+            exception.Message,
             StringComparison.Ordinal);
     }
 

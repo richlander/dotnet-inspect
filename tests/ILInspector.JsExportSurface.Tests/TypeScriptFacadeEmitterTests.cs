@@ -101,6 +101,73 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_SerializesAuthenticatedJsonInputsWithoutChangingRawAbi()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(FixtureExports).Assembly.Location);
+        JsExportFunction rename = surface.Functions.Single(
+            function => function.Name == "RenameWidgetForOwner");
+        JsExportFunction compare = surface.Functions.Single(
+            function => function.Name == "WidgetMatchesAudit");
+        JsExportFunction transformed = surface.Functions.Single(
+            function => function.Name == "RenameNormalizedWidget");
+        JsExportFunction conflicted = surface.Functions.Single(
+            function => function.Name == "ReadWidgetOrAudit");
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            $"readonly \"{rename.RuntimeDispatchKey}\": "
+                + "(owner: string, widgetJson: string, "
+                + "newName: string) => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function renameWidgetForOwner("
+                + "owner: string, widgetJson: WidgetDto, "
+                + "newName: string): WidgetDto",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{rename.RuntimeDispatchKey}\"]("
+                + "owner, $serializeJsonInput(widgetJson, "
+                + $"\"{rename.DeclaringType}.{rename.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), newName);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{compare.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson, "
+                + $"\"{compare.DeclaringType}.{compare.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), $serializeJsonInput(auditJson, "
+                + $"\"{compare.DeclaringType}.{compare.RuntimeDispatchKey}\", "
+                + "\"auditJson\"));",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function renameNormalizedWidget("
+                + "widgetJson: string, newName: string): WidgetDto",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function readWidgetOrAudit("
+                + "payload: string, summaryJson: string, "
+                + "readAudit: boolean): string",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const json = JSON.stringify(value);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (json === undefined)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_ProjectsAuthenticatedSynchronousDelegateFacts()
     {
         var function = new JsExportFunction
@@ -1025,6 +1092,18 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            """
+            export type JsonValue =
+              | null
+              | boolean
+              | number
+              | string
+              | readonly JsonValue[]
+              | { readonly [key: string]: JsonValue };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "export function getJsonElement(): unknown {\n"
                 + "  const $result = $requireManagedExports()",
             source,
@@ -1492,6 +1571,161 @@ public sealed class TypeScriptFacadeEmitterTests
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
             "function $ownDataProperty(value: unknown, key: string): unknown",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotReserveUnusedJsonValueAlias()
+    {
+        var jsonElementIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.JsonElement");
+        var jsonValue = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "JsonValue",
+            Kind = "class",
+        };
+        var converted = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Converted",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Payload",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "System.Text.Json.JsonElement",
+                    IndexParameterCount = 0,
+                    JsonConverterAttributeCount = 1,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                    ],
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Text.Json.JsonElement",
+                        ReturnTypeReferences = [jsonElementIdentity],
+                        ReturnTypeShape =
+                            ApiTypeShape.Named(
+                                jsonElementIdentity,
+                                isValueType: true),
+                    },
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [jsonValue, converted],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [jsonValue] = JsonWireDirection.Serialize,
+                        [converted] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export interface JsonValue {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export type JsonValue =",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly Payload?: unknown;",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotReserveJsonValueForNestedJsonElement()
+    {
+        var jsonElementIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.JsonElement");
+        var jsonValue = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "JsonValue",
+            Kind = "class",
+        };
+        var nested = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Nested",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Payload",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "System.Text.Json.JsonElement[]?",
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                    ],
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Text.Json.JsonElement[]?",
+                        ReturnTypeReferences = [jsonElementIdentity],
+                        ReturnTypeShape = ApiTypeShape.SzArray(
+                            ApiTypeShape.Named(
+                                jsonElementIdentity,
+                                isValueType: true)),
+                    },
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [jsonValue, nested],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [jsonValue] = JsonWireDirection.Serialize,
+                        [nested] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export interface JsonValue {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export type JsonValue =",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly Payload?: ReadonlyArray<unknown>;",
             source,
             StringComparison.Ordinal);
     }

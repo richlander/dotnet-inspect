@@ -792,8 +792,8 @@ export interface BrowserPackageVersionSettlementSourceListing {
 export interface BrowserPackageVersions {
     readonly versions: ReadonlyArray<string>;
     readonly currentVersionInsertionIndex: number;
-    readonly previousVersion: string | null;
-    readonly previousVersionUnavailableReason: string | null;
+    readonly previousVersion?: string;
+    readonly previousVersionUnavailableReason?: string;
 }
 export interface BrowserParameterSurface {
     readonly name: string;
@@ -871,21 +871,21 @@ export interface BrowserWorkspacePackageOccurrenceView {
 }
 export interface CompiledDocumentationAssemblyIdentity {
     readonly name?: string;
-    readonly version?: string | null;
-    readonly culture?: string | null;
-    readonly publicKeyToken?: string | null;
+    readonly version?: string;
+    readonly culture?: string;
+    readonly publicKeyToken?: string;
 }
 export interface CompiledDocumentationEntry {
-    readonly summary?: string | null;
-    readonly remarks?: string | null;
-    readonly returns?: string | null;
+    readonly summary?: string;
+    readonly remarks?: string;
+    readonly returns?: string;
     readonly parameters: ReadonlyArray<CompiledDocumentationParameter>;
     readonly exceptions: ReadonlyArray<CompiledDocumentationException>;
     readonly samples: ReadonlyArray<CompiledDocumentationSample>;
 }
 export interface CompiledDocumentationException {
-    readonly reference?: string | null;
-    readonly description?: string | null;
+    readonly reference?: string;
+    readonly description?: string;
 }
 export interface CompiledDocumentationParameter {
     readonly name?: string;
@@ -893,13 +893,13 @@ export interface CompiledDocumentationParameter {
 }
 export interface CompiledDocumentationSample {
     readonly code?: string;
-    readonly title?: string | null;
-    readonly region?: string | null;
+    readonly title?: string;
+    readonly region?: string;
 }
 export interface CompiledDocumentationSource {
     readonly kind: CompiledDocumentationSourceKind;
     readonly name?: string;
-    readonly precedence?: number | null;
+    readonly precedence?: number;
 }
 export interface CompiledDocumentationSourceEvidence {
     readonly source: CompiledDocumentationSource;
@@ -977,7 +977,7 @@ export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]
 export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageActivity(operationId: string, reason: string): BrowserPackageChangesCancellation;
 export declare function cancelPackageQuery(operationId: string, reason: string): BrowserPackageQueryCancellation;
-export declare function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole>;
+export declare function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: ReadonlyArray<string>): ReadonlyArray<BrowserPackageGraphIdentityRole>;
 export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
@@ -986,7 +986,7 @@ export declare function listPackageActivityPackageSets(): BrowserPackageChangesP
 export declare function listPackageQueryCatalog(): BrowserPackageQueryCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;
-export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
+export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
@@ -1002,4 +1002,4 @@ export declare function resolvePackageDependencyVersion(packageId: string, decla
 export declare function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
 export declare function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
-export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;
+export declare function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit>;

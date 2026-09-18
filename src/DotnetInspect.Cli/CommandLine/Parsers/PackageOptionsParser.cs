@@ -174,6 +174,11 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsPackageFiles =
+            IsPackageFileRowSelection(
+                parseResult,
+                opts,
+                args);
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -196,6 +201,18 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 sourceLinkRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? packageFileRowSelection = null;
+        if (selectsPackageFiles
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package file",
+                out packageFileRowSelection,
+                out string? packageFileRowSelectionError))
+        {
+            return new InvalidArguments(
+                packageFileRowSelectionError!);
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -270,14 +287,14 @@ public static class PackageOptionsParser
             Limit = bareVersion ? 1 : null,
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
+            PackageFileRowSelection = packageFileRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
             Bare = bareOutput,
             Tabular = suppressImplicitRowFormat ? false : opts.ResolveTabular(parseResult),
             Tsv = suppressImplicitRowFormat ? false : opts.ResolveTsv(parseResult),
             Jsonl = suppressImplicitRowFormat ? false : opts.ResolveJsonl(parseResult),
-            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
-                && !parseResult.GetValue(opts.RawUrls),
+            PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             TabularExplicitlySet = suppressImplicitRowFormat ? false : explicitTabularOutput,
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -294,7 +311,9 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-            Rows = selectsVersionPopulation || selectsSourceLinkFiles
+            Rows = selectsVersionPopulation
+                || selectsSourceLinkFiles
+                || selectsPackageFiles
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
@@ -394,6 +413,85 @@ public static class PackageOptionsParser
             && resolved.Sections is { Count: 1 } selected
             && selected.Contains(
                 Views.PackageSections.SourceLinkFiles);
+    }
+
+    internal static bool IsPackageFileRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsPackageFileRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsPackageFileRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || result.GetResult(opts.Discover)
+                is { Implicit: false }
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.LayoutOption)
+            || result.GetValue(args.TfmsOption)
+            || result.GetResult(args.LibraryOption)
+                is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.ContentOption)
+            || (result.GetResult(args.VersionOption)
+                is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null))
+        {
+            return false;
+        }
+
+        if (result.GetValue(opts.Count)
+            && packageArgs is [var packageReference]
+            && PackageVersionRange.TryParse(
+                packageReference,
+                out _,
+                out string? countRangeError)
+            && countRangeError is null)
+        {
+            return false;
+        }
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (result.GetResult(args.PathOption)
+            is { Implicit: false })
+        {
+            selectors =
+            [
+                .. selectors ?? [],
+                Views.PackageSections.Files,
+            ];
+        }
+
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved = SelectResolver.ResolveSelectAsSections(
+            selectors,
+            sections.SelectableSectionNames,
+            sections.InfoSectionNames,
+            sections.SelectionCategoryMap,
+            selectDefault: false);
+        if (resolved.HasError
+            || resolved.Sections is not { Count: 1 } selected)
+        {
+            return false;
+        }
+
+        return selected.Contains(
+            Views.PackageSections.Files);
     }
 
     private static string[]? ParseSelectors(string? value)

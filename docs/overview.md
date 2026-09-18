@@ -47,6 +47,13 @@ substrates, and inspection producers that will extend that space.
   sequences that split with House settlement, Workspace admission, L1 query
   plans, L2 section and row plans, work bounds, and host-specific projection
   without introducing one universal operation plan.
+  [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
+  owns the cross-command placement of top-level Diff, Graph, and Depends
+  operations and equivalent curated subject sections, while each operation,
+  subject, and Section owner retains its semantic contract.
+  [Relationship Section Naming](design/relationship-section-naming.md) owns the
+  user-visible grammar that distinguishes direct relationship evidence, rooted
+  hierarchies, identity-preserving graphs, and optional analyses.
   Its
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
@@ -155,11 +162,13 @@ substrates, and inspection producers that will extend that space.
   Outcome/Document and scalar population-count Result semantics for CLI and
   Browser/Wasm. History preserves native temporal evidence; Count alone counts
   package versions without payload inspection.
-  [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff)
-  owns the Library/Type/Member command placement, Package count binding, and
-  envelope-complete adoption boundary, including public CLI envelope output
-  and no-compat top-level Diff/Timeline retirement. Package, Finding, Workspace,
-  envelope, row-selection, and Browser interaction retain their own contracts.
+  [Command Transition Model](design/command-transition-model.md#historical-subject-owned-diff-placement)
+  retains Package count binding, comparison-adoption evidence, and the
+  envelope-complete boundary, including public CLI envelope output.
+  Top-level Diff placement and equivalent subject sections are owned by
+  [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md);
+  Package, Finding, Workspace, envelope, row-selection, and Browser interaction
+  retain their own contracts.
   The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
@@ -276,6 +285,11 @@ substrates, and inspection producers that will extend that space.
   occurrences, occurrence-local generic substitution, compatibility, and
   visible resolution incompleteness. Neither owner defines control-flow or
   Finding policy.
+  [Resource Occurrence Analysis](design/resource-occurrence-analysis.md) owns
+  method-local association of those resolved effects with exact ownership
+  roots and physical operations. It publishes detached root-bound terminal
+  resource facts and visible limitations without deriving lifecycle Findings,
+  interprocedural paths, or ArrayPool compatibility.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its internal `AsyncCache<TKey, TValue>` lives beside its sole
@@ -395,7 +409,7 @@ substrates, and inspection producers that will extend that space.
   Ecosystem loader binding. It preserves exact Workspace, registration,
   capability, source-result, and admission correspondence while keeping loader
   execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET` and `ASP.NET Core` Ecosystems are the first
+  restoration. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
   consumers; each composes its exact PlatformHouse family without exposing a
   user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
@@ -740,8 +754,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   integrations, Findings, characteristics, and package/type lenses.
 - [Inspection graph modes](design/inspection-graph-modes.md): single-seed,
   peer-seed, and induced-set requests over member, type, assembly, and package
-  subjects, plus the target split between subject-local Graph children and
-  top-level Workspace construction or packet reopening.
+  subjects, independently of the top-level-command and subject-section
+  placement owned by Operation Command and Subject Section Composition.
 - [Call graph characteristics](design/call-graph-characteristics.md):
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.

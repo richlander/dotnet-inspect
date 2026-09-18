@@ -931,8 +931,8 @@ export interface BrowserPackageVersionSettlementSourceListing {
 export interface BrowserPackageVersions {
   readonly versions: ReadonlyArray<string>;
   readonly currentVersionInsertionIndex: number;
-  readonly previousVersion: string | null;
-  readonly previousVersionUnavailableReason: string | null;
+  readonly previousVersion?: string;
+  readonly previousVersionUnavailableReason?: string;
 }
 
 export interface BrowserParameterSurface {
@@ -1021,23 +1021,23 @@ export interface BrowserWorkspacePackageOccurrenceView {
 
 export interface CompiledDocumentationAssemblyIdentity {
   readonly name?: string;
-  readonly version?: string | null;
-  readonly culture?: string | null;
-  readonly publicKeyToken?: string | null;
+  readonly version?: string;
+  readonly culture?: string;
+  readonly publicKeyToken?: string;
 }
 
 export interface CompiledDocumentationEntry {
-  readonly summary?: string | null;
-  readonly remarks?: string | null;
-  readonly returns?: string | null;
+  readonly summary?: string;
+  readonly remarks?: string;
+  readonly returns?: string;
   readonly parameters: ReadonlyArray<CompiledDocumentationParameter>;
   readonly exceptions: ReadonlyArray<CompiledDocumentationException>;
   readonly samples: ReadonlyArray<CompiledDocumentationSample>;
 }
 
 export interface CompiledDocumentationException {
-  readonly reference?: string | null;
-  readonly description?: string | null;
+  readonly reference?: string;
+  readonly description?: string;
 }
 
 export interface CompiledDocumentationParameter {
@@ -1047,14 +1047,14 @@ export interface CompiledDocumentationParameter {
 
 export interface CompiledDocumentationSample {
   readonly code?: string;
-  readonly title?: string | null;
-  readonly region?: string | null;
+  readonly title?: string;
+  readonly region?: string;
 }
 
 export interface CompiledDocumentationSource {
   readonly kind: CompiledDocumentationSourceKind;
   readonly name?: string;
-  readonly precedence?: number | null;
+  readonly precedence?: number;
 }
 
 export interface CompiledDocumentationSourceEvidence {
@@ -1606,6 +1606,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export async function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
   const $parsed: unknown = JSON.parse($result);
@@ -1624,8 +1638,8 @@ export function cancelPackageQuery(operationId: string, reason: string): Browser
   return $parsed as BrowserPackageQueryCancellation;
 }
 
-export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole> {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
+export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: ReadonlyArray<string>): ReadonlyArray<BrowserPackageGraphIdentityRole> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, $serializeJsonInput(packageIdsJson, "DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316", "packageIdsJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserPackageGraphIdentityRole>;
 }
@@ -1672,8 +1686,8 @@ export async function loadRuntimePackAssembly(targetFramework: string, platformV
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
 }
 
-export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, candidatesJson);
+export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>): BrowserDependencyCoordinateMatch {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.MatchPackageDependencyCoordinate.1537767637", "candidatesJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserDependencyCoordinateMatch;
 }
@@ -1764,8 +1778,8 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   return $parsed as BrowserPackageQueryResult;
 }
 
-export function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit> {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, candidatesJson);
+export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316", "candidatesJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }

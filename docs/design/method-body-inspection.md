@@ -1,17 +1,15 @@
 # Method Body Inspection
 
-> Design north-star for raising `member` body sections and the target
-> `library coordinate` child onto one service model. The current executable
-> Library spelling remains `library --il-offset` until the coordinate-child
-> cutover. This complements the assembly acquisition/session seam
+> Design north-star for raising `member` body sections and the
+> `library coordinate` child onto one service model. This complements the
+> assembly acquisition/session seam
 > in the [assembly inspection query model](assembly-inspection-query.md):
 > assembly inspection opens and identifies an assembly; method-body inspection
 > explains one method body or one IL coordinate inside it.
 
 ## Problem
 
-`member` and current `library --il-offset` expose peer facts about method
-bodies. The target CLI places the latter under `library coordinate`:
+`member` and `library coordinate` expose peer facts about method bodies:
 
 - source and decompiled source
 - IL
@@ -28,8 +26,7 @@ contexts to fill `MemberCodeView` sections. `MemberCodeProvider` separately
 opens metadata/decompiler state for source, IL, attributes, overlays, and hidden
 facts.
 
-Current `library --il-offset` started as a one-off source lookup. Its command
-helper
+The IL-coordinate path started as a one-off source lookup. Its command helper
 grew to resolve member, instruction, exception, callsite, return-address,
 allocation, safety, and cost context, build CLI model rows, and own fallback
 opcode heuristics. It was no longer just a source query.
@@ -116,10 +113,9 @@ public sealed record ILCoordinateSelector(
     int ILOffset);
 ```
 
-This is the current `library --il-offset` shape. It should not be a separate
-command architecture. In the target CLI it establishes the
-`library coordinate` child request, while remaining another selector for the
-same method-body inspection pipeline.
+This is the `library coordinate` selector shape. It is not a separate command
+architecture; it establishes the child request while remaining another
+selector for the same method-body inspection pipeline.
 [Coordinate child command](coordinate-child-command.md) owns that CLI
 placement.
 
@@ -165,32 +161,23 @@ still belong in `ILInspector.Research`, whose `IResearchFactProducer` /
 ```csharp
 public sealed class MethodBodyInspectionSession
 {
-    public LibraryBodyIndex BodyIndex { get; }
     public string SourceName { get; }
 
-    public static MethodBodyInspectionSession Open(
-        string assemblyPath,
-        IAssemblyReferenceResolver? resolver = null,
-        bool includeAllocations = true,
-        bool includeOpportunities = true,
-        IReadOnlySet<int>? bodyScope = null,
-        Func<TypeRef, bool>? bodyTypeScope = null);
-
-    public CallTreeNode CallerTree(
-        int methodToken,
-        IReadOnlyList<MethodBodyInspectionSession> scopes);
-
-    public ImmutableArray<CallerEdge> CallerEdges(
-        int targetToken,
-        IReadOnlyList<MethodBodyInspectionSession>? scopes = null);
+    // The session shares one LibraryBodyAnalysisService execution.
+    // Migrated queries receive focused Analysis-owned result types.
+    // LibraryBodyIndex remains available only to compatibility consumers.
 }
 ```
 
-The exact method names can change. The boundary should not:
+The exact method names and execution-publication shape land with the first
+section migration. The boundary should not:
 
-- `Open` captures command-selected capability and body-scope policy
-- one session builds and reuses one Analysis index per command
-- neutral Analysis queries stay on `LibraryBodyIndex` or Analysis projections
+- `Open` captures command-selected capability and body-scope policy, creates a
+  `LibraryBodyAnalysisRequest`, and delegates path or prefetched-image
+  execution to `LibraryBodyAnalysisService`
+- one session builds and reuses one Analysis service execution per command
+- migrated neutral Analysis queries consume focused Analysis-owned results
+- `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -234,15 +221,15 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-`LibraryBodyIndex` remains the temporary compatibility query facade over one
-shared body acquisition. The
+`LibraryBodyIndex` remains a temporary compatibility facade over one shared
+body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
-stateless path and immutable-image execution, while `LibraryBodyIndex` is the
-detached evidence result. `LibraryBodyAnalysisPlan` owns producer dependencies
-and scope; execution returns cohesive method, safety, allocation,
-optimization, and resource-lifecycle results. Topic-specific Analysis services
-consume those results rather than adding more unrelated algorithms to the
-facade.
+stateless path and immutable-image execution plus publication of focused
+detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
+scope; execution returns cohesive method, safety, allocation, optimization,
+resource-occurrence, and resource-lifecycle results. Section queries and
+topic-specific Analysis services consume those typed results rather than
+adding more properties or algorithms to the facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and
 Analysis-owned loop regions and decoded local types, together with the neutral
@@ -385,13 +372,16 @@ Constructed parameter and return views do not replace that identity. Generic
 variables in a declaring TypeSpec and optional vararg arguments belong to the
 caller's scope; variables in the open return and required-parameter signature
 belong to the target's scope. Nested function-pointer signatures retain their
-enclosing type and method generic scope. A constructed declaring type must
-supply exactly the generic arity declared by its canonical metadata-name
-segments. Arity is summed from retained root-to-leaf metadata-name segments,
-not reconstructed from flattened display text, so a literal `+` within one
-segment is not mistaken for nesting. Full analysis leaves malformed
-correspondence unresolved, while the bounded presence query fails visibly
-rather than using an argument count as a substitute for declaration arity.
+enclosing type and method generic scope. For source-attributed calls, caller
+scope comes from `DirectCall.EvidenceMethod`, whose physical body contains the
+operand, rather than the projected source `Caller`. A constructed declaring
+type must supply exactly the generic arity declared by its canonical
+metadata-name segments. Arity is summed from retained root-to-leaf
+metadata-name segments, not reconstructed from flattened display text, so a
+literal `+` within one segment is not mistaken for nesting. Full analysis
+leaves malformed correspondence unresolved, while the bounded presence query
+fails visibly rather than using an argument count as a substitute for
+declaration arity.
 
 Call-contract composition uses the primary image's declared module name to
 recognize same-module `ModuleRef` aliases, including aliases nested in signature
@@ -465,7 +455,41 @@ public query's bounded failure paths. The presence matcher examines only the
 resolved local declaring type, compares candidate names without materializing
 them, decodes only same-name signatures, charges operand and candidate metadata
 rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
-rejects malformed or ambiguous matches.
+rejects malformed or ambiguous matches. Preliminary classification preserves
+raw current-module TypeRef scope when structured decoding rejects the type, so
+malformed local metadata cannot be reclassified as an ordinary foreign
+reference. A corresponding MethodDef target and the physical
+`EvidenceMethod` supplying generic scope must each have `GenericParam` rows
+that exactly declare the signature generic parameters by count and zero-based
+contiguous index. This applies equally to direct MethodDef tokens, peeled
+MethodSpec tokens, and signature-matched MemberRefs. Every `GenericParam` row
+visited by the bounded resolver is charged to its aggregate correspondence-row
+budget.
+`SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind` gates that rule
+for full analysis with a well-formed neighboring control, while
+`UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly` gates
+the bounded absence claim.
+`SameImageCalls_MalformedDirectTargetGenericDeclarationDoesNotBind`,
+`SameImageCalls_MalformedPhysicalCallerGenericDeclarationDoesNotBind`,
+`SameImageCalls_GuardRejectedPhysicalCallerRetainsInvalidDeclaration`,
+`UnsafeEvidencePresence_InvalidDirectTargetGenericDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_InvalidPhysicalCallerGenericDeclarationFailsVisibly`,
+and `UnsafeEvidencePresence_ChargesRepeatedTargetGenericParameterRows` gate
+the direct token, physical scope, and bounded-work paths.
+`UnsafeEvidencePresence_ReusesValidatedLookalikeCallerGenericRows` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget` gate
+presence-mode caller identity at and beyond the aggregate row boundary without
+repeating the validated scope's generic-row traversal.
+`UnsafeEvidencePresence_AccountsLookalikeCallerAttributeRowsWithinBudget` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerAttributeRowsAboveBudget` gate
+the same bounded identity path when extension-method classification traverses
+declaring-type custom attributes: each visited attribute row and materialized
+attribute type name consumes the aggregate correspondence budget.
+`UnsafeEvidencePresence_AccountsLookalikeCallerTypeSpecAttributeNamesWithinBudget`
+and
+`UnsafeEvidencePresence_RejectsLookalikeCallerTypeSpecAttributeNamesAboveBudget`
+gate visible byte-budget failure when a TypeSpec-backed attribute constructor
+converts structural decode rejection into an absent type name.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.
@@ -475,12 +499,19 @@ ambiguity rather than successful absence.
 gate exact declaration arity in full and bounded paths.
 `MethodDefinitionMap_DeclaringTypeMethodVariableOutsideCallerScopeDoesNotBind`
 gates caller-owned generic scope in full correspondence.
+`MethodDefinitionMap_AttributedCallUsesPhysicalGenericScope` and
+`SameImageCalls_AttributedLocalUsesPhysicalGenericScope` gate physical generic
+scope through source attribution and downstream call-tree/leverage consumers.
 `MethodDefinitionMap_LiteralPlusSegmentPreservesDeclaredArity` and
 `SameImageCalls_LiteralPlusSegmentPreservesGenericArity` gate structured-name
 arity and full/bounded agreement for a literal `+` segment.
 `UnsafeEvidencePresence_MalformedOpenMemberSignatureFailsVisibly` and
 `UnsafeEvidencePresence_MalformedTargetSignatureFailsVisibly` gate visible
 bounded failure for malformed reference and candidate signatures.
+`UnsafeEvidencePresence_MismatchedTargetGenericDeclarationFailsVisibly` gates
+signature-declared generic count against MethodDef generic rows, and
+`UnsafeEvidencePresence_MalformedLocalTypeReferenceFailsVisibly` gates raw
+current-module scope through TypeRef decode rejection.
 `UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset` gates resolution
 against the complete declaration population before the unsafe subset is
 ranked. `MethodLeverage_ResolvesBeforeFilteringBodilessDeclarations` and
@@ -766,7 +797,7 @@ Research.
 Owns composition:
 
 - open or receive the assembly inspection session
-- build/reuse one command-configured `LibraryBodyIndex`
+- build/reuse one command-configured `LibraryBodyAnalysisService` execution
 - retain source attribution and compose cross-assembly caller data
 - coordinate metadata, analysis, source acquisition, and Research without
   re-exporting their neutral query surfaces
@@ -796,8 +827,10 @@ Owns only:
 - render the resulting shape
 - write command-line diagnostics for invalid user input
 
-The CLI may depend on `LibraryBodyIndex` as an Analysis query type. It must not
-copy Analysis classification, matching, or aggregation rules into formatters.
+The CLI may depend on `LibraryBodyIndex` only for compatibility consumers
+named by the migration plan. New and migrated sections consume focused
+Analysis result types. The CLI must not copy Analysis classification, matching,
+or aggregation rules into formatters.
 
 ## Relationship to assembly inspection
 
@@ -840,11 +873,12 @@ Move in reviewable slices.
    calls, and graph semantics in Analysis; keep metadata, source, decompiler,
    and overlay semantics in their owning layers.
 2. **Centralize command policy.** Use `MethodBodyInspectionSession.Open` for
-   capability flags, body scope, source attribution, and one index build per
-   command.
-3. **Delete neutral forwarders.** Let CLI consumers query `BodyIndex` and
-   Analysis projections directly instead of mirroring the Analysis API on the
-   session.
+   capability flags, body scope, source attribution, and one service execution
+   per command.
+3. **Migrate section inputs.** In the sequence owned by
+   [Library Body Analysis Service](library-body-analysis-service.md), make
+   library sections consume focused Analysis result types and remove their
+   `BodyIndex` dependency in the same slice.
 4. **Raise remaining semantic construction.** Move any classification,
    matching, or aggregation still implemented in CLI code to its canonical
    owner. Thin CLI row mapping is presentation, not a second semantic surface.
@@ -857,12 +891,11 @@ Move in reviewable slices.
 
 The command-owned path-backed acquisitions for `diff` body-signal comparison,
 implementation comparison, and PDB-source target indexing, plus `timeline`
-analysis inspection, use `MethodBodyInspectionSession` for their selected
-capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
-This adopts the step 2 boundary without claiming command-wide reuse: separate
-`diff` phases retain distinct indexes and capability policies, and
+analysis inspection, remain named compatibility consumers. They migrate after
+the library sections establish the service-execution and focused-result path.
+Separate `diff` phases may retain distinct executions and capability policies;
 `diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff`.
+`ResearchDiff` until its focused migration.
 
 ## Acceptance tests for the architecture
 
@@ -870,7 +903,11 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
   `member` and `library coordinate`.
 - Adding a neutral Analysis query does not require a
   `MethodBodyInspectionSession` forwarding method.
-- One command builds one index with the requested capability and body scope.
+- One command performs one service execution with the requested capability and
+  body scope even when several migrated sections consume different result
+  types.
+- A migrated section accepts no `LibraryBodyIndex` and does not run unrelated
+  producers.
 - Cross-assembly caller results retain source attribution.
 - Member-level and coordinate-level allocation/safety/cost rows agree for the
   same method and offset.
@@ -884,8 +921,8 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
 
 - Should missing facts be represented as empty lists, diagnostics, or
   unavailable-facet reasons? `member` sections often render empty-state notes;
-  current `library --il-offset` returns command errors for required contexts,
-  while the target coordinate child requires a useful bounded bare result.
+  `library coordinate` returns command errors for required contexts while its
+  bare child requires a useful bounded result.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?
 - Should `PdbSource` be a method-body facet or remain a SourceLink service
