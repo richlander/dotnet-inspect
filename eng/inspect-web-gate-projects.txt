@@ -7,10 +7,12 @@ src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
 src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
+src/DotnetInspector.DocumentationHouse.Packages
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.Libraries
 src/DotnetInspector.Networking
+src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms

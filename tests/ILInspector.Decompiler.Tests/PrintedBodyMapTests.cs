@@ -1290,6 +1290,7 @@ public class PrintedBodyMapTests
             },
         };
 
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         var result = CSharpPrinter.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);

@@ -25,6 +25,8 @@ import type {
 } from "../src/facades/inspect-web-analysis.js";
 import type {
   BrowserLibraryApiDiffResult,
+  InertString,
+  InspectionShare,
 } from "../src/facades/inspect-web-metadata.js";
 import {
   renderLibraryApiDiff,
@@ -43,6 +45,18 @@ import {
 } from "./package-adoption-nupkg.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
+
+function isMetadataInertString(value: unknown): value is InertString {
+  return typeof value === "string";
+}
+
+function metadataInertString(value: string): InertString {
+  const wireValue: unknown = value;
+  if (!isMetadataInertString(wireValue)) {
+    throw new TypeError("The inert string wire value must be a string.");
+  }
+  return wireValue;
+}
 
 const site = resolve(
   process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE
@@ -707,10 +721,10 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     },
     members: [],
   });
-  const share = {
+  const share: InspectionShare = {
     kind: "nonProjectable",
     path: "comparison/endpoints",
-    reason: "Ordered endpoints are not shareable.",
+    reason: metadataInertString("Ordered endpoints are not shareable."),
     fullUrl: null,
     packet: null,
   };
