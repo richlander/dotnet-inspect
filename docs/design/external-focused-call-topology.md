@@ -211,7 +211,7 @@ The production path is:
 2. [#7498](https://github.com/richlander/dotnet-inspect/issues/7498)
    classifies exact Workspace participants and selects external focus for
    integration-style call graphs.
-3. CLI Graph lowers the shared result through Markout.
+3. #7595: CLI Graph lowers the shared result through Markout.
 4. Inspect Web consumes the same host-neutral result through its graph viewer.
 
 The CLI and browser may render the projection differently. Neither host
