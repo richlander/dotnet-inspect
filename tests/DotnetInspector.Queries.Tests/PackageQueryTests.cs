@@ -658,6 +658,7 @@ public sealed class PackageQueryTests
                     <group targetFramework="net10.0">
                       <dependency id="microsoft.extensions.configuration" version="10.0.0" />
                       <dependency id="Newtonsoft.Json" version="13.0.3" />
+                      <dependency id="Newtonsoft.Json" version="13.0.3" />
                     </group>
                     <group targetFramework="net8.0">
                       <dependency id="System.Text.Json" version="10.0.0" />
@@ -695,7 +696,7 @@ public sealed class PackageQueryTests
             match.Evidence,
             candidate =>
                 candidate.Id == PackageQuery.DependsPrefixTermKey);
-        Assert.Equal(2, evidence.Summary!.Count);
+        Assert.Equal(3, evidence.Summary!.Count);
         Assert.Equal(
             [
                 "net10.0: Newtonsoft.Json 13.0.3",
@@ -706,6 +707,7 @@ public sealed class PackageQueryTests
             "First package-ID segment Microsoft",
             evidence.Value,
             StringComparison.Ordinal);
+        Assert.Contains("(+1 more)", evidence.Value, StringComparison.Ordinal);
         Assert.Equal(2, source.ManifestRequests.Count);
         Assert.Equal(0, source.PackageRequests);
     }

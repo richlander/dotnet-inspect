@@ -1699,6 +1699,16 @@ public static partial class PackageQuery
             ]);
     }
 
+    static PackageQueryEvidenceSummary SummarizeDependencyMatches(
+        IReadOnlyCollection<PackageQueryDependencyMatch> matches)
+    {
+        PackageQueryEvidenceSummary preview =
+            SummarizeItems(
+                matches.Select(DescribeDependencyMatch),
+                StringComparer.Ordinal);
+        return preview with { Count = matches.Count };
+    }
+
     static PackageQueryTermEvidence DescribeItems(
         PackageQueryEvidenceSummary summary,
         string singular,
@@ -1797,11 +1807,10 @@ public static partial class PackageQuery
         PackageQueryPackage package,
         PackageQueryDependencySelection selection)
     {
+        PackageQueryDependencyMatch[] matches =
+            MatchingDependencyPrefixes(package, selection);
         PackageQueryEvidenceSummary summary =
-            SummarizeItems(
-                MatchingDependencyPrefixes(package, selection)
-                    .Select(DescribeDependencyMatch),
-                StringComparer.Ordinal);
+            SummarizeDependencyMatches(matches);
         PackageQueryTermEvidence declarations =
             DescribeItems(
                 summary,
