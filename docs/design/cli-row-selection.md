@@ -773,7 +773,7 @@ vector.
 ```console
 $ dotnet-inspect package Newtonsoft.Json@13.0.3 \
     -S "SourceLink: Files" -t JsonReader \
-    -n 1 --tail --urls --raw
+    -n 1 --tail --urls
 https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/.../JsonReader.Async.cs
 ```
 

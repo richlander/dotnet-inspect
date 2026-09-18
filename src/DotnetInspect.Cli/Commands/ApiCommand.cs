@@ -3822,9 +3822,9 @@ public class ApiCommand
         var document = new PrintableDocument(
             selectedRow.Row,
             section,
-            string.IsNullOrWhiteSpace(selectedRow.Label) ? rawUrl : selectedRow.Label!,
+            string.IsNullOrWhiteSpace(selectedRow.Label) ? selectedRow.Url! : selectedRow.Label!,
             null,
-            rawUrl,
+            selectedRow.Url,
             fetch.Text);
 
         return PrintProjectionOutput.Write(
