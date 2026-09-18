@@ -597,6 +597,45 @@ public sealed class ResourceOwnershipFlowTests
     }
 
     [Fact]
+    public void UnsupportedCustomArrayReleaseProjectsForwarding()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    DeclaredReleaseModel(
+                        new("fixture.secondary-resource"),
+                        SecondaryKind,
+                        new ResourceEffectCompletion.Entry())),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseDeclaredParameter"),
+                });
+
+        ResourceOwnershipMethodEvidence generic =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(generic.IsComplete);
+        Assert.Empty(Assert.Single(generic.Parameters).Uses);
+        ResourceOwnershipFlowLimit limitation =
+            Assert.Single(generic.Limits);
+
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.True(projected.IsComplete);
+        ArrayPoolParameterOwnership parameter =
+            Assert.Single(projected.Parameters);
+        Assert.True(parameter.IsComplete);
+        ArrayPoolOwnershipUse forwarded =
+            Assert.Single(parameter.Uses);
+        Assert.Equal(ArrayPoolOwnershipUseKind.Forwarded, forwarded.Kind);
+        Assert.Equal(limitation.ILOffset, forwarded.ILOffset);
+        Assert.Equal(0, forwarded.CalleeParameterIndex);
+        Assert.NotNull(forwarded.Call);
+    }
+
+    [Fact]
     public void NonArrayResourceParameterRetainsReleaseEvidence()
     {
         LibraryBodyIndex index =

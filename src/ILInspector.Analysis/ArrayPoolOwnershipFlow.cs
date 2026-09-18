@@ -125,15 +125,59 @@ static class ArrayPoolOwnershipProjection
                     !IsArrayPoolRelevant(
                         limit,
                         hasArrayPoolEvidence: true)));
+        var uses = parameter.Uses
+            .Select(use => ProjectUse(
+                use,
+                resourceKind: null))
+            .ToList();
+        foreach (ResourceOwnershipFlowLimit limit
+            in parameterLimits.Where(limit =>
+                !IsArrayPoolRelevant(
+                    limit,
+                    hasArrayPoolEvidence: true)))
+        {
+            if (TryProjectForwarded(limit, out var forwarded)
+                && !uses.Any(use =>
+                    use.ILOffset == forwarded.ILOffset
+                    && use.CalleeParameterIndex
+                        == forwarded.CalleeParameterIndex))
+            {
+                uses.Add(forwarded);
+            }
+        }
         return new(
             parameter.ParameterIndex,
             [
-                .. parameter.Uses.Select(
-                    use => ProjectUse(
-                        use,
-                        resourceKind: null)),
+                .. uses
+                    .OrderBy(static use => use.ILOffset)
+                    .ThenBy(static use => use.Kind),
             ],
             isComplete);
+    }
+
+    static bool TryProjectForwarded(
+        ResourceOwnershipFlowLimit limit,
+        out ArrayPoolOwnershipUse use)
+    {
+        if (limit.ILOffset is int offset
+            && limit.Effect is
+            {
+                Effect: ResourceEffect.Release
+                {
+                    Source: ResourceEffectLocation.Parameter source,
+                },
+            } effect)
+        {
+            use = new(
+                ArrayPoolOwnershipUseKind.Forwarded,
+                offset,
+                effect.DirectCall.Call,
+                source.Index);
+            return true;
+        }
+
+        use = null!;
+        return false;
     }
 
     static bool IsArrayPoolRelevant(
