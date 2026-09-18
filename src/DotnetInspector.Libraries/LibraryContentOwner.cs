@@ -555,7 +555,7 @@ public sealed class LibraryContentOwner : IAsyncDisposable
         return state.Callback(
             new LibraryContentView(
                 state.Content,
-                artifact.Content),
+                artifact),
             state.State,
             cancellationToken);
     }
@@ -603,10 +603,10 @@ public sealed class LibraryContentOwner : IAsyncDisposable
             new LibraryContentPairView(
                 new(
                     state.First,
-                    state.FirstArtifact.Content),
+                    state.FirstArtifact),
                 new(
                     state.Second,
-                    second.Content)),
+                    second)),
             state.State,
             cancellationToken);
     }
@@ -697,14 +697,17 @@ public readonly ref struct LibraryContentView
 {
     internal LibraryContentView(
         LibraryContentReference reference,
-        ReadOnlySpan<byte> content)
+        ArtifactContentView content)
     {
         Reference = reference;
-        Content = content;
+        _content = content;
     }
 
+    private readonly ArtifactContentView _content;
+
     public LibraryContentReference Reference { get; }
-    public ReadOnlySpan<byte> Content { get; }
+    public ReadOnlySpan<byte> Content => _content.Content;
+    public Stream OpenRead() => _content.OpenRead();
 }
 
 /// <summary>

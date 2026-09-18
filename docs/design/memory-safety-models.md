@@ -325,10 +325,22 @@ reader must not interpret the presence of an otherwise unevaluated
 `MemorySafetyRules` property as proof that the compiler received or honored it.
 
 This repository's .NET 11 NativeAOT publish graph enables the raw compiler
-feature in `Directory.Build.targets`. It also enables `AllowUnsafeBlocks` so
-the graph can compile explicitly declared unsafe operations; updated-rule
-enforcement still requires each operation or propagating contract to be
-declared. Non-AOT builds retain the compiler defaults.
+feature in `Directory.Build.targets`. The root `Directory.Build.props` disables
+`AllowUnsafeBlocks` for every project by default, so product code cannot declare
+unsafe operations merely because it participates in that graph. Product project
+overrides exist only where the .NET JS-export generator currently emits unsafe
+interop code; those overrides do not permit authored unsafe product code. Tests
+and fixtures may opt in when unsafe syntax is the behavior under examination.
+Non-AOT builds retain the compiler's memory-safety rules default.
+
+The .NET 11 RC1 `System.Text.Json` source generator predates the updated
+`safe extern` syntax. The build consumes the RC2 backport of
+dotnet/runtime#133886 as an analyzer-only dependency while continuing to compile
+and run against the selected shared framework. Affected readonly record values
+are registered for serialization-only generation in output contexts, avoiding
+unsafe boxed-struct setters without changing the value models. The one affected
+value that participates in existing API-output round trips uses a typed safe
+converter for both directions.
 
 The same targets file has a fixture-only alias that maps text values such as
 `updated` to the raw compiler feature. That alias is test infrastructure, not

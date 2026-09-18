@@ -117,8 +117,7 @@ public static partial class PackageSignatureVerifier
                 "Package signature entry is too large.");
         }
 
-        byte[] signatureBytes =
-            unsafe(GC.AllocateUninitializedArray<byte>((int)stream.Length));
+        byte[] signatureBytes = new byte[(int)stream.Length];
         stream.ReadExactly(signatureBytes);
         return VerifySignature(signatureBytes);
     }
@@ -212,8 +211,7 @@ public static partial class PackageSignatureVerifier
             throw new InvalidDataException("Signature local header name does not match.");
 
         stream.Position = dataOffset;
-        byte[] signatureBytes =
-            unsafe(GC.AllocateUninitializedArray<byte>((int)uncompressedSize));
+        byte[] signatureBytes = new byte[(int)uncompressedSize];
         stream.ReadExactly(signatureBytes);
         return signatureBytes;
     }

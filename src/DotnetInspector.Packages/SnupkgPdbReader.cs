@@ -141,8 +141,7 @@ public static class SnupkgPdbReader
             }
             expandedPdbBytes += entry.Length;
 
-            byte[] bytes =
-                unsafe(GC.AllocateUninitializedArray<byte>((int)entry.Length));
+            byte[] bytes = new byte[(int)entry.Length];
             using (var entryStream = entry.Open())
             {
                 ReadExactly(
@@ -268,8 +267,7 @@ public static class SnupkgPdbReader
                 (int)Math.Min(
                     snupkg.Length,
                     MinimumRecordLength + MaximumCommentLength);
-            byte[] tail =
-                unsafe(GC.AllocateUninitializedArray<byte>(tailLength));
+            byte[] tail = new byte[tailLength];
             snupkg.Position = snupkg.Length - tailLength;
             snupkg.ReadExactly(tail);
 

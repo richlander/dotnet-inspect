@@ -64,6 +64,12 @@ namespace DotnetInspect.Cli;
 [JsonSerializable(typeof(PackageSourceIntegrity))]
 [JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
 [JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
+[JsonSerializable(
+    typeof(RequiresUnsafeAttributeEvidence),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(ILInspector.Decompiler.PrintedExtent),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 public partial class JsonContext : JsonSerializerContext
 {
 }
@@ -74,6 +80,33 @@ public partial class JsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(PackageInspectionJson))]
 [JsonSerializable(typeof(PackageInspectionJson[]))]
+[JsonSerializable(
+    typeof(PackageVulnerabilityText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(RidPackageReferenceText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageDependencyText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageFileText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageSourceFileText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageSourceLinkIssueText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageSourceLinkFileText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageSignatureText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(PackageAuditSignalText),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext
 {
 }
@@ -99,6 +132,9 @@ internal partial class DiffJsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(MatchBodyDocument))]
+[JsonSerializable(
+    typeof(ILInspector.MetadataPrimitives.MetadataMethodAddress),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 internal partial class MatchBodyDocumentJsonContext : JsonSerializerContext
 {
 }
@@ -110,6 +146,9 @@ internal partial class MatchBodyDocumentJsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(MatchBodyDocument))]
+[JsonSerializable(
+    typeof(ILInspector.MetadataPrimitives.MetadataMethodAddress),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 internal partial class MatchBodyDocumentCompactJsonContext : JsonSerializerContext
 {
 }
@@ -187,6 +226,9 @@ internal partial class PackageFileContentJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(ApiSurface))]
 [JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
 [JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
+[JsonSerializable(
+    typeof(RequiresUnsafeAttributeEvidence),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 public partial class ApiJsonContext : JsonSerializerContext
 {
 }
@@ -202,6 +244,9 @@ public partial class ApiJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
 [JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
+[JsonSerializable(
+    typeof(RequiresUnsafeAttributeEvidence),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 public partial class ApiTypeJsonContext : JsonSerializerContext
 {
 }
@@ -217,6 +262,9 @@ public partial class ApiTypeJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
 [JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
+[JsonSerializable(
+    typeof(RequiresUnsafeAttributeEvidence),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }

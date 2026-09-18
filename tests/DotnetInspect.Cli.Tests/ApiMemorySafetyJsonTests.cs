@@ -52,6 +52,30 @@ public sealed class ApiMemorySafetyJsonTests
         AssertFacts(type, Assert.Single(restored.Types));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EvidenceConverterPreservesGeneratedWireShape(bool compact)
+    {
+        var context = compact
+            ? ApiTypeCompactJsonContext.Default.RequiresUnsafeAttributeEvidence
+            : ApiTypeJsonContext.Default.RequiresUnsafeAttributeEvidence;
+
+        string json = JsonSerializer.Serialize(
+            RequiresUnsafeAttributeEvidence.None,
+            context);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+
+        Assert.Equal(1, root.GetProperty("state").GetInt32());
+        Assert.Equal(
+            !compact,
+            root.TryGetProperty("valid_row_count", out _));
+        Assert.Equal(
+            !compact,
+            root.TryGetProperty("has_malformed_row", out _));
+    }
+
     [Fact]
     public void AccessorProjectionRetainsItsOwnContractToken()
     {

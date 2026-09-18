@@ -14,6 +14,8 @@
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <RestoreConfigFile>$(MSBuildThisFileDirectory)eng/NuGet.Config</RestoreConfigFile>
     <!--
       Vulnerability advisories change independently of the source, so ordinary
       builds do not audit. nuget-audit-scheduled.yml opts in with the global
