@@ -266,6 +266,15 @@ public partial class PackageCommand
         PackageExtractionResult? resolution = null;
         string version = target.Version;
 
+        if (!TryCreatePackageInfoTargetContext(
+                options,
+                producerOptions,
+                pipeline,
+                out PackageHouseTargetContext? packageInfoTargetContext))
+        {
+            return null;
+        }
+
         try
         {
             PackageExtractionOutcome outcome;
@@ -284,7 +293,7 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            PackageInfoTargetContext(options))
+                            packageInfoTargetContext)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         context.HttpClient,
                         target.PackageName,
@@ -295,7 +304,7 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            PackageInfoTargetContext(options));
+                            packageInfoTargetContext);
             }
             else
             {

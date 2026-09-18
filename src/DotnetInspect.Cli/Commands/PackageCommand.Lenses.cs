@@ -57,12 +57,63 @@ public partial class PackageCommand
         }
     }
 
-    private static PackageHouseTargetContext PackageInfoTargetContext(
-        InspectionOptions options) =>
-        string.IsNullOrWhiteSpace(options.Tfm)
-            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
-            ? PackageHouseTargetContext.OwnerDefault()
-            : PackageHouseTargetContext.Exact(options.Tfm);
+    private static bool TryCreatePackageInfoTargetContext(
+        InspectionOptions options,
+        InspectionOptions producerOptions,
+        SectionPipeline<InspectionResult> pipeline,
+        out PackageHouseTargetContext? targetContext)
+    {
+        targetContext = null;
+        if (options.ListVersions
+            || options.ListLayout
+            || options.ListTfms
+            || options.ShowContent
+            || options.PackageLibrary is not null
+            || options.AllLibraries
+            || !RequestsPackageInfoMeasurements(producerOptions, pipeline))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Tfm)
+            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            targetContext = PackageHouseTargetContext.OwnerDefault();
+            return true;
+        }
+
+        try
+        {
+            targetContext = PackageHouseTargetContext.Exact(options.Tfm);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            CommandError.Write(
+                $"Invalid --tfm value '{options.Tfm}': expected a bounded ASCII target moniker.");
+            return false;
+        }
+    }
+
+    private static bool RequestsPackageInfoMeasurements(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.PackageInfo,
+                pipeline))
+        {
+            return true;
+        }
+
+        return options.IncludeSections is null
+            && options.Discover is null
+            && pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview)
+                .Contains(PackageSections.PackageInfo);
+    }
 
     private static void ApplyPackageInfoMeasurements(
         InspectionResult result,

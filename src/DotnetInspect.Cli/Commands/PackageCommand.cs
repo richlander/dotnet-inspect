@@ -1002,6 +1002,15 @@ public partial class PackageCommand
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
+        if (!TryCreatePackageInfoTargetContext(
+                options,
+                producerOptions,
+                pipeline,
+                out PackageHouseTargetContext? packageInfoTargetContext))
+        {
+            return 1;
+        }
+
         try
         {
             PackageExtractionOutcome outcome;
@@ -1012,13 +1021,13 @@ public partial class PackageCommand
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
                         createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: PackageInfoTargetContext(options))
+                        compileTargetContext: packageInfoTargetContext)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
                         createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: PackageInfoTargetContext(options));
+                        compileTargetContext: packageInfoTargetContext);
             }
             else
             {

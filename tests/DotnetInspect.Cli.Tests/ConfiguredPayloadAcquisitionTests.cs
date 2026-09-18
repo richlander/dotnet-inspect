@@ -80,6 +80,65 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_LayoutDoesNotValidatePackageInfoTarget()
+    {
+        string id = $"Pinned.Layout.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "layout package",
+            library: new byte[17],
+            libraryName: $"{id}.dll");
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--layout", "--tfm", "bad tfm", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "TFM 'bad tfm' not found. Use --tfms to list available frameworks.",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("bounded ASCII target moniker", error);
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageInfoRejectsInvalidTargetBeforeAcquisition()
+    {
+        string id = $"Pinned.InvalidTarget.{Guid.NewGuid():N}";
+        int transports = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+        {
+            transports++;
+            throw new InvalidOperationException(
+                "Invalid Package Info target reached acquisition.");
+        });
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tfm", "bad tfm", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Invalid --tfm value 'bad tfm': expected a bounded ASCII target moniker.",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.Equal(0, transports);
+    }
+
+    [Fact]
     public async Task AcquirePinned_LocalPrecedesHttpAndDeclarationOrderDoesNotChoosePayload()
     {
         const string Id = "Pinned.LocalPrecedence";
