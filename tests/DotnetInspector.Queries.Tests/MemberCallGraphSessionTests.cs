@@ -69,6 +69,22 @@ public sealed class MemberCallGraphSessionTests
                 .Identity)
             .Member;
 
+    static string ExternalFocusRole(
+        InspectionGraphDocument document,
+        InspectionGraphEdge edge) =>
+        Assert.IsType<InspectionGraphValue.Token>(
+            Assert.Single(
+                document.Characteristics,
+                characteristic =>
+                    ReferenceEquals(
+                        characteristic.Descriptor,
+                        ExternalFocusedCallGraphInspectionCatalog
+                            .EdgeRole)
+                    && characteristic.Target
+                        == InspectionGraphTarget.Edge(edge.Id))
+                .Value)
+            .Value;
+
     [Fact]
     public async Task Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
     {
@@ -114,7 +130,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public async Task CrossLibraryCalleeNeighborhood_CrossesBoundaryAndContinues()
+    public async Task CrossLibraryCalleeNeighborhood_RetainsBoundaryAndOmitsExternalContinuation()
     {
         await using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
@@ -144,7 +160,6 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             [
                 ("RunAcrossBoundary", "Forward"),
-                ("Forward", "Leaf"),
             ],
             document.Edges.Select(edge =>
                 (
@@ -152,7 +167,12 @@ public sealed class MemberCallGraphSessionTests
                         document.Nodes[edge.FromNodeId]).Name,
                     InspectionMember(
                         document.Nodes[edge.ToNodeId]).Name)));
-        Assert.Equal(2, document.Occurrences.Length);
+        Assert.Equal(
+            "boundary",
+            ExternalFocusRole(
+                document,
+                Assert.Single(document.Edges)));
+        Assert.Single(document.Occurrences);
         Assert.All(
             document.Occurrences,
             occurrence => Assert.IsType<
@@ -184,6 +204,46 @@ public sealed class MemberCallGraphSessionTests
         Assert.All(
             context.Sources,
             source => Assert.Equal(1, source.OpenCount));
+    }
+
+    [Fact]
+    public async Task CrossLibraryCalleeNeighborhood_RetainsShortestLocalConnector()
+    {
+        await using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunOuter");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10));
+
+        Assert.Equal(
+            [
+                ("RunOuter", "Run", "connector"),
+                ("Run", "Ping", "boundary"),
+            ],
+            document.Edges.Select(edge =>
+                (
+                    InspectionMember(
+                        document.Nodes[edge.FromNodeId]).Name,
+                    InspectionMember(
+                        document.Nodes[edge.ToNodeId]).Name,
+                    ExternalFocusRole(document, edge))));
+        Assert.Equal(2, document.Occurrences.Length);
+        Assert.All(
+            document.Occurrences,
+            occurrence => Assert.IsType<
+                CallGraphCallSiteEvidence>(
+                    occurrence.Evidence));
     }
 
     [Fact]
@@ -300,7 +360,7 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
-    public async Task CrossLibraryCalleeNeighborhood_OutsideGroupStaysExternal()
+    public async Task CrossLibraryCalleeNeighborhood_OutsideGroupIsUnclassifiedBoundary()
     {
         await using GraphContext context =
             GraphContext.Create(CallerPath);
@@ -324,17 +384,29 @@ public sealed class MemberCallGraphSessionTests
             InspectionGraphNodeRole.External,
             target.Role);
         Assert.Single(document.Occurrences);
+        Assert.Equal(
+            "unclassified-boundary",
+            ExternalFocusRole(document, edge));
+        InspectionGraphLimit limit = Assert.Single(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                ExternalFocusedCallGraphInspectionCatalog
+                    .BoundaryClassificationIncomplete));
+        Assert.Equal(
+            InspectionGraphTarget.Edge(edge.Id),
+            limit.Target);
     }
 
     [Fact]
-    public async Task CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal()
+    public async Task CrossLibraryCalleeNeighborhood_VersionSkewIsNotAnExactParticipant()
     {
         await using GraphContext context =
-            GraphContext.Create(TargetV2Path, CallerPath);
+            GraphContext.Create(CallerPath, TargetV2Path);
         int root = MemberToken(
-            TargetV2Path,
-            "Api",
-            "Ping");
+            CallerPath,
+            "Entry",
+            "Run");
         using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
@@ -346,6 +418,16 @@ public sealed class MemberCallGraphSessionTests
                     maxDepth: 1,
                     maxNodes: 10));
 
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            "unclassified-boundary",
+            ExternalFocusRole(document, edge));
+        Assert.Contains(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                ExternalFocusedCallGraphInspectionCatalog
+                    .BoundaryClassificationIncomplete));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
