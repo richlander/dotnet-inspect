@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
@@ -360,6 +361,11 @@ public record MemberOptions : ApiOptions
     public int? MemberGenericArity { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
     public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
+    public InspectionEnvelope<AssemblyMemberSourceComparisonEntry>? MemberSourceComparisonInspection
+    {
+        get;
+        init;
+    }
     public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
     {
         get;
