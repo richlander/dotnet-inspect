@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -28,15 +29,6 @@ public static class LibraryCallUseCommand
     internal const string PublicRootPathsSection =
         LibraryCallUseViewSections.PublicRootPaths;
 
-    static readonly string[] SectionOrder =
-    [
-        ConsumerUseSitesSection,
-        ProviderApiTypesSection,
-        DirectUseClustersSection,
-        CallSitesSection,
-        PublicRootPathsSection,
-    ];
-
     static readonly AssemblyPairClusterRootPathLimits RootPathLimits =
         new(
             new PublicMethodRootInventoryLimits(
@@ -48,10 +40,6 @@ public static class LibraryCallUseCommand
                 MaximumNodes: 1_000_000,
                 MaximumEdges: 10_000_000,
                 MaximumPaths: 100_000));
-
-    static readonly IReadOnlyDictionary<string, string[]> NoCategories =
-        new Dictionary<string, string[]>(
-            StringComparer.OrdinalIgnoreCase);
 
     static readonly string[] DefaultCallSiteColumns =
     [
@@ -121,6 +109,10 @@ public static class LibraryCallUseCommand
 
         if (options.Discover is { } discover)
         {
+            SectionCatalog<LibraryCallUseDiscoveryModel> catalog =
+                LibraryCallUseSections.Catalog;
+            SectionPipeline<LibraryCallUseDiscoveryModel> pipeline =
+                catalog.Pipeline;
             return DiscoverOutput.Execute(
                 discover,
                 schema,
@@ -130,7 +122,14 @@ public static class LibraryCallUseCommand
                     options.Format == OutputFormat.Table,
                     options.NoHeader,
                     projection: options),
-                rootLabel: "Library Call Use");
+                rootLabel: "Library Call Use",
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: catalog.SelectionCategoryMap,
+                catalogHiddenSections:
+                    options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                exactOnlySections:
+                    LibraryCallUseSections.ExactOnlySectionNames);
         }
 
         if (options.Tree)
@@ -368,11 +367,7 @@ public static class LibraryCallUseCommand
 
         if (options.SelectDefault)
         {
-            selectedNames =
-            [
-                ConsumerUseSitesSection,
-                ProviderApiTypesSection,
-            ];
+            selectedNames = LibraryCallUseSections.BareSelectSectionNames;
             return true;
         }
 
@@ -384,11 +379,13 @@ public static class LibraryCallUseCommand
             return false;
         }
 
+        SectionCatalog<LibraryCallUseDiscoveryModel> catalog =
+            LibraryCallUseSections.Catalog;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
-            SectionOrder,
+            catalog.SelectableSectionNames,
             infoSections: [CallSitesSection],
-            NoCategories,
+            catalog.SelectionCategoryMap,
             selectDefault: false);
         if (SelectOutput.WriteUnresolved(selection))
         {
@@ -398,7 +395,7 @@ public static class LibraryCallUseCommand
 
         selectedNames =
         [
-            .. SectionOrder.Where(
+            .. catalog.AlphabeticalSectionOrder.Where(
                 name => selection.Sections!.Contains(name)
                     && (name != PublicRootPathsSection
                         || options.Select!.Any(
@@ -587,17 +584,23 @@ public static class LibraryCallUseCommand
                 projection,
                 clusters,
                 rootPathInspection?.Content);
+        IReadOnlyList<string> sectionOrder =
+            LibraryCallUseSections.Catalog.AlphabeticalSectionOrder;
         var writerOptions =
             OutputFormatter.CreateProjectedWriterOptions(
                 projectedColumns,
                 fields: null,
                 options.Rows);
         writerOptions.IncludeSections = renderedNames;
+        writerOptions.SectionOrder = sectionOrder;
 
         if (options.Count)
         {
             string[] ordered =
-                [.. SectionOrder.Where(selectedNames.Contains)];
+            [
+                .. LibraryCallUseSections.Catalog.AlphabeticalSectionOrder
+                    .Where(selectedNames.Contains),
+            ];
             CountProjection counts = CountProjectionFormatter.Capture(
                 view,
                 LibraryCallUseViewContext.Default,
@@ -632,6 +635,7 @@ public static class LibraryCallUseCommand
                 (writer, formatter, writerOptions) =>
                 {
                     writerOptions.IncludeSections = renderedNames;
+                    writerOptions.SectionOrder = sectionOrder;
                     MarkoutSerializer.Serialize(
                         view,
                         writer,
@@ -639,7 +643,8 @@ public static class LibraryCallUseCommand
                         LibraryCallUseViewContext.Default,
                         writerOptions);
                 },
-                maxRows: options.Rows);
+                maxRows: options.Rows,
+                sectionOrder: sectionOrder);
             return;
         }
 
@@ -658,6 +663,7 @@ public static class LibraryCallUseCommand
                 (writer, formatter, writerOptions) =>
                 {
                     writerOptions.IncludeSections = renderedNames;
+                    writerOptions.SectionOrder = sectionOrder;
                     MarkoutSerializer.Serialize(
                         view,
                         writer,
@@ -717,7 +723,8 @@ public static class LibraryCallUseCommand
                 options.Rows);
         writerOptions.HeadingLevelOffset = 1;
         bool wroteDocument = includeDocumentHeading;
-        foreach (string section in SectionOrder)
+        foreach (string section
+            in LibraryCallUseSections.Catalog.AlphabeticalSectionOrder)
         {
             if (!renderedNames.Contains(section))
                 continue;

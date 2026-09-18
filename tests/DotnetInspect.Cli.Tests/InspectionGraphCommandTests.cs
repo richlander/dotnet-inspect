@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -175,6 +176,57 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains("Direct Use Clusters", captured.Output);
         Assert.Contains("Call Sites", captured.Output);
         Assert.Contains("Public Root Paths", captured.Output);
+        Assert.Contains(SectionCategoryNames.Libraries, captured.Output);
+        Assert.DoesNotContain("@All", captured.Output);
+        Assert.DoesNotContain("@Default", captured.Output);
+        Assert.DoesNotContain("@Hidden", captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_DiscoversAuthoredCatalogInAlphabeticalOrder()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    CommandLineBuilder.PreprocessArgs(
+                        [
+                            "graph",
+                            "libraries",
+                            "-D",
+                        ]))
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        int category =
+            captured.Output.IndexOf(
+                SectionCategoryNames.Libraries,
+                StringComparison.Ordinal);
+        int callSites =
+            captured.Output.IndexOf(
+                LibraryCallUseSections.CallSites,
+                StringComparison.Ordinal);
+        int consumerUseSites =
+            captured.Output.IndexOf(
+                LibraryCallUseSections.ConsumerUseSites,
+                StringComparison.Ordinal);
+        int directUseClusters =
+            captured.Output.IndexOf(
+                LibraryCallUseSections.DirectUseClusters,
+                StringComparison.Ordinal);
+        int providerApiTypes =
+            captured.Output.IndexOf(
+                LibraryCallUseSections.ProviderApiTypes,
+                StringComparison.Ordinal);
+
+        Assert.True(category >= 0);
+        Assert.True(category < callSites);
+        Assert.True(callSites < consumerUseSites);
+        Assert.True(consumerUseSites < directUseClusters);
+        Assert.True(directUseClusters < providerApiTypes);
+        Assert.DoesNotContain(
+            LibraryCallUseSections.PublicRootPaths,
+            captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -498,6 +550,45 @@ public sealed class InspectionGraphCommandTests
             providerApiTypes[0]
                 .GetProperty("target_type")
                 .GetString());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_LibrariesCategoryComposesAlphabetically()
+    {
+        string[] arguments = CommandLineBuilder.PreprocessArgs(
+            [
+                "graph",
+                "libraries",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                "-S",
+                SectionCategoryNames.Libraries,
+                "--json",
+            ]);
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(arguments)
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            [
+                "call_sites",
+                "consumer_use_sites",
+                "direct_use_clusters",
+                "provider_api_types",
+            ],
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name));
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "public_root_paths",
+                out _));
         Assert.Empty(captured.Error);
     }
 
@@ -1168,19 +1259,17 @@ public sealed class InspectionGraphCommandTests
             Assert.Empty(captured.Error);
             using JsonDocument document =
                 JsonDocument.Parse(captured.Output);
+            Dictionary<string, int> counts = document.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.Ordinal);
             return (
-                document.RootElement[0]
-                    .GetProperty("count")
-                    .GetInt32(),
-                document.RootElement[1]
-                    .GetProperty("count")
-                    .GetInt32(),
-                document.RootElement[2]
-                    .GetProperty("count")
-                    .GetInt32(),
-                document.RootElement[3]
-                    .GetProperty("count")
-                    .GetInt32());
+                counts[LibraryCallUseSections.ConsumerUseSites],
+                counts[LibraryCallUseSections.ProviderApiTypes],
+                counts[LibraryCallUseSections.DirectUseClusters],
+                counts[LibraryCallUseSections.CallSites]);
         }
 
         var presentation =
