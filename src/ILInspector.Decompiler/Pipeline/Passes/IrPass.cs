@@ -460,6 +460,7 @@ public static class IrPasses
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
         new PdbLocalScopePass(),
+        new CheckedIntegerOperandPass(),
         new CoercionInsertionPass(),
         new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
@@ -507,7 +508,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 
