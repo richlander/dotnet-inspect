@@ -58,6 +58,7 @@ public sealed record WorkspaceOptions
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
+    public bool MakePackageDependenciesExplicit { get; init; }
     public NuGetSourceOptions SourceOptions { get; init; } =
         NuGetSourceOptions.Default;
 }

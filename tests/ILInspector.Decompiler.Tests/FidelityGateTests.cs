@@ -135,6 +135,13 @@ public class FidelityGateTests
         // differs after recompilation.
         "CapturingLambda",
         "CapturingLocalBodyLambda",
+        // The local display-class raise consumes every reference to these
+        // environment slots, so their generated local types no longer lower
+        // fidelity. Compile-back now reaches the existing operand-only
+        // differences in compiler-generated display-class ordinals.
+        "ClosureWithLinq",
+        "CountAbove",
+        "SharedCaptureLambdas",
         // #2945: outer-body reads of a hoisted capture field are substituted back
         // to the captured source and the display class elides, so this fully
         // raises. #3505 canonicalized the synthesized ordinals that used to make
@@ -237,10 +244,9 @@ public class FidelityGateTests
     /// ParseOrZero must keep treating the verified `out` argument as a definite
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
-    /// SharedCaptureLambdas is below Full and now reports `NotFull` because its
-    /// opcode names match but its contract body comparison differs. CapturingLocalFunction
-    /// is also below Full; fixture additions changed its compiler-generated display
-    /// class and local-function ordinals, which remain observable under the contract.
+    /// CapturingLocalFunction is below Full; fixture additions changed its
+    /// compiler-generated display class and local-function ordinals, which
+    /// remain observable under the contract.
     /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
     /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.

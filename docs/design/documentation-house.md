@@ -729,9 +729,11 @@ The exact `DocumentationHouseOutcome` remains available on the in-process
 Queries result and is excluded from JSON. It retains reference-scoped Library,
 content, subject, and receipt correspondence that must not be mistaken for a
 portable interchange identity. The JSON context registers only the
-Queries-owned outcome. Its common subject contains only the exact assembly
-identity and compiler documentation ID needed for correlation. A required
-`kind` discriminator selects one case-specific shape: `available`, `absent`,
+Queries-owned outcome. A completed host adapter serializes that outcome to one
+JSON string; the string, not a UTF-8 byte array, is the C#-to-TypeScript
+exchange. Its common subject contains only the exact assembly identity and
+compiler documentation ID needed for correlation. A required `kind`
+discriminator selects one case-specific shape: `available`, `absent`,
 `unavailable`, `ambiguous`, `contributionsRejected`,
 `malformedOrUnreadableDocument`, `incomplete`, `requestRejected`, or
 `contentAccessFailed`.
@@ -993,9 +995,9 @@ incompleteness.
 A four-million-contribution input constrained by a nine-entry House limit
 retains eight distinct source, kind, and precedence values plus explicit
 truncation without presenting unfinished work as available documentation. That
-payload is 999 UTF-8 bytes and is gated at no more than 1,024 bytes. The
-available real-package payload is 1,028 bytes and is gated at no more than
-1,100 bytes.
+JSON string is 999 UTF-16 code units and is gated at no more than 1,024 code
+units. The available real-package JSON string is 1,028 code units and is gated
+at no more than 1,100 code units.
 `PortableContract_IsDiscriminatedAndQueriesOwned` provides full public-type
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,

@@ -97,6 +97,8 @@ public static partial class WorkspaceCommand
 
     static string? ReplacementOptionError(WorkspaceOptions options)
     {
+        if (options.MakePackageDependenciesExplicit)
+            return "Choose coordinate replacement or dependency enrichment, not both.";
         if (options.ReplacePackage is null or <= 0)
             return "--replace-package requires a one-based positive navigation-row order.";
         if (options.Packet is null)

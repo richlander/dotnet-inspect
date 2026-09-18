@@ -135,6 +135,7 @@ public sealed partial class WorkspaceCommandTests
     [InlineData("--replace-package 1 --to-version 12.1.2 --tfm net9.0 --share packet", "construction")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --active-package 1 --share packet", "selectors")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --count --share packet", "inventory")]
+    [InlineData("--replace-package 1 --to-version 12.1.2 --make-package-dependencies-explicit --share packet", "not both")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --preview --share packet", "exact")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --envelope", "--json")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --envelope --json --share packet", "Choose")]

@@ -9,6 +9,7 @@ using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using Markout;
+using Markout.Formatting;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
@@ -284,7 +285,15 @@ internal static class PackageQueryCommand
             plan.Prefix.ToString(),
             displayResults,
             summary);
-        WriteOutput(view, options);
+        HashSet<string> includeSections = options.IncludeSections
+            ?? (options.SelectDefault
+                ? [PackageProfileSections.Packages]
+                : [
+                    document.HasPackages
+                        ? PackageProfileSections.Packages
+                        : PackageQuerySections.QuerySummaryName,
+                ]);
+        WriteOutput(view, options, includeSections);
         WriteDiagnostics(
             document.Failures,
             summary,
@@ -324,12 +333,40 @@ internal static class PackageQueryCommand
 
     private static void WriteOutput(
         PackageQueryView view,
-        PackageQueryOptions options)
+        PackageQueryOptions options,
+        HashSet<string> includeSections)
     {
-        HashSet<string> includeSections =
-            PackageQuerySections.Catalog.Pipeline.GetCandidateSections(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
+        EmptyPackageQueryView? emptyView =
+            view.Results.Count == 0
+            && includeSections.Contains(PackageProfileSections.Packages)
+                ? EmptyPackageQueryView.From(view)
+                : null;
+
+        void Serialize(
+            TextWriter writer,
+            IMarkoutFormatter formatter,
+            MarkoutWriterOptions writerOptions)
+        {
+            writerOptions.IncludeSections = includeSections;
+            if (emptyView is null)
+            {
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions);
+            }
+            else
+            {
+                MarkoutSerializer.Serialize(
+                    emptyView,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions);
+            }
+        }
 
         if (options.Count)
         {
@@ -341,16 +378,7 @@ internal static class PackageQueryCommand
                 Console.Out,
                 options.Columns,
                 options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
+                Serialize,
                 !options.CompactJson,
                 maxRows: null);
         }
@@ -363,16 +391,7 @@ internal static class PackageQueryCommand
                 options.Jsonl,
                 options.Columns,
                 options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
+                Serialize,
                 maxRows: null);
         }
         else
@@ -383,10 +402,15 @@ internal static class PackageQueryCommand
                 writerOptions =>
                 {
                     writerOptions.IncludeSections = includeSections;
-                    return MarkoutSerializer.Serialize(
-                        view,
-                        SearchViewContext.Default,
-                        writerOptions);
+                    return emptyView is null
+                        ? MarkoutSerializer.Serialize(
+                            view,
+                            SearchViewContext.Default,
+                            writerOptions)
+                        : MarkoutSerializer.Serialize(
+                            emptyView,
+                            SearchViewContext.Default,
+                            writerOptions);
                 },
                 options.Columns,
                 options.Fields);

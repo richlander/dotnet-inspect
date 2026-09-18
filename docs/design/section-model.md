@@ -670,6 +670,25 @@ section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
 set in alphabetical order. Select `Integrations` directly for configured
 bindings.
 
+## Graph libraries category map
+
+The `graph libraries` command's authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
+
+`@Libraries` is the base category and composes the four pair-wide projections
+in alphabetical section order. Ordinary output remains the exact `Call Sites`
+view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
+summary pair.
+
+`Public Root Paths` remains uncategorized and exact-name-only because it
+requires one positive `Cluster` coordinate before acquisition. Wildcard and
+category selection do not opt into it. The pairwise call-use, direct-use
+cluster, and cluster root-path designs continue to own the section semantics;
+this document owns only their command catalog composition.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -695,7 +714,8 @@ The section pipeline and derived catalog gates enforce these invariants:
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
-   `EcosystemPipelines_UseRouteSpecificAuthoredCategories`.
+   `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
+   `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -711,9 +731,9 @@ sets so stale and missing entries both fail.
 ## Migration
 
 The library model is the reference implementation. Package, type listing,
-member inspection, diff, project, vocabulary, and ecosystem use the same
-size/cost axes, base-category scope, authored category model, and curated
-discovery. Remaining commands should migrate incrementally.
+member inspection, diff, project, vocabulary, ecosystem, and `graph libraries`
+use the same size/cost axes, base-category scope, authored category model, and
+curated discovery. Remaining commands should migrate incrementally.
 
 During migration:
 

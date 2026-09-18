@@ -1037,7 +1037,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageExactTransfer_ExplicitPathLineWindowRejectsBeforePackageAcquisition()
+    public async Task PackageExactTransfer_InferredPathLineWindowRejectsBeforePackageAcquisition()
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -1054,7 +1054,6 @@ public partial class CommandExecutionTests
                     "--content",
                     "--path",
                     "README.md",
-                    "--lines",
                     "-n1",
                     "--out",
                     outputPath,
