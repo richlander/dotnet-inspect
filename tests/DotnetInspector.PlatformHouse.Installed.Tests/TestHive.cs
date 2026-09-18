@@ -80,6 +80,11 @@ internal sealed class TestHive : IDisposable
     internal void CopyAssembly(
         string directory,
         string sourcePath) =>
+        CopyFile(directory, sourcePath);
+
+    internal void CopyFile(
+        string directory,
+        string sourcePath) =>
         File.Copy(
             sourcePath,
             Path.Combine(directory, Path.GetFileName(sourcePath)));

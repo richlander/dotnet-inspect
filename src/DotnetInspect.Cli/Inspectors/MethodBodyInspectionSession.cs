@@ -11,8 +11,8 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// Method-body inspection composition layer (see <c>docs/design/method-body-inspection.md</c>):
-/// opens a <see cref="Analysis.LibraryBodyIndex"/> once with command-selected capabilities and
-/// body scope, and composes caller data across source-attributed assembly sessions.
+/// executes Analysis once with command-selected capabilities and body scope,
+/// and composes caller data across source-attributed assembly sessions.
 ///
 /// This sits above <c>ILInspector.Analysis</c> (and, in later slices, Metadata / Decompiler /
 /// Research); it is deliberately not part of the lower-level <c>DotnetInspector.Services</c>
@@ -23,12 +23,12 @@ namespace DotnetInspect.Cli.Inspectors;
 public sealed class MethodBodyInspectionSession
 {
     MethodBodyInspectionSession(
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryBodyAnalysisExecution analysis,
         ResolvedAssemblyReference assembly,
         string sourceName,
         IAssemblyBindingPolicy bindingPolicy)
     {
-        BodyIndex = index;
+        AnalysisExecution = analysis;
         Assembly = assembly;
         SourceName = sourceName;
         BindingPolicy = bindingPolicy;
@@ -38,7 +38,13 @@ public sealed class MethodBodyInspectionSession
     /// Neutral Analysis index built for this command's requested capabilities and body scope.
     /// Consumers query it directly instead of growing a parallel forwarding surface here.
     /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex { get; }
+    public Analysis.LibraryBodyIndex BodyIndex =>
+        AnalysisExecution.CompatibilityIndex();
+
+    /// <summary>
+    /// Detached focused results from the shared Analysis execution.
+    /// </summary>
+    public Analysis.LibraryBodyAnalysisExecution AnalysisExecution { get; }
 
     public ResolvedAssemblyReference Assembly { get; }
 
@@ -51,7 +57,7 @@ public sealed class MethodBodyInspectionSession
     public string SourceName { get; }
 
     /// <summary>
-    /// Test-only counter of index builds (one per <see cref="Open"/>). The "build the index once
+    /// Test-only counter of Analysis executions (one per <see cref="Open"/>). The "analyze once
     /// per command" invariant (#2139 perf: PRs #2187/#2199/#2210) is guarded by asserting this
     /// stays at 1 across a multi-section render; a new section that opens its own session would
     /// silently reintroduce a per-section rebuild.
@@ -59,7 +65,7 @@ public sealed class MethodBodyInspectionSession
     internal static int OpenCountForTests;
 
     /// <summary>
-    /// Opens a session over an assembly's analysis body index. <paramref name="includeAllocations"/>
+    /// Opens a session over an assembly's body analysis. <paramref name="includeAllocations"/>
     /// and <paramref name="includeOpportunities"/> gate the two expensive whole-assembly analysis
     /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
     /// on unless the caller knows no requested section consumes them (see
@@ -140,13 +146,16 @@ public sealed class MethodBodyInspectionSession
                 "Method-body inspection requires a path-backed assembly.",
                 nameof(assembly));
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        return new(
-            Analysis.LibraryBodyIndex.Open(
-                assemblyPath,
+        Analysis.LibraryBodyAnalysisRequest request =
+            Analysis.LibraryBodyAnalysisRequest.Create(
                 features,
-                resolver,
                 bodyScope,
-                bodyTypeScope),
+                bodyTypeScope);
+        return new(
+            Analysis.LibraryBodyAnalysisService.ExecutePath(
+                assemblyPath,
+                request,
+                resolver),
             assembly,
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
@@ -175,14 +184,17 @@ public sealed class MethodBodyInspectionSession
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        Analysis.LibraryBodyAnalysisRequest request =
+            Analysis.LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope);
         return new(
-            Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
+            Analysis.LibraryBodyAnalysisService.ExecuteImage(
                 assemblyPath,
                 image,
-                features,
-                resolver,
-                bodyScope,
-                bodyTypeScope),
+                request,
+                resolver),
             assembly
                 ?? ResolvedAssemblyReference.CreateFromPath(
                     assemblyPath,

@@ -1,3 +1,5 @@
+using DotnetInspector.Queries;
+
 namespace DotnetInspector.EcosystemLoading;
 
 /// <summary>
@@ -11,6 +13,13 @@ public abstract class EcosystemPopulationLoaderBinding
 
     public EcosystemPopulationLoaderId Id { get; }
 
+    public EcosystemPopulationLoaderCorrespondence CreateCorrespondence(
+        WorkspaceEcosystemRegistrationDeclaration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        return CreateCorrespondenceCore(registration);
+    }
+
     public static EcosystemPopulationLoaderBinding<TInputs> Create<TInputs>(
         EcosystemPopulationLoaderId id,
         Func<
@@ -18,6 +27,10 @@ public abstract class EcosystemPopulationLoaderBinding
             ValueTask<EcosystemPopulationLoaderReply>> load)
         where TInputs : class, IEcosystemPopulationLoadInputs =>
         EcosystemPopulationLoaderBinding<TInputs>.Create(id, load);
+
+    private protected abstract EcosystemPopulationLoaderCorrespondence
+        CreateCorrespondenceCore(
+            WorkspaceEcosystemRegistrationDeclaration registration);
 }
 
 /// <summary>
@@ -60,4 +73,11 @@ public sealed class EcosystemPopulationLoaderBinding<TInputs> :
     internal ValueTask<EcosystemPopulationLoaderReply> LoadAsync(
         EcosystemPopulationLoadRequest<TInputs> request) =>
         _load(request);
+
+    private protected override EcosystemPopulationLoaderCorrespondence
+        CreateCorrespondenceCore(
+            WorkspaceEcosystemRegistrationDeclaration registration) =>
+        new EcosystemPopulationLoaderCorrespondence<TInputs>(
+            registration,
+            this);
 }

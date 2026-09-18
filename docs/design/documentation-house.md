@@ -27,23 +27,23 @@ bound the non-interruptible scan itself. Its current `XmlException` contract
 maps malformed and parser-limit-exhausted input to a visible **Failed**
 compiled attempt, while House contribution, byte, and deadline exhaustion
 remain typed **Incomplete** evidence.
-The PackageHouse and direct-Library adapters plus the shared Queries
-compiled-documentation result are implemented. Queries preserves the exact
-detached House outcome for in-process composition and publishes a separately
-owned portable terminal outcome as the source-generated JSON contract. Inspect
-Web package-member documentation now consumes that PackageHouse-to-Queries
-path and its generated TypeScript declaration. CLI adoption, platform and
-source adapters, platform host adoption, the authored channel, field
-settlement, and legacy retirement remain staged.
+The PackageHouse, direct-Library, and PlatformHouse adapters plus the shared
+Queries compiled-documentation result are implemented. Queries preserves the
+exact detached House outcome for in-process composition and publishes a
+separately owned portable terminal outcome as the source-generated JSON
+contract. Inspect Web package-member documentation now consumes that
+PackageHouse-to-Queries path and its generated TypeScript declaration.
+PlatformHouse's superseded subject-level documentation contracts are removed.
+Platform host adoption, the source adapter, the authored channel, field
+settlement, and remaining legacy retirement remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
 documentation settlement moves from
 [PlatformHouse](platform-house-reference-processing.md), whose remaining
 target, realization, view-correspondence, forwarding, and library-handoff
-authority is unchanged. The existing PlatformHouse documentation contracts and
-host-local documentation composition are migration evidence, not the target
-architecture.
+authority is unchanged. Host-local documentation composition remains migration
+evidence, not the target architecture.
 
 The first production consumer is exact package-member documentation in Inspect
 Web. CLI and Browser/Wasm then converge on the same House contract. The tracker
@@ -317,6 +317,19 @@ substitute lifetime. DocumentationHouse does not reopen a package, resolve a
 platform target, derive a sibling path, enumerate an ambient directory,
 directly invoke SourceHouse, or reacquire content already represented by the
 Library.
+
+The PlatformHouse integration follows the same boundary. A one-Library
+realization may explicitly request `CompiledXmlDocumentation` content together
+with a reference view. Installed and package-backed Platform sources then
+snapshot the exact same-basename reference-pack companion, when present, under
+the existing byte, XML-document, duration, and source-operation bounds.
+PlatformHouse publishes that content in the assembly's Artifact generation and
+constructs its `CompiledXmlDocumentation` Library correspondence, but performs
+no XML parsing or documentation settlement. A completed requested realization
+without that companion proves authoritative absence; a realization that did
+not request it proves only unavailability. The separately compiled
+`DotnetInspector.DocumentationHouse.Platform` adapter maps those states to one
+source-neutral contribution and retains no Library or Artifact authority.
 
 ## Documentation demand
 
@@ -912,8 +925,8 @@ assembly and XML companion in the .NET 11 reference pack.
 7. **Completed.** Adopt package compiled documentation in Inspect Web;
 8. **Completed.** Adopt package and direct-library compiled documentation in
    the CLI;
-9. add the PlatformHouse adapter;
-10. remove PlatformHouse's superseded documentation contracts;
+9. **Completed.** Add the PlatformHouse adapter;
+10. **Completed.** Remove PlatformHouse's superseded documentation contracts;
 11. adopt platform reference-pack compiled documentation in Inspect Web;
 12. adopt platform reference-pack compiled documentation in the CLI;
 13. lock the focused SourceHouse physical-declaration correspondence contract
