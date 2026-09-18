@@ -1580,6 +1580,9 @@ public sealed class LibraryBodyIndex
         var reader = peReader.GetMetadataReader();
         LibraryBodyModuleIdentity moduleIdentity =
             LibraryBodyModuleIdentity.FromImage(reader);
+        string moduleName =
+            reader.GetString(
+                reader.GetModuleDefinition().Name);
         IAssemblyReferenceResolver? analysisResolver =
             UsesReferenceResolution(plan) ? resolver : null;
         using var builder = new LibraryBodyAnalysisBuilder(
@@ -1613,8 +1616,10 @@ public sealed class LibraryBodyIndex
                 var provisional = new LibraryBodyIndex(
                     path,
                     moduleIdentity,
+                    moduleName,
                     analysis,
-                    plan.Features);
+                    plan.Features,
+                    hasFullMethodEvidenceScope: !plan.IsScoped);
                 resolved = ResourceEffectResolver.Resolve(
                     ownershipPolicy,
                     resourceEffects
@@ -1640,8 +1645,7 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path,
             moduleIdentity,
-            reader.GetString(
-                reader.GetModuleDefinition().Name),
+            moduleName,
             analysis,
             plan.Features,
             hasFullMethodEvidenceScope: !plan.IsScoped);

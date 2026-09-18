@@ -160,7 +160,8 @@ static class ArrayPoolUseClassifier
                 if (release is null)
                 {
                     return UseClassification.OwnershipTransfer(
-                        "Resource release semantics are incomplete.");
+                        "Resource release semantics are incomplete.",
+                        instruction.Offset);
                 }
                 int consumedArguments =
                     callee.ParameterTypes.Length
@@ -506,7 +507,14 @@ static class ArrayPoolUseClassifier
                 boundary,
                 boundary.ILOffset,
                 parameterIndex);
-        public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Unknown, "ownership-transfer-suppressed", evidence);
+        public static UseClassification OwnershipTransfer(
+            string evidence,
+            int operationOffset = -1) =>
+            new(
+                UseKind.Unknown,
+                "ownership-transfer-suppressed",
+                evidence,
+                OperationOffset: operationOffset);
     }
 
 }

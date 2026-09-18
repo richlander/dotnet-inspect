@@ -257,6 +257,14 @@ public static class Entry
     public static void ReleaseReceiverParameter(DeclaredToken token) =>
         token.Close();
 
+    public static void ReleaseTwoReceiverParameters(
+        DeclaredToken first,
+        DeclaredToken second)
+    {
+        first.Close();
+        second.Close();
+    }
+
     public static DeclaredToken ForwardMovedToken(DeclaredToken token) =>
         TokenResourceApi.Move(token);
 

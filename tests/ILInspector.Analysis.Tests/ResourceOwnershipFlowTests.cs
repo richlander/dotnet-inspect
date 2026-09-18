@@ -610,6 +610,39 @@ public sealed class ResourceOwnershipFlowTests
     }
 
     [Fact]
+    public void ReceiverReleasesRetainDistinctPhysicalOffsets()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(TokenResourceModel()),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("ReleaseTwoReceiverParameters"),
+                });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(evidence.IsComplete);
+        Assert.Equal(2, evidence.Parameters.Length);
+        Assert.All(evidence.Parameters, parameter =>
+            Assert.Empty(parameter.Uses));
+        ResourceOwnershipFlowLimit[] limits =
+        [
+            .. evidence.Limits.Where(limit =>
+                limit.Kind
+                    == ResourceOwnershipFlowLimitKind.UnsupportedEffect),
+        ];
+        Assert.Equal(2, limits.Length);
+        Assert.All(limits, limit => Assert.NotNull(limit.ILOffset));
+        Assert.Equal(
+            2,
+            limits.Select(limit => limit.ILOffset).Distinct().Count());
+    }
+
+    [Fact]
     public void ImplicitReceiverReleaseRemainsVisibleAsUnsupported()
     {
         LibraryBodyIndex index =
