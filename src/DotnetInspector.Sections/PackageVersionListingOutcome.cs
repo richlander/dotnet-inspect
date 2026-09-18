@@ -14,8 +14,30 @@ public abstract record PackageVersionListingOutcome
 {
     private protected PackageVersionListingOutcome() { }
 
-    public sealed record Listed(PackageVersionListingDocument Document)
-        : PackageVersionListingOutcome;
+    public sealed record Listed : PackageVersionListingOutcome
+    {
+        [JsonConstructor]
+        public Listed(PackageVersionListingDocument document)
+            : this(document, [])
+        {
+        }
+
+        internal Listed(
+            PackageVersionListingDocument document,
+            ImmutableArray<PackageVersionListingAuthorityFailure>
+                authorityFailures)
+        {
+            Document =
+                document ?? throw new ArgumentNullException(nameof(document));
+            AuthorityFailures = authorityFailures;
+        }
+
+        public PackageVersionListingDocument Document { get; }
+
+        [JsonIgnore]
+        public ImmutableArray<PackageVersionListingAuthorityFailure>
+            AuthorityFailures { get; }
+    }
 
     public sealed record NotAvailable(PackageVersionListingFailure Failure)
         : PackageVersionListingOutcome;
