@@ -20,7 +20,7 @@ SourceLink answers three related questions:
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
 | Which source files map to this target? | `SourceLink: Files` (`library` / `package`) / `Source Files` (`type`) |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
-| What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset <token>+<offset>` for MethodDef token + IL offset point queries |
+| What is the source for this exact member or IL offset? | selected `member` source sections, or `library coordinate <token>+<offset> --library <source>` for MethodDef token + IL offset point queries |
 
 The command model should prefer sections over new flags. SourceLink URL listings
 are document sections, not standalone verbs. Point queries, such as method-token
@@ -78,6 +78,14 @@ library provenance. `SourceLink: Missing Files` is a second view of the
 availability result, not a second network pass. All four package sections are
 rooted in `@SourceLink`; the legacy `Source Files` spelling still resolves for
 the file listing. `type` still spells its equivalent `Source Files`.
+
+For one ordinary package with exactly `SourceLink: Files` selected, `-n`,
+`--tail`, and `--rows A..B` select complete library/type/URL rows after all
+selected libraries have completed SourceLink collection and any `--type`
+filter has run. Count, row formats, complete JSON, URL projection, and bare
+output consume the same selected rows. `--lines` explicitly clips rendered
+text instead. The broader `@SourceLink` document and multiple-package output
+remain separate surfaces rather than being treated as one file-row sequence.
 
 Effective discovery never executes the unbounded availability or integrity
 queries merely to list these package sections.
@@ -138,8 +146,8 @@ records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `PDB Source` / package
 content patterns, availability checks live in `SourceLink: Integrity` and
 `SourceLink: Availability`, URL shape is selected with `--blob`, and IL offset
-symbolication is now `library --il-offset <token>+<offset>`, which supplies the
-value for the `Context: Source Location` section.
+symbolication is `library coordinate <token>+<offset> --library <source>`,
+which supplies the value for the `Context: Source Location` section.
 
 Sample URLs are less direct: they should be URL rows from real package or
 documentation metadata rather than calculated links, because some sample URL
