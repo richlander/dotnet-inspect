@@ -10,6 +10,7 @@ public enum SourceHouseSourceUnitScope
 {
     ExactMember,
     PrimaryTypeDocument,
+    AdditionalTypeDocument,
 }
 
 public enum SourceHouseMappingStrength
@@ -66,12 +67,10 @@ public abstract class SourceHouseAuthoredMapping
             IReadOnlyList<SourceHouseAdditionalTypeDocument>
                 additionalDocuments)
             : base(
-                SourceHouseSourceUnitScope.PrimaryTypeDocument,
+                DocumentScope(sourceMapping, document),
                 mappingStrength,
                 partial)
         {
-            ArgumentNullException.ThrowIfNull(sourceMapping);
-            ArgumentNullException.ThrowIfNull(document);
             ArgumentNullException.ThrowIfNull(additionalDocuments);
 
             SourceMapping = sourceMapping;
@@ -84,6 +83,20 @@ public abstract class SourceHouseAuthoredMapping
         public SourceDocumentObservation Document { get; }
         public IReadOnlyList<SourceHouseAdditionalTypeDocument>
             AdditionalDocuments { get; }
+
+        private static SourceHouseSourceUnitScope DocumentScope(
+            SourceLinkResolver.TypeSourceInfo mapping,
+            SourceDocumentObservation document)
+        {
+            ArgumentNullException.ThrowIfNull(mapping);
+            ArgumentNullException.ThrowIfNull(document);
+            return string.Equals(
+                document.OriginalPath,
+                TypeSourceDocumentSelection.SelectDefault(mapping)?.FilePath,
+                StringComparison.Ordinal)
+                    ? SourceHouseSourceUnitScope.PrimaryTypeDocument
+                    : SourceHouseSourceUnitScope.AdditionalTypeDocument;
+        }
     }
 }
 

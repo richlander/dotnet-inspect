@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
@@ -19,7 +20,7 @@ using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
-public static class WorkspaceCommand
+public static partial class WorkspaceCommand
 {
     public const string Name = "workspace";
 
@@ -104,6 +105,12 @@ public static class WorkspaceCommand
         {
             CommandError.Write(optionError);
             return 1;
+        }
+
+        if (options.ReplacePackage is not null)
+        {
+            return await ExecuteReplacementAsync(
+                options, loadOptions, cancellationToken).ConfigureAwait(false);
         }
 
         if (options.ShareFormat is { } definitionFormat)
@@ -1430,8 +1437,21 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument document = available.Document;
-        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries =
-            RowWindow.Apply(options.Rows, document.Entries);
+        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                options.RowSelection,
+                options.Rows,
+                document.Entries,
+                "Workspace inventory",
+                failure =>
+                    $"Workspace inventory row selection stage "
+                    + $"{failure.Failure.StageNumber} requires entry "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} entries are available.",
+                out IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries))
+        {
+            return 1;
+        }
+
         if (options.Count)
         {
             CountOutput.WriteCount(entries.Count);
@@ -1439,7 +1459,7 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument outputDocument =
-            options.Rows is null
+            options.RowSelection is null && options.Rows is null
                 ? document
                 : document with { Entries = [.. entries] };
         switch (options.Format)
@@ -1689,6 +1709,15 @@ public static class WorkspaceCommand
 
     static string? NavigationOptionError(WorkspaceOptions options)
     {
+        if (options.ReplacePackage is not null
+            || options.ReplacementVersion is not null
+            || options.ReplacementTfm is not null)
+        {
+            return ReplacementOptionError(options);
+        }
+        if (options.EnvelopeOutput)
+            return "--envelope currently requires --replace-package and --json.";
+
         if (options.RootRequest is not null
             && (options.Packages.Length != 0 || options.Tfm is not null))
         {

@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -9,6 +10,10 @@ public sealed record WorkspaceOptions
     public string[] Packages { get; init; } = [];
     public string? Tfm { get; init; }
     public string? Packet { get; init; }
+    public int? ReplacePackage { get; init; }
+    public string? ReplacementVersion { get; init; }
+    public string? ReplacementTfm { get; init; }
+    public bool EnvelopeOutput { get; init; }
     internal WorkspaceRegistrationInput[] OrderedRegistrations { get; init; } =
         [];
     public string[] RegisteredLibraries { get; init; } = [];
@@ -50,6 +55,7 @@ public sealed record WorkspaceOptions
     public bool IncludePrerelease { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
+    internal RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }

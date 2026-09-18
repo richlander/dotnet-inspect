@@ -554,6 +554,126 @@ portable identity, but inspected content and query results do not enter the
 packet. If the command's semantic selection cannot be represented faithfully,
 the existing CLI Workspace Sharing refusal contract applies.
 
+#### Type packet-context adoption
+
+The first noun-command adoption is specified by
+[#7555](https://github.com/richlander/dotnet-inspect/issues/7555) and is not yet
+implemented. Its exact CLI shape is:
+
+```console
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet" \
+  --share packet
+```
+
+`--workspace` accepts one canonical packet or exact
+`https://dotnet-inspect.net/?w=<packet>` URL as the `type` command's aggregate
+location context. The Type name remains an ordinary `type` subject. The packet
+is the sole location source and cannot be combined with Package, Library,
+Platform, project, framework, range-match, or positional-Package source
+selection.
+
+The first slice requires one explicit exact Type selector. Type listing,
+glob/fuzzy selection, replay of the packet's prior subject without a new
+selector, and Library narrowing inside `type` remain later work. This bound
+keeps the command's subject grammar intact while establishing the complete
+packet-input and derived-Share path.
+
+Complete Restoration realizes the packet under the receiving host's ordinary
+source authorization and acquisition policy. The packet's **selected context**,
+not its focused Navigation tab, supplies the aggregate Type search scope.
+Resolution consumes the host-neutral selected-context exact-Type operation
+owned by [#7429](https://github.com/richlander/dotnet-inspect/issues/7429).
+That operation accepts the complete realized selected context rather than one
+Package coordinate and returns an owner-issued unique result with its defining
+source occurrence and exact Library and Type identity, or a distinct
+incomplete, no-match, or ambiguity outcome. The Workspace adopter does not
+choose a Package before invoking it. Resolution never:
+
+- searches a global Package, Platform, project, or filesystem fallback;
+- chooses the first Package, Library, or Type participant;
+- reconstructs Library or Type identity from a filename, heading, row
+  position, or rendered text; or
+- adds a packet-specific Type inventory or matching algorithm.
+
+A missing selected context, restoration failure, incomplete trustworthy Type
+inventory, no match, and multiple matches remain distinct visible outcomes.
+The selected-context exact-Type operation owns Type matching, ambiguity,
+incomplete participant evidence, and exact defining source and Library
+identity. Workspace Definitions owns only the association between that
+owner-issued result and the complete portable scenario.
+
+Without `--share`, the command preserves ordinary exact-Type output, sections,
+formats, projections, diagnostics, and exit behavior. Appending
+`--share[=url|packet]` follows the additive
+[CLI Workspace Sharing](cli-workspace-sharing.md) contract:
+
+- the same semantic invocation performs the Type inspection once;
+- ordinary content remains on stdout;
+- the selected URL or packet is the final non-empty stderr line;
+- a Share refusal preserves ordinary stdout, writes no partial scalar, and
+  makes the explicitly requested side output fail nonzero.
+
+Schemas 3 and 4 are valid packet inputs for ordinary Type inspection. A
+successful derived Type packet requires schema 4 because
+`PortableSubjectRequest.Type` has no schema-3 representation. Requesting Share
+from a schema-3 input therefore produces the named non-projectable refusal:
+ordinary Type stdout remains, no URL or packet scalar is written, and the
+command does not implicitly migrate or upgrade the packet.
+
+The derived packet preserves the complete input Workspace definition,
+registrations, context and member order, dormant Navigation rows, and unrelated
+retained view state. It changes only the owner-required active scenario state:
+
+1. Focus moves to the existing tab for the exact effective source containing
+   the selected Type.
+2. The matching view state carries `PortableSubjectRequest.Type`.
+3. Its retained context carries the owner-issued exact Library and Type
+   identity.
+4. A projectable Type facet or query choice is retained; an unsupported choice
+   produces the ordinary Share refusal rather than a substituted default.
+
+Inspected content, API rows, result payloads, acquired archives, diagnostics,
+credentials, and live Workspace authority do not enter the packet. The
+receiving host applies its own offline mode, source configuration, credentials,
+cache, timeout, preview, and transfer limits.
+
+The real pathological case uses two contexts:
+`System.Text.Json@10.0.0` and
+`Microsoft.Extensions.Logging.Abstractions@10.0.0`. The packet selects the
+System.Text.Json context while its initial focus names the Logging tab.
+Resolving `System.Text.Json.JsonSerializer` must use the selected context rather
+than the focused tab. Derived Share then focuses the exact System.Text.Json
+source while preserving the other context, its tab, registrations, and dormant
+state.
+
+A selected-context aggregate fixture places
+`Microsoft.Extensions.Hosting@10.0.0` before
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` in one context.
+`Microsoft.Extensions.Logging.ILogger` resolves from the non-first Package
+member and derived Share retains its owner-issued defining source and Library
+identity. The gate forbids choosing the first Package or filtering the
+selected-context operation to one Package coordinate.
+
+A focused ambiguity fixture places the same full Type name in two Libraries in
+the selected context. The command reports both defining-Library identities and
+emits no derived Share rather than selecting the first participant. Neighboring
+gates cover one unique Type, no match, incomplete inventory, registration-only
+or null-selected-context packets, schema-3 ordinary inspection and Share
+refusal, schema-4 derived Share, exact URL input, invalid and over-limit
+packets, unauthorized content, and a non-projectable Type facet that preserves
+ordinary stdout.
+
+Implementation begins only after #7429 exposes the host-neutral
+selected-context exact-Type operation and consumes that operation with current
+Complete Restoration. It must integrate the shared restoration and scenario
+work from #7542 before changing those owners. The older root-level replay
+proposal #4647 remains historical context; #7555 supersedes only its
+Type-command portion and adds no root `-W` surface or serialized CLI grammar.
+
 ### Packet completeness
 
 A packet emitted by `workspace` must represent the complete supported portable
@@ -662,7 +782,9 @@ Implementation proceeds in focused slices:
    that no graph result enters the packet. Implemented under
    [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
 5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
-   `type`, then `library` and `member`, one command at a time.
+   `type` under
+   [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
+   `library` and `member`, one command at a time.
 6. **Transitional retirement.** Remove `workspace --active-package` and any
    duplicate noun-inspection path only after the corresponding packet-context
    noun command is available.

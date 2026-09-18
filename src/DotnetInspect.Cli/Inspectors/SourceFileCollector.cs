@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
 
@@ -44,15 +45,27 @@ internal static class SourceFileCollector
                 continue;
             }
 
+            SourceLinkResolver.TypeSourceDocument? defaultDocument =
+                TypeSourceDocumentSelection.SelectDefault(sourceInfo);
+            if (defaultDocument is null)
+            {
+                rows.Add(new SourceFileInfo(typeDisplayName, null));
+                continue;
+            }
+
             rows.Add(new SourceFileInfo(
                 typeDisplayName,
-                SelectUrl(sourceInfo, browsableUrls)));
+                SelectUrl(defaultDocument, browsableUrls)));
 
-            foreach (var partial in sourceInfo.AdditionalSourceFiles)
+            foreach (SourceLinkResolver.TypeSourceDocument document
+                in sourceInfo.Documents)
             {
+                if (ReferenceEquals(document, defaultDocument))
+                    continue;
+
                 rows.Add(new SourceFileInfo(
                     typeDisplayName,
-                    SelectUrl(partial, browsableUrls)));
+                    SelectUrl(document, browsableUrls)));
             }
         }
 
@@ -88,10 +101,9 @@ internal static class SourceFileCollector
             typeFilter);
     }
 
-    private static string? SelectUrl(SourceLinkResolver.TypeSourceInfo info, bool browsableUrls)
-        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, browsableUrls);
-
-    private static string? SelectUrl(SourceLinkResolver.PartialSourceFile info, bool browsableUrls)
+    private static string? SelectUrl(
+        SourceLinkResolver.TypeSourceDocument info,
+        bool browsableUrls)
         => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, browsableUrls);
 
     private static string? SelectUrl(string? browseUrl, string? rawUrl, bool browsableUrls)

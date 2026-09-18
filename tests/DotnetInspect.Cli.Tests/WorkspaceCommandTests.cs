@@ -13,6 +13,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -22,7 +23,7 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class WorkspaceCommandTests
+public sealed partial class WorkspaceCommandTests
 {
     const string PackageId = "Workspace.Command.Fixture";
     const string Version = "1.0.0";
@@ -722,6 +723,39 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task SemanticHead_DoesNotHideFailedWorkspaceConstruction()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(store, "Workspace.Good", ("readme.txt", []));
+        await AddPackageAsync(
+            store,
+            "Workspace.Bad",
+            ($"lib/{Framework}/Bad.dll", [1, 2, 3]));
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages =
+                    [
+                        "Workspace.Good@1.0.0",
+                        "Workspace.Bad@1.0.0",
+                    ],
+                    Tfm = Framework,
+                    Format = OutputFormat.Json,
+                    RowSelection = RowSelectionIntent<string>.Create(
+                        [RowSelectionIntentOperation<string>.Head(1)]),
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.NotEmpty(captured.Error);
+    }
+
+    [Fact]
     public async Task Count_UsesTheCoalescedCommittedRoots()
     {
         var store = new InMemoryPackageStore();
@@ -1364,6 +1398,296 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(
             ["exactLibrary", "packagePrefix"],
             entries.Select(entry => entry.GetProperty("kind").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false, "Alpha.")]
+    [InlineData(true, "Zulu.")]
+    public async Task CommandLineInventory_HeadAndBareTailSelectCompleteJsonEntries(
+        bool bareTail,
+        string expectedPrefix)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+        };
+        if (bareTail)
+        {
+            args.Add("-1");
+            args.Add("--tail");
+        }
+        else
+        {
+            args.Add("-n");
+            args.Add("1");
+        }
+        args.Add("--json");
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement entry = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            expectedPrefix,
+            entry.GetProperty("prefix").GetProperty("prefix").GetString());
+        Assert.Equal(
+            2,
+            document.RootElement.GetProperty("selected_entry_count").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.PlainText)]
+    public async Task SemanticTail_SelectsSameInventoryEntryAcrossFormats(
+        OutputFormat format)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Alpha.", "Zulu."],
+                    RowSelection = RowSelectionIntent<string>.Create(
+                        [RowSelectionIntentOperation<string>.Tail(1)]),
+                    Format = format,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Contains("Zulu.", captured.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Alpha.",
+            captured.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_CountUsesRowsAfterKindFiltering()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-ecosystem",
+            "aspire",
+            "--register-package-prefix",
+            "Zulu.",
+            "--kind",
+            "package-prefix",
+            "-n",
+            "1",
+            "--tail",
+            "--count");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Equal("1", captured.Output.Trim());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_UnavailableWindowWithholdsDocument()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "--rows",
+            "2..3",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Workspace inventory row selection stage 1 requires entry 3, "
+                + "but only 2 entries are available.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("..1", "Alpha.")]
+    [InlineData("2..", "Zulu.")]
+    public async Task CommandLineInventory_OpenWindowSelectsCompleteEntry(
+        string window,
+        string expectedPrefix)
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "--rows",
+            window,
+            "--json");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement entry = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            expectedPrefix,
+            entry.GetProperty("prefix").GetProperty("prefix").GetString());
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-library",
+            "invalid",
+            "-n",
+            "1",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_LinesClipRenderedTable()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "-n",
+            "2",
+            "--lines",
+            "--table");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Contains("Alpha.", captured.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Zulu.",
+            captured.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            captured.Output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task CommandLineNavigation_InferredLinesRejectCompleteJsonBeforeWorkspaceWork()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--active-package",
+            "1",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task CommandLineShare_SpellingsRemainRenderedLineFallback(
+        string? shareFormat)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--share",
+        };
+        if (shareFormat is not null)
+            args.Add(shareFormat);
+        args.AddRange(["-n", "1", "--json"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--share")]
+    [InlineData("--active-package")]
+    public async Task CommandLineNonInventoryModes_RetainLegacyWindowValidation(
+        string mode)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            mode,
+        };
+        if (mode == "--active-package")
+            args.Add("1");
+        args.AddRange(["--rows", "..1"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--rows '..1' has no start row",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
+    [InlineData("--root-request", "invalid", "--root-request must be")]
+    public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(
+        string route,
+        string value,
+        string expectedError)
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            route,
+            value,
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(expectedError, captured.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Rendered-line selection",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2114,6 +2438,17 @@ public sealed class WorkspaceCommandTests
                 formatter,
                 WorkspaceNavigationViewContext.Default,
                 OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
+
+    static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
+        params string[] args) =>
+        ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 
     static WorkspaceContextLoadOptions LoadOptions(HttpClient client, IPackageStore store) => new()
     {
