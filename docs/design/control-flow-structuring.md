@@ -368,12 +368,16 @@ another arm after a terminal retained-merge branch. It then installs that
 candidate transactionally or declines. Structuring rewrite steps are recorded
 only after every candidate check that can decline, and success counters
 increment only after the replacement is installed. Decline diagnostics remain
-before the rewrite step and installation.
-`StructuringAuditCommitPointTests.StructuringAuditCommitsAfterEveryDeclineAndInstallation`
-is the non-vacuity gate for that call ordering;
-`RetainedAuditRecordsOnlyInstalledReplacement` covers the successful and
-declined outcomes. The compiler-backed and synthetic owner/decline boundaries
-are gated by `InfiniteLoopStructuringTests` and
+before the rewrite step and installation. The direct and retained
+`*AuditStepLimitStopsBeforeInstallationAndSuccessRecords` tests interrupt the
+real pass at its rewrite step and require the original tree, success counters,
+and diagnostic collections to remain unchanged.
+`RetainedAuditRecordsOnlyInstalledReplacement` covers successful and declined
+retained outcomes, while
+`RegionExitDiamond_RequiresBothArmsToExitTrackedJoin` covers a direct decline
+without a rewrite step. Local call ordering is an implementation and review
+concern, not a source-text contract. The compiler-backed and synthetic
+owner/decline boundaries are gated by `InfiniteLoopStructuringTests` and
 `StructuringGotoScopeTests`.
 
 Cloned statements retain `SourceOffset` as provenance, but semantic clones do

@@ -98,6 +98,46 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void DirectAuditStepLimitStopsBeforeInstallationAndSuccessRecords()
+    {
+        var successStepper = new Stepper(enabled: true);
+        var (_, successDiagnostics) = Structure(
+            SimpleDiamond(),
+            stepper: successStepper);
+
+        Assert.Equal(1, successDiagnostics.Structured);
+        Assert.Equal(0, successDiagnostics.RetainedRegions);
+        Assert.Empty(successDiagnostics.Stops);
+        Assert.Empty(successDiagnostics.RetainedDeclines);
+        Assert.Single(
+            successStepper.Steps,
+            step => step.Description.Contains("structure container at", StringComparison.Ordinal));
+
+        var function = CreateFunction(
+            SimpleDiamond(),
+            parameters: null,
+            usesUpdatedMemorySafetyRules: false,
+            out var originalBody);
+        string originalIr = IrPrinter.Dump(function);
+        var diagnostics = new StructuringDiagnostics();
+        var stepper = new Stepper(enabled: true) { StepLimit = 0 };
+
+        Assert.Throws<StepLimitReachedException>(
+            () => new StructuringPass().Run(
+                function,
+                new PassContext(stepper, diagnostics)));
+
+        Assert.Same(originalBody, function.Body);
+        Assert.Equal(originalIr, IrPrinter.Dump(function));
+        Assert.Equal(0, diagnostics.Structured);
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Empty(diagnostics.Stops);
+        Assert.Empty(diagnostics.RetainedDeclines);
+        Assert.Empty(stepper.Steps);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void CrossingForwardRegionsStayFlat()
     {
         var blocks = new[]
@@ -715,6 +755,13 @@ public class RetainedMergeStructuringTests
         Term(64, new StoreLocal(0, I32, new Constant(8, I32))),
         Term(72, new Branch(80)),
         Term(80, new Return(new LoadLocal(0, I32))),
+    ];
+
+    static Block[] SimpleDiamond() =>
+    [
+        Term(0, Cond(2)),
+        Term(1, new Return(new Constant(1, I32))),
+        Term(2, new Return(new Constant(2, I32))),
     ];
 
     static Block[] RetainedLoopBlocks() =>
