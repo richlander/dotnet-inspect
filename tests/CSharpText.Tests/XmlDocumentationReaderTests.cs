@@ -9,6 +9,82 @@ public sealed class XmlDocumentationReaderTests
         "M:Samples.Container.Method``1(``0,System.Int32)";
 
     [Fact]
+    public void ReadMembers_ReturnsOnlyRequestedEntriesInOneScan()
+    {
+        const string xml = """
+            <doc>
+              <members>
+                <member name="T:Samples.Container"><summary>Container.</summary></member>
+                <member name="M:Samples.Container.First"><summary>First.</summary></member>
+                <member name="M:Samples.Container.Second"><summary>Second.</summary></member>
+              </members>
+            </doc>
+            """;
+
+        XmlDocumentationReadManyResult result =
+            XmlDocumentationReader.ReadMembers(
+                Stream(xml),
+                [
+                    new("T:Samples.Container"),
+                    new("M:Samples.Container.Second"),
+                    new("M:Samples.Container.Missing"),
+                ]);
+        IReadOnlyDictionary<string, XmlDocumentationEntry> entries =
+            result.Entries;
+
+        Assert.Equal(2, entries.Count);
+        Assert.Empty(result.RetainedTextLimitExceeded);
+        Assert.Equal(
+            "Container.",
+            entries["T:Samples.Container"].Summary);
+        Assert.Equal(
+            "Second.",
+            entries["M:Samples.Container.Second"].Summary);
+    }
+
+    [Fact]
+    public void ReadMembers_IsolatesRetainedTextLimitPerIdentity()
+    {
+        const string retainedIdentity = "M:Samples.Container.First";
+        const string rejectedIdentity = "M:Samples.Container.Second";
+        const string retainedSummary = "First.";
+        const string rejectedSummary = "Second documentation is longer.";
+        const string xml = $"""
+            <doc>
+              <members>
+                <member name="{retainedIdentity}">
+                  <summary>{retainedSummary}</summary>
+                </member>
+                <member name="{rejectedIdentity}">
+                  <summary>{rejectedSummary}</summary>
+                </member>
+              </members>
+            </doc>
+            """;
+        var limits = XmlDocumentationReadLimits.Default with
+        {
+            MaxRetainedTextCharacters =
+                retainedIdentity.Length + retainedSummary.Length,
+        };
+
+        XmlDocumentationReadManyResult result =
+            XmlDocumentationReader.ReadMembers(
+                Stream(xml),
+                [
+                    new(retainedIdentity),
+                    new(rejectedIdentity),
+                ],
+                limits);
+
+        Assert.Equal(
+            retainedSummary,
+            Assert.Single(result.Entries).Value.Summary);
+        Assert.Equal(
+            rejectedIdentity,
+            Assert.Single(result.RetainedTextLimitExceeded));
+    }
+
+    [Fact]
     public void ReaderAndCatalog_ReturnTheSameExactGenericMember()
     {
         const string xml = """
