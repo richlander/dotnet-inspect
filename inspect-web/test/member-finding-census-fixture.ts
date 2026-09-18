@@ -86,6 +86,7 @@ export function memberFindingCensusFixture(
       viewerCatalog: sampleViewerCatalog,
       findingEvidenceDocuments: [],
       findingEvidence: [],
+      callRelationships: [],
       provenance: inertStringFixture("decompiled from IL"),
       contextLimitation: null,
     },

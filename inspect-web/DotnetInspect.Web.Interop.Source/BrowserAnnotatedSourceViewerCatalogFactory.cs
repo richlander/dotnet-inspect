@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Research;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -42,6 +43,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             findingEvidence = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             findingEvidenceUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallRelationship[]?
+            callRelationships = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callRelationshipsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -49,6 +55,8 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             invocationDestinations is null
                 ? []
                 : ValidateInvocationDestinations(document, invocationDestinations);
+        if (callRelationships is not null)
+            ValidateCallRelationships(document, callRelationships);
 
         var targetedFacts = new bool[document.Facts.Count];
         foreach (AnnotatedSourceTarget target in document.Targets)
@@ -102,7 +110,70 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 : new BrowserAnnotatedSourceCapabilityAvailability(
                     Available: true,
                     UnavailableReason: null),
+            callRelationships is null
+                ? callRelationshipsUnavailableReason
+                    == BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    ? NotProjected
+                    : new BrowserAnnotatedSourceCapabilityAvailability(
+                        Available: false,
+                        callRelationshipsUnavailableReason)
+                : new BrowserAnnotatedSourceCapabilityAvailability(
+                    Available: true,
+                    UnavailableReason: null),
             projectedDestinations);
+    }
+
+    private static void ValidateCallRelationships(
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceCallRelationship[] relationships)
+    {
+        var factIds = new HashSet<int>();
+        var physicalOccurrences =
+            new HashSet<(Guid ModuleVersionId, int CallerToken, int IlOffset, int OperandToken)>();
+        foreach ((BrowserAnnotatedSourceCallRelationship relationship, int index)
+            in relationships.Select((relationship, index) =>
+                (relationship, index)))
+        {
+            if (relationship is null)
+            {
+                throw new ArgumentException(
+                    $"Call relationship row {index} is null.",
+                    nameof(relationships));
+            }
+            if (relationship.EdgeRow < 1
+                || relationship.FactId < 0
+                || relationship.FactId >= document.Facts.Count
+                || relationship.ModuleVersionId == Guid.Empty
+                || (relationship.CallerToken & 0xFF000000) != 0x06000000
+                || relationship.IlOffset < 0
+                || relationship.OperandToken <= 0
+                || !Enum.IsDefined(relationship.Kind)
+                || !physicalOccurrences.Add((
+                    relationship.ModuleVersionId,
+                    relationship.CallerToken,
+                    relationship.IlOffset,
+                    relationship.OperandToken))
+                || !factIds.Add(relationship.FactId))
+            {
+                throw new ArgumentException(
+                    $"Call relationship row {index} has invalid or duplicate identity.",
+                    nameof(relationships));
+            }
+
+            AnnotatedSourceFact fact = document.Facts[relationship.FactId];
+            if (fact.Descriptor
+                    != ResearchFactRegistry.CallRelationshipDescriptorId
+                || fact.Origin != AnnotatedSourceFactOrigin.Body
+                || fact.SourceOffset != relationship.IlOffset
+                || !document.Targets.Any(target =>
+                    target.FactId == relationship.FactId))
+            {
+                throw new ArgumentException(
+                    $"Call relationship row {index} does not name one targeted call.edge fact.",
+                    nameof(relationships));
+            }
+            ArgumentNullException.ThrowIfNull(relationship.Target);
+        }
     }
 
     private static BrowserAnnotatedSourceInvocationDestination[]

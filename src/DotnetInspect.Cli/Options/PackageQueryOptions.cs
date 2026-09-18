@@ -19,6 +19,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
+    public bool EnvelopeOutput { get; init; }
     public bool CompactJson { get; init; }
     public bool Tabular { get; init; }
     public bool Tsv { get; init; }
@@ -30,6 +31,16 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public HashSet<string>? IncludeSections { get; init; }
     public bool SelectDefault { get; init; }
     public bool Tree { get; init; }
+
+    internal bool IsContentJson =>
+        JsonOutput
+        && RowSelection.Operations.Count == 0
+        && !Count
+        && Columns is null
+        && Fields is null
+        && !Tree
+        && IncludeSections is null
+        && !SelectDefault;
 
     private static ImmutableArray<PackageQueryTermDescriptor> CliTerms { get; } =
     [

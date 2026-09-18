@@ -2370,7 +2370,8 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// Name string handles, so inspecting them fails to decode while a
     /// healthy <c>N.Fixture</c> row remains resolvable.
     /// </summary>
-    static byte[] BuildMalformedTypeNameAssembly(int malformedTypes)
+    internal static byte[] BuildMalformedTypeNameAssembly(
+        int malformedTypes)
     {
         MetadataBuilder metadata = CreateMetadata(
             "MalformedTypeNames",

@@ -278,6 +278,23 @@ public static partial class AttributeReader
         CustomAttributeHandleCollection attributes,
         out string? message,
         Action<int>? beforeMaterialize = null)
+        => TryGetObsoleteAttribute(
+            reader,
+            attributes,
+            out message,
+            out _,
+            beforeMaterialize);
+
+    /// <summary>
+    /// Checks if the member has the [Obsolete] attribute, returning the optional
+    /// message and whether the attribute makes references a compile-time error.
+    /// </summary>
+    public static bool TryGetObsoleteAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? message,
+        out bool isError,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -299,13 +316,27 @@ public static partial class AttributeReader
                     beforeMaterialize))
                 {
                     message = null;
+                    isError = false;
                     return false;
                 }
 
+                isError = AttributeDecoder.TryDecode(
+                    reader,
+                    attr,
+                    beforeMaterialize) is
+                    {
+                        FixedArguments:
+                        [
+                            _,
+                            { Value: bool error },
+                        ],
+                    }
+                    && error;
                 return true;
             }
         }
         message = null;
+        isError = false;
         return false;
     }
 

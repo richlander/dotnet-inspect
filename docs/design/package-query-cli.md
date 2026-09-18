@@ -415,6 +415,15 @@ Core. Concretely:
   output-format selection only. L3 does not compute facts and does not decide
   what a term costs — the same rule that already governs every other command.
 
+  Unprojected `--json` serializes the complete owner-issued
+  `PackageQueryDocument`; `--envelope` exposes the same Content inside the
+  complete service value with result kind `package-query`. Query-planning
+  controls such as `--where`, `--take`, and `--tfm` remain admitted service
+  inputs. Row selection, Count, discovery, section selection, projections, and
+  competing formats request post-service shaping and are incompatible with
+  `--envelope`. Typed failed or incomplete Documents are serialized before the
+  command returns nonzero.
+
 ## Is there a reason to start by changing `find`'s layering?
 
 Not for the corpus-fetch mechanism — that part is correctly designed and

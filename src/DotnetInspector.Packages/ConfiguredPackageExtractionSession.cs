@@ -5,7 +5,8 @@ namespace DotnetInspector.Packages;
 internal sealed class ConfiguredPackageExtractionSession(
     TimeSpan requestTimeout,
     string tempDirPrefix,
-    Func<DesktopPackageSourceComposition>? createComposition) : IAsyncDisposable
+    Func<DesktopPackageSourceComposition>? createComposition,
+    PackageHouseTargetContext? compileTargetContext = null) : IAsyncDisposable
 {
     private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
@@ -18,10 +19,12 @@ internal sealed class ConfiguredPackageExtractionSession(
         NuGetSourceOptions? sourceOptions, Action<string>? log)
     {
         DesktopPackageSourceComposition composition = GetComposition();
-        _operation ??= composition.CreateOperationContext();
+        if (compileTargetContext is null)
+            _operation ??= composition.CreateOperationContext();
         ConfiguredPackagePayloadResult result = await composition.AcquirePinnedAsync(
             packageId, version, GetStore, sourceOptions, log,
-            operationContext: _operation).ConfigureAwait(false);
+            operationContext: _operation,
+            compileTargetContext: compileTargetContext).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' version '{version}'",
@@ -34,10 +37,12 @@ internal sealed class ConfiguredPackageExtractionSession(
         bool includePrerelease, string? rangeAddress)
     {
         DesktopPackageSourceComposition composition = GetComposition();
-        _operation ??= composition.CreateOperationContext();
+        if (compileTargetContext is null)
+            _operation ??= composition.CreateOperationContext();
         ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
             packageId, versionSelector, GetStore, sourceOptions, log,
-            includePrerelease, rangeAddress, operationContext: _operation).ConfigureAwait(false);
+            includePrerelease, rangeAddress, operationContext: _operation,
+            compileTargetContext: compileTargetContext).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
@@ -104,6 +109,7 @@ internal sealed class ConfiguredPackageExtractionSession(
         {
             Authority = result.Authority,
             AcquiredPayload = payload,
+            HouseSettlement = result.HouseSettlement,
             SelectedVersionSourceUrls = result.ReportingAuthorities is null
                 ? null
                 : Array.AsReadOnly(result.ReportingAuthorities

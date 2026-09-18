@@ -55,6 +55,12 @@ public record PackageExtractionResult(
     /// <summary>The admitted payload retained until the caller cleans up this extraction.</summary>
     public AcquiredPackageSourcePayload? AcquiredPayload { get; internal init; }
 
+    /// <summary>
+    /// The exact PackageHouse compile realization requested with this extraction,
+    /// when the caller opted into one.
+    /// </summary>
+    public PackageHouseSettlement? HouseSettlement { get; internal init; }
+
     public string? CacheScopeKey => Authority is null ? ProducerKey : Authority.PersistentCacheKey;
 
     /// <summary>
@@ -313,7 +319,8 @@ public static class PackageExtractor
         Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
-        Func<DesktopPackageSourceComposition>? createComposition = null)
+        Func<DesktopPackageSourceComposition>? createComposition = null,
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -323,7 +330,10 @@ public static class PackageExtractor
                 "Configured-authority extraction requires online mode, a valid package ID, and an exact version.");
         }
         await using var session = new ConfiguredPackageExtractionSession(
-            client.Timeout, tempDirPrefix, createComposition);
+            client.Timeout,
+            tempDirPrefix,
+            createComposition,
+            compileTargetContext);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false, session)
@@ -343,7 +353,8 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null,
         bool includePrerelease = false,
         string? rangeAddress = null,
-        Func<DesktopPackageSourceComposition>? createComposition = null)
+        Func<DesktopPackageSourceComposition>? createComposition = null,
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -352,7 +363,10 @@ public static class PackageExtractor
         }
 
         await using var session = new ConfiguredPackageExtractionSession(
-            client.Timeout, tempDirPrefix, createComposition);
+            client.Timeout,
+            tempDirPrefix,
+            createComposition,
+            compileTargetContext);
         PackageExtractionOutcome selected;
         using (FeedFailureTelemetry.Scope())
         {

@@ -77,6 +77,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         string[] InvocationLikeNodeKinds,
         BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
         BrowserAnnotatedSourceCapabilityAvailability Destinations,
+        BrowserAnnotatedSourceCapabilityAvailability CallRelationships,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -84,6 +85,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(InvocationLikeNodeKinds);
         ArgumentNullException.ThrowIfNull(FindingEvidence);
         ArgumentNullException.ThrowIfNull(Destinations);
+        ArgumentNullException.ThrowIfNull(CallRelationships);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -98,6 +100,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         _invocationDestinations = [.. InvocationDestinations];
         this.FindingEvidence = FindingEvidence;
         this.Destinations = Destinations;
+        this.CallRelationships = CallRelationships;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -107,10 +110,37 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         [.. _invocationDestinations];
     public BrowserAnnotatedSourceCapabilityAvailability FindingEvidence { get; }
     public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
+    public BrowserAnnotatedSourceCapabilityAvailability CallRelationships { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
     int NodeId,
+    BrowserCallGraphTarget Target);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceCallKind>))]
+public enum BrowserAnnotatedSourceCallKind
+{
+    Call,
+    CallVirtual,
+    NewObject,
+    LoadFunction,
+    LoadVirtualFunction,
+    CallIndirect,
+}
+
+/// <summary>
+/// One physical <c>call.edge</c> Finding joined to its stable graph row and
+/// typed target.
+/// </summary>
+public sealed record BrowserAnnotatedSourceCallRelationship(
+    int EdgeRow,
+    int FactId,
+    Guid ModuleVersionId,
+    int CallerToken,
+    int IlOffset,
+    int OperandToken,
+    BrowserAnnotatedSourceCallKind Kind,
+    bool InLoop,
     BrowserCallGraphTarget Target);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
@@ -223,6 +253,11 @@ public sealed record BrowserMemberFindingCensus
             findingEvidence = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             findingEvidenceUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallRelationship[]?
+            callRelationships = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callRelationshipsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -342,7 +377,9 @@ public sealed record BrowserMemberFindingCensus
                 destinationUnavailableReason,
                 findingEvidenceDocuments,
                 findingEvidence,
-                findingEvidenceUnavailableReason),
+                findingEvidenceUnavailableReason,
+                callRelationships,
+                callRelationshipsUnavailableReason),
             projectedIdentities);
     }
 
@@ -713,6 +750,8 @@ public sealed record BrowserAnnotatedSource
         _findingEvidenceDocuments;
     private readonly BrowserAnnotatedSourceFindingEvidence[]
         _findingEvidence;
+    private readonly BrowserAnnotatedSourceCallRelationship[]
+        _callRelationships;
 
     private BrowserAnnotatedSource(
         JsonElement Document,
@@ -721,7 +760,8 @@ public sealed record BrowserAnnotatedSource
         string? ContextLimitation,
         BrowserAnnotatedSourceFindingEvidenceDocument[]
             FindingEvidenceDocuments,
-        BrowserAnnotatedSourceFindingEvidence[] FindingEvidence)
+        BrowserAnnotatedSourceFindingEvidence[] FindingEvidence,
+        BrowserAnnotatedSourceCallRelationship[] CallRelationships)
     {
         this.Document = Document;
         this.ViewerCatalog = ViewerCatalog;
@@ -729,6 +769,7 @@ public sealed record BrowserAnnotatedSource
         this.ContextLimitation = ContextLimitation;
         _findingEvidenceDocuments = [.. FindingEvidenceDocuments];
         _findingEvidence = [.. FindingEvidence];
+        _callRelationships = [.. CallRelationships];
     }
 
     public JsonElement Document { get; }
@@ -740,6 +781,8 @@ public sealed record BrowserAnnotatedSource
         FindingEvidenceDocuments => [.. _findingEvidenceDocuments];
     public BrowserAnnotatedSourceFindingEvidence[] FindingEvidence =>
         [.. _findingEvidence];
+    public BrowserAnnotatedSourceCallRelationship[] CallRelationships =>
+        [.. _callRelationships];
 
     internal static BrowserAnnotatedSource Create(
         AnnotatedSourceDocument document,
@@ -756,6 +799,11 @@ public sealed record BrowserAnnotatedSource
             findingEvidence = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             findingEvidenceUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallRelationship[]?
+            callRelationships = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callRelationshipsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -771,11 +819,14 @@ public sealed record BrowserAnnotatedSource
                 invocationDestinations,
                 destinationUnavailableReason,
                 findingEvidence,
-                findingEvidenceUnavailableReason),
+                findingEvidenceUnavailableReason,
+                callRelationships,
+                callRelationshipsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],
-            findingEvidence ?? []);
+            findingEvidence ?? [],
+            callRelationships ?? []);
     }
 
     internal static JsonElement? SerializeDocument(

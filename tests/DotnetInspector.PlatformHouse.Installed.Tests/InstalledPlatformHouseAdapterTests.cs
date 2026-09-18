@@ -1,5 +1,7 @@
+using System.Reflection.Metadata;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformHouse.Installed.Tests;
 
@@ -90,6 +92,52 @@ public sealed class InstalledPlatformHouseAdapterTests
             contribution.RealizationCompleteness);
         Assert.Same(target, contribution.Target);
         Assert.Single(succeeded.Value.Libraries);
+    }
+
+    [Fact]
+    public async Task
+        RealizeReference_BindingProducesExactAssemblyContribution()
+    {
+        using var hive = new TestHive();
+        string source =
+            typeof(InstalledPlatformHouseAdapterTests).Assembly.Location;
+        string directory = hive.CreateReferencePack();
+        hive.CopyAssembly(directory, source);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformFamilyTarget target = Target();
+        AssemblyReferenceIdentity identity = ReadIdentity(source);
+        PlatformHouseRequest request = BindingRequest(
+            adapter,
+            target,
+            identity,
+            TestContext.Current.CancellationToken);
+
+        InstalledPlatformHouseResult<InstalledReferenceRealization>
+            result = await adapter.RealizeReferenceAsync(request);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(result);
+        var contribution =
+            Assert.IsType<PlatformSourceContribution.Realization>(
+                succeeded.Contribution);
+        var population =
+            Assert.IsType<PlatformPopulationDemand.Library>(
+                contribution.Population);
+        var assembly = Assert.IsType<PlatformLibraryDemand.Assembly>(
+            population.Value);
+        Assert.True(identity.IsEquivalentTo(assembly.Identity));
+        Assert.True(
+            identity.IsEquivalentTo(
+                Assert.Single(succeeded.Value.Libraries).Identity));
+        Assert.Same(request.Snapshot, contribution.Request);
+        Assert.Same(target, contribution.Target);
+        Assert.Same(
+            adapter.Capabilities.ReferenceRealization,
+            contribution.Capability);
+        Assert.Equal(
+            PlatformSourceContributionCompleteness.Authoritative,
+            contribution.RealizationCompleteness);
     }
 
     [Fact]
@@ -248,6 +296,49 @@ public sealed class InstalledPlatformHouseAdapterTests
             Work(),
             cancellationToken);
 
+    static PlatformHouseRequest BindingRequest(
+        InstalledPlatformHouseAdapter adapter,
+        PlatformFamilyTarget target,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        var origin = new PlatformHouseRequestOrigin.Standalone(
+            PlatformStandaloneOperationIdentity.Create("binding-test"));
+        PlatformSourcePlan sources = Plan(
+            PlatformSourceFacet.Reference,
+            adapter.Capabilities.ReferenceRealization);
+        var metadataRequest =
+            new PlatformMetadataRequestEvidence<AssemblyBindingRequest>(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.Global(),
+                    AssemblyResolutionScope.Platform),
+                "installed-binding-request");
+        var route = new PlatformAssemblyReferenceRoute(
+            metadataRequest.Identity,
+            target,
+            origin,
+            sources.Identity,
+            sources.Generation);
+        var operation =
+            new PlatformHouseOperation.ResolveAssemblyReference
+                .WithPrerequisites<PlatformAssemblyReferenceRoute>(
+                    metadataRequest,
+                    new PlatformRoutePrerequisitesEvidence<
+                        PlatformAssemblyReferenceRoute>(
+                            route,
+                            "installed-binding-route"),
+                    PlatformViewDemand.Reference);
+        return new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create("installed-binding"),
+            new PlatformTargetDemand.Exact(target),
+            origin,
+            operation,
+            sources,
+            Work(),
+            cancellationToken);
+    }
+
     static PlatformSourcePlan Plan(
         PlatformSourceFacet facet,
         PlatformSourceCapabilityIdentity capability) =>
@@ -284,5 +375,14 @@ public sealed class InstalledPlatformHouseAdapterTests
             PlatformFamily.DotNetRuntime,
             PlatformTargetFramework.Parse("net11.0"),
             PlatformVersion.Parse("11.0.0"));
+
+    static AssemblyReferenceIdentity ReadIdentity(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var reader =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            reader.GetMetadataReader());
+    }
 
 }

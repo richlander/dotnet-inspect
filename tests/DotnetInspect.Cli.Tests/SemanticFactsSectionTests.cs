@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -66,7 +67,8 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{allocationOffset:X}",
+            CoordinateRequest =
+                ILCoordinate(method.MetadataToken, allocationOffset),
             IncludeSections = [SectionNames.AllocationContext],
             Select = [SectionNames.AllocationContext],
             Verbosity = Verbosity.Minimal,
@@ -91,7 +93,8 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{allocationOffset:X}",
+            CoordinateRequest =
+                ILCoordinate(method.MetadataToken, allocationOffset),
             IncludeSections = [SectionNames.AllocationContext],
             Select = [SectionNames.AllocationContext],
             Verbosity = Verbosity.Minimal,
@@ -152,9 +155,10 @@ public class SemanticFactsSectionTests
                 new LibraryOptions
                 {
                     AssemblyName = TestAssemblyPath,
-                    ILOffsetParameter =
-                        $"0x{call.EvidenceMethod.MetadataToken:X}"
-                        + $"+0x{call.ILOffset:X}",
+                    CoordinateRequest =
+                        ILCoordinate(
+                            call.EvidenceMethod.MetadataToken,
+                            call.ILOffset),
                     IncludeSections =
                         [SectionNames.CostContext],
                     Select = [SectionNames.CostContext],
@@ -186,7 +190,8 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            CoordinateRequest =
+                ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
             Verbosity = Verbosity.Minimal,
@@ -213,7 +218,8 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            CoordinateRequest =
+                ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
             Verbosity = Verbosity.Minimal,
@@ -241,7 +247,8 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            ILOffsetParameter = $"0x{method.MetadataToken:X}+0x{call.ILOffset:X}",
+            CoordinateRequest =
+                ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
             Verbosity = Verbosity.Minimal,
@@ -272,6 +279,14 @@ public class SemanticFactsSectionTests
         Assert.Contains("| Safety Facts | section", result.Output);
         Assert.Contains("| Cost Facts | section", result.Output);
     }
+
+    private static LibraryCoordinateRequest.IlPoint ILCoordinate(
+        int methodToken,
+        int ilOffset) =>
+        new(
+            $"0x{methodToken:X}+0x{ilOffset:X}",
+            methodToken,
+            ilOffset);
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
         string member,

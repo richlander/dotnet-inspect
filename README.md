@@ -314,6 +314,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
+In Inspect Web, **All** also reveals exact direct-call relationships at their
+source locations; these remain outside the default Finding set.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -354,14 +356,15 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
-activity`, and online package range-version population support the
-presence-only `--envelope` service-output selector. It implies JSON. For
-`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
-Content without the service frame. Package version `--json` remains an explicit
-row projection; `--envelope` instead exposes the complete directed population
-Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
-Discover, Count outside package population, and other commands have not adopted
-this transport.
+activity`, ordinary and `--library-literal` Package Query, and online package
+range-version population support the presence-only `--envelope` service-output
+selector. It implies JSON. For `depends`, API Diff, Package Activity, and
+Package Query, unprojected `--json` emits the same Content without the service
+frame. Package version `--json` remains an explicit row projection;
+`--envelope` instead exposes the complete directed population Document, Share,
+and diagnostics. Asset-mode `depends`, other Diff modes, Discover, Count outside
+package population, projected output, and other commands have not adopted this
+transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -423,8 +426,15 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect package Newtonsoft.Json@13.0.3 \
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
+`--rows A..B` select complete library/type/URL rows after SourceLink collection
+and `--type` filtering. Count, table, TSV, JSONL, JSON, `--urls`, and `--bare`
+observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
@@ -567,6 +577,14 @@ and method-token/IL-offset previews are evidence on that package Result.
 `-n` and `--rows` select package rows, while `--take` bounds package candidates.
 Candidate failures remain visible and prevent an unqualified Count. Candidate
 packages are disposable: they are never added to the package cache.
+
+For both ordinary Package Query and `--library-literal`, unprojected `--json`
+emits the complete owner-issued Content. `--envelope` emits that same Content
+with Share and diagnostics, using result kind `package-query` or
+`package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
+`--tfm`, and `--library-literal` remain admitted; row selection, Count,
+projection, discovery, section selection, and competing formats are rejected.
+Typed incomplete or failed Content is still emitted before a nonzero exit.
 
 Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:
