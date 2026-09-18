@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -139,6 +140,16 @@ public static class WorkspaceCommandDefinitions
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Workspace inventory",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
@@ -208,6 +219,7 @@ public static class WorkspaceCommandDefinitions
                         parseResult.GetValue(prereleaseOption),
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
+                    RowSelection = rowSelection,
                     Rows = opts.ParseRows(parseResult),
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
@@ -219,8 +231,54 @@ public static class WorkspaceCommandDefinitions
                 cancellationToken);
         });
 
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                IsTopLevelInventory(
+                    result,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return command;
     }
+
+    static bool IsTopLevelInventory(
+        ParseResult parseResult,
+        Option<int?> activePackageOption,
+        Option<string?> libraryOption,
+        Option<bool> allLibrariesOption,
+        Option<string?> typeOption,
+        Option<string?> memberOption,
+        Option<string?> lensOption,
+        Option<string?> shareOption) =>
+        parseResult.GetValue(activePackageOption) is null
+        && parseResult.GetValue(libraryOption) is null
+        && !parseResult.GetValue(allLibrariesOption)
+        && parseResult.GetValue(typeOption) is null
+        && parseResult.GetValue(memberOption) is null
+        && parseResult.GetValue(lensOption) is null
+        && parseResult.GetValue(shareOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,

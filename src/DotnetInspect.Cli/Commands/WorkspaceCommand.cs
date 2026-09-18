@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
@@ -1315,8 +1316,21 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument document = available.Document;
-        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries =
-            RowWindow.Apply(options.Rows, document.Entries);
+        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                options.RowSelection,
+                options.Rows,
+                document.Entries,
+                "Workspace inventory",
+                failure =>
+                    $"Workspace inventory row selection stage "
+                    + $"{failure.Failure.StageNumber} requires entry "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} entries are available.",
+                out IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries))
+        {
+            return 1;
+        }
+
         if (options.Count)
         {
             CountOutput.WriteCount(entries.Count);
@@ -1324,7 +1338,7 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument outputDocument =
-            options.Rows is null
+            options.RowSelection is null && options.Rows is null
                 ? document
                 : document with { Entries = [.. entries] };
         switch (options.Format)
