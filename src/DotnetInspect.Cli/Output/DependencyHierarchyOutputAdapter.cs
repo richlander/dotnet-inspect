@@ -89,6 +89,7 @@ internal sealed record DependencyHierarchyJsonLine(
     int OccurrenceId,
     int RootOccurrence,
     int ParentOccurrenceId,
+    int EdgeId,
     int Depth,
     string SourceKind,
     string SourceIdentity,
@@ -127,8 +128,9 @@ internal static class DependencyHierarchyOutputAdapter
     {
         ArgumentNullException.ThrowIfNull(document);
         DependencyGraphDocument graph = document.BackingGraph;
-        Dictionary<DependencyHierarchyOccurrenceIdentity, int>
-            nodeIdByOccurrence = NodeIdsByOccurrence(document);
+        Dictionary<DependencyHierarchyOccurrenceIdentity,
+            HierarchyOccurrenceContext> contextsByOccurrence =
+            ContextsByOccurrence(document);
         Dictionary<int, DependencyGraphEdge> edgesById =
             graph.Edges.ToDictionary(static edge => edge.Id);
 
@@ -139,7 +141,7 @@ internal static class DependencyHierarchyOutputAdapter
                 DependencyGraphEdge edge =
                     edgesById[occurrence.IncomingEdgeId];
                 int sourceNodeId =
-                    nodeIdByOccurrence[occurrence.ParentIdentity];
+                    contextsByOccurrence[occurrence.ParentIdentity].NodeId;
                 DependencyGraphNode source = graph.Nodes[sourceNodeId];
                 DependencyGraphNode target =
                     graph.Nodes[occurrence.TargetNodeId];
@@ -266,6 +268,7 @@ internal static class DependencyHierarchyOutputAdapter
                 "Occurrence",
                 "Root",
                 "Parent Occurrence",
+                "Edge ID",
                 "Depth",
                 "Source Kind",
                 "Source Identity",
@@ -283,6 +286,7 @@ internal static class DependencyHierarchyOutputAdapter
                 "occurrence",
                 "root",
                 "parent_occurrence",
+                "edge_id",
                 "depth",
                 "source_kind",
                 "source_identity",
@@ -305,6 +309,7 @@ internal static class DependencyHierarchyOutputAdapter
                         CultureInfo.InvariantCulture),
                     row.ParentOccurrenceId.ToString(
                         CultureInfo.InvariantCulture),
+                    row.EdgeId.ToString(CultureInfo.InvariantCulture),
                     row.Depth.ToString(CultureInfo.InvariantCulture),
                     row.SourceKind,
                     row.SourceIdentity,
@@ -333,6 +338,7 @@ internal static class DependencyHierarchyOutputAdapter
                         row.OccurrenceId,
                         row.RootOccurrence,
                         row.ParentOccurrenceId,
+                        row.EdgeId,
                         row.Depth,
                         row.SourceKind,
                         row.SourceIdentity,
@@ -380,8 +386,9 @@ internal static class DependencyHierarchyOutputAdapter
         tokens ??= DependencyGraphOutputAdapter.CreatePackageTokens(graph);
         Dictionary<int, DependencyGraphEdge> edgesById =
             graph.Edges.ToDictionary(static edge => edge.Id);
-        Dictionary<DependencyHierarchyOccurrenceIdentity, int>
-            nodeIdByOccurrence = NodeIdsByOccurrence(document);
+        Dictionary<DependencyHierarchyOccurrenceIdentity,
+            HierarchyOccurrenceContext> contextsByOccurrence =
+            ContextsByOccurrence(document);
         HashSet<DependencyHierarchyOccurrenceIdentity> contextOccurrences =
         [
             .. document.Roots.Select(static root => root.Identity),
@@ -391,7 +398,7 @@ internal static class DependencyHierarchyOutputAdapter
         HashSet<int> selectedNodeIds =
         [
             .. contextOccurrences.Select(identity =>
-                nodeIdByOccurrence[identity]),
+                contextsByOccurrence[identity].NodeId),
         ];
         Dictionary<DependencyHierarchyOccurrenceIdentity,
             DependencyHierarchyOccurrence> occurrencesByIdentity =
@@ -455,7 +462,8 @@ internal static class DependencyHierarchyOutputAdapter
                         boundary.RootOccurrences.Select(rootOccurrence =>
                             BoundaryOccurrence(
                                 document,
-                                boundary.NodeId,
+                                contextsByOccurrence,
+                                boundary,
                                 rootOccurrence))
                             .Where(static identity => identity is not null)
                             .Select(identity => (
@@ -494,8 +502,9 @@ internal static class DependencyHierarchyOutputAdapter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(rows);
         DependencyGraphDocument graph = document.BackingGraph;
-        Dictionary<DependencyHierarchyOccurrenceIdentity, int>
-            nodeIdByOccurrence = NodeIdsByOccurrence(document);
+        Dictionary<DependencyHierarchyOccurrenceIdentity,
+            HierarchyOccurrenceContext> contextsByOccurrence =
+            ContextsByOccurrence(document);
         HashSet<DependencyHierarchyOccurrenceIdentity> selected =
         [
             .. rows.Select(Identity),
@@ -565,8 +574,8 @@ internal static class DependencyHierarchyOutputAdapter
             int[] depths = includeBoundary
                 ? BoundaryDepths(
                     graph,
-                    identity.RootOccurrence.Value,
-                    nodeId)
+                    contextsByOccurrence[identity],
+                    identity.RootOccurrence.Value)
                 : [];
             string boundaryMarker = depths.Length switch
             {
@@ -584,17 +593,44 @@ internal static class DependencyHierarchyOutputAdapter
         }
     }
 
-    private static Dictionary<DependencyHierarchyOccurrenceIdentity, int>
-        NodeIdsByOccurrence(DependencyHierarchyDocument document)
+    private static Dictionary<DependencyHierarchyOccurrenceIdentity,
+        HierarchyOccurrenceContext> ContextsByOccurrence(
+            DependencyHierarchyDocument document)
     {
+        DependencyGraphDocument graph = document.BackingGraph;
+        Dictionary<int, DependencyGraphEdge> edgesById =
+            graph.Edges.ToDictionary(static edge => edge.Id);
+        Dictionary<int, int> rootPackageProjections =
+            graph.PackageProjections
+                .Where(static projection =>
+                    projection.RootOccurrence is not null)
+                .ToDictionary(
+                    static projection => projection.RootOccurrence!.Value,
+                    static projection => projection.Id);
         var result =
-            new Dictionary<DependencyHierarchyOccurrenceIdentity, int>();
+            new Dictionary<DependencyHierarchyOccurrenceIdentity,
+                HierarchyOccurrenceContext>();
         foreach (DependencyHierarchyRootOccurrence root in document.Roots)
-            result.Add(root.Identity, root.NodeId);
+        {
+            result.Add(
+                root.Identity,
+                new HierarchyOccurrenceContext(
+                    root.NodeId,
+                    rootPackageProjections.TryGetValue(
+                        root.RootOccurrence.Value,
+                        out int projectionId)
+                            ? projectionId
+                            : null));
+        }
         foreach (DependencyHierarchyOccurrence occurrence in
                  document.Occurrences)
         {
-            result.Add(occurrence.Identity, occurrence.TargetNodeId);
+            result.Add(
+                occurrence.Identity,
+                new HierarchyOccurrenceContext(
+                    occurrence.TargetNodeId,
+                    edgesById[occurrence.IncomingEdgeId]
+                        .TargetPackageProjectionId));
         }
         return result;
     }
@@ -602,20 +638,27 @@ internal static class DependencyHierarchyOutputAdapter
     private static DependencyHierarchyOccurrenceIdentity?
         BoundaryOccurrence(
             DependencyHierarchyDocument document,
-            int nodeId,
+            IReadOnlyDictionary<DependencyHierarchyOccurrenceIdentity,
+                HierarchyOccurrenceContext> contextsByOccurrence,
+            DependencyGraphDepthBoundary boundary,
             int rootOccurrence)
     {
+        var boundaryContext = new HierarchyOccurrenceContext(
+            boundary.NodeId,
+            boundary.PackageProjectionId);
         DependencyHierarchyRootOccurrence? root =
             document.Roots.FirstOrDefault(candidate =>
                 candidate.RootOccurrence.Value == rootOccurrence
-                && candidate.NodeId == nodeId);
+                && contextsByOccurrence[candidate.Identity]
+                    == boundaryContext);
         if (root is not null)
             return root.Identity;
 
         return document.Occurrences
             .FirstOrDefault(occurrence =>
                 occurrence.RootOccurrence.Value == rootOccurrence
-                && occurrence.TargetNodeId == nodeId
+                && contextsByOccurrence[occurrence.Identity]
+                    == boundaryContext
                 && occurrence.Disposition
                     == DependencyHierarchyOccurrenceDisposition.Expanded)
             ?.Identity;
@@ -623,12 +666,14 @@ internal static class DependencyHierarchyOutputAdapter
 
     private static int[] BoundaryDepths(
         DependencyGraphDocument graph,
-        int rootOccurrence,
-        int nodeId) =>
+        HierarchyOccurrenceContext context,
+        int rootOccurrence) =>
     [
         .. graph.DepthBoundaries
             .Where(boundary =>
-                boundary.NodeId == nodeId
+                boundary.NodeId == context.NodeId
+                && boundary.PackageProjectionId
+                    == context.PackageProjectionId
                 && boundary.RootOccurrences.Contains(rootOccurrence))
             .Select(static boundary => boundary.MaximumDepth)
             .Distinct()
@@ -650,4 +695,8 @@ internal static class DependencyHierarchyOutputAdapter
     private static string Key(
         DependencyHierarchyOccurrenceIdentity identity) =>
         $"r{identity.RootOccurrence.Value}:o{identity.Value}";
+
+    private readonly record struct HierarchyOccurrenceContext(
+        int NodeId,
+        int? PackageProjectionId);
 }

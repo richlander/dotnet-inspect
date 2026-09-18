@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
 
@@ -161,6 +163,96 @@ public sealed class DependencyHierarchyOutputAdapterTests
             boundary.GetProperty("root_occurrence").GetInt32());
     }
 
+    [Fact]
+    public async Task PackageDepthBoundaryNamesItsProjectionOccurrence()
+    {
+        DependencyGraphDocument graph = Graph(
+            [new DependencyGraphRootOccurrence(1, 0)],
+            ["Root", "Shared"],
+            [
+                Edge(
+                    0,
+                    0,
+                    1,
+                    [1],
+                    sourceProjection: 0,
+                    targetProjection: 1),
+                Edge(
+                    1,
+                    0,
+                    1,
+                    [1],
+                    sourceProjection: 0,
+                    targetProjection: 2),
+            ],
+            [
+                Projection(0, 0, rootOccurrence: 1),
+                Projection(1, 1),
+                Projection(2, 1),
+            ],
+            [
+                new DependencyGraphDepthBoundary(
+                    NodeId: 1,
+                    PackageProjectionId: 2,
+                    MaximumDepth: 1,
+                    [1],
+                    DependencyGraphDepthBoundaryProducerKind.Package),
+            ]);
+        DependencyHierarchyDocument document =
+            DependencyHierarchyDocument.Create(graph);
+        List<DependencyHierarchyOccurrenceRow> rows =
+            DependencyHierarchyOutputAdapter.Rows(document);
+
+        string json = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.Json);
+        string tree = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.PlainText);
+
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        JsonElement boundary = Assert.Single(
+            parsed.RootElement.GetProperty("depth_boundaries")
+                .EnumerateArray());
+        DependencyHierarchyOccurrenceRow projectedOccurrence =
+            rows.Single(static row => row.EdgeId == 1);
+        Assert.Equal(
+            projectedOccurrence.OccurrenceId,
+            boundary.GetProperty("occurrence_id").GetInt32());
+        Assert.Equal(1, Occurrences(tree, "(bounded at depth 1)"));
+    }
+
+    [Fact]
+    public async Task RowOrientedOutputsRetainBackingEdgeIdentity()
+    {
+        DependencyHierarchyDocument document =
+            DependencyHierarchyDocument.Create(SharedDag());
+        List<DependencyHierarchyOccurrenceRow> rows =
+            DependencyHierarchyOutputAdapter.Rows(document);
+
+        string jsonLines = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.Jsonl);
+        string table = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.Table);
+
+        using JsonDocument parsed = JsonDocument.Parse(
+            jsonLines.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0]);
+        Assert.Equal(
+            rows[0].EdgeId,
+            parsed.RootElement.GetProperty("edge_id").GetInt32());
+        Assert.Contains("Edge ID", table, StringComparison.Ordinal);
+
+        DependsHierarchyOccurrenceView view =
+            DependsHierarchyOccurrenceView.From(rows[0]);
+        Assert.Equal(rows[0].EdgeId, view.EdgeId);
+    }
+
     private static async Task<string> RenderAsync(
         DependencyHierarchyDocument document,
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
@@ -208,7 +300,9 @@ public sealed class DependencyHierarchyOutputAdapterTests
     private static DependencyGraphDocument Graph(
         ImmutableArray<DependencyGraphRootOccurrence> roots,
         ImmutableArray<string> labels,
-        ImmutableArray<DependencyGraphEdge> edges) =>
+        ImmutableArray<DependencyGraphEdge> edges,
+        ImmutableArray<DependencyGraphPackageProjection> projections = default,
+        ImmutableArray<DependencyGraphDepthBoundary> boundaries = default) =>
         new(
             roots,
             [
@@ -221,14 +315,16 @@ public sealed class DependencyHierarchyOutputAdapterTests
                         new InertString(TextPolicy.Field, label))),
             ],
             edges,
-            [],
-            []);
+            projections.IsDefault ? [] : projections,
+            boundaries.IsDefault ? [] : boundaries);
 
     private static DependencyGraphEdge Edge(
         int id,
         int source,
         int target,
-        ImmutableArray<int> roots) =>
+        ImmutableArray<int> roots,
+        int? sourceProjection = null,
+        int? targetProjection = null) =>
         new(
             id,
             source,
@@ -237,7 +333,23 @@ public sealed class DependencyHierarchyOutputAdapterTests
             roots,
             MinimumDepth: 1,
             DependencyGraphResolutionState.Resolved,
-            EvidenceIdentity: null);
+            EvidenceIdentity: null,
+            sourceProjection,
+            targetProjection);
+
+    private static DependencyGraphPackageProjection Projection(
+        int id,
+        int nodeId,
+        int? rootOccurrence = null) =>
+        new(
+            id,
+            nodeId,
+            PackageDependencyTraversalProjectionKind.CandidateAcquired,
+            PackageDependencyTraversalProjectionExpansion.Expanded,
+            Evidence: null,
+            Candidate: null,
+            rootOccurrence,
+            []);
 
     private static int Occurrences(string value, string expected) =>
         value.Split(expected, StringSplitOptions.None).Length - 1;

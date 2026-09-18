@@ -3098,9 +3098,20 @@ public sealed class DependsAssetCommandTests
 
         (int exitCode, string output, string error) =
             await RunCapturedAsync(["depends", "-D", "--schema"]);
+        (int hierarchyExit, string hierarchy, string hierarchyError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "-D",
+                DependsAssetSections.DependencyHierarchy,
+                "--schema",
+            ]);
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
+        Assert.Equal(0, hierarchyExit);
+        Assert.Empty(hierarchyError);
+        Assert.Contains("Edge ID", hierarchy, StringComparison.Ordinal);
         foreach (string section in new[]
         {
             DependsAssetSections.Roots,

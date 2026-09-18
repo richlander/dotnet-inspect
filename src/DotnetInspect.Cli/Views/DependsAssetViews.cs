@@ -202,6 +202,7 @@ public sealed class DependsHierarchyOccurrenceView
             Occurrence = row.OccurrenceId,
             Root = row.RootOccurrence,
             ParentOccurrence = row.ParentOccurrenceId,
+            EdgeId = row.EdgeId,
             Depth = row.Depth,
             SourceKind = row.SourceKind,
             SourceIdentityText = row.SourceIdentityText,
@@ -222,6 +223,9 @@ public sealed class DependsHierarchyOccurrenceView
 
     [MarkoutPropertyName("Parent Occurrence")]
     public required int ParentOccurrence { get; init; }
+
+    [MarkoutPropertyName("Edge ID")]
+    public required int EdgeId { get; init; }
 
     public required int Depth { get; init; }
 

@@ -582,7 +582,9 @@ This bounded expansion emits each root-admitted backing relationship once per
 root. It cannot recurse indefinitely, and it preserves the source relationship
 that explains every occurrence. A node admitted at the traversal depth remains
 an occurrence endpoint; its typed depth boundary explains why it has no
-expanded children.
+expanded children. Depth-boundary association uses the same expansion context,
+including source-relative package projection identity, so one projection's
+boundary never annotates another projection of the same canonical node.
 
 Rows, row windows, Count, Tree, Mermaid, tables, JSONL, and structured JSON all
 consume the same ordered non-root occurrence sequence. Roots are required
@@ -1043,6 +1045,8 @@ The heterogeneous occurrence table has one common schema:
 - resolution state; and
 - evidence identity when an owner issued one.
 
+The document-local backing relationship identity is exposed as `Edge ID` in
+tables and projected views and as `edge_id` in JSONL and structured JSON.
 Human columns render safe labels beside those typed fields. Typed JSON uses
 discriminated endpoint identities rather than forcing type, library, project,
 and package identities into one string grammar. `-D "Dependency Hierarchy"`
