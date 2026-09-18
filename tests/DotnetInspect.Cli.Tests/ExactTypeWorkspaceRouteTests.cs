@@ -157,6 +157,57 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task WorkspaceRouteRendersResolvedEscapedDefinition()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/LiteralDelimiter.dll",
+                BuildLiteralDelimiterTypeAssembly()));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = @"N.Outer\.Inner",
+            ShareFormat = WorkspaceShareFormat.Packet,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("LiteralValue", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("NestedValue", output, StringComparison.Ordinal);
+        string derivedPacket = Assert.Single(
+            error.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+        WorkspaceSharePacket derived =
+            WorkspaceSharePacketCodec.Decode(
+                derivedPacket,
+                TestContext.Current.CancellationToken);
+        var active =
+            Assert.Single(
+                derived.ViewStates,
+                state => state.Subject
+                    is PortableSubjectRequest.Type);
+        var context =
+            Assert.IsType<PortableRetainedSubjectContext.EscapedType>(
+                active.Context);
+        Assert.Equal(@"N.Outer\.Inner", context.EscapedTypeIdentity);
+    }
+
+    [Fact]
     public async Task WorkspaceRouteSchema3RefusesOnlyShare()
     {
         var store = await CachedStoreAsync();
@@ -925,6 +976,8 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Outer.Inner", output, StringComparison.Ordinal);
+        Assert.Contains("LiteralValue", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("NestedValue", output, StringComparison.Ordinal);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1219,13 +1272,40 @@ public sealed class ExactTypeWorkspaceRouteTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle outer =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle nested =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Inner"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(nested, outer);
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("Outer.Inner"),
             baseType: default,
-            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            fieldList: MetadataTokens.FieldDefinitionHandle(2),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("NestedValue"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("LiteralValue"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

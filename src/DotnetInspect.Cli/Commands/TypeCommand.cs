@@ -153,6 +153,7 @@ public static class TypeCommand
         ResolvedMemberInspectionPlan plan,
         ApiSourceResult? resolvedSource = null,
         ApiServices.LoadedApiSurface? loadedSurface = null,
+        ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
         CancellationToken cancellationToken = default)
     {
@@ -384,7 +385,17 @@ public static class TypeCommand
                 var api = loaded.Api;
                 var apiDllPath = loaded.ApiDllPath;
 
-                var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
+                ApiTypeLookupResult lookupResult =
+                    preselectedType is null
+                        ? ApiTypeLookupService.LookupType(api, typeName)
+                        : new(
+                            typeName,
+                            new LookupResult(
+                                preselectedType.DefinitionName
+                                    ?.ToEscapedFullName()
+                                    ?? preselectedType.FullName,
+                                []),
+                            preselectedType);
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -1158,7 +1169,9 @@ public static class TypeCommand
                 SelectedTfm: renderSource.TargetFramework,
                 ProjectAssetsPath: null,
                 TempDir: null,
-                TypeName: target.Type.FullName,
+                TypeName:
+                    target.Type.DefinitionName?.ToEscapedFullName()
+                    ?? target.Type.FullName,
                 PackageReplaySourceUrls: null,
                 PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(options.Verbose));
@@ -1166,7 +1179,8 @@ public static class TypeCommand
                 options,
                 plan,
                 source,
-                loaded).ConfigureAwait(false);
+                loaded,
+                preselectedType: target.Type).ConfigureAwait(false);
             return exitCode != 0 || !result.IsComplete
                 ? 1
                 : 0;
