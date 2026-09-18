@@ -37,4 +37,9 @@
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\docs\design\annotated-source-finding-provenance.md"
+                      LogicalName="ILInspector.Research.Tests.AnnotatedSourceFindingProvenance.md" />
+  </ItemGroup>
+
 </Project>
