@@ -778,18 +778,24 @@ public sealed class LeakTriageAnalyzerTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage()
+    public void
+        LibraryBodyAnalysisService_ConsumesImageWithoutReopeningSourceName()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
         var image = ImmutableArray.Create(File.ReadAllBytes(path));
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.All);
 
-        var shared = LibraryBodyIndex.OpenFromPrefetchedImage(
-            path,
-            image,
-            LibraryBodyAnalysisFeatures.All);
-        var owned = LibraryBodyIndex.Open(
-            path,
-            LibraryBodyAnalysisFeatures.All);
+        LibraryBodyIndex shared =
+            LibraryBodyAnalysisService.AnalyzeImage(
+                "caller-owned-image.dll",
+                image,
+                request);
+        LibraryBodyIndex owned =
+            LibraryBodyAnalysisService.AnalyzePath(
+                path,
+                request);
 
         Assert.True(owned.DirectCalls.SequenceEqual(shared.DirectCalls));
         Assert.True(
@@ -798,30 +804,40 @@ public sealed class LeakTriageAnalyzerTests
         Assert.True(
             owned.LeakTriage.ExceptionPathCandidates.SequenceEqual(
                 shared.LeakTriage.ExceptionPathCandidates));
+        Assert.Equal(
+            owned.AllocationFanoutOpportunities,
+            shared.AllocationFanoutOpportunities);
         Assert.False(image.IsDefaultOrEmpty);
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void LibraryBodyIndex_PrefetchedImageHonorsBodyScope()
+    public void LibraryBodyAnalysisService_ImageRequestHonorsBodyScope()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
         var image = ImmutableArray.Create(File.ReadAllBytes(path));
-        LibraryBodyIndex full = LibraryBodyIndex.Open(
-            path,
-            LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex full =
+            LibraryBodyAnalysisService.AnalyzePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
         MethodIdentity selected = full.Methods.First(
             method => full.DirectCalls.Any(
                 call => call.Caller.MetadataToken
                     == method.MetadataToken));
+        var bodyScope =
+            new HashSet<int> { selected.MetadataToken };
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope);
+        bodyScope.Clear();
 
         LibraryBodyIndex scoped =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisService.AnalyzeImage(
                 path,
                 image,
-                LibraryBodyAnalysisFeatures.MethodEvidence,
-                bodyScope:
-                    new HashSet<int> { selected.MetadataToken });
+                request);
 
         Assert.Equal(full.DeclaredMethods.Length, scoped.DeclaredMethods.Length);
         Assert.Equal(full.Methods.Length, scoped.Methods.Length);
