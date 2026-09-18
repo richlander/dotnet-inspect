@@ -43,9 +43,12 @@
       ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.PolymorphicContractsFixtures/ILInspector.JsExportSurface.PolymorphicContractsFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures/ILInspector.JsExportSurface.PolymorphicExportFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.UnsupportedPolymorphicExportFixtures/ILInspector.JsExportSurface.UnsupportedPolymorphicExportFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
     <ProjectReference
       Include="../../fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
