@@ -478,10 +478,10 @@ internal static class DependencyGraphOutputAdapter
                         edge.SourcePackageProjectionId,
                         edge.TargetPackageProjectionId,
                         edge.PackageEmissionAuthority,
-                        edge.PackageDiagnostics.IsDefaultOrEmpty
+                        edge.RuntimePackageDiagnostics.IsDefaultOrEmpty
                             ? null
                             : [
-                                .. edge.PackageDiagnostics.Select(
+                                .. edge.RuntimePackageDiagnostics.Select(
                                     diagnostic =>
                                         DependsPackageAuthorityFailureJson
                                             .Create(
@@ -533,11 +533,11 @@ internal static class DependencyGraphOutputAdapter
                 tokens,
                 includeSelectionEvidence,
                 includeDeclarationEvidence),
-            projection.Candidate is { } candidate
+            projection.RuntimeCandidate is { } candidate
                 ? JsonCandidate(candidate, tokens)
                 : null,
             [
-                .. projection.Diagnostics.Select(diagnostic =>
+                .. projection.RuntimeDiagnostics.Select(diagnostic =>
                     DependsPackageAuthorityFailureJson.Create(
                         diagnostic,
                         tokens)),
@@ -625,28 +625,29 @@ internal static class DependencyGraphOutputAdapter
                 : null);
     }
 
-    private static IEnumerable<PackageSourceResultIdentity?>
-        EnumeratePackageSources(DependencyGraphDocument document)
+    private static void ReservePackageSources(
+        DependencyGraphDocument document,
+        DependencyEvidenceSourceTokens tokens)
     {
         foreach (DependencyGraphPackageProjection projection in
                  document.PackageProjections)
         {
-            yield return DependsAssetDocument.PackageSource(
-                projection.Evidence);
-            if (projection.Candidate is { } candidate)
+            tokens.Reserve(
+                DependsAssetDocument.PackageSource(projection.Evidence));
+            if (projection.RuntimeCandidate is { } candidate)
             {
                 foreach (PackageAcquisitionAuthorityEvidence authority in
                          candidate.Authorities)
                 {
-                    yield return authority.Observation?.Source;
+                    tokens.Reserve(authority.Observation?.Source);
                 }
             }
-
             foreach (PackageAuthorityFailure diagnostic in
-                     projection.Diagnostics)
+                     projection.RuntimeDiagnostics)
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                        ?? diagnostic.SourceFailure?.Source);
             }
             foreach (PackageAuthorityFailure diagnostic in
                      document.Edges
@@ -655,12 +656,13 @@ internal static class DependencyGraphOutputAdapter
                              || edge.TargetPackageProjectionId
                                 == projection.Id)
                          .SelectMany(static edge =>
-                             edge.PackageDiagnostics.IsDefault
+                             edge.RuntimePackageDiagnostics.IsDefault
                                 ? []
-                                : edge.PackageDiagnostics))
+                                : edge.RuntimePackageDiagnostics))
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                                ?? diagnostic.SourceFailure?.Source);
             }
         }
     }
@@ -669,12 +671,12 @@ internal static class DependencyGraphOutputAdapter
         DependencyGraphDocument document)
     {
         DependencyEvidenceSourceTokens tokens =
-            DependencyEvidenceSourceTokens.Create(
-                EnumeratePackageSources(document));
+            DependencyEvidenceSourceTokens.Create();
+        ReservePackageSources(document, tokens);
         foreach (DependencyGraphPackageProjection projection in
                  document.PackageProjections)
         {
-            if (projection.Candidate is not { } candidate)
+            if (projection.RuntimeCandidate is not { } candidate)
                 continue;
             tokens.ProjectCorrespondence(candidate.Correspondence);
             foreach (PackageAcquisitionAuthorityEvidence authority in

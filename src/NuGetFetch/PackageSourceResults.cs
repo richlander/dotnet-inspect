@@ -3,6 +3,7 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using InertText;
 
 namespace NuGetFetch;
@@ -43,6 +44,7 @@ public enum PackageListingState
 /// <summary>
 /// A validated, normalized NuGet package coordinate.
 /// </summary>
+[JsonConverter(typeof(PackageSourceCoordinateJsonConverter))]
 public sealed record PackageSourceCoordinate
 {
     private PackageSourceCoordinate(string packageId, string version)
@@ -140,6 +142,20 @@ public sealed class PackageProducerIdentity
         && value.StartsWith(PortableKeyPrefix, StringComparison.Ordinal)
         && value.AsSpan(PortableKeyPrefix.Length).IndexOfAnyExcept(
             "0123456789abcdef") < 0;
+
+    /// <summary>
+    /// True when <paramref name="portableKey"/> is the canonical portable
+    /// projection of <paramref name="key"/>.
+    /// </summary>
+    public static bool IsPortableKeyFor(
+        string? key,
+        string? portableKey) =>
+        !string.IsNullOrWhiteSpace(key)
+        && IsCanonicalPortableKey(portableKey)
+        && string.Equals(
+            CreatePortableKey(key),
+            portableKey,
+            StringComparison.Ordinal);
 
     /// <inheritdoc/>
     public bool Equals(PackageProducerIdentity? other) =>
