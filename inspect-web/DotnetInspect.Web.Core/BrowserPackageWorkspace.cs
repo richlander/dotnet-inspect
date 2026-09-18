@@ -46,6 +46,7 @@ internal sealed record BrowserPackageAcquisition(
 
 internal sealed record BrowserPackageRealization(
     BrowserPackageCoordinate Coordinate,
+    string SelectionRequest,
     InspectionEnvelope<PackageVersionSettlementOutcome> VersionSettlement,
     InspectionEnvelope<PackageInfoMeasurements> PackageInfo);
 
@@ -223,6 +224,10 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
     static readonly Dictionary<PendingAcquisitionKey, BrowserSharedPackageAcquisition>
         PendingAcquisitions = [];
+    static readonly Dictionary<
+        PendingRealizationKey,
+        BrowserSharedOperation<BrowserPackageRealizationResult>>
+        PendingRealizations = [];
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
@@ -341,8 +346,7 @@ internal static class BrowserPackageWorkspace
                 version,
                 targetFramework,
                 Gallery,
-                deadline,
-                cancellationToken),
+                deadline),
             PackageOperationTimeout,
             cancellationToken);
 
@@ -417,8 +421,7 @@ internal static class BrowserPackageWorkspace
                 version,
                 targetFramework,
                 source,
-                deadline,
-                cancellationToken),
+                deadline),
             operationTimeout,
             cancellationToken);
 
@@ -427,8 +430,7 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         IPackageSourceClient source,
-        BrowserPackageOperationDeadline deadline,
-        CancellationToken cancellationToken)
+        BrowserPackageOperationDeadline deadline)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -439,15 +441,64 @@ internal static class BrowserPackageWorkspace
             || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
                 ? null
                 : version;
+        string normalizedPackageId = packageId.ToLowerInvariant();
+        var pendingKey = new PendingRealizationKey(
+            RealizationRequestKey(
+                packageId,
+                requestedVersion,
+                targetFramework),
+            source);
+        BrowserSharedOperation<BrowserPackageRealizationResult> pending;
+        bool created = false;
+        lock (PendingRealizations)
+        {
+            if (PendingRealizations.TryGetValue(pendingKey, out var existing)
+                && !existing.IsCompleted)
+            {
+                pending = existing;
+            }
+            else
+            {
+                TimeSpan remaining = deadline.Remaining;
+                pending = new BrowserSharedOperation<BrowserPackageRealizationResult>(
+                    () => RunPackageOperationAsync(
+                        sharedDeadline => RealizeOneAsync(
+                            packageId,
+                            normalizedPackageId,
+                            requestedVersion,
+                            targetFramework,
+                            source,
+                            sharedDeadline),
+                        remaining),
+                    BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
+                    "Package realization");
+                PendingRealizations[pendingKey] = pending;
+                created = true;
+            }
+        }
+        if (created)
+            ObserveAndRemovePendingRealization(pendingKey, pending);
+
+        return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+    }
+
+    static async Task<BrowserPackageRealizationResult> RealizeOneAsync(
+        string packageId,
+        string normalizedPackageId,
+        string? requestedVersion,
+        string? targetFramework,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
         var coordinateRequest = new PackageCoordinate(
-            packageId.ToLowerInvariant(),
+            normalizedPackageId,
             requestedVersion);
         InspectionEnvelope<PackageVersionSettlementOutcome> versionSettlement =
             await SettleCoordinateAsync(
                 coordinateRequest,
                 source,
                 deadline,
-                cancellationToken).ConfigureAwait(false);
+                deadline.Token).ConfigureAwait(false);
         if (versionSettlement.Content
             is PackageVersionSettlementOutcome.NotSettled)
         {
@@ -487,7 +538,7 @@ internal static class BrowserPackageWorkspace
                             "The package realization requested another configured source."));
         using PackageSourceOperationLease sourceOperation =
             sourceLease.IssueOperationLease(
-                cancellationToken,
+                deadline.Token,
                 operation.RequestTimeout,
                 operation.OperationTimeout);
         var house = new PackageHouse(
@@ -549,6 +600,7 @@ internal static class BrowserPackageWorkspace
         return new BrowserPackageRealizationResult.Realized(
             new BrowserPackageRealization(
                 coordinate,
+                SelectionRequestToken(targetFramework),
                 versionSettlement,
                 PackageInfoMeasurementInspection.Project(acquired)));
     }
@@ -1142,6 +1194,31 @@ internal static class BrowserPackageWorkspace
     }
 
     /// <summary>
+    /// Opens — or joins — the ordinary package workspace for a PackageHouse realization. The
+    /// first request constructs the workspace from the exact contributed Root. A later equivalent
+    /// request may join it by acquired generation and selection request even though PackageHouse
+    /// issued a fresh binding for that request.
+    /// </summary>
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        BrowserPackageRealization realization,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(realization);
+        BrowserPackageCoordinate coordinate = realization.Coordinate;
+        string packageKey = PackageKey(coordinate);
+        var demand = new UnboundScopeDemand(
+            packageKey,
+            realization.SelectionRequest,
+            coordinate.Package.Content.ProducerKey,
+            coordinate.Package.Content.GenerationIdentity);
+        return OpenPackageScopeAsync(
+            demand,
+            [coordinate],
+            cancellationToken,
+            requireExactCoordinatesOnJoin: false);
+    }
+
+    /// <summary>
     /// Joins a retained workspace for this demand, or reserves a counted entry and builds one.
     /// The entry's full image allowance is reserved before construction starts, and the caller's
     /// protected use is taken before it suspends.
@@ -1149,7 +1226,8 @@ internal static class BrowserPackageWorkspace
     static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenPackageScopeAsync(
         ScopeDemand demand,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireExactCoordinatesOnJoin = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var construction = new PackageLeaseSet();
@@ -1163,17 +1241,26 @@ internal static class BrowserPackageWorkspace
                 packageKeys,
                 cancellationToken)
             .ConfigureAwait(false);
-        return await UseAdmittedPackageScopeAsync(admission, coordinates, cancellationToken)
+        return await UseAdmittedPackageScopeAsync(
+                admission,
+                coordinates,
+                cancellationToken,
+                requireExactCoordinatesOnJoin)
             .ConfigureAwait(false);
     }
 
     static Task<BrowserScopeLease<BrowserInspectionScope>> UseAdmittedPackageScopeAsync(
         ScopeAdmission admission,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireExactCoordinatesOnJoin = true)
     {
         if (!admission.IsNew)
-            return UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken);
+        {
+            return requireExactCoordinatesOnJoin
+                ? UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken)
+                : UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken);
+        }
 
         ScopeEntry entry = admission.Use.Entry;
         entry.Key = PackageScopeKey(coordinates);
@@ -1817,6 +1904,17 @@ internal static class BrowserPackageWorkspace
             ? "(default)"
             : targetFramework.Trim().ToLowerInvariant();
 
+    static string RealizationRequestKey(
+        string packageId,
+        string? requestedVersion,
+        string? targetFramework) =>
+        CompositeKey(
+            packageId,
+            requestedVersion is null ? "floating" : "exact",
+            requestedVersion ?? "",
+            string.IsNullOrWhiteSpace(targetFramework) ? "default" : "exact",
+            targetFramework ?? "");
+
     /// <summary>
     /// Resolves and temporarily leases every requested coordinate until the aggregate workspace
     /// entry owns them. A later package acquisition cannot evict an earlier coordinate while a
@@ -2058,6 +2156,29 @@ internal static class BrowserPackageWorkspace
             TaskScheduler.Default);
     }
 
+    static void ObserveAndRemovePendingRealization(
+        PendingRealizationKey key,
+        BrowserSharedOperation<BrowserPackageRealizationResult> realization)
+    {
+        _ = realization.Completion.ContinueWith(
+            completed =>
+            {
+                lock (PendingRealizations)
+                {
+                    if (PendingRealizations.TryGetValue(key, out var current)
+                        && ReferenceEquals(current, realization))
+                    {
+                        PendingRealizations.Remove(key);
+                    }
+                }
+
+                _ = completed.Exception;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
     internal sealed class PendingAcquisitionKey
         : IEquatable<PendingAcquisitionKey>
     {
@@ -2087,6 +2208,38 @@ internal static class BrowserPackageWorkspace
         public override int GetHashCode() =>
             HashCode.Combine(
                 StringComparer.Ordinal.GetHashCode(_coordinateKey),
+                RuntimeHelpers.GetHashCode(_source));
+    }
+
+    internal sealed class PendingRealizationKey
+        : IEquatable<PendingRealizationKey>
+    {
+        readonly string _requestKey;
+        readonly IPackageSourceClient _source;
+
+        internal PendingRealizationKey(
+            string requestKey,
+            IPackageSourceClient source)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(requestKey);
+            ArgumentNullException.ThrowIfNull(source);
+            _requestKey = requestKey;
+            _source = source;
+        }
+
+        public bool Equals(PendingRealizationKey? other) =>
+            other is not null
+            && _requestKey.Equals(
+                other._requestKey,
+                StringComparison.Ordinal)
+            && ReferenceEquals(_source, other._source);
+
+        public override bool Equals(object? obj) =>
+            obj is PendingRealizationKey other && Equals(other);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.Ordinal.GetHashCode(_requestKey),
                 RuntimeHelpers.GetHashCode(_source));
     }
 

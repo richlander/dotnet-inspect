@@ -187,12 +187,15 @@ capacity is held by active work, admission visibly rejects instead. Opening one
 exact demand is single-flighted: concurrent callers join one realization —
 pending or ready — and a caller that queued behind a full registry re-checks
 that join after every capacity wait rather than demanding a second entry.
-Repeated unbound requests join the retained binding before another selection
-token is issued, keyed by the acquired coordinate, its producer, its retained
-content generation, and the selection request, with a default selection
-distinct from an explicit one; a caller that already holds an issued binding
-joins only that exact binding, never a label match. Each caller keeps its own
-cancellation, a cancelled caller receives no scope, and construction carries a
+Repeated ordinary requests join the retained binding by the acquired
+coordinate, its producer, its retained content generation, and the selection
+request, with a default selection distinct from an explicit one. The legacy
+unbound path performs that join before issuing another selection token; the
+PackageHouse path may already carry a fresh receipt, but uses the exact
+contributed Root only when constructing a new workspace. A caller that directly
+holds an issued binding joins only that exact binding, never a label match.
+Each caller keeps its own cancellation, a cancelled caller receives no scope,
+and construction carries a
 bounded deadline. A completion that raced an eviction or a replacing download
 cannot republish that content: the exact archive identity is revalidated after
 every suspension, a stale coordinate fails visibly, and an abandoned

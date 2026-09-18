@@ -112,7 +112,7 @@ public static partial class PackageExports
             ((BrowserPackageRealizationResult.Realized)result).Realization;
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
-                [realization.Coordinate],
+                realization,
                 CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
         return new(

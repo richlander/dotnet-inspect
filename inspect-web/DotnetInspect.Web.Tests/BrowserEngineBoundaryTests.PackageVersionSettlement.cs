@@ -265,6 +265,123 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageRealization_RepeatedRequestJoinsWorkspaceBuiltFromFirstExactRoot()
+    {
+        string packageId = $"package.info.rejoin.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{packageId}.nuspec", System.Text.Encoding.UTF8.GetBytes(
+                $"""
+                <package>
+                  <metadata>
+                    <id>{packageId}</id>
+                    <version>{version}</version>
+                    <authors>Example</authors>
+                    <description>Example</description>
+                  </metadata>
+                </package>
+                """)),
+            ("lib/net11.0/Browser.Package.dll", assembly));
+        var handler = new GalleryPackageHandler(packageId, version, archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization first = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+        BrowserPackageRealization second = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+
+        PackageRootBinding firstBinding =
+            Assert.IsType<PackageRootBinding>(first.Coordinate.Binding);
+        PackageRootBinding secondBinding =
+            Assert.IsType<PackageRootBinding>(second.Coordinate.Binding);
+        Assert.NotSame(
+            firstBinding.SelectionIdentity,
+            secondBinding.SelectionIdentity);
+        Assert.Same(
+            first.Coordinate.Package.Content.GenerationIdentity,
+            second.Coordinate.Package.Content.GenerationIdentity);
+
+        await using BrowserScopeLease<BrowserInspectionScope> firstLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                first,
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> secondLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                second,
+                TestContext.Current.CancellationToken);
+
+        Assert.Same(firstLease.Scope, secondLease.Scope);
+        PackageRootBinding retainedBinding =
+            Assert.IsType<PackageRootBinding>(
+                Assert.Single(firstLease.Scope.Coordinates).Binding);
+        Assert.Same(
+            firstBinding.SelectionIdentity,
+            retainedBinding.SelectionIdentity);
+        Assert.NotSame(
+            secondBinding.SelectionIdentity,
+            retainedBinding.SelectionIdentity);
+        Assert.Single(handler.Requested);
+    }
+
+    [Fact]
+    public async Task PackageRealization_ConcurrentRequestsShareOneHouseOperation()
+    {
+        string packageId = $"package.info.concurrent.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var payloadRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageDocuments(1),
+            payloadRelease: payloadRelease.Task);
+        using IPackageSourceClient source = Gallery(handler);
+
+        Task<BrowserPackageRealizationResult> firstTask =
+            BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        await handler.PayloadReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Task<BrowserPackageRealizationResult> secondTask =
+            BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        payloadRelease.SetResult();
+
+        BrowserPackageRealization first = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(await firstTask).Realization;
+        BrowserPackageRealization second = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(await secondTask).Realization;
+
+        Assert.Same(first, second);
+        Assert.Single(handler.Requested);
+    }
+
+    [Fact]
     public async Task PackageRealization_ReusesLegacyAcquisitionGenerationForSameSource()
     {
         string packageId = $"package.info.legacy-cache.{Guid.NewGuid():N}";
