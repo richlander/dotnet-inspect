@@ -140,22 +140,13 @@ public static class PackageInfoMeasurementQuery
         PackageSelectedTfmMeasurement measurement = selection.Status switch
         {
             PackageCompileAssetSelectionStatus.Selected =>
+                MeasureCompileSelection(content, selection),
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                 MeasureSelectedEntries(
                     content,
                     selection.TargetFramework!,
-                    selection.Assets.Count,
-                    [
-                        .. selection.Assets.Select(asset =>
-                            (selection.FindImplementationAsset(asset) ?? asset)
-                                .Path)
-                            .Distinct(StringComparer.OrdinalIgnoreCase),
-                    ]),
-            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
-                new PackageSelectedTfmMeasurement.Available(
-                    selection.TargetFramework!,
-                    UncompressedSize: 0,
-                    LibraryCount: 0,
-                    MeasuredEntries: []),
+                    libraryCount: 0,
+                    selectedEntries: []),
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
                 Unavailable(
                     PackageInfoMeasurementFailureKind
@@ -179,6 +170,30 @@ public static class PackageInfoMeasurementQuery
             archiveSize,
             measurement,
             selectionReceipt);
+    }
+
+    private static PackageSelectedTfmMeasurement MeasureCompileSelection(
+        IPackageContent content,
+        PackageCompileAssetSelection selection)
+    {
+        if (selection.Assets
+            .GroupBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() > 1))
+        {
+            return Invalid(
+                PackageInfoMeasurementFailureKind.AmbiguousSelectedEntry,
+                "The selected compile slice contains ambiguous source entry paths.");
+        }
+
+        return MeasureSelectedEntries(
+            content,
+            selection.TargetFramework!,
+            selection.Assets.Count,
+            [
+                .. selection.Assets.Select(asset =>
+                    (selection.FindImplementationAsset(asset) ?? asset).Path)
+                    .Distinct(StringComparer.OrdinalIgnoreCase),
+            ]);
     }
 
     private static PackageInfoMeasurementReceipt EvaluateTool(
@@ -215,7 +230,7 @@ public static class PackageInfoMeasurementQuery
                 archiveSize,
                 Unavailable(
                     PackageInfoMeasurementFailureKind.NoTargetFrameworks,
-                    "The package contains no managed tool target-framework slice."),
+                    "The package contains no tool target-framework Library slice."),
                 CompileSelection: null);
         }
 
@@ -353,7 +368,8 @@ public static class PackageInfoMeasurementQuery
             || !parts[0].Equals("tools", StringComparison.OrdinalIgnoreCase)
             || !TfmResolver.IsTfmLike(parts[1])
             || !parts[^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1])))
+            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1]))
+            || IsNativeRuntimeAsset(parts))
         {
             return null;
         }
@@ -368,6 +384,24 @@ public static class PackageInfoMeasurementQuery
         }
 
         return new ToolAsset(entry, parts[1]);
+    }
+
+    private static bool IsNativeRuntimeAsset(IReadOnlyList<string> parts)
+    {
+        for (int index = 2; index + 2 < parts.Count; index++)
+        {
+            if (parts[index].Equals(
+                    "runtimes",
+                    StringComparison.OrdinalIgnoreCase)
+                && parts[index + 2].Equals(
+                    "native",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static PackageSelectedTfmMeasurement.Unavailable Unavailable(

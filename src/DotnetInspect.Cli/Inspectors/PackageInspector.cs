@@ -35,7 +35,7 @@ internal static class PackageInspector
             PackageInfoMeasurementQuery.Evaluate(
                 content,
                 result.PackageName,
-                result.IsToolPackage
+                IsDeclaredToolPackage(result)
                     ? PackageInfoSliceProfile.Tool
                     : PackageInfoSliceProfile.Compile,
                 requestedTargetFramework);
@@ -78,6 +78,11 @@ internal static class PackageInspector
                 break;
         }
     }
+
+    private static bool IsDeclaredToolPackage(InspectionResult result) =>
+        result.PackageTypes?.Any(packageType => packageType.Equals(
+            "DotnetTool",
+            StringComparison.OrdinalIgnoreCase)) is true;
 
     public static async Task<InspectionResult> InspectAsync(
         PackageExtractionResult resolution,

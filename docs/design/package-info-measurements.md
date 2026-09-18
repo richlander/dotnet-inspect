@@ -33,9 +33,12 @@ representative assembly.
 
 ## Slice profiles and selection
 
-The package manifest determines whether Package Info requests the `Compile` or
-`Tool` profile. This profile is package evidence supplied to the query, not a
-host-side asset-selection algorithm.
+The nuspec `DotnetTool` package-type declaration determines whether Package
+Info requests the `Compile` or `Tool` profile. This profile is package evidence
+supplied to the query, not a host-side asset-selection algorithm. Legacy
+structural classification may still describe an undeclared tools-only package
+as tool-shaped for presentation, but it does not authorize Tool-profile
+measurement.
 
 The `Compile` profile delegates selection to
 `PackageCompileAssetSelector.Evaluate`. An absent target uses
@@ -47,21 +50,25 @@ compile projection's Library count even when entry correspondence removes
 duplicate measurement paths.
 
 The `Tool` profile applies the same absent-target and explicit-target rules to
-managed DLL entries under `tools/<tfm>/`. It measures every non-satellite DLL
-below the selected framework folder. This profile exists because a packed
-framework-dependent tool carries its Library closure under `tools/`; no one
-assembly represents that package.
+Library-shaped DLL entries under `tools/<tfm>/`. It measures every
+non-satellite DLL below the selected framework folder except entries in
+standard NuGet `runtimes/<rid>/native/` subtrees. This profile exists because a
+packed framework-dependent tool carries its Library closure under `tools/`; no
+one assembly represents that package.
 
 Both profiles retain a deterministic, case-insensitive available-TFM
 inventory. An explicit target records the actual compatible slice selected by
 the owner rather than echoing the requested spelling.
 
 An explicit empty compile group is a successful selected slice with zero bytes
-and zero Libraries. A package with no applicable slice, an unmatched explicit
-target, an unavailable archive or entry manifest, rejected selection,
-ambiguous entry paths, missing selected entry length, invalid entry length, or
-size overflow remains a structural unavailable or invalid result. These states
-must not become zero-valued success.
+and zero Libraries only when the content supplies the same entry-manifest
+capability required by a non-empty measurement. Source-path ambiguity is
+checked before implementation correspondence may deduplicate measurement
+paths. A package with no applicable slice, an unmatched explicit target, an
+unavailable archive or entry manifest, rejected selection, ambiguous entry
+paths, missing selected entry length, invalid entry length, or size overflow
+remains a structural unavailable or invalid result. These states must not
+become zero-valued success.
 
 ## Motivating evidence
 
@@ -129,10 +136,11 @@ dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
 | Archive size reports retained compressed bytes | `CompileProfile_AggregatesImplementationEntries` |
 | Compile measurement uses every selected Library and implementation correspondence | `CompileProfile_AggregatesImplementationEntries` |
 | Explicit selection reports the actual compatible TFM | `CompileProfile_ExplicitTargetReportsCompatibleSelection` |
-| Explicit empty groups report zero bytes and zero Libraries | `CompileProfile_EmptyGroupIsAZeroValuedSelection` |
-| Tool packages measure the complete managed closure and exclude satellites | `ToolProfile_AggregatesEveryManagedLibrary` |
-| Missing entry-length capability remains unavailable | `MissingEntryManifestIsUnavailable` |
+| Explicit empty groups report zero bytes and zero Libraries with manifest evidence | `CompileProfile_EmptyGroupIsAZeroValuedSelection` and `EmptyGroupWithoutManifestIsUnavailable` |
+| Tool packages measure the complete Library closure and exclude satellites and native subtrees | `ToolProfile_AggregatesEveryLibraryShapedDll` and `ToolProfile_ExcludesNativeRuntimeDlls` |
+| Missing entry-length capability remains unavailable | `MissingEntryManifestIsUnavailable` and `EmptyGroupWithoutManifestIsUnavailable` |
 | Missing archive capability remains unavailable | `MissingArchiveIsUnavailable` |
+| Case-colliding selected source entries fail before measurement-path deduplication | `CompileProfile_CaseCollidingSelectedEntriesAreInvalid` |
 | CLI fields and JSON use the same selected-slice facts | `PackageInfo_RendersSelectedTfmMeasurements` |
 | Package Info applies aggregate measurements after inspection | `ApplyPackageInfoMeasurements_AggregatesSelectedLibraries` |
-| CLI package classification selects the complete tool profile | `ApplyPackageInfoMeasurements_AggregatesToolLibraries` |
+| Only nuspec-declared tool packages select the complete tool profile | `ApplyPackageInfoMeasurements_AggregatesToolLibraries` and `ApplyPackageInfoMeasurements_DoesNotMeasureUndeclaredToolShape` |

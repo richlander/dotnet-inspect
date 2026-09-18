@@ -267,6 +267,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             PackageName = packageId,
             Version = "1.0.0",
             IsToolPackage = true,
+            PackageTypes = ["dotnettool"],
         };
 
         PackageInspector.ApplyPackageInfoMeasurements(
@@ -279,6 +280,43 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Equal(["net10.0"], result.TargetFrameworks);
         Assert.Equal(30, result.SelectedTfmSize);
         Assert.Equal(2, result.SelectedTfmLibraryCount);
+    }
+
+    [Fact]
+    public async Task ApplyPackageInfoMeasurements_DoesNotMeasureUndeclaredToolShape()
+    {
+        const string packageId = "Undeclared.Tool.Shape";
+        string root = Path.Combine(_root, "undeclared-tool");
+        string tools = Path.Combine(root, "tools", "net10.0", "any");
+        Directory.CreateDirectory(tools);
+        await File.WriteAllBytesAsync(
+            Path.Combine(tools, "Shape.dll"),
+            new byte[10],
+            TestContext.Current.CancellationToken);
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: "1.0.0",
+            ProducerKey: "undeclared-tool");
+        var result = new InspectionResult
+        {
+            PackageName = packageId,
+            Version = "1.0.0",
+            IsToolPackage = true,
+        };
+
+        PackageInspector.ApplyPackageInfoMeasurements(
+            result,
+            resolution,
+            requestedTargetFramework: null,
+            new VerboseLogger(enabled: false));
+
+        Assert.Null(result.Tfm);
+        Assert.Empty(result.TargetFrameworks!);
+        Assert.Null(result.SelectedTfmSize);
+        Assert.Null(result.SelectedTfmLibraryCount);
     }
 
     [Fact]

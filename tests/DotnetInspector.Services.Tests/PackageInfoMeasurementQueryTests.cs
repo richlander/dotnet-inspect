@@ -130,7 +130,49 @@ public sealed class PackageInfoMeasurementQueryTests
     }
 
     [Fact]
-    public void ToolProfile_AggregatesEveryManagedLibrary()
+    public void EmptyGroupWithoutManifestIsUnavailable()
+    {
+        InMemoryPackageContent inner = Content(
+            out _,
+            ("ref/net9.0/_._", 0));
+
+        PackageInfoMeasurementReceipt receipt =
+            PackageInfoMeasurementQuery.Evaluate(
+                new ContentWithoutManifest(inner),
+                "Example",
+                PackageInfoSliceProfile.Compile);
+
+        var unavailable =
+            Assert.IsType<PackageSelectedTfmMeasurement.Unavailable>(
+                receipt.SelectedTargetFramework);
+        Assert.Equal(
+            PackageInfoMeasurementFailureKind.EntryManifestUnavailable,
+            unavailable.Failure.Kind);
+    }
+
+    [Fact]
+    public void CompileProfile_CaseCollidingSelectedEntriesAreInvalid()
+    {
+        InMemoryPackageContent content = Content(
+            out _,
+            ("ref/net8.0/Example.dll", 4),
+            ("REF/NET8.0/example.dll", 5));
+
+        PackageInfoMeasurementReceipt receipt =
+            PackageInfoMeasurementQuery.Evaluate(
+                content,
+                "Example",
+                PackageInfoSliceProfile.Compile);
+
+        var invalid = Assert.IsType<PackageSelectedTfmMeasurement.Invalid>(
+            receipt.SelectedTargetFramework);
+        Assert.Equal(
+            PackageInfoMeasurementFailureKind.AmbiguousSelectedEntry,
+            invalid.Failure.Kind);
+    }
+
+    [Fact]
+    public void ToolProfile_AggregatesEveryLibraryShapedDll()
     {
         InMemoryPackageContent content = Content(
             out _,
@@ -153,6 +195,33 @@ public sealed class PackageInfoMeasurementQueryTests
         Assert.Equal("net10.0", selected.TargetFramework);
         Assert.Equal(30, selected.UncompressedSize);
         Assert.Equal(2, selected.LibraryCount);
+    }
+
+    [Fact]
+    public void ToolProfile_ExcludesNativeRuntimeDlls()
+    {
+        InMemoryPackageContent content = Content(
+            out _,
+            ("tools/net10.0/any/Managed.dll", 10),
+            ("tools/net10.0/any/runtimes/win-x64/native/Native.dll", 100),
+            ("tools/net10.0/any/.store/native.package/1.0.0/"
+                + "native.package/1.0.0/runtimes/linux-x64/native/Native.dll",
+                200));
+
+        PackageInfoMeasurementReceipt receipt =
+            PackageInfoMeasurementQuery.Evaluate(
+                content,
+                "Example.Tool",
+                PackageInfoSliceProfile.Tool);
+
+        var selected =
+            Assert.IsType<PackageSelectedTfmMeasurement.Available>(
+                receipt.SelectedTargetFramework);
+        Assert.Equal(10, selected.UncompressedSize);
+        Assert.Equal(1, selected.LibraryCount);
+        Assert.Equal(
+            ["tools/net10.0/any/Managed.dll"],
+            selected.MeasuredEntries);
     }
 
     [Fact]
