@@ -675,6 +675,7 @@ public sealed record BrowserExactLibraryApiInspectionResult(
 
 public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryRow[] Results,
+    bool HasPackages,
     BrowserPackageQueryFailure[] Failures,
     BrowserPackageQueryCompletion Completion);
 
