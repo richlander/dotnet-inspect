@@ -3091,6 +3091,54 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_KeepsUnauthenticatedContextDefaultMemberRequired()
+    {
+        var packageIdentity = new ApiType
+        {
+            Name = "PackageIdentity",
+        };
+        var packageSnapshot = new ApiType
+        {
+            Name = "PackageSnapshot",
+            JsonDefaultIgnoreCondition =
+                JsonWireIgnoreCondition.WhenWritingNull,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Identity",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "PackageIdentity",
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [packageIdentity, packageSnapshot],
+                WireDirections = new Dictionary<
+                    ApiType,
+                    JsonWireDirection>
+                {
+                    [packageIdentity] = JsonWireDirection.Serialize,
+                    [packageSnapshot] = JsonWireDirection.Serialize,
+                },
+            });
+
+        Assert.Contains(
+            "  readonly Identity: PackageIdentity;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "  readonly Identity?:",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_KeepsWritingConditionRequiredForDeserializeOnlyRecord()
     {
         var record = new ApiType

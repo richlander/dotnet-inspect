@@ -1232,9 +1232,10 @@ static class DtsEmitter
                     record.JsonDefaultIgnoreCondition),
                 ResolvedName: member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy)))
-            .Where(item => item.Presence is
-                JsonWireMemberPresence.Present
-                or JsonWireMemberPresence.Conditional)
+            // Unsupported presence is not absence. Keep the member required
+            // until its owner can authenticate conditionality.
+            .Where(item =>
+                item.Presence != JsonWireMemberPresence.Absent)
             .ToArray();
 
         foreach ((
