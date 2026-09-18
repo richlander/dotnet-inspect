@@ -701,10 +701,11 @@ function validateFindingEvidence(
     const fact = callerDocument.facts[evidence.factId];
     if (!fact
       || fact.origin !== "Body"
-      || (fact.descriptor !== "semantics.callee"
+      || (fact.descriptor !== "cost.callee"
+        && fact.descriptor !== "semantics.callee"
         && fact.descriptor !== "safety.callee")) {
       throw new TypeError(
-        `Annotated Source Finding evidence ${index} does not name an instruction-level callee Finding.`);
+        `Annotated Source Finding evidence ${index} does not name a callee Finding.`);
     }
     if (!nonEmptyString(evidence.member)) {
       throw new TypeError(
@@ -712,7 +713,8 @@ function validateFindingEvidence(
     }
     validateCallGraphTarget(evidence.target, `Finding evidence ${index}`);
     validateCalleeEvidenceTarget(evidence.target, index);
-    if (!isEvidenceCoordinates(evidence.coordinates)
+    if (!Array.isArray(evidence.aggregateInputs)
+      || !isEvidenceCoordinates(evidence.coordinates)
       || !isEvidenceNodeIds(evidence.nodeIds)
       || new Set(evidence.nodeIds).size !== evidence.nodeIds.length) {
       throw new TypeError(
@@ -733,47 +735,70 @@ function validateFindingEvidence(
     }
 
     const unavailable = nonEmptyString(evidence.unavailableReason);
-    if (unavailable) {
-      if (evidence.nodeIds.length > 0) {
+    if (fact.descriptor === "cost.callee") {
+      if (evidence.state !== "Method"
+        || evidence.coordinates.length !== 0
+        || evidence.documentId !== null
+        || evidenceDocument !== null
+        || evidence.nodeIds.length !== 0
+        || evidence.unavailableReason !== null
+        || !isCostAggregateInputs(evidence.aggregateInputs)) {
         throw new TypeError(
-          `Unavailable Annotated Source Finding evidence ${index} cannot carry node ids.`);
+          `Method-level Annotated Source Finding evidence ${index} carries an instruction projection or invalid aggregate inputs.`);
       }
-      if (evidenceDocument !== null) {
-        if (evidence.coordinates.length === 0) {
+    } else {
+      if ((evidence.state !== "Instruction"
+          && evidence.state !== "InstructionUnavailable")
+        || evidence.aggregateInputs.length !== 0
+        || (evidence.state === "Instruction"
+          && evidence.coordinates.length === 0)
+        || (evidence.state === "InstructionUnavailable"
+          && (evidence.coordinates.length !== 0 || !unavailable))) {
+        throw new TypeError(
+          `Instruction-level Annotated Source Finding evidence ${index} carries an invalid evidence state.`);
+      }
+      if (unavailable) {
+        if (evidence.nodeIds.length > 0) {
           throw new TypeError(
-            `Unavailable Annotated Source Finding evidence ${index} cannot carry a document without coordinates.`);
+            `Unavailable Annotated Source Finding evidence ${index} cannot carry node ids.`);
+        }
+        if (evidenceDocument !== null) {
+          if (evidence.coordinates.length === 0) {
+            throw new TypeError(
+              `Unavailable Annotated Source Finding evidence ${index} cannot carry a document without coordinates.`);
+          }
+          const correspondence = findEvidenceNodeIds(
+            evidenceDocument,
+            evidence.coordinates,
+            index,
+          );
+          if (correspondence.failure === null) {
+            throw new TypeError(
+              `Annotated Source Finding evidence ${index} is unavailable despite exact serialized correspondence.`);
+          }
+        }
+      } else {
+        if (evidenceDocument === null
+          || evidence.coordinates.length === 0
+          || evidence.nodeIds.length === 0) {
+          throw new TypeError(
+            `Available Annotated Source Finding evidence ${index} requires a document, coordinates, and node ids.`);
         }
         const correspondence = findEvidenceNodeIds(
           evidenceDocument,
           evidence.coordinates,
           index,
         );
-        if (correspondence.failure === null) {
-          throw new TypeError(
-            `Annotated Source Finding evidence ${index} is unavailable despite exact serialized correspondence.`);
+        if (correspondence.failure !== null) {
+          throw new TypeError(correspondence.failure);
         }
-      }
-    } else {
-      if (evidenceDocument === null
-        || evidence.coordinates.length === 0
-        || evidence.nodeIds.length === 0) {
-        throw new TypeError(
-          `Available Annotated Source Finding evidence ${index} requires a document, coordinates, and node ids.`);
-      }
-      const correspondence = findEvidenceNodeIds(
-        evidenceDocument,
-        evidence.coordinates,
-        index,
-      );
-      if (correspondence.failure !== null) {
-        throw new TypeError(correspondence.failure);
-      }
-      const expectedNodeIds = correspondence.nodeIds;
-      if (evidence.nodeIds.length !== expectedNodeIds.length
-        || evidence.nodeIds.some((nodeId, nodeIndex) =>
-          nodeId !== expectedNodeIds[nodeIndex])) {
-        throw new TypeError(
-          `Annotated Source Finding evidence ${index} node ids do not equal its exact coordinate matches.`);
+        const expectedNodeIds = correspondence.nodeIds;
+        if (evidence.nodeIds.length !== expectedNodeIds.length
+          || evidence.nodeIds.some((nodeId, nodeIndex) =>
+            nodeId !== expectedNodeIds[nodeIndex])) {
+          throw new TypeError(
+            `Annotated Source Finding evidence ${index} node ids do not equal its exact coordinate matches.`);
+        }
       }
     }
     factIds.add(evidence.factId);
@@ -787,12 +812,13 @@ function validateFindingEvidence(
     const eligibleFactIds = callerDocument.facts
       .filter(fact =>
         fact.origin === "Body"
-        && (fact.descriptor === "semantics.callee"
+        && (fact.descriptor === "cost.callee"
+          || fact.descriptor === "semantics.callee"
           || fact.descriptor === "safety.callee"))
       .map(fact => fact.id);
     if (eligibleFactIds.some(factId => !factIds.has(factId))) {
       throw new TypeError(
-        "Annotated Source Finding evidence does not cover every instruction-level callee Finding.");
+        "Annotated Source Finding evidence does not cover every callee Finding.");
     }
   }
   if (evidenceDocuments.some(entry => !referencedDocumentIds.has(entry.id))) {
@@ -876,6 +902,42 @@ function isEvidenceNodeIds(value: unknown): value is readonly number[] {
     Number.isSafeInteger(nodeId)
       && typeof nodeId === "number"
       && nodeId >= 0);
+}
+
+function isCostAggregateInputs(
+  value: unknown,
+): value is AnnotatedSourceFindingEvidence["aggregateInputs"] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const order = [
+    "AllocationInLoop",
+    "Reflection",
+    "CallInLoop",
+    "RootReach",
+    "DirectCallers",
+    "LoopCalls",
+  ];
+  let previous = -1;
+  return value.every(input => {
+    if (typeof input !== "object"
+      || input === null
+      || Array.isArray(input)) {
+      return false;
+    }
+    const kind: unknown = Reflect.get(input, "kind");
+    const inputValue: unknown = Reflect.get(input, "value");
+    const position = typeof kind === "string" ? order.indexOf(kind) : -1;
+    if (position <= previous) return false;
+    previous = position;
+    const counted = kind === "Reflection"
+      || kind === "RootReach"
+      || kind === "DirectCallers"
+      || kind === "LoopCalls";
+    return counted
+      ? typeof inputValue === "number"
+        && Number.isSafeInteger(inputValue)
+        && inputValue > 0
+      : inputValue === null;
+  });
 }
 
 function evidenceNodeKind(
