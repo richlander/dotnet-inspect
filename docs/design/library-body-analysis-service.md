@@ -16,10 +16,13 @@ only public result shape.
 The first typed-result migration breaks that compatibility pattern.
 `LibraryBodyAnalysisExecution` associates one receipt with independently named
 `LibrarySafetyAnalysisResult` and
-`LibraryImplementationProfileAnalysisResult` values. The Library Unsafe
-Evidence and Implementation Profiles queries consume those focused types
-directly. One service invocation may still coordinate several producers over
-one body acquisition; that does not make their answers one semantic type.
+`LibraryImplementationProfileAnalysisResult` values. The second adds
+`LibraryOptimizationAnalysisResult`, which owns completed optimization
+opportunities, opt-in lazy allocation fanout, and generated-framework type
+identities. The Library Unsafe Evidence, Implementation Profiles, and
+Optimization Opportunities queries consume those focused types directly. One
+service invocation may still coordinate several producers over one body
+acquisition; that does not make their answers one semantic type.
 
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
@@ -164,7 +167,7 @@ shared semantic input.
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
-| 2 | Library Optimization Opportunities section | Optimization result including its explicitly required allocation and leverage inputs or completed owner-issued projections |
+| 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and call-graph sections | Focused leverage and local call-graph results after their current index-local derivations receive an owner |
 | 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
@@ -181,16 +184,23 @@ Every slice:
 6. gates unchanged section output, diagnostics, cost declaration, and
    single-acquisition behavior.
 
-The first implementation slice should migrate both Unsafe Evidence and
-Implementation Profiles because they already project cohesive internal result
-families and exercise the library section system directly. It must not first
-publish unused public result types.
+The first implementation slice migrated both Unsafe Evidence and
+Implementation Profiles because they already projected cohesive internal
+result families and exercised the library section system directly. The second
+slice moves optimization completion from the index into
+`LibraryOptimizationAnalysisResult`. That result retains the exact
+allocation, call, declared-method, suppression, exception-type, and module-name
+inputs needed to complete opportunities. It publishes completed detached rows
+rather than exposing those inputs to the query. Allocation fanout remains lazy
+until the query's existing opt-in selects it. The compatibility index delegates
+its optimization members to the same focused result instead of maintaining a
+second implementation.
 
-`OptimizationOpportunities`, `TopLeverage`, call trees, and other methods that
-currently compute derived answers on `LibraryBodyIndex` move only after their
-focused owner identifies the exact inputs and result. Resource Triage follows
-issues #6730 and #6731 so the new ownership path reaches a section without
-returning through the old index shape.
+`TopLeverage`, call trees, and other methods that still compute derived answers
+on `LibraryBodyIndex` move only after their focused owner identifies the exact
+inputs and result. Resource Triage follows issues #6730 and #6731 so the new
+ownership path reaches a section without returning through the old index
+shape.
 
 Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
 Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
@@ -199,33 +209,28 @@ result, or type-keyed result bag lands for hypothetical later adoption.
 
 ## Demo
 
-The production query changes from evidence constructing itself:
+The Optimization Opportunities production query changes from accepting the
+compatibility index:
 
 ```csharp
-LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
-    sourceName,
-    snapshot.Content,
-    LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-    resolver);
+OptimizationOpportunitiesResult result =
+    OptimizationOpportunitiesQuery.Execute(
+        context.BodyIndex(),
+        includeAllocationFanout);
 ```
 
-to explicit execution:
+to accepting the owner-issued focused result from the shared execution:
 
 ```csharp
-LibraryBodyAnalysisRequest request =
-    LibraryBodyAnalysisRequest.Create(
-        LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-LibraryBodyIndex compatibilityIndex =
-    LibraryBodyAnalysisService.AnalyzeImage(
-        sourceName,
-        snapshot.Content,
-        request,
-        resolver);
+LibraryOptimizationAnalysisResult optimization =
+    context.BodyAnalysis().Optimization;
+OptimizationOpportunitiesResult result =
+    OptimizationOpportunitiesQuery.Execute(
+        optimization,
+        includeAllocationFanout);
 ```
 
-The existing call remains a compatibility stage. A migrated section instead
-asks its query context for the service execution and passes the focused result
-to its typed query:
+Other migrated sections use the same pattern:
 
 ```csharp
 LibrarySafetyAnalysisResult safety = context.BodyAnalysis().Safety;
@@ -287,10 +292,13 @@ Each result-type migration additionally gates:
 - no public result type lands without its adopting production section or
   query.
 
-The first migration is gated by
+The typed migrations are gated by
 `LibraryBodyAnalysisExecutionTests`,
 `ImplementationProfilesQueryTests`,
+`OptimizationOpportunitiesQueryTests`,
 `UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
+`OptimizationOpportunitiesQuery_UsesFocusedBodyAnalysis`,
+`OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn`,
 `ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
 `MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`.
 
