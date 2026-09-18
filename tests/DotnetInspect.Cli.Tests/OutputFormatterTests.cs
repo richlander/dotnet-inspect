@@ -3464,6 +3464,55 @@ public class OutputFormatterTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task MultiAssemblyReport_TsvHeaderFollowsFirstEmittedTable()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        inspections[0].FileName = "First.dll";
+        inspections[1].FileName = "Second.dll";
+        inspections[1].EcosystemIntegrationInspection =
+            MetadataFindings.InspectEcosystemIntegrations(
+                [
+                    new EcosystemIntegrationSignalInfo(
+                        EcosystemIntegrationNames.AspNetCore,
+                        "Middleware",
+                        "Test.UseMiddleware")
+                ],
+                FindingTestData.Subject);
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Integrations"],
+            Format = OutputFormat.Tsv,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(error);
+        string[] lines =
+            output.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            "library\tintegration\tkind\tshape\tsymbol",
+            lines[0]);
+        Assert.Single(
+            lines,
+            line => line.StartsWith(
+                "library\t",
+                StringComparison.Ordinal));
+        Assert.StartsWith(
+            "Second.dll\t",
+            lines[1],
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("markdown")]
     [InlineData("plaintext")]

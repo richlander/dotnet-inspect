@@ -919,12 +919,14 @@ public static class OutputFormatter
                 }
                 else
                 {
-                    for (int index = 0;
-                        index < inspections.Count;
-                        index++)
+                    CountingTextWriter? tsvOutput =
+                        options.Tsv
+                            ? new CountingTextWriter(output)
+                            : null;
+                    TextWriter tableOutput = tsvOutput ?? output;
+                    bool tsvTableWritten = false;
+                    foreach (LibraryInspection inspection in inspections)
                     {
-                        LibraryInspection inspection =
-                            inspections[index];
                         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                         var writerOpts = WriterOptions(inspection);
                         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
@@ -933,11 +935,16 @@ public static class OutputFormatter
                             inspection,
                             writerOpts,
                             options,
-                            output,
+                            tableOutput,
                             inspection.FileName,
                             showHeader:
                                 !options.NoHeader
-                                && (!options.Tsv || index == 0));
+                                && (!options.Tsv || !tsvTableWritten));
+                        if (tsvOutput is not null
+                            && tsvOutput.CharCount > 0)
+                        {
+                            tsvTableWritten = true;
+                        }
                     }
                 }
             });
