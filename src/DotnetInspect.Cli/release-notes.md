@@ -2,14 +2,12 @@
 
 ## Unreleased
 
-- **Breaking:** Package-backed `library` inspection and Package Library-section
-  queries now default to every compatible compile Library in the selected TFM.
-  Use `--namesake-library` to narrow by managed assembly identity or
-  `--library <asset>` for an exact compile asset; `--tfm all` applies narrowing
-  independently and renders separate framework aggregates. Flattened aggregate
-  rows retain producer-Library identity, while scalar and exact-assembly
-  operations require narrowing. `--all-libraries` is removed with replacement
-  guidance (#7430).
+- Adds complete service `--envelope` output to `package activity` with result
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
+  emits the same owner-issued report Content without the service frame.
+  Report request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
 - **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
   `@Integrations` categories, category-first alphabetical discovery, and
   alphabetical multi-section output. Replace the former unprefixed
