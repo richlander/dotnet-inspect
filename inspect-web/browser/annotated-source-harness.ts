@@ -122,6 +122,23 @@ const calleeTarget = {
   platformPack: null,
   surfaceAssemblyId: "compile:ref/net10.0/System.Text.Json.dll",
 } as const;
+const costCalleeTarget = {
+  ...calleeTarget,
+  id: "method:ResearchProjectionProbe.AllocationInLoop",
+  assembly: "DotnetInspector.Queries.Tests",
+  assemblyVersion: "1.0.0.0",
+  assemblyPublicKeyToken: null,
+  typeFullName: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  typeMetadataId: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  typeDefinitionId: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  memberName: "AllocationInLoop",
+  parameterTypes: ["System.Int32"],
+  returnType: "System.Int32",
+  metadataToken: 0x06000124,
+  selectorKey: "method:AllocationInLoop",
+  surfaceAssemblyId:
+    "compile:lib/net11.0/DotnetInspector.Queries.Tests.dll",
+} as const;
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
   nodes: [
@@ -186,6 +203,15 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
       source_offset: 1,
       origin: "Body",
     },
+    {
+      id: 8,
+      descriptor: "cost.callee",
+      category: "Cost",
+      conditionality: "Always",
+      detail: "callee AllocationInLoop: alloc-loop",
+      source_offset: 1,
+      origin: "Body",
+    },
   ],
   targets: [
     ...sampleDocument.targets,
@@ -194,6 +220,7 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
     { fact_id: 5, node_id: 1 },
     { fact_id: 6, node_id: 1 },
     { fact_id: 7, node_id: 1 },
+    { fact_id: 8, node_id: 1 },
   ],
 };
 const result: AnnotatedSourceResult = {
@@ -242,6 +269,8 @@ const result: AnnotatedSourceResult = {
     instanceKey: 61,
     member: "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
     target: calleeTarget,
+    state: "Instruction",
+    aggregateInputs: [],
     coordinates: [{
       ilOffset: 18,
       kind: "Localloc",
@@ -254,12 +283,29 @@ const result: AnnotatedSourceResult = {
     instanceKey: 62,
     member: "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
     target: calleeTarget,
+    state: "Instruction",
+    aggregateInputs: [],
     coordinates: [{
       ilOffset: 24,
       kind: "Localloc",
     }],
     documentId: 0,
     nodeIds: [1],
+    unavailableReason: null,
+  }, {
+    factId: 8,
+    instanceKey: 63,
+    member:
+      "DotnetInspector.Queries.Tests.ResearchProjectionProbe.AllocationInLoop(int)",
+    target: costCalleeTarget,
+    state: "Method",
+    aggregateInputs: [{
+      kind: "AllocationInLoop",
+      value: null,
+    }],
+    coordinates: [],
+    documentId: null,
+    nodeIds: [],
     unavailableReason: null,
   }],
   provenance: inertString("browser-gate product fixture"),
