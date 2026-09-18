@@ -29,6 +29,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
+        IReadOnlyList<string>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -42,6 +43,7 @@ public sealed record PackageInfoMeasurements
             compressedPackageBytes,
             selectedTargetFramework,
             availableTargetFrameworkCount,
+            selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
             selectedLibraryCount,
             detail,
@@ -59,6 +61,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
+        IReadOnlyList<string>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -83,6 +86,7 @@ public sealed record PackageInfoMeasurements
             compressedPackageBytes,
             selectedTargetFramework,
             availableTargetFrameworkCount,
+            selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
             selectedLibraryCount,
             detail,
@@ -94,6 +98,8 @@ public sealed record PackageInfoMeasurements
         CompressedPackageBytes = compressedPackageBytes;
         SelectedTargetFramework = selectedTargetFramework;
         AvailableTargetFrameworkCount = availableTargetFrameworkCount;
+        SelectedTargetFrameworkFolders =
+            selectedTargetFrameworkFolders?.ToArray();
         SelectedLibraryPayloadBytes = selectedLibraryPayloadBytes;
         SelectedLibraryCount = selectedLibraryCount;
         Detail = detail;
@@ -105,6 +111,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
+        IReadOnlyList<string>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -115,6 +122,12 @@ public sealed record PackageInfoMeasurements
             compressedPackageBytes.HasValue
             && !string.IsNullOrWhiteSpace(selectedTargetFramework)
             && availableTargetFrameworkCount.HasValue
+            && selectedTargetFrameworkFolders is not null
+            && selectedTargetFrameworkFolders.All(
+                static folder => !string.IsNullOrWhiteSpace(folder))
+            && selectedTargetFrameworkFolders
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == selectedTargetFrameworkFolders.Count
             && selectedLibraryPayloadBytes.HasValue
             && selectedLibraryCount.HasValue
             && detail is null
@@ -134,6 +147,7 @@ public sealed record PackageInfoMeasurements
         }
 
         if (selectedTargetFramework is not null
+            || selectedTargetFrameworkFolders is not null
             || selectedLibraryPayloadBytes is not null
             || selectedLibraryCount is not null
             || detail is null)
@@ -179,6 +193,8 @@ public sealed record PackageInfoMeasurements
     public string? SelectedTargetFramework { get; }
 
     public int? AvailableTargetFrameworkCount { get; }
+
+    public IReadOnlyList<string>? SelectedTargetFrameworkFolders { get; }
 
     public long? SelectedLibraryPayloadBytes { get; }
 
@@ -295,6 +311,7 @@ public static class PackageInfoMeasurementInspection
                     compressedPackageBytes: null,
                     selectedTargetFramework: null,
                     availableTargetFrameworkCount: null,
+                    selectedTargetFrameworkFolders: null,
                     selectedLibraryPayloadBytes: null,
                     selectedLibraryCount: null,
                     ResultReason(outcome.Result),
@@ -307,6 +324,7 @@ public static class PackageInfoMeasurementInspection
                     selectedTargetFramework: null,
                     unavailable.PackageMeasurements
                         ?.AvailableTargetFrameworkCount,
+                    selectedTargetFrameworkFolders: null,
                     selectedLibraryPayloadBytes: null,
                     selectedLibraryCount: null,
                     UnavailableDetail(unavailable),
@@ -325,6 +343,7 @@ public static class PackageInfoMeasurementInspection
             measurements.CompressedPackageBytes,
             measurements.SelectedTargetFramework,
             measurements.AvailableTargetFrameworkCount,
+            measurements.SelectedTargetFrameworkFolders,
             measurements.SelectedLibraryPayloadBytes,
             measurements.SelectedLibraryCount,
             detail: null,
@@ -341,6 +360,7 @@ public static class PackageInfoMeasurementInspection
             measurements.CompressedPackageBytes,
             selectedTargetFramework: null,
             measurements.AvailableTargetFrameworkCount,
+            selectedTargetFrameworkFolders: null,
             selectedLibraryPayloadBytes: null,
             selectedLibraryCount: null,
             detail,

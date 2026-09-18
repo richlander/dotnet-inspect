@@ -14,6 +14,7 @@ public sealed partial class PackageHouseExecutionTests
     {
         byte[] archive = TestPackageArchive.CreateWithContent(
             ($"lib/net10.0/{MaterializedPackageId}.dll", new byte[13]),
+            ("build/net10.0/Package.targets", new byte[3]),
             ("lib/net8.0/Legacy.dll", new byte[17]));
         var content = new InMemoryPackageContent(
             archive,
@@ -39,6 +40,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["build", "lib"],
+            measurements.SelectedTargetFrameworkFolders);
         Assert.Equal(13, measurements.SelectedLibraryPayloadBytes);
         Assert.Equal(1, measurements.SelectedLibraryCount);
         Assert.Same(
@@ -54,6 +58,10 @@ public sealed partial class PackageHouseExecutionTests
             envelope,
             PackageInfoMeasurementJsonContext.Default
                 .InspectionEnvelopePackageInfoMeasurements);
+        Assert.Contains(
+            "\"selectedTargetFrameworkFolders\":[\"build\",\"lib\"]",
+            json,
+            StringComparison.Ordinal);
         InspectionEnvelope<PackageInfoMeasurements> roundTripped =
             JsonSerializer.Deserialize(
                 json,
@@ -63,6 +71,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             measurements.SelectedLibraryPayloadBytes,
             roundTripped.Content.SelectedLibraryPayloadBytes);
+        Assert.Equal(
+            measurements.SelectedTargetFrameworkFolders,
+            roundTripped.Content.SelectedTargetFrameworkFolders);
         Assert.Null(roundTripped.Content.Evidence);
         await environment.AssertRootSettledAsync();
     }
@@ -95,6 +106,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
         Assert.Equal(0, measurements.AvailableTargetFrameworkCount);
         Assert.Null(measurements.SelectedTargetFramework);
+        Assert.Null(measurements.SelectedTargetFrameworkFolders);
         Assert.Null(measurements.SelectedLibraryPayloadBytes);
         Assert.Null(measurements.SelectedLibraryCount);
         Assert.NotNull(measurements.Detail);
@@ -121,6 +133,10 @@ public sealed partial class PackageHouseExecutionTests
             (
                 $"runtimes/linux-x64/lib/net10.0/{MaterializedPackageId}.dll",
                 realImplementation),
+            ("build/net10.0/Package.targets", new byte[2]),
+            ("contentFiles/any/net10.0/readme.txt", new byte[3]),
+            ("custom/net10.0/data.bin", new byte[4]),
+            ("tools/net8.0/tool.dll", new byte[5]),
             ("lib/net8.0/Legacy.dll", new byte[17]));
         var content = new InMemoryPackageContent(
             archive,
@@ -149,6 +165,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
         Assert.Equal(2, measurements.SelectedLibraryCount);
+        Assert.Equal(
+            ["build", "contentFiles", "custom", "lib", "ref", "runtimes"],
+            measurements.SelectedTargetFrameworkFolders);
         Assert.Equal(
             realImplementation.LongLength + 11,
             measurements.SelectedLibraryPayloadBytes);
@@ -213,6 +232,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(2, empty.Measurements.AvailableTargetFrameworkCount);
         Assert.Equal(0, empty.Measurements.SelectedLibraryCount);
         Assert.Equal(0, empty.Measurements.SelectedLibraryPayloadBytes);
+        Assert.Empty(empty.Measurements.SelectedTargetFrameworkFolders);
         Assert.Empty(empty.Measurements.Libraries);
         await environment.AssertRootSettledAsync();
     }

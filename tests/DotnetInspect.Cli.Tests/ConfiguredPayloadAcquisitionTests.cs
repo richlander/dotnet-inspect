@@ -856,6 +856,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
             Assert.Equal("net11.0", measurements.SelectedTargetFramework);
             Assert.Equal(1, measurements.AvailableTargetFrameworkCount);
+            Assert.Equal(
+                ["lib"],
+                measurements.SelectedTargetFrameworkFolders);
             Assert.Equal(library.LongLength, measurements.SelectedLibraryPayloadBytes);
             Assert.Equal(1, measurements.SelectedLibraryCount);
             Assert.Same(
@@ -882,6 +885,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 InspectionContext.Default);
             Assert.Contains("| Package Size (compressed) |", output);
             Assert.Contains("| Selected TFM | net11.0 |", output);
+            Assert.Contains("| Selected-TFM Folders | lib |", output);
             Assert.Contains("| TFM Count | 1 |", output);
             Assert.Contains("| Selected-TFM Size | 17 B |", output);
             Assert.Contains("| Selected-TFM Library Count | 1 |", output);
