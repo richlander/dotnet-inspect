@@ -673,6 +673,17 @@ public sealed class PackageRootAcquisitionTests
                 Token(
                     PackageId,
                     Version,
+                    NuGetCache.GetSourceKey(NuGetOrg.Url),
+                    Framework,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "compatible",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
                     "nuget.org",
                     Framework,
                     null,

@@ -433,6 +433,11 @@ public sealed class PackageRootReacquisitionRequest :
             allowsCompatibleTargetSelection =
                 usesCompatibleImplementationSelection;
         }
+        if (compileTargetFramework is null
+            && allowsCompatibleTargetSelection)
+        {
+            return false;
+        }
 
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
             coordinate,

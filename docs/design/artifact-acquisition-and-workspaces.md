@@ -3344,7 +3344,9 @@ In `PackageRootAcquisitionTests`:
 `Token_RoundTripsExactRequest` additionally gates independent `pkgroot4`
 compatible-selection authorization and observed-use fields plus `pkgroot1`,
 `pkgroot2`, and `pkgroot3` migration. `Token_RejectsMalformedOrNonCanonicalInput`
-rejects an observed compatible-use claim without its authorization.
+rejects an observed compatible-use claim without its authorization and rejects
+compatible authorization without compile and selection targets through the
+decoder's total `false` result.
 
 In `PackageAssemblyContextRealizationTests`,
 `PackageRootBinding_SourceSelectionPreservesCompatibleTargetAuthorization`
@@ -3355,6 +3357,9 @@ authorization retention when exact target selection wins; and
 `CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget` gates
 reacquisition rejection when replacement content changes that prior exact
 selection outcome.
+`CompatibleAmbiguousRequest_RejectsReplacementWithSelectedTarget` gates the
+same rejection when a prior no-unique-target outcome becomes a uniquely
+selected replacement target.
 `PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
 gates the compatible-selection round trip, including token transport and exact
 empty-group preservation.

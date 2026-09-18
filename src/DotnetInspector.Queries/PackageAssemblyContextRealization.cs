@@ -642,18 +642,22 @@ public sealed class PackageRootBinding
                 : exactSelection;
             return new(
                 selection,
-                selectionTargetFramework,
+                selection.TargetFramework
+                    ?? selectionTargetFramework,
                 UsesCompatibleImplementationSelection: true);
         }
 
-        return new(
+        PackageCompileAssetSelection reselected =
             PackageCompileAssetSelector.SelectForCompatibleImplementation(
                 content,
                 packageId,
                 compileTargetFramework,
                 selectionTargetFramework,
-                request.SelectionRuntimeIdentifier),
-            selectionTargetFramework,
+                request.SelectionRuntimeIdentifier);
+        return new(
+            reselected,
+            reselected.TargetFramework
+                ?? selectionTargetFramework,
             UsesCompatibleImplementationSelection: true);
     }
 

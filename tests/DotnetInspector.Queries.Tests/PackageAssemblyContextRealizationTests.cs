@@ -763,6 +763,47 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void
+        CompatibleAmbiguousRequest_RejectsReplacementWithSelectedTarget()
+    {
+        const string packageId = "invalid.compatible.replacement";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, "1.0.0");
+        var initialPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/netcoreapp5.0/Legacy.dll", [0x01]),
+                    ("lib/net5.0/Modern.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootReacquisitionRequest request =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                initialPayload,
+                "net9.0").CreateReacquisitionRequest();
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net6.0/Selected.dll", [0x03])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootRebindingOutcome.Failed failure =
+            Assert.IsType<PackageRootRebindingOutcome.Failed>(
+                PackageRootAcquisition.BindReacquired(
+                    request,
+                    replacementPayload));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failure.Kind);
+    }
+
+    [Fact]
     public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
     {
         PackageSourceCoordinate coordinate =
