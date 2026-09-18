@@ -292,6 +292,30 @@ static class TsTypeMapper
             identityNames,
             unionContext);
 
+    public static string MapJsonWirePresentValueType(
+        string csharpType,
+        IReadOnlySet<string> recordNames,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
+        string? location = null,
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null,
+        ApiTypeShape? typeShape = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames = null,
+        TsJsonUnionMappingContext? unionContext = null) =>
+        Map(
+            csharpType.Trim(),
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases,
+            mappedTypeNames,
+            TsTypeMappingContext.JsonWire,
+            typeShape,
+            identityNames,
+            unionContext,
+            suppressOuterNull: true);
+
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
@@ -303,7 +327,8 @@ static class TsTypeMapper
         ApiTypeShape? typeShape = null,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
             identityNames = null,
-        TsJsonUnionMappingContext? unionContext = null)
+        TsJsonUnionMappingContext? unionContext = null,
+        bool suppressOuterNull = false)
     {
         string trimmed = csharpType.Trim();
 
@@ -324,7 +349,7 @@ static class TsTypeMapper
                 && IsGenericShape(typeShape, "System.Nullable`1")
                     ? GenericArgumentShape(typeShape, 0)
                     : typeShape;
-            return TsJsonUnionMapper.WithNull(Map(
+            string mappedInner = Map(
                 inner,
                 recordNames,
                 diagnostics,
@@ -334,7 +359,11 @@ static class TsTypeMapper
                 mappingContext,
                 nullableInnerShape,
                 identityNames,
-                unionContext));
+                unionContext,
+                suppressOuterNull);
+            return suppressOuterNull
+                ? mappedInner
+                : TsJsonUnionMapper.WithNull(mappedInner);
         }
 
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
@@ -391,7 +420,7 @@ static class TsTypeMapper
                     trimmed);
                 return "unknown";
             }
-            return TsJsonUnionMapper.WithNull(Map(
+            string mappedInner = Map(
                 nullableArg!,
                 recordNames,
                 diagnostics,
@@ -401,7 +430,11 @@ static class TsTypeMapper
                 mappingContext,
                 GenericArgumentShape(typeShape, 0),
                 identityNames,
-                unionContext));
+                unionContext,
+                suppressOuterNull);
+            return suppressOuterNull
+                ? mappedInner
+                : TsJsonUnionMapper.WithNull(mappedInner);
         }
 
         if (TryMapDictionary(
@@ -583,7 +616,10 @@ static class TsTypeMapper
                     trimmed,
                     blockedAliases))
             {
-                return "unknown";
+                return mappingContext == TsTypeMappingContext.JsonWire
+                    && suppressOuterNull
+                    ? "JsonValue"
+                    : "unknown";
             }
             if ((typeShape is
                     {
@@ -630,12 +666,14 @@ static class TsTypeMapper
             return mappedTypeName;
         }
 
-        // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
-        // specific TS shape to recover here, so "unknown" is the deliberately correct mapping
-        // (not a reporting gap the way an unrecognized type like Guid/DateTime/Dictionary is).
+        // JsonElement is an opaque direct-interop value, but an authenticated JSON wire
+        // contract can expose its recursive value domain without admitting undefined.
         if (trimmed is "System.Text.Json.JsonElement" or "JsonElement")
         {
-            return "unknown";
+            return mappingContext == TsTypeMappingContext.JsonWire
+                && suppressOuterNull
+                ? "JsonValue"
+                : "unknown";
         }
 
         // JSObject is an intentionally opaque direct-interop handle. Its members are owned by
