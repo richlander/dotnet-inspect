@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
+using System.IO.Compression;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -534,6 +535,42 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task PackageCommand_MetadataAliasUsesLibraryRouting(
+        string selectorOption)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var alias = await RunAppAsync(
+                "package", packagePath,
+                selectorOption, "Metadata: 0x02",
+                "--tips", "q");
+            var canonical = await RunAppAsync(
+                "package", packagePath,
+                selectorOption, "Metadata: TypeDef",
+                "--tips", "q");
+
+            Assert.Equal(canonical, alias);
+            if (selectorOption == "-S")
+            {
+                Assert.Equal(1, alias.Exit);
+                Assert.Empty(alias.Output);
+            }
+            else
+            {
+                Assert.Equal(0, alias.Exit);
+                Assert.NotEmpty(alias.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_NamesakeRejectsPlatformSource()
     {
@@ -551,6 +588,95 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "--namesake-library cannot be combined with --platform",
             result.Error);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("package")]
+    public async Task NamesakeRejectsMismatchedAcquiredPackageIdentity(
+        string command)
+    {
+        const string Source = "https://package-identity.test/v3/index.json";
+        string requestedId = $"Requested.Package.{Guid.NewGuid():N}";
+        string declaredId = $"Declared.Package.{Guid.NewGuid():N}";
+        string tempDir = Directory.CreateTempSubdirectory(
+            "package-identity-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net8.0");
+        Directory.CreateDirectory(libraryDirectory);
+        WriteReferenceFixtureAssembly(
+            Path.Combine(libraryDirectory, $"{declaredId}.dll"),
+            declaredId);
+        File.WriteAllText(
+            Path.Combine(content, $"{declaredId}.nuspec"),
+            $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>{{declaredId}}</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+              </metadata>
+            </package>
+            """);
+        string archivePath = Path.Combine(tempDir, "package.nupkg");
+        ZipFile.CreateFromDirectory(content, archivePath);
+        byte[] archive = await File.ReadAllBytesAsync(
+            archivePath,
+            TestContext.Current.CancellationToken);
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetPackageSourceHandlerForTesting(
+                _ => new SinglePackageFeedHandler(
+                    Source,
+                    requestedId,
+                    archive));
+        DotnetInspector.Networking.HttpClientFactory
+            .SetAuthenticationDecorator(
+                _ => new SinglePackageFeedHandler(
+                    Source,
+                    requestedId,
+                    archive));
+        try
+        {
+            string[] arguments = command == "library"
+                ? [
+                    "library",
+                    "--package", $"{requestedId}@1.0.0",
+                    "--source", Source,
+                    "--namesake-library",
+                    "-S", "Library Info",
+                ]
+                : [
+                    "package",
+                    $"{requestedId}@1.0.0",
+                    "--source", Source,
+                    "--namesake-library",
+                    "-S", "Library Info",
+                ];
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                requestedId,
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(declaredId, result.Error);
+            Assert.Contains(
+                "content declares package identity",
+                result.Error);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory
+                .SetPackageSourceHandlerForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

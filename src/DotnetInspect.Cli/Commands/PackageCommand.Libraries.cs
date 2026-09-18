@@ -139,6 +139,7 @@ public partial class PackageCommand
             CreateLibraryOptions(
                 options.PackageLibrary,
                 packageReference,
+                isLocalFile ? null : packageName,
                 options));
     }
 
@@ -163,18 +164,43 @@ public partial class PackageCommand
             CreateLibraryOptions(
                 assemblyName: null,
                 packageReference,
+                isLocalFile ? null : packageName,
                 options));
+    }
+
+    internal static (
+        string[]? Select,
+        string[]? Discover,
+        string? Error) NormalizeLibrarySectionAliases(
+            string[]? select,
+            string[]? discover)
+    {
+        var (normalizedSelect, selectError) =
+            LibraryCommand.ResolveTableAliases(select);
+        if (selectError is not null)
+            return (select, discover, selectError);
+
+        var (normalizedDiscover, discoverError) =
+            LibraryCommand.ResolveTableAliases(discover);
+        return discoverError is null
+            ? (normalizedSelect ?? select, normalizedDiscover ?? discover, null)
+            : (select, discover, discoverError);
     }
 
     internal static bool RequestsAggregateLibraryInspection(
         string[]? select,
         string[]? discover)
     {
+        var normalized =
+            NormalizeLibrarySectionAliases(select, discover);
+        if (normalized.Error is not null)
+            return false;
+
         var package =
             PackageSectionDescriptors.CreateCatalog().Sections;
         var library = LibrarySections.CreateCatalog().Sections;
-        return (select ?? [])
-            .Concat(discover ?? [])
+        return (normalized.Select ?? [])
+            .Concat(normalized.Discover ?? [])
             .Any(selector =>
             {
                 SelectResult libraryResult =
@@ -269,6 +295,7 @@ public partial class PackageCommand
     private static LibraryOptions CreateLibraryOptions(
         string? assemblyName,
         string packageReference,
+        string? selectedPackageName,
         InspectionOptions options) =>
         new()
         {
@@ -276,6 +303,7 @@ public partial class PackageCommand
             NamesakeLibrary = options.NamesakeLibrary,
             IncludeMetadata = true,
             PackagePath = packageReference,
+            SelectedPackageName = selectedPackageName,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = options.Tfm,
             TypeFilter = options.TypeFilter,

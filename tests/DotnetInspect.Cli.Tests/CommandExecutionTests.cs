@@ -1794,6 +1794,40 @@ public partial class CommandExecutionTests
         }
     }
 
+    private sealed class SinglePackageFeedHandler(
+        string source,
+        string packageId,
+        byte[] archive) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            string flat =
+                new Uri(new Uri(source), "flat2/").AbsoluteUri;
+            string normalizedId = packageId.ToLowerInvariant();
+            HttpContent content = url switch
+            {
+                _ when url == source => new StringContent($$"""
+                    {"version":"3.0.0","resources":[
+                      {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                    ]}
+                    """),
+                _ when url ==
+                    $"{flat}{normalizedId}/1.0.0/{normalizedId}.1.0.0.nupkg" =>
+                    new ByteArrayContent(archive),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected package request: {url}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+                RequestMessage = request,
+            });
+        }
+    }
+
     public CommandExecutionTests()
     {
         NuGetCache.Initialize("dotnet-inspect");

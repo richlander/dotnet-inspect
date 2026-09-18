@@ -301,6 +301,17 @@ public static class PackageOptionsParser
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
+        var libraryAliases =
+            PackageCommand.NormalizeLibrarySectionAliases(
+                options.Select,
+                options.Discover);
+        if (libraryAliases.Error is not null)
+            return new InvalidArguments(libraryAliases.Error);
+        options = options with
+        {
+            Select = libraryAliases.Select,
+            Discover = libraryAliases.Discover,
+        };
         if (libraryValue is null
             && !namesakeLibrary
             && PackageCommand.RequestsAggregateLibraryInspection(

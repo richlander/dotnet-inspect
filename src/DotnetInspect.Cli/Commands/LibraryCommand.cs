@@ -954,6 +954,7 @@ public class LibraryCommand
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath, options.PackagePath, options.Tfm,
                     options.NamesakeLibrary,
+                    options.SelectedPackageName,
                     options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
                 if (extractResult == null)
                 {
@@ -3637,6 +3638,7 @@ public class LibraryCommand
         string packageSource,
         string? tfm,
         bool namesakeLibrary,
+        string? selectedPackageName,
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
         VerboseLogger logger,
@@ -3667,8 +3669,31 @@ public class LibraryCommand
         string? resolvedPackageName = resolution.PackageName;
         string? resolvedPackageVersion = resolution.Version;
 
+        string? manifestPackageName =
+            NuspecParser.FindAndParse(extractPath)?.PackageName;
+        bool isLocalPackage =
+            packageSource.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase)
+            && File.Exists(packageSource);
+        string? coordinatePackageName =
+            selectedPackageName
+            ?? (isLocalPackage ? null : resolution.PackageName);
+        if (coordinatePackageName is not null
+            && manifestPackageName is not null
+            && !coordinatePackageName.Equals(
+                manifestPackageName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            CommandError.Write(
+                $"Package '{coordinatePackageName}' content declares package "
+                + $"identity '{manifestPackageName}'.");
+            PackageExtractor.Cleanup(tempDir);
+            return null;
+        }
         string packageId =
-            NuspecParser.FindAndParse(extractPath)?.PackageName
+            coordinatePackageName
+            ?? manifestPackageName
             ?? resolution.PackageName
             ?? PackageExtractor.ParsePackageReference(packageSource).name;
         IPackageContent content =
