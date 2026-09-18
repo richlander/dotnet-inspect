@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -137,7 +138,9 @@ public static class InspectionGraphCommandDefinitions
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(command);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: static _ => false);
         command.Options.Add(opts.Tree);
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
@@ -182,6 +185,16 @@ public static class InspectionGraphCommandDefinitions
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Integration graph",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
@@ -215,7 +228,10 @@ public static class InspectionGraphCommandDefinitions
                         opts.IsEmbeddedMermaid(parseResult),
                     Tree = parseResult.GetValue(opts.Tree),
                     Count = parseResult.GetValue(opts.Count),
-                    Rows = opts.ParseRows(parseResult),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions =
@@ -223,6 +239,26 @@ public static class InspectionGraphCommandDefinitions
                 },
                 cancellationToken);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return command;
     }
