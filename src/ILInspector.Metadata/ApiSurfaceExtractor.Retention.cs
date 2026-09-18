@@ -28,6 +28,21 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, type.BaseTypeReference?.Assembly);
         AddText(ref count, type.BaseTypeReference?.FullName);
         AddText(ref count, type.BaseTypeReference?.DefinitionName);
+        AddText(
+            ref count,
+            type.JsonPolymorphism?.TypeDiscriminatorPropertyName);
+        AddText(ref count, type.JsonPolymorphism?.UnsupportedReason);
+        if (type.JsonPolymorphism is { } polymorphism)
+        {
+            foreach (ApiJsonDerivedType derivedType
+                in polymorphism.DerivedTypes)
+            {
+                AddText(ref count, derivedType.Type.Assembly);
+                AddText(ref count, derivedType.Type.FullName);
+                AddText(ref count, derivedType.Type.DefinitionName);
+                AddText(ref count, derivedType.TypeDiscriminator);
+            }
+        }
         if (type.MemorySafety is { } memorySafety)
         {
             foreach (var observation in memorySafety.Rules.Observations)
