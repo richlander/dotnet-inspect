@@ -27,6 +27,8 @@ public enum PdbMemberSourceOutcome
     InvalidSequencePointCoordinates,
     SourceExtractionFailed,
     InspectionFailed,
+    SourceDeadlineExceeded,
+    SourceLimitExceeded,
 }
 
 public sealed record PdbMemberSourceInspection(
