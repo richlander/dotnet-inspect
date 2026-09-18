@@ -3012,6 +3012,111 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields()
+    {
+        var (token, offset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{token:X8}+0x{offset:X}",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Instruction",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Operand Token | field |", output);
+            Assert.DoesNotContain("| Branch Targets | field |", output);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields()
+    {
+        var (syncToken, syncOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (asyncToken, asyncOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AsyncVirtualDispatch),
+            ILOpCode.Call);
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{syncToken:X8}+0x{syncOffset:X}",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Member",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain("| Async | field |", singleOutput);
+
+            await File.AppendAllTextAsync(
+                coordinatePath,
+                $"{Environment.NewLine}0x{asyncToken:X8}+0x{asyncOffset:X}",
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Member",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains("| Async | field |", unionOutput);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCoordinateCommand_FileRendersCoordinateSummary()
     {
         var (token, callOffset) = FindIlCoordinate(

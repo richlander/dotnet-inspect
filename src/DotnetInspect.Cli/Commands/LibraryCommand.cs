@@ -2319,6 +2319,22 @@ public class LibraryCommand
         List<ILOffsetProjection> projections)
     {
         ILOffsetProjection first = projections[0];
+        ILOffsetMemberContext[] members =
+            [.. projections
+                .Select(projection => projection.MemberContext)
+                .OfType<ILOffsetMemberContext>()];
+        ILOffsetInstructionContext[] instructions =
+            [.. projections
+                .Select(projection => projection.InstructionContext)
+                .OfType<ILOffsetInstructionContext>()];
+        ILOffsetCallsiteContext[] callsites =
+            [.. projections
+                .Select(projection => projection.CallsiteContext)
+                .OfType<ILOffsetCallsiteContext>()];
+        ILOffsetReturnAddressContext[] returnAddresses =
+            [.. projections
+                .Select(projection => projection.ReturnAddressContext)
+                .OfType<ILOffsetReturnAddressContext>()];
         List<ILOffsetExceptionContext> exceptions =
             projections
                 .SelectMany(projection =>
@@ -2364,24 +2380,116 @@ public class LibraryCommand
             SourceChecksumAlgorithm = projections
                 .Select(projection => projection.SourceChecksumAlgorithm)
                 .FirstOrDefault(value => value is not null),
-            MemberContext = projections
-                .Select(projection => projection.MemberContext)
-                .FirstOrDefault(value => value is not null),
-            InstructionContext = projections
-                .Select(projection => projection.InstructionContext)
-                .FirstOrDefault(value => value is not null),
+            MemberContext = MergeMemberContextsForDiscovery(members),
+            InstructionContext = MergeInstructionContextsForDiscovery(instructions),
             ExceptionContext = exceptions.Count == 0 ? null : exceptions,
-            CallsiteContext = projections
-                .Select(projection => projection.CallsiteContext)
-                .FirstOrDefault(value => value is not null),
-            ReturnAddressContext = projections
-                .Select(projection => projection.ReturnAddressContext)
-                .FirstOrDefault(value => value is not null),
+            CallsiteContext = MergeCallsiteContextsForDiscovery(callsites),
+            ReturnAddressContext =
+                MergeReturnAddressContextsForDiscovery(returnAddresses),
             AllocationContext = allocations.Count == 0 ? null : allocations,
             SafetyContext = safety.Count == 0 ? null : safety,
             CostContext = costs.Count == 0 ? null : costs,
         };
     }
+
+    private static ILOffsetMemberContext? MergeMemberContextsForDiscovery(
+        ILOffsetMemberContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetMemberContext
+            {
+                Assembly = FirstPresentReference(contexts, context => context.Assembly),
+                Type = FirstPresentReference(contexts, context => context.Type),
+                TypeKind = FirstPresentReference(contexts, context => context.TypeKind),
+                Member = FirstPresentReference(contexts, context => context.Member),
+                Signature = FirstPresentReference(contexts, context => context.Signature),
+                MemberKind = FirstPresentReference(contexts, context => context.MemberKind),
+                Visibility = FirstPresentReference(contexts, context => context.Visibility),
+                Static = FirstPresentReference(contexts, context => context.Static),
+                Async = FirstPresentReference(contexts, context => context.Async),
+                MetadataToken = FirstPresentReference(
+                    contexts,
+                    context => context.MetadataToken),
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset)
+            };
+
+    private static ILOffsetInstructionContext? MergeInstructionContextsForDiscovery(
+        ILOffsetInstructionContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetInstructionContext
+            {
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset),
+                Boundary = FirstPresentReference(contexts, context => context.Boundary),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                OperandKind = FirstPresentReference(
+                    contexts,
+                    context => context.OperandKind),
+                Operand = FirstPresentReference(contexts, context => context.Operand),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken),
+                BranchTargets = FirstPresentReference(
+                    contexts,
+                    context => context.BranchTargets),
+                NextOffset = FirstPresentReference(contexts, context => context.NextOffset),
+                Length = FirstPresentValue(contexts, context => context.Length),
+                Block = FirstPresentValue(contexts, context => context.Block),
+                TerminatesBlock =
+                    FirstPresentReference(contexts, context => context.TerminatesBlock),
+                FallsThrough =
+                    FirstPresentReference(contexts, context => context.FallsThrough)
+            };
+
+    private static ILOffsetCallsiteContext? MergeCallsiteContextsForDiscovery(
+        ILOffsetCallsiteContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetCallsiteContext
+            {
+                CallOffset = FirstPresentReference(contexts, context => context.CallOffset),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                CallKind = FirstPresentReference(contexts, context => context.CallKind),
+                Callee = FirstPresentReference(contexts, context => context.Callee),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken),
+                ReturnAddress = FirstPresentReference(
+                    contexts,
+                    context => context.ReturnAddress)
+            };
+
+    private static ILOffsetReturnAddressContext? MergeReturnAddressContextsForDiscovery(
+        ILOffsetReturnAddressContext[] contexts)
+        => contexts.Length == 0
+            ? null
+            : new ILOffsetReturnAddressContext
+            {
+                ILOffset = FirstPresentReference(contexts, context => context.ILOffset),
+                CallOffset = FirstPresentReference(contexts, context => context.CallOffset),
+                Opcode = FirstPresentReference(contexts, context => context.Opcode),
+                CallKind = FirstPresentReference(contexts, context => context.CallKind),
+                Callee = FirstPresentReference(contexts, context => context.Callee),
+                OperandToken = FirstPresentReference(
+                    contexts,
+                    context => context.OperandToken)
+            };
+
+    private static T? FirstPresentReference<TContext, T>(
+        IEnumerable<TContext> contexts,
+        Func<TContext, T?> selector)
+        where T : class
+        => contexts
+            .Select(selector)
+            .FirstOrDefault(value => value is not null);
+
+    private static T? FirstPresentValue<TContext, T>(
+        IEnumerable<TContext> contexts,
+        Func<TContext, T?> selector)
+        where T : struct
+        => contexts
+            .Select(selector)
+            .FirstOrDefault(value => value is not null);
 
     private static bool ValidateLibraryPrintSelection(HashSet<string>? sections)
     {
@@ -3307,7 +3415,7 @@ public class LibraryCommand
         var filteredSections = new HashSet<string>(
             targetSections.Where(name =>
                 string.Equals(name, LibrarySections.LibraryInfo.Name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, SectionNames.MemberContext, StringComparison.OrdinalIgnoreCase)),
+                || ILCoordinateSections.Contains(name, StringComparer.OrdinalIgnoreCase)),
             StringComparer.OrdinalIgnoreCase);
         if (filteredSections.Count == 0)
             return schema;

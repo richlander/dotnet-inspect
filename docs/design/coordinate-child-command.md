@@ -171,7 +171,9 @@ selection.
 
 Effective discovery materializes the admitted population and reports the union
 of coordinate-scoped evidence available across its resolved records. It still
-returns discovery shape rather than the coordinate-result rows.
+returns discovery shape rather than the coordinate-result rows. Field
+availability uses the same union rule: a field is listed when any resolved
+record renders it, and omitted when every resolved record leaves it empty.
 
 Exact and file modes are mutually exclusive. File bounds, accepted coordinate
 families, normalization, ordering, failures, and output schema remain with
@@ -218,7 +220,10 @@ Release CLI gates cover:
   `LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery` for the
   materializing effective-discovery boundary and discovery-shaped result; and
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
-  for population-wide evidence availability.
+  for population-wide evidence availability; and
+- `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields` and
+  `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields` for
+  population-wide field presence across list and scalar contexts.
 
 ## Other candidate surfaces
 
