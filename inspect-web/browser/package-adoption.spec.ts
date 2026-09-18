@@ -126,6 +126,9 @@ const healthyAssembly = locateFixtureAssembly(
 const brokenReferenceAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL",
 );
+const literalAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL",
+);
 const libraryDiffV1Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL",
 );
@@ -215,6 +218,14 @@ const joinCoordinate: FixtureCoordinate = {
   version,
   archive: healthyArchive,
 };
+const literalCoordinate: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.Literals",
+  version,
+  archive: healthyNupkg(
+    literalAssembly,
+    "ILInspector.Analysis.Fixtures.dll",
+  ),
+};
 const scopeCoordinates: readonly FixtureCoordinate[] = Array.from(
   { length: 5 },
   (_unused, index) => ({
@@ -283,6 +294,7 @@ const allFixtures: readonly FixtureCoordinate[] = [
   occurrenceOne,
   occurrenceTwo,
   joinCoordinate,
+  literalCoordinate,
   references,
   manifestOnly,
   libraryDiffV1,
@@ -775,6 +787,156 @@ function deferred<T>(): Deferred<T> {
 }
 
 test.describe("Package Query website over real Wasm", () => {
+  test("qualifies package Results by decoded library literal and opens the exact Root", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([literalCoordinate]);
+    await installGalleryRoutes(context, registry);
+
+    await page.goto("/query");
+    const packageInput = page.locator("#package-query-prefix");
+    await expect(packageInput).toBeVisible({ timeout: 120_000 });
+    await packageInput.fill(literalCoordinate.packageId);
+    await page.locator(".query-library-literal summary").click();
+    const literal = page.locator("#package-query-library-literal");
+    await literal.fill("tail");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.setSelectionRange(0, 0);
+    });
+    await page.keyboard.type("head");
+    await expect(literal).toHaveValue("headtail");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.value = "n";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "n",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.value = "に";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "に",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.value = "日本";
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: "日本",
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.dispatchEvent(new CompositionEvent("compositionend", {
+        bubbles: true,
+        data: "日本",
+      }));
+    });
+    await expect(literal).toHaveValue("日本");
+    await page.locator("#package-query-run").click();
+    await expect(literal).toBeVisible();
+    await expect(literal).toHaveValue("日本");
+    await literal.fill("abcdef");
+    await literal.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Library literal editor is missing.");
+      }
+      element.setSelectionRange(3, 6, "backward");
+    });
+    await page.locator(".query-main").evaluate(element =>
+      element.dispatchEvent(new Event("scroll")));
+    await expect.poll(() => literal.evaluate(element =>
+      element instanceof HTMLTextAreaElement
+        ? element.selectionDirection
+        : null)).toBe("backward");
+    await literal.press("Shift+ArrowLeft");
+    await page.keyboard.type("X");
+    await expect(literal).toHaveValue("abX");
+    await literal.fill("first\nsecond");
+    await expect(literal).toHaveValue("first\nsecond");
+    await literal.fill("\n");
+    await expect(literal).toHaveValue("\n");
+    await literal.fill("\\r\n");
+    await expect(literal).toHaveValue("\\r\n");
+    await literal.fill("marker");
+    await literal.press("Control+A");
+    await literal.press("Backspace");
+    await expect(literal).toBeVisible();
+    await expect(literal).toBeFocused();
+    await expect(literal).toHaveValue("");
+    await expect(packageInput).toHaveValue(literalCoordinate.packageId);
+
+    const targetFramework = page.locator("#package-query-library-tfm");
+    await targetFramework.press("Control+A");
+    await page.keyboard.type("net8.0");
+    await expect(targetFramework).toBeVisible();
+    await expect(targetFramework).toBeFocused();
+    await expect(targetFramework).toHaveValue("net8.0");
+    await expect(packageInput).toHaveValue(literalCoordinate.packageId);
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    const firstDraft = page.locator("[data-query-term-draft-value]");
+    await firstDraft.fill("Original.Dependency");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]').click();
+    const firstTerm =
+      page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    await firstTerm.fill("Unapplied.Old.Dependency");
+    await page.locator(".query-library-literal summary").click();
+    await literal.fill("marker");
+    await literal.press("Control+A");
+    await literal.press("Backspace");
+    await page.locator('[data-query-term-add="depends"]').click();
+    const replacementDraft = page.locator("[data-query-term-draft-value]");
+    await replacementDraft.fill("New.Dependency");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(
+      page.locator('[data-query-term-form="0"] [data-query-term-value]'))
+      .toHaveValue("New.Dependency");
+    await page.locator(".query-library-literal summary").click();
+    await literal.fill("shared-literal-use-marker");
+
+    await targetFramework.fill("net10.0");
+    await targetFramework.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Library target-framework editor is missing.");
+      }
+      element.setSelectionRange(3, 5);
+    });
+    await page.keyboard.type("standard2");
+    await expect(targetFramework).toHaveValue("netstandard2.0");
+    await targetFramework.fill(fixtureFramework);
+    await page.locator("#package-query-run").click();
+
+    await expect(page.locator(".query-row h2"))
+      .toHaveText(
+        [literalCoordinate.packageId.toLowerCase()],
+        { timeout: 30_000 });
+    await expect(page.locator(".query-evidence"))
+      .toContainText("Showing 2 of 2 occurrences.");
+    await expect(page.locator(".query-footer"))
+      .toContainText("1 matching package · 2 occurrences");
+    const open = page.locator("[data-query-row-open]");
+    await expect(open).toHaveAttribute(
+      "data-query-root-request",
+      /.+/);
+    await open.click();
+    await expect(page.locator(".query-main")).toHaveCount(0);
+    await expect(page).not.toHaveURL(
+      /\/query(?:[?#]|$)/,
+      { timeout: 30_000 });
+    expect(registry.downloadCount(literalCoordinate))
+      .toBeGreaterThanOrEqual(1);
+  });
+
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {
     const workers: Worker[] = [];
     page.on("worker", worker => workers.push(worker));
@@ -948,7 +1110,9 @@ test.describe("Package Query website over real Wasm", () => {
     );
     await toolFormatPreset.click();
     await expect(toolFormatPreset).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(".query-preset-disclosure").nth(1))
+    await expect(page.locator(".query-preset-disclosure", {
+      hasText: "Candidate bound K:",
+    }))
       .toContainText("Candidate bound K: 20");
 
     await input.fill("Azure.*");

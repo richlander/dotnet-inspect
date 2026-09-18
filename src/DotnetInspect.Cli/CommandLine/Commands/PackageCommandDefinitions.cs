@@ -501,7 +501,8 @@ public static class PackageCommandDefinitions
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
                     PackageQuerySections.Catalog.SelectableSectionNames,
-                    categories: new Dictionary<string, string[]>());
+                    categories:
+                        PackageQuerySections.Catalog.SelectionCategoryMap);
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
                 includeSections = selection.Sections;

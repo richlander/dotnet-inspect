@@ -25,6 +25,92 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
+    public void DefinitionInput_PreservesExactRetainedRequest()
+    {
+        InspectionDefinitionRegistry registry = Version3Registry();
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            registry.Records.ToArray());
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            CompleteRestorationPreparation.FromDefinition(
+                request,
+                new TestIntentAuthority(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Same(request, ready.Plan.Request);
+    }
+
+    [Fact]
+    public void DefinitionInput_DuplicateRecordReturnsTypedFailure()
+    {
+        InspectionDefinitionRegistry registry = Version3Registry();
+        InspectionDefinitionRecord duplicate = registry.Records.First();
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            [.. registry.Records, duplicate]);
+
+        var failed = Assert.IsType<
+            CompleteRestorationPreparationResult.Failed>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    new TestIntentAuthority(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Same(request, failed.Request);
+        var invalid =
+            Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+                failed.Failure);
+        Assert.Contains("Duplicate", invalid.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DefinitionInput_PreCancelledReturnsTypedFailureBeforeRegistration()
+    {
+        InspectionDefinitionRegistry registry = Version3Registry();
+        InspectionDefinitionRecord duplicate = registry.Records.First();
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            [.. registry.Records, duplicate]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var failed = Assert.IsType<
+            CompleteRestorationPreparationResult.Failed>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    new TestIntentAuthority(),
+                    cancellation.Token));
+
+        Assert.Same(request, failed.Request);
+        Assert.IsType<CompleteRestorationFailure.Cancelled>(failed.Failure);
+    }
+
+    [Fact]
+    public void DefinitionInput_PreSupersededReturnsBeforeRegistration()
+    {
+        InspectionDefinitionRegistry registry = Version3Registry();
+        InspectionDefinitionRecord duplicate = registry.Records.First();
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            [.. registry.Records, duplicate]);
+        var authority = new TestIntentAuthority
+        {
+            Status = CompleteRestorationIntentStatus.Superseded,
+        };
+
+        var superseded = Assert.IsType<
+            CompleteRestorationPreparationResult.Superseded>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Same(request, superseded.Request);
+        Assert.Same(authority.Identity, superseded.Intent);
+    }
+
+    [Fact]
     public void Version3Packet_PreparesRegistrationOnlyWorkspacePlan()
     {
         const string json =

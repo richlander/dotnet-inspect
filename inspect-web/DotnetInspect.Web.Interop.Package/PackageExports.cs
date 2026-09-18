@@ -52,6 +52,43 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
     }
 
+    [JSExport]
+    public static async Task<string> QueryPackageRoot(string rootRequest)
+    {
+        if (!PackageRootReacquisitionRequest.TryDecode(
+                rootRequest,
+                out PackageRootReacquisitionRequest? request))
+        {
+            throw new ArgumentException(
+                "The package Root request is invalid.",
+                nameof(rootRequest));
+        }
+
+        BrowserPackageSurface surface =
+            await BrowserPackageWorkspace.RunPackageOperationAsync(
+                async deadline =>
+                {
+                    BrowserPackageCoordinate coordinate =
+                        await BrowserPackageWorkspace.ReacquireAsync(
+                            request,
+                            deadline.Token).ConfigureAwait(false);
+                    await using BrowserScopeLease<BrowserInspectionScope>
+                        scopeLease =
+                            await BrowserPackageWorkspace.OpenScopeAsync(
+                                [coordinate],
+                                deadline.Token).ConfigureAwait(false);
+                    BrowserInspectionScope scope = scopeLease.Scope;
+                    return BrowserPackageWireProjection.Project(
+                        BrowserPackageSurfaceProjection.ProjectSurface(
+                            scope,
+                            scope.Coordinates[0]));
+                },
+                BrowserPackageWorkspace.PackageOperationTimeout);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserPackageJsonContext.Default.BrowserPackageSurface);
+    }
+
     static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(
         string packageId,
         string version,
