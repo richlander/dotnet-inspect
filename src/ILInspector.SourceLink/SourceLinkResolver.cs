@@ -32,23 +32,15 @@ public sealed class SourceLinkResolver
         Inferred,
     }
 
-    public record TypeSourceInfo(
-        string? SourceFilePath,
-        string? SourceUrl,
-        int? LineNumber,
-        string? GitHubBrowseUrl,
-        SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink,
-        byte[]? Checksum = null,
-        string? ChecksumAlgorithm = null)
-    {
-        public List<PartialSourceFile> AdditionalSourceFiles { get; init; } = [];
-        public bool IsPartialType => AdditionalSourceFiles.Count > 0;
-    }
+    public sealed record TypeSourceInfo(
+        MetadataTypeDefinitionName Type,
+        ImmutableArray<TypeSourceDocument> Documents);
 
-    public record PartialSourceFile(
+    public sealed record TypeSourceDocument(
         string FilePath,
         string? SourceUrl,
         string? GitHubBrowseUrl,
+        SourceResolutionMethod ResolutionMethod = SourceResolutionMethod.SourceLink,
         byte[]? Checksum = null,
         string? ChecksumAlgorithm = null);
 
@@ -116,39 +108,19 @@ public sealed class SourceLinkResolver
         string simpleName = type.TypeSimpleName;
         if (type.Documents.Count > 0)
         {
-            Dictionary<string, PartialSourceFile> files =
-                new(StringComparer.Ordinal);
-
+            var files = ImmutableArray.CreateBuilder<TypeSourceDocument>();
             foreach (var documents in type.Documents.GroupBy(
                 static document => document.FilePath,
                 StringComparer.Ordinal))
             {
                 var candidates = documents.Take(2).ToArray();
-                files.TryAdd(
-                    documents.Key,
+                files.Add(
                     candidates.Length == 1
                         ? Decorate(candidates[0])
                         : Decorate(documents.Key));
             }
 
-            PartialSourceFile correlatedPrimary =
-                SelectPrimarySourceFile(files.Values, simpleName);
-            return new TypeSourceInfo(
-                correlatedPrimary.FilePath,
-                correlatedPrimary.SourceUrl,
-                LineNumber: null,
-                correlatedPrimary.GitHubBrowseUrl,
-                SourceResolutionMethod.SourceLink,
-                Checksum: correlatedPrimary.Checksum,
-                ChecksumAlgorithm: correlatedPrimary.ChecksumAlgorithm)
-            {
-                AdditionalSourceFiles =
-                [
-                    .. files.Values
-                        .Where(file =>
-                            file.FilePath != correlatedPrimary.FilePath),
-                ],
-            };
+            return new TypeSourceInfo(type.DefinitionName!, files.ToImmutable());
         }
 
         string[] inferredPaths =
@@ -160,15 +132,13 @@ public sealed class SourceLinkResolver
         if (inferredPaths.Length != 1)
             return null;
 
-        PartialSourceFile primary = Decorate(inferredPaths[0]);
-        return new TypeSourceInfo(
-            primary.FilePath,
-            primary.SourceUrl,
-            LineNumber: null,
-            primary.GitHubBrowseUrl,
-            SourceResolutionMethod.Inferred,
-            Checksum: primary.Checksum,
-            ChecksumAlgorithm: primary.ChecksumAlgorithm);
+        return new TypeSourceInfo(type.DefinitionName!,
+        [
+            Decorate(inferredPaths[0]) with
+            {
+                ResolutionMethod = SourceResolutionMethod.Inferred,
+            },
+        ]);
     }
 
     public MethodSourceInfo? ResolveMethodSource(
@@ -280,20 +250,20 @@ public sealed class SourceLinkResolver
             : [];
     }
 
-    PartialSourceFile Decorate(string filePath)
+    TypeSourceDocument Decorate(string filePath)
     {
         string? url = _map?.ResolveUrl(filePath);
         EnsureDocumentIndexes();
         _uniqueDocumentsByPath!.TryGetValue(filePath, out PdbDocumentInfo? document);
-        return new PartialSourceFile(
+        return new TypeSourceDocument(
             filePath,
             url,
             SourceLinkProvenance.BrowseUrl(url),
-            document?.Checksum,
-            document?.ChecksumAlgorithm);
+            Checksum: document?.Checksum,
+            ChecksumAlgorithm: document?.ChecksumAlgorithm);
     }
 
-    PartialSourceFile Decorate(PdbDocumentReference reference)
+    TypeSourceDocument Decorate(PdbDocumentReference reference)
     {
         string? url = _map?.ResolveUrl(reference.FilePath);
         EnsureDocumentIndexes();
@@ -304,12 +274,12 @@ public sealed class SourceLinkResolver
             document = null;
         }
 
-        return new PartialSourceFile(
+        return new TypeSourceDocument(
             reference.FilePath,
             url,
             SourceLinkProvenance.BrowseUrl(url),
-            document?.Checksum,
-            document?.ChecksumAlgorithm);
+            Checksum: document?.Checksum,
+            ChecksumAlgorithm: document?.ChecksumAlgorithm);
     }
 
     void EnsureDocumentIndexes()
@@ -347,17 +317,6 @@ public sealed class SourceLinkResolver
         }
 
         return (byRowId, uniqueByPath);
-    }
-
-    static PartialSourceFile SelectPrimarySourceFile(
-        IEnumerable<PartialSourceFile> files,
-        string typeName)
-    {
-        string primaryName = $"{typeName}.cs";
-        return files.FirstOrDefault(file => Path.GetFileName(file.FilePath)
-                .Equals(primaryName, StringComparison.OrdinalIgnoreCase))
-            ?? files.OrderBy(file => Path.GetFileName(file.FilePath).Length)
-                .First();
     }
 
 }
