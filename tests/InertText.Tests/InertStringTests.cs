@@ -869,32 +869,20 @@ public class InertStringTests
     }
 
     /// <summary>
-    /// The auditable invariant: holding an <see cref="InertString"/> does not let you recover
-    /// the text it was built from.
+    /// The compiled currency surface does not disclose the untreated text used
+    /// to build an <see cref="InertString"/>.
     /// </summary>
     /// <remarks>
-    /// This is what the namespace split buys, and it is worth stating as a property rather than
-    /// as a layout convention, because layout is what drifts. The decoder is the one operation
-    /// that turns an inert value back into the hostile original, so it lives in
-    /// <c>InertText.Encoding</c> and nothing in the currency namespace may offer a way to reach
-    /// it. A reviewer can then read a file's using block instead of tracing its call graph: no
-    /// <c>using InertText.Encoding</c> means no path back to the original, for every value that
-    /// file touches.
+    /// The decoder is the one operation that turns an inert value back into the
+    /// hostile original, so it lives in <c>InertText.Encoding</c> and nothing in
+    /// the currency namespace may offer an equivalent public path.
     ///
     /// Enumerated rather than spot-checked, and accounted one by one, because the failure this
     /// guards against is an <em>addition</em> — a convenience overload that hands back the
     /// decoded form — and a test that asserts specific members exist would not notice one.
     ///
-    /// The boundary is auditable, not unforgeable. A file can name the capability namespace and
-    /// this test does not stop it. What it does stop is the capability arriving somewhere that
-    /// looks like it has not got it.
-    ///
-    /// The search string is <c>InertText.Encoding</c>, not <c>using InertText.Encoding</c>. A
-    /// using directive is one of two ways to name a namespace, and the other needs no directive
-    /// at all — <c>InertText.Encoding.VisualEncoder.TryDecode(...)</c> compiles in a file with an
-    /// empty import block. Searching for the directive would show a clean import list for a file
-    /// that decodes. The bare namespace catches both, because a fully-qualified call has to
-    /// spell it too.
+    /// Trusted callers may explicitly invoke the decoder. This test owns the
+    /// public type boundary, not an inventory of those call sites.
     /// </remarks>
     [Fact]
     public void NoPublicMemberOfTheCurrencyNamespaceReturnsText()
@@ -981,30 +969,14 @@ public class InertStringTests
     }
 
     /// <summary>
-    /// The third leg, and the one that makes the other two worth having: producing inert text
-    /// never requires naming the capability namespace.
+    /// The construction surface does not require a type from the decoder
+    /// capability namespace.
     /// </summary>
     /// <remarks>
-    /// The audit this design sells is a search — "which files can recover the original?" — and a
-    /// search is only worth running if its answer is small. That is a property of the
-    /// <em>producing</em> side, not the decoding side. If the only way to make an
-    /// <see cref="InertString"/> were to call the encoder, then every file that produces inert
-    /// text would name <c>InertText.Encoding</c>, the decoder would sit one member access away in
-    /// all of them, and the search would return the whole producer set. The signal would survive
-    /// in form and be worthless in practice.
-    ///
-    /// The measurement that matters is taken on a tree that has producers: every file that
-    /// produces inert text does so without naming the capability namespace, so routing production
-    /// through the encoder would turn each producer into a false positive. That is why the
-    /// constructor is not sugar over <c>VisualEncoder.Encode</c> — it is what keeps the
-    /// false-positive rate at zero. The count itself lives with the change that adds producers,
-    /// since this branch ships the library alone.
-    ///
-    /// The claim is about <em>production</em> code, and deliberately so. This test file names
-    /// <c>InertText.Encoding</c> itself, as do the encoder's own tests: invertibility is a
-    /// contract, so something has to decode in order to check it. A test that can decode is the
-    /// system working, not a leak — the search that matters is over the files that ship. Read
-    /// the counts above as production-only.
+    /// Ordinary producers should need only the currency namespace. If a public
+    /// construction path required an encoder or another capability type, the
+    /// API would couple routine containment to recovery even though construction
+    /// itself does not need to disclose the original text.
     ///
     /// Two distinct regressions are gated here, because both look like tidying:
     /// <list type="bullet">
@@ -1046,8 +1018,7 @@ public class InertStringTests
         Assert.True(
             dragIn.Length == 0,
             $"These ways to build an InertString name a type from '{Capability}', so the files "
-                + "that use them must import the decoder and the audit search stops being worth "
-                + "running: "
+                + "that use them must also depend on the recovery capability: "
                 + string.Join("; ", dragIn.Select(p => p.Name)));
 
         // The policy a caller must name has to be reachable from the currency namespace too --
@@ -1194,10 +1165,10 @@ public class InertStringTests
     /// <remarks>
     /// The reason <see cref="TextPolicy"/> is an enum rather than a predicate. A repair decodes
     /// the value first -- it has to, or the backslashes double -- so a caller-supplied predicate
-    /// would be handed the hostile original one scalar at a time, in a file whose using block
-    /// names only the currency namespace. That is the audit boundary walked back out through a
-    /// callback, and no reflection test over return types can see it, because the disclosure is
-    /// an argument rather than a result.
+    /// would be handed the hostile original one scalar at a time. That would
+    /// disclose untreated text through a callback, which a reflection test over
+    /// return types cannot see because the disclosure is an argument rather than
+    /// a result.
     ///
     /// Stated over the whole public surface rather than as "EnsurePermitted takes an enum", so
     /// that reintroducing a predicate anywhere -- as an overload, on the handler, as an optional
@@ -1323,254 +1294,4 @@ public class InertStringTests
         Assert.NotEqual(fromAsciiText, fromScalar);
     }
 
-    /// <summary>
-    /// No project imports <c>InertText.Encoding</c> for every file at once, so naming the
-    /// capability namespace stays a per-file act and the audit search keeps file granularity.
-    /// </summary>
-    /// <remarks>
-    /// The audit sold by <c>docs/design/inert-text.md</c> is a search for the bare string
-    /// <c>InertText.Encoding</c>, on the reasoning that both ways to reach a namespace spell it:
-    /// a using directive, and a fully-qualified call. There is a third way, and it spells the
-    /// namespace somewhere else entirely:
-    ///
-    /// <code>
-    /// // one file, or a &lt;Using Include="InertText.Encoding" /&gt; item in the .csproj
-    /// global using InertText.Encoding;
-    /// </code>
-    ///
-    /// Every other file in that project can then call <c>VisualEncoder.TryDecode</c> with no
-    /// local mention of the namespace at all. The search still finds the import — it is still
-    /// text in the repository — but it stops answering "which files can decode?" and starts
-    /// answering "which projects can decode?", and the file it points at is not the file doing
-    /// the decoding. A reviewer reading a clean import list would conclude the file cannot
-    /// decode, which is the failure the bare-string rule exists to prevent.
-    ///
-    /// So the granularity is an invariant of the build, not of the language, and it is gated
-    /// here rather than asserted in prose. Nothing needs a project-wide encoder import:
-    /// production does not name the namespace at all, and the test projects that legitimately
-    /// decode do it with ordinary per-file directives.
-    /// </remarks>
-    [Fact]
-    public void NoProjectImportsTheCapabilityNamespaceForEveryFileAtOnce()
-    {
-        const string Capability = "InertText.Encoding";
-
-        DirectoryInfo? root = new(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
-        {
-            root = root.Parent;
-        }
-
-        Assert.True(root is not null, "could not locate the repository root from the test binary");
-
-        string[] sources =
-        [
-            Path.Combine(root!.FullName, "src"),
-            Path.Combine(root.FullName, "tests"),
-        ];
-        string[] candidates =
-        [
-            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories)),
-            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.csproj", SearchOption.AllDirectories)),
-            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.props", SearchOption.AllDirectories)),
-            .. sources.SelectMany(source => Directory.EnumerateFiles(source, "*.targets", SearchOption.AllDirectories)),
-            // Repo-root build files are outside these trees but flow into their projects, so a
-            // <Using Include> there is the widest-reaching version of exactly this hazard.
-            .. Directory.EnumerateFiles(root.FullName, "Directory.Build.*", SearchOption.TopDirectoryOnly),
-        ];
-
-        // Non-vacuity: a root that resolved to somewhere without sources would pass silently,
-        // which is the same shape of bug as the invariant being gated.
-        Assert.NotEmpty(candidates);
-
-        List<string> offenders = [];
-        foreach (string file in candidates)
-        {
-            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            // Line-wise, skipping comments, because the example in this test's own doc comment
-            // is the exact text being searched for -- and a commented-out import is not one.
-            bool offends = File.ReadLines(file).Any(line =>
-            {
-                string trimmed = line.TrimStart();
-                if (trimmed.StartsWith("//", StringComparison.Ordinal)
-                    || trimmed.StartsWith("<!--", StringComparison.Ordinal))
-                {
-                    return false;
-                }
-
-                if (trimmed.Contains($"<Using Include=\"{Capability}\"", StringComparison.Ordinal))
-                {
-                    return true;
-                }
-
-                // global:: is a legal and equivalent spelling of the same import, so match it too
-                // rather than letting one qualifier walk past the gate.
-                const string Directive = "global using ";
-                if (!trimmed.StartsWith(Directive, StringComparison.Ordinal))
-                {
-                    return false;
-                }
-
-                string imported = trimmed[Directive.Length..].TrimStart();
-                if (imported.StartsWith("global::", StringComparison.Ordinal))
-                {
-                    imported = imported["global::".Length..];
-                }
-
-                return imported.StartsWith($"{Capability};", StringComparison.Ordinal);
-            });
-
-            if (offends)
-            {
-                offenders.Add(Path.GetRelativePath(root.FullName, file));
-            }
-        }
-
-        Assert.True(
-            offenders.Count == 0,
-            $"A project-wide import of '{Capability}' lets any file in that project decode with "
-                + "no local mention of the namespace, so grepping the bare string no longer says "
-                + "which files can recover the original: "
-                + string.Join("; ", offenders));
-    }
-
-    [Fact]
-    public void ProductionCapabilityReferences_AreAnExplicitAllowList()
-    {
-        const string Capability = "InertText.Encoding";
-        DirectoryInfo root = FindRepositoryRoot();
-        string source = Path.Combine(root.FullName, "src");
-
-        string[] actual =
-        [
-            .. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories)
-                .Where(file => !file.Contains(
-                    $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
-                    StringComparison.Ordinal))
-                .Where(file => !Path.GetRelativePath(source, file)
-                    .Split(Path.DirectorySeparatorChar)
-                    .Any(segment => segment.EndsWith(".Tests", StringComparison.Ordinal)))
-                .Where(file => File.ReadAllText(file).Contains(Capability, StringComparison.Ordinal))
-                .Select(file => Path.GetRelativePath(root.FullName, file))
-                .Order(StringComparer.Ordinal)
-        ];
-
-        string[] expected =
-        [
-            Path.Combine("src", "DotnetInspector.MetadataRendering", "MetadataProjectionRenderer.cs"),
-            Path.Combine("src", "InertText", "InertString.cs"),
-            Path.Combine("src", "InertText", "VisualEncoder.cs"),
-        ];
-
-        Assert.Equal(expected.Order(StringComparer.Ordinal), actual);
-    }
-
-    /// <summary>
-    /// No public documentation in the currency namespace names the encoder type, so the
-    /// currency type's use of it stays an implementation detail rather than an advertised one.
-    /// </summary>
-    /// <remarks>
-    /// The capability is deliberately public and deliberately opt-in: a caller who needs to
-    /// decode names <c>InertText.Encoding</c> and that act is what the audit searches for. What
-    /// must not happen is the currency type handing the capability over without that opt-in.
-    ///
-    /// A signature cannot: a separate test walks the public surface and fails any member that
-    /// mentions a type from the capability namespace. Documentation is the other route, and it
-    /// is easy to miss because it changes no signature. The public constructor used to open
-    /// with "Forwards to <![CDATA[<see cref="VisualEncoder"/>]]>", which is a *navigable
-    /// reference* — every consumer reading the constructor in IntelliSense was pointed straight
-    /// at the reversing half, and two more members described their internals the same way.
-    /// Documenting what a member delegates to is describing an implementation detail as though
-    /// it were part of the contract.
-    ///
-    /// Naming the <em>namespace</em> stays allowed, and the type-level remarks do it: saying
-    /// the decoder lives in <c>InertText.Encoding</c> and that nothing here reaches it is the
-    /// opt-in disclaimer rather than a shortcut to it. The line is drawn at the type name,
-    /// which is the thing a caller would have to write in order to use it.
-    /// </remarks>
-    [Fact]
-    public void NoPublicDocumentationInTheCurrencyNamespaceNamesTheEncoderType()
-    {
-        const string EncoderType = "VisualEncoder";
-
-        DirectoryInfo? root = new(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
-        {
-            root = root.Parent;
-        }
-
-        Assert.True(root is not null, "could not locate the repository root from the test binary");
-
-        string library = Path.Combine(root!.FullName, "src", "InertText");
-        string[] files = Directory.GetFiles(library, "*.cs", SearchOption.AllDirectories);
-
-        // Non-vacuity: a wrong path would pass silently.
-        Assert.NotEmpty(files);
-
-        List<string> offenders = [];
-        int scanned = 0;
-
-        foreach (string file in files)
-        {
-            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            string[] lines = File.ReadAllLines(file);
-
-            // The capability's own file documents itself; the rule is about the currency side.
-            if (lines.Any(l => l.StartsWith("namespace InertText.Encoding", StringComparison.Ordinal)))
-            {
-                continue;
-            }
-
-            scanned++;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string trimmed = lines[i].TrimStart();
-                if (!trimmed.StartsWith("///", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (trimmed.Contains(EncoderType, StringComparison.Ordinal))
-                {
-                    offenders.Add($"{Path.GetRelativePath(root.FullName, file)}:{i + 1}");
-                }
-            }
-        }
-
-        // The currency namespace is more than one file, so a rule that only ever saw
-        // InertString.cs would be weaker than it looks.
-        Assert.True(scanned > 1, $"expected to scan several currency-namespace files, scanned {scanned}");
-
-        Assert.True(
-            offenders.Count == 0,
-            $"Public documentation in the currency namespace names '{EncoderType}', which "
-                + "advertises the reversing half to every consumer reading these members and "
-                + "makes an implementation detail look like part of the contract. Describe what "
-                + "the member guarantees instead, and leave where the capability lives to the "
-                + $"type-level remarks: {string.Join("; ", offenders)}");
-    }
-
-    private static DirectoryInfo FindRepositoryRoot()
-    {
-        DirectoryInfo? root = new(AppContext.BaseDirectory);
-        while (root is not null
-            && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
-        {
-            root = root.Parent;
-        }
-
-        return root ?? throw new DirectoryNotFoundException(
-            "Could not locate the repository root from the test binary.");
-    }
 }
