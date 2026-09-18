@@ -120,6 +120,7 @@ evidence unless a category is named.
 | `project` | `@Project` | none |
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
 | `ecosystem` | `@Ecosystem` | none |
+| `graph libraries` | `@Libraries` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -137,7 +138,10 @@ by exact name. Project `@Project` composes restored dependency `Skills` and
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
 the corresponding query family. Ecosystem `@Ecosystem` composes every section
 available after the optional focus operand chooses the route; select exact
-`Integrations` for configured Integration bindings. `Switches` is a section.
+`Integrations` for configured Integration bindings. Graph `@Libraries`
+composes the pair-wide call-site, summary, and direct-use cluster projections;
+coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
+section.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
