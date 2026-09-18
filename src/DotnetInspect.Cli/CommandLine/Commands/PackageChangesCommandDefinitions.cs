@@ -187,6 +187,7 @@ public static class PackageChangesCommandDefinitions
 
             var acceptedParentOptions = new HashSet<Option>
             {
+                opts.Envelope,
                 opts.Json,
                 opts.Markdown,
                 opts.PlainText,
@@ -229,6 +230,7 @@ public static class PackageChangesCommandDefinitions
                     out DateTimeOffset parsedThrough)
                     ? parsedThrough
                     : null;
+            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
             var options = new PackageChangesOptions
             {
                 Ecosystem = parseResult.GetValue(ecosystemOption)!,
@@ -240,8 +242,11 @@ public static class PackageChangesCommandDefinitions
                         ? EcosystemChangeReportRequest.DefaultMaximumRows
                         : parseResult.GetValue(opts.Limit)
                             ?? EcosystemChangeReportRequest.DefaultMaximumRows,
-                Format = opts.ResolveFormat(parseResult),
-                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                Format =
+                    envelopeOutput
+                        ? OutputFormat.Json
+                        : opts.ResolveFormat(parseResult),
+                EnvelopeOutput = envelopeOutput,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
             };

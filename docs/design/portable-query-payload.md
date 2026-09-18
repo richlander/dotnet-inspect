@@ -13,9 +13,10 @@ and its identity rule are witnessed. The design-stage probe that formerly ran
 from `eng/` has retired, as this document said it would: the file it checked now
 gates the product.
 
-Adoption is not complete. No vocabulary resolves an intent yet, Package Query
-still spells facets as `--where "facet=<opaque id>"`, and the packet's query arm
-carries no payload. Those are the remaining steps in
+Adoption is not complete. Package Query now supplies the first production
+vocabulary and both CLI and Browser lower through it, but Definitions query
+records and the packet's query arm still carry no payload. Those are the
+remaining steps in
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971).
 
 This is **slice 2 of 2** under
@@ -225,15 +226,16 @@ limits must be enforced before any vocabulary binder runs; and semantically
 identical query states deduplicate on the `(queryId, payload bytes)` pair, never
 on payload bytes alone — matching the packet's stated table ordering.
 
-Format 2 permits query references from its leading coordinate-free Workspace
-entry and from per-coordinate view entries, requires one view state per
-coordinate tuple, and rejects empty contexts. The leading entry can carry only
-a Workspace-compatible query because it must request the Workspace subject. A
-package query has no coordinate, so it still has nowhere valid to attach.
-**That coordinate-free Package attachment is owned by
-[Workspace definitions](workspace-definitions.md)** and is a counted step in
+Format 2 permits query references from its leading Workspace entry and from
+per-coordinate view entries, requires one view state per coordinate tuple, and
+rejects empty contexts. It therefore remains sufficient for ordinary
+state-bound queries but cannot represent a query-only package-discovery
+scenario. [Workspace definitions](workspace-definitions.md) now specifies a
+format-3 query-only composition whose leading null-navigation row carries one
+coordinate-free primary query without supplying the Workspace subject as query
+input. Implementing that attachment remains a counted step in
 [#6971](https://github.com/richlander/dotnet-inspect/issues/6971); this document
-supplies only the payload it would carry.
+supplies only the payload it carries.
 
 ## Required gates
 

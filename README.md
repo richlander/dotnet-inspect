@@ -200,9 +200,10 @@ stderr rather than mixed into structured output.
 for a compact package or library overview, then opt into deeper audits only when
 you need them.
 
-Integration support is exposed through `@Integrations` or focused
-`Integration: ...` sections such as `Integration: Logging` or
-`Integration: OpenTelemetry`.
+Observed integration support is exposed through one `Integrations` section.
+Use `integration=<canonical-concept-id>` to focus one concept, or
+`ecosystem=<canonical-pack-id>` to select the concepts bound to an ecosystem.
+`@Integrations` also includes the separate `Integration Opportunities` section.
 
 Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
 configured into this build. This is catalog knowledge, not evidence from an
@@ -263,12 +264,15 @@ predicate with `library -Q Integrations`, then narrow the ordinary result:
 
 ```bash
 dotnet-inspect library -Q Integrations
-dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
-dotnet-inspect library ./MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S Integrations --where "ecosystem=ecosystem.aspire"
+dotnet-inspect library ./MyLibrary.dll -S Integrations \
+  --where "integration=integration.aspire" --jsonl
 ```
 
-This filters Integration evidence and opportunities, not assembly-wide presence
-or Census. Other query families cannot be combined with the ecosystem predicate.
+These facets filter Integration evidence and opportunities, not assembly-wide
+presence or Census. When both are supplied, they intersect. Other query
+families cannot be combined with either Integration facet.
 
 For deeper how-to guidance, use the embedded skills instead of relying on a very
 long README:
@@ -338,11 +342,15 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>`, ordinary single-Library API `diff`, and
-`package activity` additionally support the presence-only `--envelope`
-service-output selector. It implies JSON; unprojected `--json` emits the same
-Content without the service frame. Asset-mode `depends`, other Diff modes,
-Discover, Count, and other commands have not adopted this transport.
+Positional `depends <type>`, ordinary single-Library API `diff`, `package
+activity`, and online package range-version population support the
+presence-only `--envelope` service-output selector. It implies JSON. For
+`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection; `--envelope` instead exposes the complete directed population
+Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
+Discover, Count outside package population, and other commands have not adopted
+this transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -382,8 +390,10 @@ dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
-dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S "Integration: Logging"
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S "Integration: OpenTelemetry"
+dotnet-inspect library Microsoft.Extensions.Logging.Abstractions \
+  -S Integrations --where "integration=integration.logging"
+dotnet-inspect library System.Diagnostics.DiagnosticSource \
+  -S Integrations --where "integration=integration.opentelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
@@ -397,11 +407,21 @@ dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 dotnet-inspect package System.Text.Json
 dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+Online range-version population is metadata-only: it enumerates versions
+without acquiring a package payload. `--count` projects the version Count as a
+scalar, including with `--json`; `--count --envelope` emits the complete
+population envelope with both the directed version Document and typed Count
+component. `--preview`, `--include-unlisted`, configured source options, and
+`--versions-with-feed` remain semantic population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before

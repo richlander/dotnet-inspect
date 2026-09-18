@@ -600,6 +600,63 @@ public sealed class PackageChangesCommandTests
             result.Error);
     }
 
+    [Theory]
+    [InlineData("table")]
+    [InlineData("mermaid")]
+    public async Task InvocationEnvelopeIgnoresImplicitRenderingFormat(
+        string format)
+    {
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions());
+            CoreHttpClientFactory.ResetSharedForTesting();
+            CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+                _ => StandardCatalog(Utc(2026, 9, 15)));
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+
+            var result = await InvokeAsync(
+                [
+                    "package",
+                    "activity",
+                    "--ecosystem",
+                    "aspire",
+                    "--from",
+                    "2026-09-14T17:59:00Z",
+                    "--through",
+                    "2026-09-14T18:00:00Z",
+                    "--envelope",
+                    "--compact",
+                    "-n",
+                    "1",
+                ]);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using JsonDocument envelope = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "ecosystem-change-report",
+                envelope.RootElement.GetProperty("result_kind").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = wasOffline,
+                });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
     [Fact]
     public async Task InvocationHonorsOfflineCatalogPolicy()
     {

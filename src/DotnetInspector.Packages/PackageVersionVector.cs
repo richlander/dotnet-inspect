@@ -36,6 +36,8 @@ public sealed record PackageVersionRange
     public string PackageId { get; }
     public NuGetVersion Start { get; }
     public NuGetVersion End { get; }
+    public string StartVersion => Start.ToNormalizedString();
+    public string EndVersion => End.ToNormalizedString();
     public bool IncludesPrerelease => Start.IsPrerelease || End.IsPrerelease;
 
     /// <summary>
@@ -107,6 +109,7 @@ public sealed record PackageVersionAddress
     public int Ordinal => Position + 1;
     public string Selector => $"#{Ordinal}";
     public NuGetVersion Version { get; }
+    public string NormalizedVersion => Version.ToNormalizedString();
     public IReadOnlyList<string> ReportingSourceUrls { get; }
 }
 

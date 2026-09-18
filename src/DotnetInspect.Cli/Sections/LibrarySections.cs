@@ -110,22 +110,9 @@ public static class LibrarySections
                 HasAssemblyInfo)
             .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
             .Add<Switches>(SwitchesQuery.Definition)
+            .Add<Integrations>(AssemblyContextIntegrationsQuery.Definition)
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
-            .Add<AI>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<AspNetCore>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<Authentication>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<Aspire>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<Configuration>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<DependencyInjection>(
-                AssemblyContextIntegrationsQuery.Definition)
-            .Add<Logging>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<OpenTelemetry>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<OpenAPI>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<Options>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<Hosting>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<HealthChecks>(AssemblyContextIntegrationsQuery.Definition)
-            .Add<HttpClient>(AssemblyContextIntegrationsQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
@@ -210,7 +197,10 @@ public static class LibrarySections
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles,
                 SectionNames.SourceLinkIntegrity)
-            .AddCategory(SectionCategoryNames.Integrations, [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities])
+            .AddCategory(
+                SectionCategoryNames.Integrations,
+                IntegrationSectionNames.Integrations,
+                IntegrationSectionNames.Opportunities)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
                 SectionNames.MemberContext,
@@ -781,13 +771,13 @@ public static class LibrarySections
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }
 
-    public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
+    public sealed class Integrations : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.OpenTelemetry.SectionName;
+        public static string Name => IntegrationSectionNames.Integrations;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(LibraryInspection model)
-            => LibraryIntegrationCatalog.OpenTelemetry.CanRender(model);
+            => LibraryIntegrationCatalog.CanRenderAny(model);
     }
 
     public sealed class IntegrationOpportunities : ISectionDescriptor<LibraryInspection>
@@ -797,103 +787,6 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
-    }
-
-    public sealed class AI : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.AI.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.AI.CanRender(model);
-    }
-
-    public sealed class AspNetCore : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.AspNetCore.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.AspNetCore.CanRender(model);
-    }
-
-    public sealed class Authentication : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Authentication.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Authentication.CanRender(model);
-    }
-
-    public sealed class Aspire : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Aspire.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Aspire.CanRender(model);
-    }
-
-    public sealed class Configuration : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Configuration.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Configuration.CanRender(model);
-    }
-
-    public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.DependencyInjection.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model)
-            => LibraryIntegrationCatalog.DependencyInjection.CanRender(model);
-    }
-
-    public sealed class Logging : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Logging.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Logging.CanRender(model);
-    }
-
-    public sealed class Options : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Options.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Options.CanRender(model);
-    }
-
-    public sealed class OpenAPI : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.OpenAPI.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.OpenAPI.CanRender(model);
-    }
-
-    public sealed class Hosting : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.Hosting.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Hosting.CanRender(model);
-    }
-
-    public sealed class HealthChecks : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.HealthChecks.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HealthChecks.CanRender(model);
-    }
-
-    public sealed class HttpClient : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.HttpClient.SectionName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HttpClient.CanRender(model);
     }
 
     // ===== SourceLink domain sections =====
