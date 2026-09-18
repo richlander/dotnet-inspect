@@ -318,6 +318,868 @@ public sealed class PlatformAssemblyReferenceResolverTests
         Assert.True(failed.Evidence.CancellationObserved);
     }
 
+    [Fact]
+    public async Task
+        ResolveAsync_FallbackUsesPlanOrderAndRetainsPriorAbsence()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var unavailable = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Unavailable);
+        int selectedOpens = 0;
+        var selected = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => selectedOpens++);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [selected, unavailable],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.IsType<AssemblyBindingDecision.Resolved>(completed.Value);
+        Assert.True(selectedOpens > 0);
+        Assert.Collection(
+            completed.Receipt.SourceSettlements,
+            settlement =>
+            {
+                Assert.Same(
+                    unavailable.Contribution,
+                    settlement.Contribution);
+                Assert.Equal(
+                    PlatformSourceSettlementDisposition.OutcomeRelevant,
+                    settlement.Disposition);
+            },
+            settlement =>
+            {
+                Assert.Same(
+                    selected.Contribution,
+                    settlement.Contribution);
+                Assert.Equal(
+                    PlatformSourceSettlementDisposition.Selected,
+                    settlement.Disposition);
+            });
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_PrecedenceFailureStopsBeforeLaterSuccess()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+        int shadowedOpens = 0;
+        var shadowed = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => shadowedOpens++);
+
+        var outcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Failed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [shadowed, failed],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.Equal(
+            [PlatformHouseFailureKind.Source],
+            outcome.Evidence.Failures);
+        Assert.Equal(0, shadowedOpens);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.Shadowed,
+            outcome.Receipt.SourceSettlements[1].Disposition);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_FallbackSupersedesPriorFailure()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+        var selected = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate");
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [failed, selected],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.OutcomeRelevant,
+            completed.Receipt.SourceSettlements[0].Disposition);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.Selected,
+            completed.Receipt.SourceSettlements[1].Disposition);
+    }
+
+    [Theory]
+    [InlineData(PlatformSourceContributionKind.Rejected)]
+    [InlineData(PlatformSourceContributionKind.Incomplete)]
+    public async Task
+        ResolveAsync_FallbackTerminalPreventsLaterSelection(
+            PlatformSourceContributionKind terminalKind)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var terminal = TerminalAttempt(request, first, terminalKind);
+        int laterOpens = 0;
+        var later = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => laterOpens++);
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                request,
+                [later, terminal],
+                Consumed(
+                    sourceOperations: 2,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+
+        if (terminalKind == PlatformSourceContributionKind.Rejected)
+        {
+            Assert.IsType<
+                PlatformHouseOutcome<
+                    AssemblyBindingDecision>.Rejected>(outcome);
+        }
+        else
+        {
+            Assert.IsType<
+                PlatformHouseOutcome<
+                    AssemblyBindingDecision>.Incomplete>(outcome);
+        }
+        Assert.Equal(0, laterOpens);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.Shadowed,
+            outcome.Receipt.SourceSettlements[1].Disposition);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AggregationSelectsAfterAuthoritativePeerAbsence()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var selected = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "installed-candidate");
+        var absent = TerminalAttempt(
+            request,
+            second,
+            PlatformSourceContributionKind.Unavailable,
+            PlatformSourceUnavailabilityKind.Absent);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [absent, selected],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.Selected,
+            completed.Receipt.SourceSettlements[0].Disposition);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.OutcomeRelevant,
+            completed.Receipt.SourceSettlements[1].Disposition);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AggregationAmbiguityOpensNoSourceContent()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 2,
+            maxBytes: image.LongLength * 2);
+        int opens = 0;
+        var firstSuccess = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "installed-candidate",
+            () => opens++);
+        var secondSuccess = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var ambiguous = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Ambiguous>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [secondSuccess, firstSuccess],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 2,
+                        bytes: image.LongLength * 2)));
+
+        Assert.Equal(0, opens);
+        Assert.Equal(2, ambiguous.Evidence.Candidates.Count);
+        Assert.All(
+            ambiguous.Receipt.SourceSettlements,
+            settlement => Assert.Equal(
+                PlatformSourceSettlementDisposition.OutcomeRelevant,
+                settlement.Disposition));
+    }
+
+    [Theory]
+    [InlineData(
+        PlatformSourceContributionKind.Incomplete,
+        PlatformHouseSettlementKind.Incomplete)]
+    [InlineData(
+        PlatformSourceContributionKind.Failed,
+        PlatformHouseSettlementKind.Failed)]
+    [InlineData(
+        PlatformSourceContributionKind.Rejected,
+        PlatformHouseSettlementKind.Rejected)]
+    [InlineData(
+        PlatformSourceContributionKind.Unavailable,
+        PlatformHouseSettlementKind.Unavailable)]
+    public async Task
+        ResolveAsync_AggregationRetainsPeerTerminalOutcome(
+            PlatformSourceContributionKind terminalKind,
+            PlatformHouseSettlementKind expected)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "installed-candidate",
+            () => opens++);
+        var terminal = TerminalAttempt(
+            request,
+            second,
+            terminalKind,
+            PlatformSourceUnavailabilityKind.Unavailable);
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                request,
+                [success, terminal],
+                Consumed(
+                    sourceOperations: 2,
+                    assemblies: 1,
+                    bytes: image.LongLength));
+
+        Assert.Equal(expected, outcome.Receipt.SettlementKind);
+        Assert.Equal(0, opens);
+        Assert.All(
+            outcome.Receipt.SourceSettlements,
+            settlement => Assert.Equal(
+                PlatformSourceSettlementDisposition.OutcomeRelevant,
+                settlement.Disposition));
+    }
+
+    [Theory]
+    [InlineData(PlatformSourceContributionKind.Incomplete)]
+    [InlineData(PlatformSourceContributionKind.Rejected)]
+    public async Task
+        ResolveAsync_AggregationFailurePrecedesPeerTerminal(
+            PlatformSourceContributionKind peerKind)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 0,
+            maxBytes: 0);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+        var peer = TerminalAttempt(request, second, peerKind);
+
+        var outcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Failed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [peer, failed],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 0,
+                        bytes: 0)));
+
+        Assert.Equal(
+            [PlatformHouseFailureKind.Source],
+            outcome.Evidence.Failures);
+        Assert.All(
+            outcome.Receipt.SourceSettlements,
+            settlement => Assert.Equal(
+                PlatformSourceSettlementDisposition.OutcomeRelevant,
+                settlement.Disposition));
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AggregationFailurePrecedesMissingCapability()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 0,
+            maxBytes: 0);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+
+        var outcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Failed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [failed],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 0,
+                        bytes: 0)));
+
+        Assert.Same(
+            failed.Contribution,
+            Assert.Single(outcome.Receipt.SourceSettlements)
+                .Contribution);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_MissingCapabilityIsIncompleteWithoutOpeningSuccess()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [success],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        PlatformSourceSettlement retained =
+            Assert.Single(incomplete.Receipt.SourceSettlements);
+        Assert.Same(success.Contribution, retained.Contribution);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.Shadowed,
+            retained.Disposition);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_RejectsDuplicateCapabilityAttemptsWithoutOpening()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 2,
+            maxBytes: image.LongLength * 2);
+        int opens = 0;
+        var firstAttempt = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "first-candidate",
+            () => opens++);
+        var duplicate = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "duplicate-candidate",
+            () => opens++);
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [duplicate, firstAttempt],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 2,
+                        bytes: image.LongLength * 2)));
+
+        Assert.Empty(rejected.Receipt.SourceSettlements);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_RejectsDuplicateCandidateIdentityWithoutOpening()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 2,
+            maxBytes: image.LongLength * 2);
+        PlatformHouseCandidateIdentity duplicate =
+            PlatformHouseCandidateIdentity.Create("duplicate-candidate");
+        int opens = 0;
+        var firstAttempt = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "ignored-first",
+            () => opens++,
+            duplicate);
+        var secondAttempt = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "ignored-second",
+            () => opens++,
+            duplicate);
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [firstAttempt, secondAttempt],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 2,
+                        bytes: image.LongLength * 2)));
+
+        Assert.Empty(rejected.Receipt.SourceSettlements);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_RejectsUnderreportedTerminalSourceWork()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [failed, success],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.Equal(
+            PlatformHouseRejectionKind.InvalidBudget,
+            Assert.IsType<PlatformHouseRejection.OwnerEvidence>(
+                    rejected.Evidence.Rejection)
+                .Kind);
+        Assert.Empty(rejected.Receipt.SourceSettlements);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_InvalidRequestDoesNotEnumerateAttempts()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength,
+            mismatchRoute: true);
+        bool enumerated = false;
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    Attempts(),
+                    Consumed(
+                        sourceOperations: 0,
+                        assemblies: 0,
+                        bytes: 0)));
+
+        Assert.Equal(
+            PlatformHouseRejectionKind.InvalidRequest,
+            Assert.IsType<PlatformHouseRejection.OwnerEvidence>(
+                    rejected.Evidence.Rejection)
+                .Kind);
+        Assert.False(enumerated);
+
+        IEnumerable<PlatformAssemblyReferenceSourceAttempt> Attempts()
+        {
+            enumerated = true;
+            yield break;
+        }
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RejectsForeignAttemptBeforeSourceAccess()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        PlatformHouseRequest foreignRequest = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var unavailable = TerminalAttempt(
+            foreignRequest,
+            first,
+            PlatformSourceContributionKind.Unavailable);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [success, unavailable],
+                    Consumed(
+                        sourceOperations: 2,
+                        assemblies: 1,
+                        bytes: image.LongLength)));
+
+        Assert.Equal(0, opens);
+        Assert.Empty(rejected.Receipt.SourceSettlements);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_BudgetExhaustionPrecedesForeignAttempt()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        PlatformHouseRequest foreignRequest = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Fallback,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var unavailable = TerminalAttempt(
+            foreignRequest,
+            first,
+            PlatformSourceContributionKind.Unavailable);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [success, unavailable],
+                    Consumed(
+                        sourceOperations: 3,
+                        assemblies: 2,
+                        bytes: image.LongLength * 2)));
+
+        Assert.Equal(0, opens);
+        Assert.Empty(incomplete.Receipt.SourceSettlements);
+    }
+
     static (
         PlatformHouseRequest Request,
         PlatformLibraryArtifactMaterializationItem Item,
@@ -403,6 +1265,27 @@ public sealed class PlatformAssemblyReferenceResolverTests
         CancellationToken cancellationToken,
         long maxBytes,
         bool mismatchRoute = false)
+        => Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 1,
+            maxBytes,
+            origin,
+            mismatchRoute);
+
+    static PlatformHouseRequest Request(
+        AssemblyReferenceIdentity identity,
+        IReadOnlyList<PlatformSourceCapabilityIdentity> capabilities,
+        PlatformSourceSelectionMode mode,
+        CancellationToken cancellationToken,
+        int maxSourceOperations,
+        int maxAssemblies,
+        long maxBytes,
+        AssemblyBindingOrigin? origin = null,
+        bool mismatchRoute = false)
     {
         var target = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
@@ -419,14 +1302,14 @@ public sealed class PlatformAssemblyReferenceResolverTests
             [
                 new PlatformSourceSelection(
                     PlatformSourceFacet.Reference,
-                    PlatformSourceSelectionMode.Precedence,
-                    [capability]),
+                    mode,
+                    capabilities),
             ]);
         var metadataRequest =
             new PlatformMetadataRequestEvidence<AssemblyBindingRequest>(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(identity),
-                    origin,
+                    origin ?? AssemblyBindingOrigin.Global(),
                     AssemblyResolutionScope.Platform),
                 "metadata-request");
         var route = new PlatformAssemblyReferenceRoute(
@@ -455,9 +1338,9 @@ public sealed class PlatformAssemblyReferenceResolverTests
             operation,
             sources,
             new PlatformHouseWorkBudget(
-                maxSourceOperations: 1,
+                maxSourceOperations,
                 maxTargetCandidates: 1,
-                maxAssemblies: 1,
+                maxAssemblies,
                 maxXmlDocuments: 0,
                 maxPortablePdbs: 0,
                 maxSourceDocuments: 0,
@@ -466,6 +1349,114 @@ public sealed class PlatformAssemblyReferenceResolverTests
                 maxDuration: TimeSpan.FromSeconds(30)),
             cancellationToken);
     }
+
+    static PlatformAssemblyReferenceSourceAttempt.Succeeded
+        SuccessfulAttempt(
+            PlatformHouseRequest request,
+            PlatformSourceCapabilityIdentity capability,
+            AssemblyReferenceIdentity identity,
+            byte[] image,
+            string candidateName,
+            Action? observedOpen = null,
+            PlatformHouseCandidateIdentity? candidate = null)
+    {
+        var contribution =
+            new PlatformSourceContribution.Realization(
+                PlatformSourceFacet.Reference,
+                capability,
+                request.Snapshot,
+                PlatformSourceGeneration.Create(
+                    $"{capability.Name}-generation"),
+                ((PlatformTargetDemand.Exact)request.Target).Target,
+                PlatformSourceCoordinateIdentity.Create(
+                    $"{capability.Name}-coordinate"),
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformSourceContributionCompleteness.Authoritative);
+        var item = new PlatformLibraryArtifactMaterializationItem(
+            contribution,
+            new TestProvenance(),
+            identity,
+            image.LongLength,
+            token =>
+            {
+                token.ThrowIfCancellationRequested();
+                observedOpen?.Invoke();
+                return new MemoryStream(image, writable: false);
+            });
+        return new(
+            candidate ?? PlatformHouseCandidateIdentity.Create(candidateName),
+            item);
+    }
+
+    static PlatformAssemblyReferenceSourceAttempt.NotSucceeded
+        TerminalAttempt(
+            PlatformHouseRequest request,
+            PlatformSourceCapabilityIdentity capability,
+            PlatformSourceContributionKind kind,
+            PlatformSourceUnavailabilityKind unavailability =
+                PlatformSourceUnavailabilityKind.Unavailable)
+    {
+        PlatformFamilyTarget target =
+            ((PlatformTargetDemand.Exact)request.Target).Target;
+        PlatformSourceGeneration generation =
+            PlatformSourceGeneration.Create(
+                $"{capability.Name}-terminal-generation");
+        PlatformSourceContribution contribution = kind switch
+        {
+            PlatformSourceContributionKind.Unavailable =>
+                new PlatformSourceContribution.Unavailable(
+                    PlatformSourceFacet.Reference,
+                    capability,
+                    request.Snapshot,
+                    generation,
+                    target,
+                    unavailability),
+            PlatformSourceContributionKind.Rejected =>
+                new PlatformSourceContribution.Rejected(
+                    PlatformSourceFacet.Reference,
+                    capability,
+                    request.Snapshot,
+                    generation,
+                    target),
+            PlatformSourceContributionKind.Incomplete =>
+                new PlatformSourceContribution.Incomplete(
+                    PlatformSourceFacet.Reference,
+                    capability,
+                    request.Snapshot,
+                    generation,
+                    target),
+            PlatformSourceContributionKind.Failed =>
+                new PlatformSourceContribution.Failed(
+                    PlatformSourceFacet.Reference,
+                    capability,
+                    request.Snapshot,
+                    generation,
+                    target),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+        return new(
+            contribution,
+            kind == PlatformSourceContributionKind.Rejected
+                ? PlatformHouseRejectionKind.InvalidOwnerResult
+                : null);
+    }
+
+    static PlatformHouseConsumedWork Consumed(
+        int sourceOperations,
+        int assemblies,
+        long bytes) =>
+        new(
+            sourceOperations,
+            targetCandidates: 0,
+            assemblies,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes,
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
 
     static ResolvedAssemblyReference Descriptor(byte[] image) =>
         ResolvedAssemblyReference.CreateFromStreamIfManaged(

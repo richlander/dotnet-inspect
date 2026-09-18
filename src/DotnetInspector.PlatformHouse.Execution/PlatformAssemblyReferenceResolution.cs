@@ -103,21 +103,172 @@ public static class PlatformHouseAssemblyReferenceResolver
         };
     }
 
+    /// <summary>
+    /// Settles source-prepared assembly-reference attempts under the captured
+    /// Reference source policy.
+    /// </summary>
     public static async ValueTask<
+        PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
+            PlatformHouseRequest request,
+            IEnumerable<PlatformAssemblyReferenceSourceAttempt> attempts,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(attempts);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryValidateRequest(
+                request,
+                out PlatformHouseOperation.ResolveAssemblyReference? operation,
+                out PlatformTargetDemand.Exact? exact)
+            || request.Sources.SelectionFor(
+                    PlatformSourceFacet.Reference)
+                is not { } selection)
+        {
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidRequest,
+                $"{IdentityPrefix}.invalid-request");
+        }
+
+        PlatformAssemblyReferenceSourceAttempt[] snapshot = [.. attempts];
+        if (!TryValidateAttempts(
+                request,
+                operation,
+                exact,
+                selection,
+                snapshot,
+                out Dictionary<
+                    PlatformSourceCapabilityIdentity,
+                    PlatformAssemblyReferenceSourceAttempt>? byCapability))
+        {
+            if (PlatformHouseLibraryRealizer.ExceedsBudget(
+                    consumedWork,
+                    request))
+            {
+                return Incomplete(
+                    request,
+                    consumedWork,
+                    $"{IdentityPrefix}.source-policy-incomplete");
+            }
+
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidOwnerResult,
+                $"{IdentityPrefix}.invalid-source-attempts");
+        }
+
+        SourcePolicyDecision decision = SelectSourcePolicy(
+            selection,
+            byCapability);
+        if (!ConsumedWorkCoversAttempts(consumedWork, snapshot))
+        {
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidBudget,
+                $"{IdentityPrefix}.invalid-source-work");
+        }
+
+        if (decision.Kind == SourcePolicyDecisionKind.Failed)
+        {
+            return Failed(
+                request,
+                consumedWork,
+                decision.Settlements,
+                [PlatformHouseFailureKind.Source],
+                cancellationObserved: false,
+                $"{IdentityPrefix}.source-policy-failed");
+        }
+
+        if (PlatformHouseLibraryRealizer.ExceedsBudget(
+                consumedWork,
+                request))
+        {
+            return Incomplete(
+                request,
+                consumedWork,
+                $"{IdentityPrefix}.source-policy-incomplete",
+                retainedSettlements:
+                    TerminalSettlements(decision.Settlements));
+        }
+
+        return decision.Kind switch
+        {
+            SourcePolicyDecisionKind.Selected =>
+                await ResolveSelectedAsync(
+                        request,
+                        decision.Selected!.Materialization,
+                        consumedWork,
+                        decision.Settlements,
+                        requireSingleCapability: false)
+                    .ConfigureAwait(false),
+            SourcePolicyDecisionKind.Unavailable => Unavailable(
+                request,
+                consumedWork,
+                decision.Settlements,
+                $"{IdentityPrefix}.sources-unavailable"),
+            SourcePolicyDecisionKind.Ambiguous => Ambiguous(
+                request,
+                consumedWork,
+                decision.Candidates,
+                decision.Settlements),
+            SourcePolicyDecisionKind.Rejected => Rejected(
+                request,
+                consumedWork,
+                decision.RejectionKind!.Value,
+                $"{IdentityPrefix}.source-policy-rejected",
+                retainedSettlements: decision.Settlements),
+            SourcePolicyDecisionKind.Incomplete => Incomplete(
+                request,
+                consumedWork,
+                $"{IdentityPrefix}.source-policy-incomplete",
+                retainedSettlements: decision.Settlements),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-reference source-policy decision."),
+        };
+    }
+
+    public static ValueTask<
         PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
             PlatformHouseRequest request,
             PlatformLibraryArtifactMaterializationItem reference,
             PlatformHouseConsumedWork consumedWork)
     {
+        ArgumentNullException.ThrowIfNull(reference);
+        var settlement = new PlatformSourceSettlement(
+            reference.Contribution,
+            PlatformSourceSettlementDisposition.Selected);
+        return ResolveSelectedAsync(
+            request,
+            reference,
+            consumedWork,
+            [settlement],
+            requireSingleCapability: true);
+    }
+
+    static async ValueTask<
+        PlatformHouseOutcome<AssemblyBindingDecision>> ResolveSelectedAsync(
+            PlatformHouseRequest request,
+            PlatformLibraryArtifactMaterializationItem reference,
+            PlatformHouseConsumedWork consumedWork,
+            IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+            bool requireSingleCapability)
+    {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(reference);
         ArgumentNullException.ThrowIfNull(consumedWork);
+        ArgumentNullException.ThrowIfNull(sourceSettlements);
         request.CancellationToken.ThrowIfCancellationRequested();
 
         if (!TryValidate(
                 request,
                 reference,
                 consumedWork,
+                requireSingleCapability,
                 out PlatformHouseOperation.ResolveAssemblyReference? operation,
                 out PlatformTargetDemand.Exact? exact))
         {
@@ -418,15 +569,20 @@ public static class PlatformHouseAssemblyReferenceResolver
             return Failed(
                 request,
                 consumedWork,
-                reference.Contribution,
+                TerminalSettlements(sourceSettlements),
                 failures,
                 cancellation is not null,
                 $"{IdentityPrefix}.execution-failed");
         }
 
-        var sourceSettlement = new PlatformSourceSettlement(
-            reference.Contribution,
-            PlatformSourceSettlementDisposition.Selected);
+        PlatformSourceSettlement sourceSettlement =
+            sourceSettlements.Single(
+                settlement =>
+                    ReferenceEquals(
+                        settlement.Contribution,
+                        reference.Contribution)
+                    && settlement.Disposition
+                        == PlatformSourceSettlementDisposition.Selected);
         var metadataOutcome =
             new PlatformMetadataOutcomeEvidence<AssemblyBindingDecision>(
                 decision,
@@ -441,7 +597,7 @@ public static class PlatformHouseAssemblyReferenceResolver
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             new PlatformTargetSettlement.Exact(exact!),
-            [sourceSettlement],
+            sourceSettlements,
             consumedWork,
             completion);
         return new PlatformHouseOutcome<AssemblyBindingDecision>.Completed(
@@ -453,11 +609,35 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseRequest request,
         PlatformLibraryArtifactMaterializationItem reference,
         PlatformHouseConsumedWork consumedWork,
+        bool requireSingleCapability,
         out PlatformHouseOperation.ResolveAssemblyReference? operation,
         out PlatformTargetDemand.Exact? exact)
     {
         if (!TryValidateRequest(request, out operation, out exact)
-            || operation!.Request.Target
+            || !ValidMaterialization(
+                request,
+                operation!,
+                exact!,
+                reference,
+                requireSingleCapability)
+            || consumedWork.SourceOperations < 1
+            || consumedWork.Assemblies < 1
+            || consumedWork.Bytes < reference.ContentLength)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool ValidMaterialization(
+        PlatformHouseRequest request,
+        PlatformHouseOperation.ResolveAssemblyReference operation,
+        PlatformTargetDemand.Exact exact,
+        PlatformLibraryArtifactMaterializationItem reference,
+        bool requireSingleCapability)
+    {
+        if (operation.Request.Target
                 is not AssemblyBindingTarget.AssemblyReference target
             || reference.ContentLength <= 0
             || reference.Contribution.Facet
@@ -484,19 +664,370 @@ public static class PlatformHouseAssemblyReferenceResolver
                 reference.Contribution.Capability)
             || request.Sources.SelectionFor(
                     PlatformSourceFacet.Reference)
-                is not { Capabilities.Count: 1 } sourceSelection
-            || !ReferenceEquals(
-                sourceSelection.Capabilities[0],
-                reference.Contribution.Capability)
-            || consumedWork.SourceOperations < 1
-            || consumedWork.Assemblies < 1
-            || consumedWork.Bytes < reference.ContentLength)
+                is not { } sourceSelection
+            || requireSingleCapability
+                && (sourceSelection.Capabilities.Count != 1
+                    || !ReferenceEquals(
+                        sourceSelection.Capabilities[0],
+                        reference.Contribution.Capability)))
         {
             return false;
         }
 
         return true;
     }
+
+    static bool TryValidateAttempts(
+        PlatformHouseRequest request,
+        PlatformHouseOperation.ResolveAssemblyReference operation,
+        PlatformTargetDemand.Exact exact,
+        PlatformSourceSelection selection,
+        IReadOnlyList<PlatformAssemblyReferenceSourceAttempt> attempts,
+        [NotNullWhen(true)]
+        out Dictionary<
+            PlatformSourceCapabilityIdentity,
+            PlatformAssemblyReferenceSourceAttempt>? byCapability)
+    {
+        byCapability = new(
+            ReferenceEqualityComparer.Instance);
+        var candidates = new HashSet<PlatformHouseCandidateIdentity>(
+            ReferenceEqualityComparer.Instance);
+        foreach (PlatformAssemblyReferenceSourceAttempt attempt in attempts)
+        {
+            if (attempt is null
+                || !selection.Capabilities.Any(
+                    capability => ReferenceEquals(
+                        capability,
+                        attempt.Contribution.Capability))
+                || !byCapability.TryAdd(
+                    attempt.Contribution.Capability,
+                    attempt))
+            {
+                byCapability = null;
+                return false;
+            }
+
+            bool valid = attempt switch
+            {
+                PlatformAssemblyReferenceSourceAttempt.Succeeded success =>
+                    candidates.Add(success.Candidate)
+                    && ValidMaterialization(
+                        request,
+                        operation,
+                        exact,
+                        success.Materialization,
+                        requireSingleCapability: false),
+                PlatformAssemblyReferenceSourceAttempt.NotSucceeded
+                    terminal => ValidSourceTerminal(
+                        request,
+                        exact,
+                        terminal.Contribution,
+                        terminal.RejectionKind,
+                        requireSingleCapability: false),
+                _ => false,
+            };
+            if (!valid)
+            {
+                byCapability = null;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool ConsumedWorkCoversAttempts(
+        PlatformHouseConsumedWork consumedWork,
+        IReadOnlyList<PlatformAssemblyReferenceSourceAttempt> attempts)
+    {
+        int successes = 0;
+        long bytes = 0;
+        try
+        {
+            foreach (PlatformAssemblyReferenceSourceAttempt.Succeeded success
+                in attempts.OfType<
+                    PlatformAssemblyReferenceSourceAttempt.Succeeded>())
+            {
+                successes = checked(successes + 1);
+                bytes = checked(
+                    bytes + success.Materialization.ContentLength);
+            }
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        return consumedWork.SourceOperations >= attempts.Count
+            && consumedWork.Assemblies >= successes
+            && consumedWork.Bytes >= bytes;
+    }
+
+    static SourcePolicyDecision SelectSourcePolicy(
+        PlatformSourceSelection selection,
+        IReadOnlyDictionary<
+            PlatformSourceCapabilityIdentity,
+            PlatformAssemblyReferenceSourceAttempt> attempts) =>
+        selection.Mode == PlatformSourceSelectionMode.Aggregation
+            ? SelectAggregation(selection, attempts)
+            : SelectOrdered(selection, attempts);
+
+    static SourcePolicyDecision SelectOrdered(
+        PlatformSourceSelection selection,
+        IReadOnlyDictionary<
+            PlatformSourceCapabilityIdentity,
+            PlatformAssemblyReferenceSourceAttempt> attempts)
+    {
+        bool sawFallbackFailure = false;
+        for (int index = 0;
+            index < selection.Capabilities.Count;
+            index++)
+        {
+            PlatformSourceCapabilityIdentity capability =
+                selection.Capabilities[index];
+            if (!attempts.TryGetValue(capability, out var attempt))
+            {
+                return SourcePolicyDecision.ForIncomplete(
+                    BuildTerminalSettlements(
+                        selection,
+                        attempts,
+                        index - 1));
+            }
+
+            if (attempt
+                is PlatformAssemblyReferenceSourceAttempt.Succeeded success)
+            {
+                return SourcePolicyDecision.ForSelected(
+                    success,
+                    BuildSelectedSettlements(
+                        selection,
+                        attempts,
+                        index,
+                        aggregation: false));
+            }
+
+            var terminal =
+                (PlatformAssemblyReferenceSourceAttempt.NotSucceeded)
+                    attempt;
+            switch (terminal.Contribution)
+            {
+                case PlatformSourceContribution.Rejected:
+                    return SourcePolicyDecision.ForRejected(
+                        terminal.RejectionKind!.Value,
+                        BuildTerminalSettlements(
+                            selection,
+                            attempts,
+                            index));
+                case PlatformSourceContribution.Incomplete:
+                    return SourcePolicyDecision.ForIncomplete(
+                        BuildTerminalSettlements(
+                            selection,
+                            attempts,
+                            index));
+                case PlatformSourceContribution.Failed
+                    when selection.Mode
+                        == PlatformSourceSelectionMode.Precedence:
+                    return SourcePolicyDecision.ForFailed(
+                        BuildTerminalSettlements(
+                            selection,
+                            attempts,
+                            index));
+                case PlatformSourceContribution.Failed:
+                    sawFallbackFailure = true;
+                    break;
+            }
+        }
+
+        IReadOnlyList<PlatformSourceSettlement> settlements =
+            BuildTerminalSettlements(
+                selection,
+                attempts,
+                selection.Capabilities.Count - 1);
+        return sawFallbackFailure
+            ? SourcePolicyDecision.ForFailed(settlements)
+            : SourcePolicyDecision.ForUnavailable(settlements);
+    }
+
+    static SourcePolicyDecision SelectAggregation(
+        PlatformSourceSelection selection,
+        IReadOnlyDictionary<
+            PlatformSourceCapabilityIdentity,
+            PlatformAssemblyReferenceSourceAttempt> attempts)
+    {
+        IReadOnlyList<PlatformSourceSettlement> terminalSettlements =
+            BuildAggregationTerminalSettlements(selection, attempts);
+        if (attempts.Values.Any(
+                attempt => attempt.Contribution
+                    is PlatformSourceContribution.Failed))
+        {
+            return SourcePolicyDecision.ForFailed(terminalSettlements);
+        }
+        if (selection.Capabilities.Any(
+                capability => !attempts.ContainsKey(capability)))
+        {
+            return SourcePolicyDecision.ForIncomplete(
+                terminalSettlements);
+        }
+
+        foreach (PlatformSourceCapabilityIdentity capability
+            in selection.Capabilities)
+        {
+            if (attempts[capability]
+                    is PlatformAssemblyReferenceSourceAttempt.NotSucceeded
+                    {
+                        Contribution:
+                            PlatformSourceContribution.Rejected,
+                    } rejected)
+            {
+                return SourcePolicyDecision.ForRejected(
+                    rejected.RejectionKind!.Value,
+                    terminalSettlements);
+            }
+        }
+        if (attempts.Values.Any(
+                attempt => attempt.Contribution
+                    is PlatformSourceContribution.Incomplete))
+        {
+            return SourcePolicyDecision.ForIncomplete(
+                terminalSettlements);
+        }
+        PlatformAssemblyReferenceSourceAttempt.Succeeded[] successes =
+            [.. selection.Capabilities
+                .Select(capability => attempts[capability])
+                .OfType<
+                    PlatformAssemblyReferenceSourceAttempt.Succeeded>()];
+        if (successes.Length > 1)
+        {
+            return SourcePolicyDecision.ForAmbiguous(
+                [.. successes.Select(success => success.Candidate)],
+                terminalSettlements);
+        }
+        if (successes.Length == 1
+            && attempts.Values
+                .Where(attempt => !ReferenceEquals(
+                    attempt,
+                    successes[0]))
+                .All(
+                    attempt => attempt.Contribution
+                        is PlatformSourceContribution.Unavailable
+                        {
+                            Reason:
+                                PlatformSourceUnavailabilityKind.Absent,
+                        }))
+        {
+            int selectedIndex = IndexOf(
+                selection.Capabilities,
+                successes[0].Contribution.Capability);
+            return SourcePolicyDecision.ForSelected(
+                successes[0],
+                BuildSelectedSettlements(
+                    selection,
+                    attempts,
+                    selectedIndex,
+                    aggregation: true));
+        }
+        return SourcePolicyDecision.ForUnavailable(terminalSettlements);
+    }
+
+    static IReadOnlyList<PlatformSourceSettlement>
+        BuildSelectedSettlements(
+            PlatformSourceSelection selection,
+            IReadOnlyDictionary<
+                PlatformSourceCapabilityIdentity,
+                PlatformAssemblyReferenceSourceAttempt> attempts,
+            int selectedIndex,
+            bool aggregation)
+    {
+        var settlements = new List<PlatformSourceSettlement>(
+            attempts.Count);
+        for (int index = 0;
+            index < selection.Capabilities.Count;
+            index++)
+        {
+            if (!attempts.TryGetValue(
+                    selection.Capabilities[index],
+                    out var attempt))
+            {
+                continue;
+            }
+            PlatformSourceSettlementDisposition disposition =
+                index == selectedIndex
+                    ? PlatformSourceSettlementDisposition.Selected
+                    : aggregation || index < selectedIndex
+                        ? PlatformSourceSettlementDisposition.OutcomeRelevant
+                        : PlatformSourceSettlementDisposition.Shadowed;
+            settlements.Add(
+                new PlatformSourceSettlement(
+                    attempt.Contribution,
+                    disposition));
+        }
+        return settlements.AsReadOnly();
+    }
+
+    static IReadOnlyList<PlatformSourceSettlement>
+        BuildTerminalSettlements(
+            PlatformSourceSelection selection,
+            IReadOnlyDictionary<
+                PlatformSourceCapabilityIdentity,
+                PlatformAssemblyReferenceSourceAttempt> attempts,
+            int terminalIndex)
+    {
+        var settlements = new List<PlatformSourceSettlement>(
+            attempts.Count);
+        for (int index = 0;
+            index < selection.Capabilities.Count;
+            index++)
+        {
+            if (!attempts.TryGetValue(
+                    selection.Capabilities[index],
+                    out var attempt))
+            {
+                continue;
+            }
+            settlements.Add(
+                new PlatformSourceSettlement(
+                    attempt.Contribution,
+                    index <= terminalIndex
+                        ? PlatformSourceSettlementDisposition.OutcomeRelevant
+                        : PlatformSourceSettlementDisposition.Shadowed));
+        }
+        return settlements.AsReadOnly();
+    }
+
+    static IReadOnlyList<PlatformSourceSettlement>
+        BuildAggregationTerminalSettlements(
+            PlatformSourceSelection selection,
+            IReadOnlyDictionary<
+                PlatformSourceCapabilityIdentity,
+                PlatformAssemblyReferenceSourceAttempt> attempts)
+    {
+        var settlements = new List<PlatformSourceSettlement>(
+            attempts.Count);
+        foreach (PlatformSourceCapabilityIdentity capability
+            in selection.Capabilities)
+        {
+            if (attempts.TryGetValue(capability, out var attempt))
+            {
+                settlements.Add(
+                    new PlatformSourceSettlement(
+                        attempt.Contribution,
+                        PlatformSourceSettlementDisposition
+                            .OutcomeRelevant));
+            }
+        }
+        return settlements.AsReadOnly();
+    }
+
+    static IReadOnlyList<PlatformSourceSettlement> TerminalSettlements(
+        IEnumerable<PlatformSourceSettlement> settlements) =>
+        Array.AsReadOnly(
+            settlements.Select(
+                settlement => new PlatformSourceSettlement(
+                    settlement.Contribution,
+                    settlement.Disposition
+                        == PlatformSourceSettlementDisposition.Selected
+                            ? PlatformSourceSettlementDisposition
+                                .OutcomeRelevant
+                            : settlement.Disposition))
+                .ToArray());
 
     static bool TryValidateRequest(
         PlatformHouseRequest request,
@@ -539,7 +1070,8 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseRequest request,
         PlatformTargetDemand.Exact exact,
         PlatformSourceContribution contribution,
-        PlatformHouseRejectionKind? sourceRejectionKind)
+        PlatformHouseRejectionKind? sourceRejectionKind,
+        bool requireSingleCapability = true)
     {
         bool isRejected =
             contribution is PlatformSourceContribution.Rejected;
@@ -560,10 +1092,16 @@ public static class PlatformHouseAssemblyReferenceResolver
                 contribution.Capability)
             && request.Sources.SelectionFor(
                     PlatformSourceFacet.Reference)
-                is { Capabilities.Count: 1 } sourceSelection
-            && ReferenceEquals(
-                sourceSelection.Capabilities[0],
-                contribution.Capability);
+                is { } sourceSelection
+            && sourceSelection.Capabilities.Any(
+                capability => ReferenceEquals(
+                    capability,
+                    contribution.Capability))
+            && (!requireSingleCapability
+                || sourceSelection.Capabilities.Count == 1
+                    && ReferenceEquals(
+                        sourceSelection.Capabilities[0],
+                        contribution.Capability));
     }
 
     static AssemblyBindingDecision ProjectDecision(
@@ -741,21 +1279,31 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseConsumedWork consumedWork,
         PlatformHouseRejectionKind kind,
         string evidenceName,
-        PlatformSourceContribution? contribution = null)
+        PlatformSourceContribution? contribution = null,
+        IEnumerable<PlatformSourceSettlement>? retainedSettlements = null)
     {
+        if (contribution is not null && retainedSettlements is not null)
+        {
+            throw new ArgumentException(
+                "Rejected evidence must use either one contribution or an explicit settlement set.");
+        }
         var termination = new PlatformHouseTermination.Rejected(
             new PlatformHouseRejection.OwnerEvidence(
                 kind,
                 PlatformHouseTerminalEvidenceIdentity.Create(
                     evidenceName)));
-        PlatformSourceSettlement[] settlements = contribution is null
-            ? []
-            :
-            [
-                new PlatformSourceSettlement(
-                    contribution,
-                    PlatformSourceSettlementDisposition.OutcomeRelevant),
-            ];
+        PlatformSourceSettlement[] settlements =
+            retainedSettlements is not null
+                ? [.. retainedSettlements]
+                : contribution is null
+                    ? []
+                    :
+                    [
+                        new PlatformSourceSettlement(
+                            contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant),
+                    ];
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
@@ -771,17 +1319,29 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformSourceContribution contribution,
+        string evidenceName) =>
+        Unavailable(
+            request,
+            consumedWork,
+            [
+                new PlatformSourceSettlement(
+                    contribution,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant),
+            ],
+            evidenceName);
+
+    static PlatformHouseOutcome<AssemblyBindingDecision> Unavailable(
+        PlatformHouseRequest request,
+        PlatformHouseConsumedWork consumedWork,
+        IEnumerable<PlatformSourceSettlement> settlements,
         string evidenceName)
     {
         var termination = new PlatformHouseTermination.Unavailable(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
-        var settlement = new PlatformSourceSettlement(
-            contribution,
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [settlement],
+            settlements,
             consumedWork,
             termination: termination);
         return new PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable(
@@ -793,18 +1353,28 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         string evidenceName,
-        PlatformSourceContribution? contribution = null)
+        PlatformSourceContribution? contribution = null,
+        IEnumerable<PlatformSourceSettlement>? retainedSettlements = null)
     {
+        if (contribution is not null && retainedSettlements is not null)
+        {
+            throw new ArgumentException(
+                "Incomplete evidence must use either one contribution or an explicit settlement set.");
+        }
         var termination = new PlatformHouseTermination.Incomplete(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
-        PlatformSourceSettlement[] settlements = contribution is null
-            ? []
-            :
-            [
-                new PlatformSourceSettlement(
-                    contribution,
-                    PlatformSourceSettlementDisposition.OutcomeRelevant),
-            ];
+        PlatformSourceSettlement[] settlements =
+            retainedSettlements is not null
+                ? [.. retainedSettlements]
+                : contribution is null
+                    ? []
+                    :
+                    [
+                        new PlatformSourceSettlement(
+                            contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant),
+                    ];
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
@@ -822,6 +1392,25 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformSourceContribution contribution,
         IEnumerable<PlatformHouseFailureKind> failures,
         bool cancellationObserved,
+        string evidenceName) =>
+        Failed(
+            request,
+            consumedWork,
+            [
+                new PlatformSourceSettlement(
+                    contribution,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant),
+            ],
+            failures,
+            cancellationObserved,
+            evidenceName);
+
+    static PlatformHouseOutcome<AssemblyBindingDecision> Failed(
+        PlatformHouseRequest request,
+        PlatformHouseConsumedWork consumedWork,
+        IEnumerable<PlatformSourceSettlement> settlements,
+        IEnumerable<PlatformHouseFailureKind> failures,
+        bool cancellationObserved,
         string evidenceName)
     {
         PlatformHouseFailureKind[] failureSnapshot =
@@ -830,18 +1419,44 @@ public static class PlatformHouseAssemblyReferenceResolver
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName),
             failureSnapshot,
             cancellationObserved);
-        var settlement = new PlatformSourceSettlement(
-            contribution,
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [settlement],
+            settlements,
             consumedWork,
             termination: termination);
         return new PlatformHouseOutcome<AssemblyBindingDecision>.Failed(
             termination,
             receipt);
+    }
+
+    static PlatformHouseOutcome<AssemblyBindingDecision> Ambiguous(
+        PlatformHouseRequest request,
+        PlatformHouseConsumedWork consumedWork,
+        IEnumerable<PlatformHouseCandidateIdentity> candidates,
+        IEnumerable<PlatformSourceSettlement> settlements)
+    {
+        var termination = new PlatformHouseTermination.Ambiguous(candidates);
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
+            settlements,
+            consumedWork,
+            termination: termination);
+        return new PlatformHouseOutcome<AssemblyBindingDecision>.Ambiguous(
+            termination,
+            receipt);
+    }
+
+    static int IndexOf<T>(IReadOnlyList<T> values, T value)
+        where T : class
+    {
+        for (int index = 0; index < values.Count; index++)
+        {
+            if (ReferenceEquals(values[index], value))
+                return index;
+        }
+        return -1;
     }
 
     static ArtifactSetAdmissionFailure Failure(
@@ -858,6 +1473,65 @@ public static class PlatformHouseAssemblyReferenceResolver
     sealed record BindingSnapshotState(
         AssemblyBindingRequest Request,
         AssemblyReferenceIdentity ExpectedIdentity);
+
+    enum SourcePolicyDecisionKind
+    {
+        Selected,
+        Unavailable,
+        Ambiguous,
+        Rejected,
+        Incomplete,
+        Failed,
+    }
+
+    sealed record SourcePolicyDecision(
+        SourcePolicyDecisionKind Kind,
+        IReadOnlyList<PlatformSourceSettlement> Settlements,
+        PlatformAssemblyReferenceSourceAttempt.Succeeded? Selected = null,
+        IReadOnlyList<PlatformHouseCandidateIdentity>? AmbiguousCandidates =
+            null,
+        PlatformHouseRejectionKind? RejectionKind = null)
+    {
+        internal IReadOnlyList<PlatformHouseCandidateIdentity> Candidates =>
+            AmbiguousCandidates
+            ?? Array.Empty<PlatformHouseCandidateIdentity>();
+
+        internal static SourcePolicyDecision ForSelected(
+            PlatformAssemblyReferenceSourceAttempt.Succeeded selected,
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(
+                SourcePolicyDecisionKind.Selected,
+                settlements,
+                Selected: selected);
+
+        internal static SourcePolicyDecision ForUnavailable(
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(SourcePolicyDecisionKind.Unavailable, settlements);
+
+        internal static SourcePolicyDecision ForAmbiguous(
+            IReadOnlyList<PlatformHouseCandidateIdentity> candidates,
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(
+                SourcePolicyDecisionKind.Ambiguous,
+                settlements,
+                AmbiguousCandidates: candidates);
+
+        internal static SourcePolicyDecision ForRejected(
+            PlatformHouseRejectionKind rejectionKind,
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(
+                SourcePolicyDecisionKind.Rejected,
+                settlements,
+                RejectionKind: rejectionKind);
+
+        internal static SourcePolicyDecision ForIncomplete(
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(SourcePolicyDecisionKind.Incomplete, settlements);
+
+        internal static SourcePolicyDecision ForFailed(
+            IReadOnlyList<PlatformSourceSettlement> settlements) =>
+            new(SourcePolicyDecisionKind.Failed, settlements);
+    }
 
     sealed class ExactAssemblyBindingPolicy(
         AssemblyBindingRequest expectedRequest,
