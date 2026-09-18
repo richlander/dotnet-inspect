@@ -1003,11 +1003,12 @@ currencies and content:
 | `ecosystem.blazor` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 | `ecosystem.maui` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
-The eight existing demo IDs, metadata, global order, records, pins, and run
-plans remain unchanged. Their global orders are assigned in their current
-product sequence. The two new Aspire demos follow them. The literal
-demo-to-pack mapping is application policy and is not inferred from their
-package coordinates or titles.
+The eight existing demo IDs, titles, global order, records, pins, and run plans
+remain unchanged. Their global orders are assigned in their current product
+sequence. The two new Aspire demos follow them. Three .NET Runtime summaries
+and the Microsoft.Extensions cross-library summary are intentionally updated
+to use the current product names. The literal demo-to-pack mapping is
+application policy and is not inferred from package coordinates or titles.
 
 The initial retrieval and registered-package metadata is independently
 authored alongside those capabilities:
@@ -1035,9 +1036,10 @@ fundamentals. Aspire starts with its hosting API. These choices are product
 preferences, not popularity rankings or complete ecosystem inventories. They
 prioritize useful package-dependency neighborhoods and cross-ecosystem join
 candidates where current evidence supports them.
-Platform deliberately contributes no package coordinate as a substitute for
-its future platform-source-owned discovery/acquisition binding. This metadata
-is not derived from package-set membership or demo records.
+The .NET Runtime pack deliberately contributes no core package coordinate as a
+substitute for its source-native runtime population. PlatformHouse execution
+remains staged. This metadata is not derived from package-set membership or
+demo records.
 
 ### AI contribution evidence
 
@@ -1426,14 +1428,14 @@ The flat product-demo projection preserves current order and appends Aspire:
 ```text
 Demos
 
-System.Text.Json                    Browse the Runtime Platform API
-Cross-library call graph            Trace calls across three Platform libraries
-Serialize call graph                Trace the Runtime STJ implementation
+System.Text.Json                    Browse the .NET runtime API
+Cross-library call graph            Trace calls across three ASP.NET Core libraries
+Serialize call graph                Trace the .NET runtime STJ implementation
 Configuration Bind                 Recursive binder call graph
 Options hub                        Inbound fan-in at AddOptions
 DI TryAdd hub                      Keyed/scoped Try* fan-in
 AddHttpClient                      HttpClient factory registration
-JsonElement.GetDecimal             Trace the Runtime number parse path
+JsonElement.GetDecimal             Trace the .NET runtime number parse path
 Aspire AddPostgres                 PostgreSQL resource registration graph
 Aspire AddRedis                    Redis resource registration graph
 ```
