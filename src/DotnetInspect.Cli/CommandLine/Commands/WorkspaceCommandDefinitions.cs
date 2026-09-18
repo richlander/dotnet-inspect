@@ -143,7 +143,18 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
         opts.AddTableOptionsTo(command);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: result =>
+                !IsTopLevelInventory(
+                    result,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
@@ -229,7 +240,9 @@ public static class WorkspaceCommandDefinitions
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     RowSelection = rowSelection,
-                    Rows = opts.ParseRows(parseResult),
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =
@@ -259,7 +272,7 @@ public static class WorkspaceCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result =>
                 IsTopLevelInventory(
-                    result,
+                    result.CommandResult,
                     activePackageOption,
                     libraryOption,
                     allLibrariesOption,
@@ -276,7 +289,7 @@ public static class WorkspaceCommandDefinitions
     }
 
     static bool IsTopLevelInventory(
-        ParseResult parseResult,
+        CommandResult commandResult,
         Option<int?> activePackageOption,
         Option<string?> libraryOption,
         Option<bool> allLibrariesOption,
@@ -284,13 +297,13 @@ public static class WorkspaceCommandDefinitions
         Option<string?> memberOption,
         Option<string?> lensOption,
         Option<string?> shareOption) =>
-        parseResult.GetValue(activePackageOption) is null
-        && parseResult.GetValue(libraryOption) is null
-        && !parseResult.GetValue(allLibrariesOption)
-        && parseResult.GetValue(typeOption) is null
-        && parseResult.GetValue(memberOption) is null
-        && parseResult.GetValue(lensOption) is null
-        && parseResult.GetResult(shareOption) is null;
+        commandResult.GetValue(activePackageOption) is null
+        && commandResult.GetValue(libraryOption) is null
+        && !commandResult.GetValue(allLibrariesOption)
+        && commandResult.GetValue(typeOption) is null
+        && commandResult.GetValue(memberOption) is null
+        && commandResult.GetValue(lensOption) is null
+        && commandResult.GetResult(shareOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,

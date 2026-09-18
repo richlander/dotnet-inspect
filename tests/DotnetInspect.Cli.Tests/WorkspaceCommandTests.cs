@@ -1519,6 +1519,33 @@ public sealed class WorkspaceCommandTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("..1", "Alpha.")]
+    [InlineData("2..", "Zulu.")]
+    public async Task CommandLineInventory_OpenWindowSelectsCompleteEntry(
+        string window,
+        string expectedPrefix)
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "--rows",
+            window,
+            "--json");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement entry = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            expectedPrefix,
+            entry.GetProperty("prefix").GetProperty("prefix").GetString());
+    }
+
     [Fact]
     public async Task CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork()
     {
@@ -1609,6 +1636,31 @@ public sealed class WorkspaceCommandTests
         Assert.Empty(captured.Output);
         Assert.Contains(
             "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--share")]
+    [InlineData("--active-package")]
+    public async Task CommandLineNonInventoryModes_RetainLegacyWindowValidation(
+        string mode)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            mode,
+        };
+        if (mode == "--active-package")
+            args.Add("1");
+        args.AddRange(["--rows", "..1"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--rows '..1' has no start row",
             captured.Error,
             StringComparison.Ordinal);
     }

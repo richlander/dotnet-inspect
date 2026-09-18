@@ -827,7 +827,7 @@ The Workspace top-level inventory adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `WorkspaceCommandTests` | Direct, packet, and Root-reopening top-level inventory modes declare complete typed entries after kind filtering; explicit and bare Head, Tail, and strict Window select the same owner-ordered identities before JSON, JSONL, Markout, or Count lowering. One unavailable Window emits no partial document. |
+| `WorkspaceCommandTests` | Direct, packet, and Root-reopening top-level inventory modes declare complete typed entries after kind filtering; explicit and bare Head, Tail, and closed, prefix, or suffix strict Window select the same owner-ordered identities before JSON, JSONL, Markout, or Count lowering. One unavailable Window emits no partial document. |
 | `WorkspaceCommandTests.SemanticHead_DoesNotHideFailedWorkspaceConstruction` | Semantic selection does not reduce Package acquisition or hide a failed Workspace construction behind a selected successful prefix. |
 | `WorkspaceCommandTests.CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork`, `CommandLineNavigation_InferredLinesRejectCompleteJsonBeforeWorkspaceWork`, and `CommandLineShare_SpellingsRemainRenderedLineFallback` | Explicit Lines rejects complete inventory JSON before Workspace work, while active-package Navigation and both bare and explicit-URL Share remain outside the inventory declaration and infer rendered-line selection. |
 
