@@ -10,6 +10,7 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
+using DotnetInspector.SourceHouse;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -125,6 +126,59 @@ public class PdbSourceHouseTests
         Assert.Equal(
             PdbTypeSourceOutcome.SourceMappingUnavailable,
             typeInspection.Outcome);
+    }
+
+    [Fact]
+    public async Task AcquireTypeAsync_RealPartialTypeUsesSharedDefaultAndPreservesMapping()
+    {
+        string assemblyPath = typeof(SourceLinkService).Assembly.Location;
+        using SourceLinkService source = SourceLinkService.Open(assemblyPath);
+        MetadataTypeDefinitionName type = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    typeof(SourceLinkService).Namespace!,
+                    [nameof(SourceLinkService)]))
+            .Name;
+        SourceLinkResolver.TypeSourceInfo expectedMapping =
+            Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+                source.ResolveTypeSource(type));
+        SourceLinkResolver.TypeSourceDocument expectedDocument =
+            Assert.IsType<SourceLinkResolver.TypeSourceDocument>(
+                TypeSourceDocumentSelection.SelectDefault(expectedMapping));
+        byte[] content = await File.ReadAllBytesAsync(
+            Path.Combine(
+                FindRepositoryRoot(),
+                "src",
+                "ILInspector.SourceLink",
+                "SourceLinkService.cs"),
+            TestContext.Current.CancellationToken);
+        var handler = new QueueHandler(content);
+        using var client = new HttpClient(handler);
+        var fetcher = new SourceFetch(
+            client,
+            new InMemorySourceContentStore());
+
+        PdbTypeSourceInspection result =
+            await PdbSourceHouse.AcquireTypeAsync(
+                source,
+                type,
+                Subject,
+                fetcher,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                allowLocalSource: false);
+
+        Assert.IsType<FindingInspection<string>.Complete>(
+            result.Lines.Value);
+        Assert.Equal(PdbTypeSourceOutcome.Complete, result.Outcome);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(expectedDocument.FilePath, result.Document!.OriginalPath);
+        Assert.Equal(
+            expectedMapping.Documents.Select(document => document.FilePath),
+            result.Mapping!.Documents.Select(document => document.FilePath));
+        Assert.Equal(
+            expectedMapping.Documents.Select(document => document.Checksum),
+            result.Mapping.Documents.Select(document => document.Checksum));
     }
 
     [Fact]
@@ -321,13 +375,7 @@ public class PdbSourceHouseTests
                 '\n',
                 PdbSourceHouse
                     .MaxPdbSourceLineCount));
-        var mapping =
-            new ILInspector.SourceLink.SourceLinkResolver
-                .TypeSourceInfo(
-                    "/_/Sample.cs",
-                    "https://example.test/Sample.cs",
-                    LineNumber: null,
-                    GitHubBrowseUrl: null);
+        var mapping = TypeMapping();
 
         PdbTypeSourceInspection result =
             PdbSourceHouse.FromTypeContent(
@@ -759,13 +807,32 @@ public class PdbSourceHouseTests
 
     static SourceLinkResolver.TypeSourceInfo TypeMapping() =>
         new(
-            "/_/Sample.cs",
-            "https://example.test/Sample.cs",
-            LineNumber: 17,
-            GitHubBrowseUrl: "https://example.test/browse/Sample.cs",
-            SourceLinkResolver.SourceResolutionMethod.SourceLink,
-            Checksum: SHA256.HashData(Encoding.UTF8.GetBytes(Source)),
-            ChecksumAlgorithm: "SHA256");
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Example", ["Sample"]))
+                .Name,
+            [
+                new(
+                    "/_/Sample.cs",
+                    "https://example.test/Sample.cs",
+                    "https://example.test/browse/Sample.cs",
+                    SourceLinkResolver.SourceResolutionMethod.SourceLink,
+                    Checksum: SHA256.HashData(Encoding.UTF8.GetBytes(Source)),
+                    ChecksumAlgorithm: "SHA256"),
+            ]);
+
+    static string FindRepositoryRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate the dotnet-inspect repository root.");
+    }
 
     static SourceLinkService OpenSourceNeedingPdb()
     {

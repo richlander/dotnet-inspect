@@ -2,6 +2,17 @@ namespace ILInspector.Decompiler.Pipeline;
 
 internal static class PointerArithmetic
 {
+    internal static TypeRef? PointeeType(IrExpression address) => address.ResultType switch
+    {
+        { Kind: TypeRefKind.Pointer or TypeRefKind.ByRef, ElementType: { } element } => element,
+        _ => address switch
+        {
+            Binary { Kind: BinaryKind.Add or BinaryKind.Subtract } binary => PointeeType(binary.Left) ?? PointeeType(binary.Right),
+            Convert conversion => PointeeType(conversion.Operand),
+            _ => null,
+        },
+    };
+
     internal static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
     {
         if (add.Left.ResultType is { Kind: TypeRefKind.Pointer } && add.Right.ResultType is not { Kind: TypeRefKind.Pointer })

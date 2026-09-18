@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -243,27 +244,21 @@ internal static class SourceEnricher
             var sourceInfo = service.ResolveTypeSource(typeName);
             typeSourceInfo.Add((apiType, typeName, sourceInfo));
 
-            if (sourceInfo?.SourceUrl != null)
+            if (sourceInfo is not null
+                && TypeSourceDocumentSelection.SelectDefault(sourceInfo)
+                    is { SourceUrl: not null } defaultDocument)
             {
-                AddSourceFetch(
-                    allSourcesToFetch,
-                    sourceInfo.SourceUrl,
-                    sourceInfo.SourceFilePath ?? "",
-                    sourceInfo.ChecksumAlgorithm,
-                    sourceInfo.Checksum);
-                if (sourceInfo.AdditionalSourceFiles != null)
+                foreach (SourceLinkResolver.TypeSourceDocument document
+                    in EnumerateDefaultFirst(sourceInfo, defaultDocument))
                 {
-                    foreach (var additional in sourceInfo.AdditionalSourceFiles)
+                    if (document.SourceUrl is not null)
                     {
-                        if (additional.SourceUrl != null)
-                        {
-                            AddSourceFetch(
-                                allSourcesToFetch,
-                                additional.SourceUrl,
-                                additional.FilePath,
-                                additional.ChecksumAlgorithm,
-                                additional.Checksum);
-                        }
+                        AddSourceFetch(
+                            allSourcesToFetch,
+                            document.SourceUrl,
+                            document.FilePath,
+                            document.ChecksumAlgorithm,
+                            document.Checksum);
                     }
                 }
             }
@@ -307,58 +302,30 @@ internal static class SourceEnricher
             if (sourceInfo == null)
                 continue;
 
-            apiType.SourceFilePath = sourceInfo.SourceFilePath;
-            apiType.SourceUrl = sourceInfo.SourceUrl;
-            apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
-            apiType.SourceLineNumber = sourceInfo.LineNumber;
-            apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
-            apiType.SourceChecksum = sourceInfo.Checksum;
-            apiType.SourceChecksumAlgorithm = sourceInfo.ChecksumAlgorithm;
+            SourceLinkResolver.TypeSourceDocument? defaultDocument =
+                ProjectSourceInfo(apiType, sourceInfo);
+            if (defaultDocument is null)
+                continue;
 
-            if (sourceInfo.AdditionalSourceFiles?.Count > 0)
-            {
-                apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
-                    .Select(f => new PartialSourceFileInfo
-                    {
-                        FilePath = f.FilePath,
-                        SourceUrl = f.SourceUrl,
-                        GitHubBrowseUrl = f.GitHubBrowseUrl,
-                        SourceChecksum = f.Checksum,
-                        SourceChecksumAlgorithm = f.ChecksumAlgorithm,
-                    })
-                    .ToList();
-            }
-
-            if ((options.ShowDocs || options.ShowSamples) && sourceInfo.SourceUrl != null)
+            if ((options.ShowDocs || options.ShowSamples)
+                && defaultDocument.SourceUrl is not null)
             {
                 List<(string Content, string Url, string FilePath)> sourceContents = [];
 
-                if (contentCache.TryGetValue(
-                        SourceFetchKey(
-                            sourceInfo.SourceUrl,
-                            sourceInfo.ChecksumAlgorithm,
-                            sourceInfo.Checksum),
-                        out var primaryContent)
-                    && primaryContent != null)
+                foreach (SourceLinkResolver.TypeSourceDocument document
+                    in EnumerateDefaultFirst(sourceInfo, defaultDocument))
                 {
-                    sourceContents.Add((primaryContent, sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? ""));
-                }
-
-                if (sourceInfo.AdditionalSourceFiles != null)
-                {
-                    foreach (var additional in sourceInfo.AdditionalSourceFiles)
+                    if (document.SourceUrl is not null
+                        && contentCache.TryGetValue(
+                            SourceFetchKey(
+                                document.SourceUrl,
+                                document.ChecksumAlgorithm,
+                                document.Checksum),
+                            out var content)
+                        && content is not null)
                     {
-                        if (additional.SourceUrl != null &&
-                            contentCache.TryGetValue(
-                                SourceFetchKey(
-                                    additional.SourceUrl,
-                                    additional.ChecksumAlgorithm,
-                                    additional.Checksum),
-                                out var additionalContent) &&
-                            additionalContent != null)
-                        {
-                            sourceContents.Add((additionalContent, additional.SourceUrl, additional.FilePath));
-                        }
+                        sourceContents.Add(
+                            (content, document.SourceUrl, document.FilePath));
                     }
                 }
 
@@ -731,36 +698,22 @@ internal static class SourceEnricher
         ApiOptions options,
         VerboseLogger logger)
     {
-        apiType.SourceFilePath = sourceInfo.SourceFilePath;
-        apiType.SourceUrl = sourceInfo.SourceUrl;
-        apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
-        apiType.SourceLineNumber = sourceInfo.LineNumber;
-        apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
-        apiType.SourceChecksum = sourceInfo.Checksum;
-        apiType.SourceChecksumAlgorithm = sourceInfo.ChecksumAlgorithm;
+        SourceLinkResolver.TypeSourceDocument? defaultDocument =
+            ProjectSourceInfo(apiType, sourceInfo);
+        if (defaultDocument is null)
+            return;
 
-        if (sourceInfo.AdditionalSourceFiles.Count > 0)
+        if (apiType.AdditionalSourceFiles.Count > 0)
         {
-            apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
-                .Select(f => new PartialSourceFileInfo
-                {
-                    FilePath = f.FilePath,
-                    SourceUrl = f.SourceUrl,
-                    GitHubBrowseUrl = f.GitHubBrowseUrl,
-                    SourceChecksum = f.Checksum,
-                    SourceChecksumAlgorithm = f.ChecksumAlgorithm,
-                })
-                .ToList();
             logger.Log(
-                $"Found partial type with {sourceInfo.AdditionalSourceFiles.Count + 1} source files");
+                $"Found type with {sourceInfo.Documents.Length} source files");
         }
 
         logger.Log(
-            $"Source ({sourceInfo.ResolutionMethod}) resolved"
-                + (sourceInfo.LineNumber is { } line ? $" at line {line}." : "."));
+            $"Source ({defaultDocument.ResolutionMethod}) resolved.");
 
         if (!(options.ShowDocs || options.ShowSamples)
-            || sourceInfo.SourceUrl is null)
+            || defaultDocument.SourceUrl is null)
         {
             return;
         }
@@ -768,25 +721,17 @@ internal static class SourceEnricher
         var fetcher = new SourceFetch(
             DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
         var parser = new DocCommentParser();
-        List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sourceFilesToFetch =
-        [
-            (
-                sourceInfo.SourceUrl,
-                sourceInfo.SourceFilePath ?? "",
-                sourceInfo.ChecksumAlgorithm,
-                sourceInfo.Checksum)
-        ];
-
-        foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
-        {
-            if (additionalFile.SourceUrl is not null)
-                sourceFilesToFetch.Add(
-                    (
-                        additionalFile.SourceUrl,
-                        additionalFile.FilePath,
-                        additionalFile.ChecksumAlgorithm,
-                        additionalFile.Checksum));
-        }
+        List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)>
+            sourceFilesToFetch =
+            [
+                .. EnumerateDefaultFirst(sourceInfo, defaultDocument)
+                    .Where(static document => document.SourceUrl is not null)
+                    .Select(static document => (
+                        document.SourceUrl!,
+                        document.FilePath,
+                        document.ChecksumAlgorithm,
+                        document.Checksum)),
+            ];
 
         List<(string Content, string Url, string FilePath)> allSourceContents = [];
         string? primaryNamespace = null;
@@ -842,6 +787,54 @@ internal static class SourceEnricher
                 parser,
                 options,
                 logger);
+        }
+    }
+
+    private static SourceLinkResolver.TypeSourceDocument? ProjectSourceInfo(
+        ApiType apiType,
+        SourceLinkResolver.TypeSourceInfo sourceInfo)
+    {
+        SourceLinkResolver.TypeSourceDocument? defaultDocument =
+            TypeSourceDocumentSelection.SelectDefault(sourceInfo);
+        if (defaultDocument is null)
+            return null;
+
+        apiType.SourceFilePath = defaultDocument.FilePath;
+        apiType.SourceUrl = defaultDocument.SourceUrl;
+        apiType.GitHubBrowseUrl = defaultDocument.GitHubBrowseUrl;
+        apiType.SourceLineNumber = null;
+        apiType.SourceResolution = defaultDocument.ResolutionMethod.ToString();
+        apiType.SourceChecksum = defaultDocument.Checksum;
+        apiType.SourceChecksumAlgorithm = defaultDocument.ChecksumAlgorithm;
+        apiType.AdditionalSourceFiles =
+        [
+            .. sourceInfo.Documents
+                .Where(document => !ReferenceEquals(
+                    document,
+                    defaultDocument))
+                .Select(static document => new PartialSourceFileInfo
+                {
+                    FilePath = document.FilePath,
+                    SourceUrl = document.SourceUrl,
+                    GitHubBrowseUrl = document.GitHubBrowseUrl,
+                    SourceChecksum = document.Checksum,
+                    SourceChecksumAlgorithm = document.ChecksumAlgorithm,
+                }),
+        ];
+        return defaultDocument;
+    }
+
+    private static IEnumerable<SourceLinkResolver.TypeSourceDocument>
+        EnumerateDefaultFirst(
+            SourceLinkResolver.TypeSourceInfo sourceInfo,
+            SourceLinkResolver.TypeSourceDocument defaultDocument)
+    {
+        yield return defaultDocument;
+        foreach (SourceLinkResolver.TypeSourceDocument document
+            in sourceInfo.Documents)
+        {
+            if (!ReferenceEquals(document, defaultDocument))
+                yield return document;
         }
     }
 
