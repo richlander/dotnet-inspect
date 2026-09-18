@@ -163,8 +163,9 @@ In particular:
 - a Browser tree widget does not make every displayed relation a hierarchy.
 
 When a requested projection cannot faithfully represent the selected result,
-the host reports that incompatibility or uses another supported projection. It
-must not silently execute a richer or different relationship operation.
+the host rejects it visibly without success-shaped output and may suggest a
+supported alternative. It must not substitute another projection or silently
+execute a richer or different relationship operation.
 
 ## Categories are not result shapes
 
