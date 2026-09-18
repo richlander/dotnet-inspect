@@ -533,6 +533,181 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
     [Fact]
     public async Task
+        DeadlineReachedDuringSnapshot_PreventsCompiledXmlParsing()
+    {
+        const int xmlSize = 48 * 1024 * 1024;
+        byte[] xml = LargeXml(xmlSize);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        DocumentationSubjectReference subject = Subject(library);
+        var xmlReadLimits =
+            XmlDocumentationReadLimits.Default with
+            {
+                MaxCharactersInDocument = xml.Length + 1024L,
+                MaxRetainedTextCharacters = xml.Length + 1024L,
+            };
+
+        using LibraryOperationLease calibration =
+            library.IssueOperation();
+        Stopwatch snapshotTime = Stopwatch.StartNew();
+        calibration.Snapshot(
+            library.XmlContents[0],
+            static (view, _) => view.Content.ToArray(),
+            TestContext.Current.CancellationToken);
+        snapshotTime.Stop();
+
+        bool crossedBoundary = false;
+        for (double fraction = 0.9;
+            fraction >= 0.1;
+            fraction -= 0.1)
+        {
+            DateTimeOffset deadline =
+                DateTimeOffset.UtcNow.AddMilliseconds(250);
+            DocumentationHouseRequest request = Request(
+                subject,
+                [Candidate(library, subject, xmlIndex: 0)],
+                maximumXmlBytes: xml.Length + 1,
+                xmlReadLimits: xmlReadLimits,
+                deadline: deadline);
+            TimeSpan remainingSnapshot =
+                TimeSpan.FromTicks(
+                    (long)(snapshotTime.Elapsed.Ticks * fraction));
+            while (deadline - DateTimeOffset.UtcNow > remainingSnapshot)
+                Thread.SpinWait(10_000);
+
+            DocumentationHouseOutcome outcome =
+                await DocumentationHouse.ExecuteAsync(
+                    request,
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken);
+            if (outcome is not DocumentationHouseOutcome.Completed completed
+                || completed.CompiledXmlAttempt
+                    is not DocumentationCompiledXmlAttempt.Incomplete
+                    {
+                        Boundary:
+                            DocumentationIncompleteBoundary.Deadline,
+                    }
+                || completed.Work.CompiledXmlBytesObserved != xml.Length
+                || completed.Work.ParsedCompiledXml)
+            {
+                continue;
+            }
+
+            crossedBoundary = true;
+            break;
+        }
+
+        Assert.True(
+            crossedBoundary,
+            $"No snapshot crossed its calibrated deadline; snapshot was {snapshotTime.Elapsed.TotalMilliseconds:F1} ms.");
+    }
+
+    [Fact]
+    public async Task
+        SharedParseCompletedAfterFirstDeadline_IsChargedExactlyOnce()
+    {
+        const int xmlSize = 48 * 1024 * 1024;
+        byte[] xml = LargeXml(xmlSize);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution[] contributions =
+            [Candidate(library, subject, xmlIndex: 0)];
+        var xmlReadLimits =
+            XmlDocumentationReadLimits.Default with
+            {
+                MaxCharactersInDocument = xml.Length + 1024L,
+                MaxRetainedTextCharacters = xml.Length + 1024L,
+            };
+
+        using LibraryOperationLease snapshotCalibration =
+            library.IssueOperation();
+        Stopwatch snapshotTime = Stopwatch.StartNew();
+        snapshotCalibration.Snapshot(
+            library.XmlContents[0],
+            static (view, _) => view.Content.ToArray(),
+            TestContext.Current.CancellationToken);
+        snapshotTime.Stop();
+
+        Stopwatch operationTime = Stopwatch.StartNew();
+        await DocumentationHouse.ExecuteAsync(
+            Request(
+                subject,
+                contributions,
+                maximumXmlBytes: xml.Length + 1,
+                xmlReadLimits: xmlReadLimits),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+        operationTime.Stop();
+        TimeSpan parseWindow =
+            operationTime.Elapsed - snapshotTime.Elapsed;
+
+        bool crossedBoundary = false;
+        for (double fraction = 0.9;
+            fraction >= 0.1;
+            fraction -= 0.1)
+        {
+            TimeSpan executionBudget =
+                snapshotTime.Elapsed
+                    + TimeSpan.FromTicks(
+                        (long)(parseWindow.Ticks * fraction));
+            DateTimeOffset deadline =
+                DateTimeOffset.UtcNow.AddMilliseconds(500);
+            while (deadline - DateTimeOffset.UtcNow > executionBudget)
+                Thread.SpinWait(10_000);
+
+            DocumentationHouseRequest first = Request(
+                subject,
+                contributions,
+                maximumXmlBytes: xml.Length + 1,
+                xmlReadLimits: xmlReadLimits,
+                deadline: deadline);
+            DocumentationHouseRequest second = Request(
+                subject,
+                contributions,
+                maximumXmlBytes: xml.Length + 1,
+                xmlReadLimits: xmlReadLimits);
+            IReadOnlyList<DocumentationHouseOutcome> outcomes =
+                await DocumentationHouse.ExecuteManyAsync(
+                    [first, second],
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken);
+            if (outcomes[0]
+                    is not DocumentationHouseOutcome.Completed firstCompleted
+                || firstCompleted.CompiledXmlAttempt
+                    is not DocumentationCompiledXmlAttempt.Incomplete
+                    {
+                        Boundary:
+                            DocumentationIncompleteBoundary.Deadline,
+                    }
+                || !firstCompleted.Work.ParsedCompiledXml)
+            {
+                continue;
+            }
+
+            crossedBoundary = true;
+            Assert.Equal(
+                xml.Length,
+                firstCompleted.Work.CompiledXmlBytesObserved);
+            DocumentationHouseOutcome.Completed secondCompleted =
+                Assert.IsType<DocumentationHouseOutcome.Completed>(
+                    outcomes[1]);
+            Assert.IsType<DocumentationCompiledXmlAttempt.Available>(
+                secondCompleted.CompiledXmlAttempt);
+            Assert.False(secondCompleted.Work.ParsedCompiledXml);
+            Assert.Equal(
+                0,
+                secondCompleted.Work.CompiledXmlBytesObserved);
+            break;
+        }
+
+        Assert.True(
+            crossedBoundary,
+            $"No parse crossed its calibrated deadline; snapshot was {snapshotTime.Elapsed.TotalMilliseconds:F1} ms and full operation was {operationTime.Elapsed.TotalMilliseconds:F1} ms.");
+    }
+
+    [Fact]
+    public async Task
         DeadlineReachedDuringAbsenceClassification_IsIncomplete()
     {
         const int contributionCount = 4_000_000;

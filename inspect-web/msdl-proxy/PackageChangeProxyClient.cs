@@ -22,6 +22,10 @@ internal static class PackageChangeProxyClient
             client,
             upstream,
             MaxNuGetDocumentBytes,
+            allowMissingJsonContentType:
+                upstream.AbsolutePath.StartsWith(
+                    "/v3/catalog0/",
+                    StringComparison.Ordinal),
             preserveLink: false,
             output: null,
             configureRequest: static request =>
@@ -39,6 +43,7 @@ internal static class PackageChangeProxyClient
             client,
             upstream,
             MaxAdvisoryDocumentBytes,
+            allowMissingJsonContentType: false,
             preserveLink: true,
             output,
             configureRequest: static request =>
@@ -67,6 +72,7 @@ internal static class PackageChangeProxyClient
         HttpClient client,
         Uri upstream,
         long maximumBytes,
+        bool allowMissingJsonContentType,
         bool preserveLink,
         HttpResponse? output,
         Action<HttpRequestMessage> configureRequest,
@@ -112,9 +118,15 @@ internal static class PackageChangeProxyClient
                         : (int)response.StatusCode);
             }
             HttpContent? content = response.Content;
-            if (content is null
-                || !string.Equals(
-                    content.Headers.ContentType?.MediaType,
+            if (content is null)
+            {
+                return new StatusCodeResult(
+                    StatusCodes.Status502BadGateway);
+            }
+            string? mediaType = content.Headers.ContentType?.MediaType;
+            if ((!allowMissingJsonContentType || mediaType is not null)
+                && !string.Equals(
+                    mediaType,
                     "application/json",
                     StringComparison.OrdinalIgnoreCase))
             {

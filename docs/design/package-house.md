@@ -70,13 +70,14 @@ discovery, while the inspection detaches version rows, source rows, typed
 failures, and diagnostics for CLI projection. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
-`BrowserPackageVersionInventory` is the planned second host adopter under
-[#7530](https://github.com/richlander/dotnet-inspect/issues/7530).
+`BrowserPackageVersionInventory` is the second host adopter under
+[#7530](https://github.com/richlander/dotnet-inspect/issues/7530); it consumes
+the same detached listing while retaining Browser-owned predecessor policy.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
-existing latest-settlement, source-failure, listing, and rendering cases preserve
-neighboring behavior.
+existing latest-settlement, source-failure, listing, rendering, and
+`BrowserPackageVersionInventoryTests` cases preserve neighboring behavior.
 This is payload-free adoption: CLI pinned queries, offline behavior, and
 package-content/Workspace adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
@@ -352,13 +353,14 @@ ordinary `--count` and `--count --json` emit the scalar, while `--count
 --envelope` makes the same scalar the Content of an
 `InspectionEnvelope<int>`. Listing Content has no redundant Count property.
 
-The second planned adopter is Inspect Web's
-`BrowserPackageVersionInventory`, which will consume the same House listing
-evidence while retaining Browser-owned current-version insertion and
-previous-version presentation. That follow-on retires its direct Gallery
-version-result input. Exact pinned verification, latest selection, range
-vectors and cells, offline queries, and payload acquisition remain outside
-this listing operation.
+Inspect Web's `BrowserPackageVersionInventory` is the second production
+adopter. `BrowserPackageWorkspace` supplies its existing built-in Gallery
+authorization and bounded operation lease to the same inspection, then the
+inventory consumes the detached listing Document while retaining Browser-owned
+current-version insertion and previous-version presentation. The direct
+Gallery version-result input is retired from that inventory path. Exact pinned
+verification, latest selection, range vectors and cells, offline queries, and
+payload acquisition remain outside this listing operation.
 
 ## Version-population settlement
 
@@ -468,10 +470,11 @@ This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History under
-[Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior; the metadata-only package version Count is now the
-resource-free CLI consumer described above.
+production consumer remains top-level Diff History under
+[Diff History inspection](diff-history.md), with future subject sections backed
+by that same operation rather than continued standalone `timeline` behavior;
+the metadata-only package version Count is now the resource-free CLI consumer
+described above.
 
 ## Package target context
 
@@ -561,8 +564,21 @@ acquisition generation and compile selection receipt. It reports:
 
 - the retained compressed package archive length;
 - the selected framework and available compile-slice count;
+- the ordered, distinct top-level package folders whose admitted entry paths
+  contain the selected asset-folder framework as a directory segment;
 - one uncompressed payload length for every selected compile asset; and
 - the selected Library count and sum of those payload lengths.
+
+The selected-framework folder inventory is package layout evidence, not an
+additional asset selection. For example, `lib/net10.0/Foo.dll` contributes
+`lib`, while `runtimes/linux-x64/lib/net10.0/Foo.dll` contributes `runtimes`.
+An entry for another framework does not contribute, and an explicit `_._`
+empty-group marker is not content.
+
+Folder names are package-authored, sink-bound text. A host-neutral projection
+carries each name as `InertString` under `TextPolicy.Field`; structured formats
+retain the collection as an array rather than collapsing it into presentation
+text.
 
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a
@@ -585,12 +601,12 @@ correspondence.
 
 The host-neutral Package Info inspection lowers that typed projection into one
 `InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
-size, selected framework, available-framework count, selected payload size,
-selected Library count, and typed non-success state. The in-process content
-also retains the resource-free measurement outcome so the acquisition
-generation and compile-selection receipt remain available without retaining
-package content. Hosts consume these fields rather than reselecting assets or
-deriving measurements from extracted paths.
+size, selected framework, available-framework count, selected-framework folder
+inventory, selected payload size, selected Library count, and typed non-success
+state. The in-process content also retains the resource-free measurement
+outcome so the acquisition generation and compile-selection receipt remain
+available without retaining package content. Hosts consume these fields rather
+than reselecting assets or deriving measurements from extracted paths.
 
 CLI configured-source Package Info acquisition requests the compile realization
 as part of its existing package acquisition, so measurement does not download a

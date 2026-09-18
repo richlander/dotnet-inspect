@@ -59,6 +59,13 @@ public sealed record XmlDocumentationEntry(
 }
 
 /// <summary>
+/// Results from one scan with independent retained-text budgets per exact ID.
+/// </summary>
+public sealed record XmlDocumentationReadManyResult(
+    IReadOnlyDictionary<string, XmlDocumentationEntry> Entries,
+    IReadOnlySet<string> RetainedTextLimitExceeded);
+
+/// <summary>
 /// Reads one exact member while validating the complete XML document.
 /// </summary>
 public static class XmlDocumentationReader
@@ -82,6 +89,56 @@ public static class XmlDocumentationReader
                 StringComparison.Ordinal),
             (_, entry) => result = entry);
         return result;
+    }
+
+    /// <summary>
+    /// Reads several exact members in one complete, bounded document scan.
+    /// </summary>
+    public static XmlDocumentationReadManyResult
+        ReadMembers(
+            Stream stream,
+            IReadOnlyCollection<XmlDocMemberIdentity> identities,
+            XmlDocumentationReadLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(identities);
+        limits ??= XmlDocumentationReadLimits.Default;
+
+        var selected = new HashSet<string>(
+            identities.Select(static identity =>
+                (identity
+                    ?? throw new ArgumentException(
+                        "Documentation identities cannot contain null.",
+                        nameof(identities)))
+                    .Value),
+            StringComparer.Ordinal);
+        if (selected.Count != identities.Count)
+        {
+            throw new ArgumentException(
+                "Documentation identities must be unique.",
+                nameof(identities));
+        }
+
+        var results =
+            new Dictionary<string, XmlDocumentationEntry>(
+                selected.Count,
+                StringComparer.Ordinal);
+        var retainedTextLimitExceeded =
+            new HashSet<string>(StringComparer.Ordinal);
+        XmlDocumentationParser.Scan(
+            stream,
+            limits,
+            selected.Contains,
+            (memberId, entry) => results[memberId] = entry,
+            memberId =>
+            {
+                results.Remove(memberId);
+                retainedTextLimitExceeded.Add(memberId);
+            });
+        return new(
+            new ReadOnlyDictionary<string, XmlDocumentationEntry>(
+                results),
+            new ReadOnlySet<string>(retainedTextLimitExceeded));
     }
 }
 
@@ -125,7 +182,8 @@ static class XmlDocumentationParser
         Stream stream,
         XmlDocumentationReadLimits limits,
         Func<string, bool> select,
-        Action<string, XmlDocumentationEntry> accept)
+        Action<string, XmlDocumentationEntry> accept,
+        Action<string>? rejectRetainedTextLimit = null)
     {
         limits.Validate();
         var settings = new XmlReaderSettings
@@ -135,7 +193,13 @@ static class XmlDocumentationParser
             MaxCharactersInDocument = limits.MaxCharactersInDocument,
         };
         using XmlReader reader = XmlReader.Create(stream, settings);
-        var budget = new RetainedTextBudget(limits.MaxRetainedTextCharacters);
+        var sharedBudget = new RetainedTextBudget(
+            limits.MaxRetainedTextCharacters,
+            throwOnExceeded: true);
+        Dictionary<string, RetainedTextBudget>? budgetsByIdentity =
+            rejectRetainedTextLimit is null
+                ? null
+                : new(StringComparer.Ordinal);
         int? docDepth = null;
         int? membersDepth = null;
         int memberCount = 0;
@@ -189,11 +253,23 @@ static class XmlDocumentationParser
             }
 
             bool retain = memberId is not null && select(memberId);
+            RetainedTextBudget budget = sharedBudget;
+            if (retain
+                && budgetsByIdentity is not null
+                && !budgetsByIdentity.TryGetValue(memberId!, out budget!))
+            {
+                budget = new RetainedTextBudget(
+                    limits.MaxRetainedTextCharacters,
+                    throwOnExceeded: false);
+                budgetsByIdentity.Add(memberId!, budget);
+            }
             if (retain)
                 budget.Retain(memberId);
             XmlDocumentationEntry? entry =
                 ReadEntry(reader, limits, budget, retain);
-            if (entry is not null)
+            if (retain && budget.Exceeded)
+                rejectRetainedTextLimit!(memberId!);
+            else if (entry is not null)
                 accept(memberId!, entry);
         }
     }
@@ -261,8 +337,8 @@ static class XmlDocumentationParser
                     if (parameterName is not null
                         && parameterText is not null)
                     {
-                        budget.Retain(parameterName);
-                        parameters![parameterName] = parameterText;
+                        if (budget.Retain(parameterName))
+                            parameters![parameterName] = parameterText;
                     }
                     break;
 
@@ -278,11 +354,13 @@ static class XmlDocumentationParser
                     string? description = ReadText(reader, budget, retain);
                     if (retain)
                     {
-                        budget.Retain(cref);
-                        exceptions!.Add(
-                            new XmlDocumentationException(
-                                cref,
-                                description));
+                        if (budget.Retain(cref))
+                        {
+                            exceptions!.Add(
+                                new XmlDocumentationException(
+                                    cref,
+                                    description));
+                        }
                     }
                     break;
 
@@ -325,8 +403,7 @@ static class XmlDocumentationParser
             XmlDocText.GetElementTextWithRefs(reader));
         if (text.Length == 0)
             return null;
-        budget.Retain(text);
-        return text;
+        return budget.Retain(text) ? text : null;
     }
 
     static void ReadSamples(
@@ -367,11 +444,16 @@ static class XmlDocumentationParser
 
             string? title = reader.GetAttribute("title");
             string? region = reader.GetAttribute("region");
-            budget.Retain(source);
-            budget.Retain(title);
-            budget.Retain(region);
-            samples!.Add(
-                new XmlDocumentationSampleReference(source, title, region));
+            if (budget.Retain(source)
+                && budget.Retain(title)
+                && budget.Retain(region))
+            {
+                samples!.Add(
+                    new XmlDocumentationSampleReference(
+                        source,
+                        title,
+                        region));
+            }
         }
     }
 
@@ -403,20 +485,32 @@ static class XmlDocumentationParser
         }
     }
 
-    sealed class RetainedTextBudget(long maximum)
+    sealed class RetainedTextBudget(
+        long maximum,
+        bool throwOnExceeded)
     {
         long retained;
 
-        public void Retain(string? value)
+        public bool Exceeded { get; private set; }
+
+        public bool Retain(string? value)
         {
             if (value is null)
-                return;
+                return !Exceeded;
+            if (Exceeded)
+                return false;
             retained += value.Length;
             if (retained > maximum)
             {
-                throw new XmlException(
-                    "XML documentation exceeds the retained-text character limit.");
+                Exceeded = true;
+                if (throwOnExceeded)
+                {
+                    throw new XmlException(
+                        "XML documentation exceeds the retained-text character limit.");
+                }
+                return false;
             }
+            return true;
         }
     }
 }

@@ -50,6 +50,131 @@ public class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_ChargesRepeatedTargetGenericParameterRows()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeGenericDeclarationAssembly();
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeGenericDeclaration.dll",
+                    image));
+
+        Assert.Contains(
+            "metadata-row budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_ReusesValidatedLookalikeCallerGenericRows()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeGenericCallerIdentityAssembly(
+                methodCount: 4);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeGenericCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeGenericCallerIdentityAssembly(
+                methodCount: 5);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeGenericCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "metadata-row budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_AccountsLookalikeCallerAttributeRowsWithinBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 262_000);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeAttributeCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerAttributeRowsAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 262_145);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeAttributeCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "metadata-row budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_AccountsLookalikeCallerTypeSpecAttributeNamesWithinBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 100,
+                useTypeSpecification: true,
+                attributeTypeNameLength: 1024);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeTypeSpecAttributeCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerTypeSpecAttributeNamesAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 5_000,
+                useTypeSpecification: true,
+                attributeTypeNameLength: 1024);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeTypeSpecAttributeCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "same-image correspondence",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
         UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly()
     {
         ImmutableArray<byte> image =
@@ -122,6 +247,223 @@ public class UnsafeEvidencePresenceTests
             Assert.Throws<InvalidDataException>(
                 () => LibraryBodyIndex.HasUnsafeEvidence(
                     "MalformedTargetSignature.dll",
+                    image));
+
+        Assert.Contains(
+            "Unsafe evidence presence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void
+        UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly(
+            int genericParameterIndex)
+    {
+        ImmutableArray<byte> image =
+            BuildTargetGenericDeclarationAssembly(
+                genericParameterIndex);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "MismatchedTargetGenericDeclaration.dll",
+                    image));
+
+        Assert.Contains(
+            "Unsafe evidence presence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void
+        UnsafeEvidencePresence_InvalidDirectTargetGenericDeclarationFailsVisibly(
+            int genericParameterIndex)
+    {
+        ImmutableArray<byte> image =
+            BuildTargetGenericDeclarationAssembly(
+                genericParameterIndex,
+                directDefinition: true);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "MismatchedDirectTargetGenericDeclaration.dll",
+                    image));
+
+        Assert.Contains(
+            "Unsafe evidence presence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1, CallTreeStatus.External)]
+    [InlineData(0, CallTreeStatus.Leaf)]
+    [InlineData(1, CallTreeStatus.External)]
+    public void
+        SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind(
+            int genericParameterIndex,
+            CallTreeStatus expectedStatus)
+    {
+        ImmutableArray<byte> image =
+            BuildTargetGenericDeclarationAssembly(
+                genericParameterIndex);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"target-generic-declaration-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image.AsSpan());
+        try
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            MethodIdentity caller = Assert.Single(
+                index.Methods,
+                method => method.Name == "Call");
+            CallTreeNode child = Assert.Single(
+                index.BuildCallTree(
+                        caller.MetadataToken,
+                        maxDepth: 2,
+                        maxNodes: 10)
+                    .Children);
+
+            Assert.Empty(index.Diagnostics);
+            Assert.Equal(expectedStatus, child.Status);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(-1, CallTreeStatus.External)]
+    [InlineData(0, CallTreeStatus.Leaf)]
+    [InlineData(1, CallTreeStatus.External)]
+    public void
+        SameImageCalls_MalformedDirectTargetGenericDeclarationDoesNotBind(
+            int genericParameterIndex,
+            CallTreeStatus expectedStatus)
+    {
+        ImmutableArray<byte> image =
+            BuildTargetGenericDeclarationAssembly(
+                genericParameterIndex,
+                directDefinition: true);
+        AssertSingleCallTreeStatus(
+            image,
+            "direct-target-generic-declaration",
+            expectedStatus);
+    }
+
+    [Theory]
+    [InlineData(-1, CallTreeStatus.External)]
+    [InlineData(0, CallTreeStatus.Leaf)]
+    [InlineData(1, CallTreeStatus.External)]
+    public void
+        SameImageCalls_MalformedPhysicalCallerGenericDeclarationDoesNotBind(
+            int genericParameterIndex,
+            CallTreeStatus expectedStatus)
+    {
+        ImmutableArray<byte> image =
+            BuildPhysicalCallerGenericDeclarationAssembly(
+                genericParameterIndex);
+        AssertSingleCallTreeStatus(
+            image,
+            "physical-caller-generic-declaration",
+            expectedStatus);
+    }
+
+    [Fact]
+    public void
+        SameImageCalls_GuardRejectedPhysicalCallerRetainsInvalidDeclaration()
+    {
+        ImmutableArray<byte> image =
+            BuildGuardRejectedGenericCallerAssembly();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"guard-rejected-generic-caller-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image.AsSpan());
+        try
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            MethodIdentity caller = Assert.Single(
+                index.DeclaredMethods,
+                method => method.Name == "Caller");
+
+            Assert.True(
+                caller.HasInvalidGenericParameterDeclaration);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void
+        UnsafeEvidencePresence_InvalidPhysicalCallerGenericDeclarationFailsVisibly(
+            int genericParameterIndex)
+    {
+        ImmutableArray<byte> image =
+            BuildPhysicalCallerGenericDeclarationAssembly(
+                genericParameterIndex);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "MismatchedPhysicalCallerGenericDeclaration.dll",
+                    image));
+
+        Assert.Contains(
+            "Unsafe evidence presence is incomplete",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        UnsafeEvidencePresence_ValidDirectGenericDeclarationsRemainSafe(
+            bool physicalCaller)
+    {
+        ImmutableArray<byte> image =
+            physicalCaller
+                ? BuildPhysicalCallerGenericDeclarationAssembly(
+                    genericParameterIndex: 0)
+                : BuildTargetGenericDeclarationAssembly(
+                    genericParameterIndex: 0,
+                    directDefinition: true);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "ValidDirectGenericDeclaration.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_MalformedLocalTypeReferenceFailsVisibly()
+    {
+        ImmutableArray<byte> image =
+            BuildMalformedLocalTypeReferenceAssembly();
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "MalformedLocalTypeReference.dll",
                     image));
 
         Assert.Contains(
@@ -1554,6 +1896,648 @@ public class UnsafeEvidencePresenceTests
         signature.WriteByte(0x1E);
         signature.WriteCompressedInteger(
             parameterIndex);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static ImmutableArray<byte>
+        BuildTargetGenericDeclarationAssembly(
+            int genericParameterIndex,
+            bool directDefinition = false)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata(
+                genericParameterIndex == 0
+                    ? "MatchingTargetGenericDeclaration"
+                    : "MismatchedTargetGenericDeclaration");
+        TypeDefinitionHandle targetType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Caller"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        BlobHandle genericSignature =
+            AddGenericVoidMethodSignature(metadata);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var targetCode = new BlobBuilder();
+        targetCode.WriteByte((byte)ILOpCode.Ret);
+        int targetBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetCode),
+            maxStack: 0);
+        MethodDefinitionHandle targetMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Invoke"),
+                genericSignature,
+                targetBody,
+                MetadataTokens.ParameterHandle(1));
+        EntityHandle specificationMethod =
+            directDefinition
+                ? targetMethod
+                : metadata.AddMemberReference(
+                    targetType,
+                    metadata.GetOrAddString("Invoke"),
+                    genericSignature);
+        MethodSpecificationHandle specification =
+            metadata.AddMethodSpecification(
+                specificationMethod,
+                AddSingleIntMethodSpecSignature(
+                    metadata));
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                specification));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerCode),
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            AddVoidMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+        if (genericParameterIndex >= 0)
+        {
+            metadata.AddGenericParameter(
+                targetMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: genericParameterIndex);
+        }
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildPhysicalCallerGenericDeclarationAssembly(
+            int genericParameterIndex)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata(
+                genericParameterIndex == 0
+                    ? "MatchingPhysicalCallerGenericDeclaration"
+                    : "MismatchedPhysicalCallerGenericDeclaration");
+        TypeDefinitionHandle targetType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target`1"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Caller"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var constructedTarget = new BlobBuilder();
+        constructedTarget.WriteByte(0x15);
+        constructedTarget.WriteByte(0x12);
+        constructedTarget.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(targetType) << 2);
+        constructedTarget.WriteByte(0x01);
+        constructedTarget.WriteByte(0x1E);
+        constructedTarget.WriteByte(0x00);
+        TypeSpecificationHandle targetSpecification =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(
+                    constructedTarget));
+        MemberReferenceHandle member =
+            metadata.AddMemberReference(
+                targetSpecification,
+                metadata.GetOrAddString("Invoke"),
+                AddVoidMethodSignature(metadata));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var targetCode = new BlobBuilder();
+        targetCode.WriteByte((byte)ILOpCode.Ret);
+        int targetBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetCode),
+            maxStack: 0);
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(member));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerCode),
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Invoke"),
+            AddVoidMethodSignature(metadata),
+            targetBody,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle callerMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Call"),
+                AddGenericVoidMethodSignature(metadata),
+                callerBody,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            targetType,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        if (genericParameterIndex >= 0)
+        {
+            metadata.AddGenericParameter(
+                callerMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("TMethod"),
+                index: genericParameterIndex);
+        }
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildGuardRejectedGenericCallerAssembly()
+    {
+        MetadataBuilder metadata =
+            CreateMetadata("GuardRejectedGenericCaller");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Sample"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(2)));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        MethodDefinitionHandle caller =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Caller"),
+                metadata.GetOrAddBlob(
+                    GuardRejectedGenericMethodSignature()),
+                callerBody,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            caller,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 1);
+
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] GuardRejectedGenericMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x00);
+        for (int index = 0;
+            index <= SignatureBlobGuard.DefaultMaxDepth;
+            index++)
+        {
+            signature.WriteByte(0x0F);
+        }
+        signature.WriteByte(0x08);
+        return signature.ToArray();
+    }
+
+    static ImmutableArray<byte>
+        BuildLargeGenericDeclarationAssembly()
+    {
+        const int GenericParameterCount = 32 * 1024;
+        const int CallCount = 9;
+        MetadataBuilder metadata =
+            CreateMetadata("LargeGenericDeclaration");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Caller"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle targetType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MemberReferenceHandle member =
+            metadata.AddMemberReference(
+                targetType,
+                metadata.GetOrAddString("Invoke"),
+                AddVoidMethodSignature(metadata));
+
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        for (int index = 0; index < CallCount; index++)
+        {
+            callerCode.WriteByte((byte)ILOpCode.Call);
+            callerCode.WriteInt32(
+                MetadataTokens.GetToken(member));
+        }
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            AddVoidMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+        var genericSignature = new BlobBuilder();
+        new BlobEncoder(genericSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount:
+                    GenericParameterCount,
+                isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        MethodDefinitionHandle targetMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Invoke"),
+                metadata.GetOrAddBlob(genericSignature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        for (int index = 0;
+            index < GenericParameterCount;
+            index++)
+        {
+            metadata.AddGenericParameter(
+                targetMethod,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                index);
+        }
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildLargeGenericCallerIdentityAssembly(
+            int methodCount)
+    {
+        const int GenericParameterCount = 32 * 1024;
+        MetadataBuilder metadata =
+            CreateMetadata("LargeGenericCallerIdentity");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("Unsafe"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Target"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(
+                methodCount + 1));
+
+        var genericSignature = new BlobBuilder();
+        new BlobEncoder(genericSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount:
+                    GenericParameterCount,
+                isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle callerSignature =
+            metadata.GetOrAddBlob(genericSignature);
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(
+                    methodCount + 1)));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        for (int methodIndex = 0;
+            methodIndex < methodCount;
+            methodIndex++)
+        {
+            MethodDefinitionHandle caller =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(
+                        $"Call{methodIndex}"),
+                    callerSignature,
+                    callerBody,
+                    MetadataTokens.ParameterHandle(1));
+            for (int parameterIndex = 0;
+                parameterIndex < GenericParameterCount;
+                parameterIndex++)
+            {
+                metadata.AddGenericParameter(
+                    caller,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    parameterIndex);
+            }
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildLargeAttributeCallerIdentityAssembly(
+            int attributeCount,
+            bool useTypeSpecification = false,
+            int attributeTypeNameLength = 1)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata("LargeAttributeCallerIdentity");
+        TypeDefinitionHandle unsafeType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("Unsafe"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Target"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(2)));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            AddVoidMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        TypeReferenceHandle markerAttribute =
+            metadata.AddTypeReference(
+                resolutionScope: default,
+                @namespace: default,
+                metadata.GetOrAddString(
+                    new string(
+                        'A',
+                        attributeTypeNameLength)
+                    + (useTypeSpecification
+                        ? "`1"
+                        : "")));
+        EntityHandle markerConstructorOwner =
+            markerAttribute;
+        if (useTypeSpecification)
+        {
+            var markerTypeSpecification =
+                new BlobBuilder();
+            new BlobEncoder(
+                    markerTypeSpecification)
+                .TypeSpecificationSignature()
+                .GenericInstantiation(
+                    markerAttribute,
+                    genericArgumentCount: 1,
+                    isValueType: false)
+                .AddArgument()
+                .Int32();
+            markerConstructorOwner =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(
+                        markerTypeSpecification));
+        }
+        MemberReferenceHandle markerConstructor =
+            metadata.AddMemberReference(
+                markerConstructorOwner,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        BlobHandle markerValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        for (int index = 0;
+            index < attributeCount;
+            index++)
+        {
+            metadata.AddCustomAttribute(
+                unsafeType,
+                markerConstructor,
+                markerValue);
+        }
+
+        return Serialize(metadata, bodies);
+    }
+
+    static void AssertSingleCallTreeStatus(
+        ImmutableArray<byte> image,
+        string fileStem,
+        CallTreeStatus expectedStatus)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"{fileStem}-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image.AsSpan());
+        try
+        {
+            LibraryBodyIndex index =
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            MethodIdentity caller = Assert.Single(
+                index.Methods,
+                method => method.Name == "Call");
+            CallTreeNode child = Assert.Single(
+                index.BuildCallTree(
+                        caller.MetadataToken,
+                        maxDepth: 2,
+                        maxNodes: 10)
+                    .Children);
+            MethodIdentity target = Assert.Single(
+                index.DeclaredMethods,
+                method => method.Name == "Invoke");
+            CallTreeNode callerTree =
+                index.BuildCallerTree(
+                    target.MetadataToken,
+                    maxDepth: 2,
+                    maxNodes: 10);
+
+            Assert.Empty(index.Diagnostics);
+            Assert.Equal(expectedStatus, child.Status);
+            Assert.Equal(
+                expectedStatus == CallTreeStatus.Leaf
+                    ? 1
+                    : 0,
+                callerTree.Children.Length);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static ImmutableArray<byte>
+        BuildMalformedLocalTypeReferenceAssembly()
+    {
+        MetadataBuilder metadata =
+            CreateMetadata(
+                "MalformedLocalTypeReference",
+                out ModuleDefinitionHandle module);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Caller"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeReferenceHandle malformedType =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(""));
+        MemberReferenceHandle member =
+            metadata.AddMemberReference(
+                malformedType,
+                metadata.GetOrAddString("Invoke"),
+                AddVoidMethodSignature(metadata));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder =
+            new MethodBodyStreamEncoder(bodies);
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(member));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerCode),
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            AddVoidMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static BlobHandle AddGenericVoidMethodSignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static BlobHandle AddSingleIntMethodSpecSignature(
+        MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x0A);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x08);
         return metadata.GetOrAddBlob(signature);
     }
 
