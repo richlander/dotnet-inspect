@@ -3951,8 +3951,10 @@ public class LibraryCommand
         string? resolvedPackageName = resolution.PackageName;
         string? resolvedPackageVersion = resolution.Version;
 
+        NuspecData? manifest =
+            NuspecParser.FindAndParse(extractPath);
         string? manifestPackageName =
-            NuspecParser.FindAndParse(extractPath)?.PackageName;
+            manifest?.PackageName;
         bool isLocalPackage =
             packageSource.EndsWith(
                 ".nupkg",
@@ -3978,6 +3980,10 @@ public class LibraryCommand
             ?? manifestPackageName
             ?? resolution.PackageName
             ?? PackageExtractor.ParsePackageReference(packageSource).name;
+        string? packageVersion =
+            isLocalPackage
+                ? manifest?.Version ?? resolvedPackageVersion
+                : resolvedPackageVersion;
         IPackageContent content =
             resolution.AcquiredPayload?.Content
             ?? new FileSystemPackageContent(
@@ -4074,8 +4080,8 @@ public class LibraryCommand
             extractPath,
             tempDir,
             nupkgPath,
-            resolvedPackageName,
-            resolvedPackageVersion);
+            packageId,
+            packageVersion);
     }
 
     internal static bool RejectToolWrapperLowerSubject(
@@ -4373,65 +4379,16 @@ internal sealed record LibraryInspectionSubject(
             return new LibraryInspectionSubjectSelection.Rejected(
                 rejected.Failure);
         }
-        if (classifyPackageParticipant
-            && !IsPortableExecutableOrPlainText(path))
+        if (classifyPackageParticipant)
         {
             return new LibraryInspectionSubjectSelection.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.InvalidImage,
-                    "The selected package asset is an invalid or unreadable managed assembly image."));
+                    "The selected package asset does not expose a readable managed assembly descriptor."));
         }
 
         return new LibraryInspectionSubjectSelection.Ready(
             new LibraryInspectionSubject(path, null));
-    }
-
-    private static bool IsPortableExecutableOrPlainText(
-        string path)
-    {
-        Span<byte> bytes = stackalloc byte[512];
-        Span<char> characters = stackalloc char[512];
-        try
-        {
-            using FileStream stream = File.OpenRead(path);
-            int length = stream.Read(bytes);
-            if (length >= 2
-                && bytes[0] == (byte)'M'
-                && bytes[1] == (byte)'Z')
-            {
-                return true;
-            }
-            if (length == 0)
-                return false;
-
-            var decoder = new UTF8Encoding(
-                encoderShouldEmitUTF8Identifier: false,
-                throwOnInvalidBytes: true).GetDecoder();
-            decoder.Convert(
-                bytes[..length],
-                characters,
-                flush: length < bytes.Length,
-                out _,
-                out int charactersUsed,
-                out _);
-            foreach (char value in characters[..charactersUsed])
-            {
-                if (char.IsControl(value)
-                    && value is not '\r' and not '\n' and not '\t')
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-        catch (Exception exception) when (
-            exception is IOException
-                or UnauthorizedAccessException
-                or DecoderFallbackException)
-        {
-            return false;
-        }
     }
 
     internal SourceLinkService OpenSourceLink(Action<string>? log = null) =>

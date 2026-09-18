@@ -202,7 +202,9 @@ public partial class CommandExecutionTests
                 packageId: "Microsoft.Azure.SignalR",
                 assetName: "Microsoft.Azure.SignalR.Common.dll",
                 includeCompanion: true,
-                companionAssetName: "Microsoft.Azure.SignalR.dll");
+                companionAssetName: "Microsoft.Azure.SignalR.dll",
+                manifestVersion: "2.3.4",
+                archiveFileName: "renamed.nupkg");
         try
         {
             var markdown = await RunAppAsync(
@@ -770,7 +772,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_NamesakeNarrowsAggregate()
     {
         var (packagePath, tempDir) =
-            CreatePackageWithNamesakeAndPlaceholder();
+            CreatePackageWithNamesakeAndPlaceholder(
+                includeDescriptorless: false);
         try
         {
             var result = await RunAppAsync(
@@ -795,11 +798,58 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DescriptorlessPackageParticipantIsVisible(
+        bool namesake)
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithNamesakeAndPlaceholder();
+        try
+        {
+            List<string> arguments =
+            [
+                "library", packagePath,
+                "-S", "Library Info",
+                "--markdown", "--tips", "q",
+            ];
+            if (namesake)
+                arguments.Insert(2, "--namesake-library");
+
+            var result = await RunAppAsync([.. arguments]);
+
+            Assert.Equal(1, result.Exit);
+            if (namesake)
+            {
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    "managed assembly identity could not be read",
+                    result.Error);
+            }
+            else
+            {
+                Assert.Contains(
+                    "# lib/net8.0/Renamed.dll (net8.0)",
+                    result.Output);
+                Assert.Contains(
+                    "Could not select library descriptor",
+                    result.Error);
+            }
+            Assert.Contains("lib/net8.0/Text.dll", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_NamesakeFailsClosedForUnreadableParticipant()
     {
         var (packagePath, tempDir) =
             CreatePackageWithNamesakeAndPlaceholder(
+                includeDescriptorless: false,
                 includeUnreadable: true);
         try
         {
@@ -1189,12 +1239,14 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, result.Exit);
             Assert.Contains("U+0405→S", result.Output);
-            Assert.Equal(
-                "Warning: Identifier audit failed for "
-                + "'lib/net8.0/Root.dll': invalid assembly metadata"
-                + Environment.NewLine,
+            Assert.Contains(
+                "Could not select library descriptor for "
+                + "'lib/net8.0/Bridge.dll'",
                 result.Error);
-            Assert.DoesNotContain("Bridge", result.Error);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                result.Error);
         }
         finally
         {
@@ -1470,7 +1522,9 @@ public partial class CommandExecutionTests
             string packageId = "Tfm.All.Sample",
             string assetName = "Tfm.All.Sample.dll",
             bool includeCompanion = false,
-            string companionAssetName = "Companion.dll")
+            string companionAssetName = "Companion.dll",
+            string? manifestVersion = null,
+            string? archiveFileName = null)
     {
         string tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -1492,8 +1546,26 @@ public partial class CommandExecutionTests
             }
         }
 
+        if (manifestVersion is not null)
+        {
+            File.WriteAllText(
+                Path.Combine(packageRoot, $"{packageId}.nuspec"),
+                $$"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>{{packageId}}</id>
+                    <version>{{manifestVersion}}</version>
+                  </metadata>
+                </package>
+                """);
+        }
+
         string packagePath =
-            Path.Combine(tempDir, $"{packageId}.1.0.0.nupkg");
+            Path.Combine(
+                tempDir,
+                archiveFileName
+                    ?? $"{packageId}.{manifestVersion ?? "1.0.0"}.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);
@@ -1534,6 +1606,7 @@ public partial class CommandExecutionTests
 
     private static (string PackagePath, string TempDir)
         CreatePackageWithNamesakeAndPlaceholder(
+            bool includeDescriptorless = true,
             bool includeUnreadable = false)
     {
         string tempDir = Path.Combine(
@@ -1545,11 +1618,14 @@ public partial class CommandExecutionTests
         File.Copy(
             TestAssemblyPath,
             Path.Combine(libDir, "Renamed.dll"));
-        File.WriteAllText(
-            Path.Combine(libDir, "Text.dll"),
-            "café",
-            new System.Text.UTF8Encoding(
-                encoderShouldEmitUTF8Identifier: true));
+        if (includeDescriptorless)
+        {
+            File.WriteAllText(
+                Path.Combine(libDir, "Text.dll"),
+                "café",
+                new System.Text.UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: true));
+        }
         if (includeUnreadable)
         {
             File.WriteAllBytes(
