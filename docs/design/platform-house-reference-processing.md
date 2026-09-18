@@ -1118,10 +1118,13 @@ invalid selection as `InvalidRequest`, invalid coordinates as
 caller-owned package adapter result beside the House outcome rather than being
 copied into the host-neutral receipt.
 
-Foreign, unauthorized, mismatched-facet, mismatched-target, successful, or
-otherwise unusable contributions produce `Rejected(InvalidOwnerResult)` with no
-source settlement. Budget exhaustion produces `Incomplete`; source failure
-remains `Failed`. Cancellation remains `OperationCanceledException`.
+After exact request validation, a corresponding source failure remains
+`Failed`. Otherwise, budget exhaustion produces `Incomplete`; a corresponding
+terminal contribution is retained, while a foreign or otherwise unusable one
+is not settled. Within budget, foreign, unauthorized, mismatched-facet,
+mismatched-target, successful, or otherwise unusable contributions produce
+`Rejected(InvalidOwnerResult)` with no source settlement. Cancellation remains
+`OperationCanceledException`.
 
 This is single-source terminal projection, not source selection. It does not
 add installed projection, target discovery, precedence, fallback, aggregation,
@@ -1133,6 +1136,8 @@ failure stage, retained package diagnostic, and absence of further source work
 in Release.
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignPackageSourceTerminal`
 gates foreign owner evidence before settlement in Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal`
+gates typed incomplete precedence without settling that foreign evidence.
 
 ## Typed platform delegation from PackageHouse
 

@@ -35,12 +35,7 @@ public static class PlatformHouseAssemblyReferenceResolver
         if (!TryValidateRequest(
                 request,
                 out _,
-                out PlatformTargetDemand.Exact? exact)
-            || !ValidSourceTerminal(
-                request,
-                exact!,
-                contribution,
-                sourceRejectionKind))
+                out PlatformTargetDemand.Exact? exact))
         {
             return Rejected(
                 request,
@@ -49,7 +44,14 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.invalid-source-terminal");
         }
 
-        if (contribution is PlatformSourceContribution.Failed)
+        bool validSourceTerminal = ValidSourceTerminal(
+                request,
+                exact,
+                contribution,
+                sourceRejectionKind);
+
+        if (validSourceTerminal
+            && contribution is PlatformSourceContribution.Failed)
         {
             return Failed(
                 request,
@@ -69,7 +71,16 @@ public static class PlatformHouseAssemblyReferenceResolver
                 request,
                 consumedWork,
                 $"{IdentityPrefix}.source-incomplete",
-                contribution);
+                validSourceTerminal ? contribution : null);
+        }
+
+        if (!validSourceTerminal)
+        {
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidOwnerResult,
+                $"{IdentityPrefix}.invalid-source-terminal");
         }
 
         return contribution switch

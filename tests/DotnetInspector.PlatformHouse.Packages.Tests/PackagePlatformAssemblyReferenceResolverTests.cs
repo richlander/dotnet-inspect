@@ -334,6 +334,55 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             terminal.Diagnostic.Kind);
     }
 
+    [Fact]
+    public async Task
+        ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            TerminalEnvironment(
+                PackageSourceTerminalCase.Unavailable);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        AssemblyReferenceIdentity identity =
+            PackagePlatformTestData.Identity(image);
+        PlatformHouseRequest sourceRequest =
+            Request(adapter, identity, cancellationToken);
+        PlatformHouseRequest executionRequest =
+            Request(
+                adapter,
+                identity,
+                cancellationToken,
+                maxSourceOperations: 0);
+        PackagePlatformHouseResult<PackageReferenceRealization> result =
+            await adapter.RealizeReferenceAsync(
+                sourceRequest,
+                environment.IssueOperation(
+                    cancellationToken,
+                    operationTimeout:
+                        sourceRequest.Work.MaxDuration));
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(result);
+        await environment.AssertSettledAsync();
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
+                executionRequest,
+                result,
+                TerminalConsumed(
+                    PackageSourceTerminalCase.Unavailable));
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                outcome);
+        Assert.Empty(incomplete.Receipt.SourceSettlements);
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.AuthorizationDenied,
+            terminal.Diagnostic.Kind);
+    }
+
     static byte[] Image() =>
         PackagePlatformTestData.Assembly(
             "System.Text.Json",
