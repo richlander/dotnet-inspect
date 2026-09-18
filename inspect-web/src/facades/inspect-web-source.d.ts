@@ -5,6 +5,8 @@ export type InertString = string & {
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "Calli" | number;
+export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "InstructionUnavailable" | number;
+export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -28,6 +30,8 @@ export interface BrowserAnnotatedSourceFindingEvidence {
     readonly instanceKey: number;
     readonly member: string;
     readonly target: BrowserCallGraphTarget;
+    readonly state: BrowserCalleeEvidenceState;
+    readonly aggregateInputs: ReadonlyArray<BrowserCostCalleeEvidenceInput>;
     readonly coordinates: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceCoordinate>;
     readonly documentId: number | null;
     readonly nodeIds: ReadonlyArray<number>;
@@ -96,6 +100,10 @@ export interface BrowserCallGraphTarget {
     readonly kind: string;
     readonly platformPack: string | null;
     readonly surfaceAssemblyId: string | null;
+}
+export interface BrowserCostCalleeEvidenceInput {
+    readonly kind: BrowserCostCalleeEvidenceInputKind;
+    readonly value: number | null;
 }
 export interface BrowserIlBodyEvidence {
     readonly outcome: string;
