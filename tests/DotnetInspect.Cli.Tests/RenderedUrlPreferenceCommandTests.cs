@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Cache;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -7,9 +8,19 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace DotnetInspect.Cli.Tests;
 
+// PR-fast: bounded SourceLink URL and payload matrix through production commands.
 [Collection("Console")]
 public sealed class RenderedUrlPreferenceCommandTests
 {
+    public RenderedUrlPreferenceCommandTests()
+        => PersistentCache.Initialize("dotnet-inspect-test");
+
+    const string FixtureSource = """
+        public static class CoordinateUrlFixture
+        {
+            public static int Echo(int value) => value;
+        }
+        """;
     const string RepositoryPath =
         "richlander/dotnet-inspect/0cdbe500d11cb77ae7fb3c8612a5ba7bcc83ff86/src/ILInspector.SourceLink/SourceLinkService.cs";
     const string RawOrigin = "https://raw.githubusercontent.com/" + RepositoryPath;
@@ -19,7 +30,6 @@ public sealed class RenderedUrlPreferenceCommandTests
         "https://github.com/richlander/dotnet-inspect/blob/0cdbe500d11cb77ae7fb3c8612a5ba7bcc83ff86/src/ILInspector.SourceLink/SourceLinkService.cs";
     const string Unmapped = "https://source.example/repository/raw/main/Source.cs";
 
-    // PR-fast: bounded SourceLink URL matrix through the production coordinate command.
     [Theory]
     [InlineData(RawOrigin, RawOrigin, Rendered)]
     [InlineData(RawRoute, RawRoute, Rendered)]
@@ -116,21 +126,70 @@ public sealed class RenderedUrlPreferenceCommandTests
         }
     }
 
+    [Theory]
+    [InlineData(RawOrigin, Rendered)]
+    [InlineData(RawRoute, Rendered)]
+    [InlineData(Unmapped, Unmapped)]
+    public async Task SourcePrint_EmitsPreferredUrlAndUnchangedContent(
+        string sourceUrl,
+        string renderedUrl)
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("source-print-url-");
+        try
+        {
+            string assemblyPath = Path.Combine(directory.FullName, "CoordinateUrlFixture.dll");
+            WriteFixture(assemblyPath, sourceUrl + "#section");
+            string[][] commands =
+            [
+                ["type", "CoordinateUrlFixture", "--library", assemblyPath, "-S", "Source Files"],
+                ["member", "CoordinateUrlFixture", "Echo:1", "--library", assemblyPath, "-S", "Source Locations"],
+            ];
+            foreach (string[] command in commands)
+            {
+                foreach (string format in new[] { "--json", "--jsonl", "--json-array" })
+                {
+                    foreach (bool preferRendered in new[] { false, true })
+                    {
+                        string[] arguments =
+                        [
+                            .. command, "--print", format, "--tips", "q",
+                            .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
+                        ];
+                        var root = CommandLineBuilder.CreateRootCommand();
+                        var (exit, output, error) = await ConsoleCapture.RunAsync(
+                            () => CommandLineBuilder.InvokeAsync(root.Parse(arguments), arguments));
+
+                        Assert.True(exit == 0, error);
+                        Assert.Empty(error);
+                        using var json = JsonDocument.Parse(output);
+                        JsonElement document = format == "--json-array"
+                            ? Assert.Single(json.RootElement.EnumerateArray())
+                            : json.RootElement;
+                        Assert.Equal(1, document.GetProperty("row").GetInt32());
+                        Assert.Equal(command[^1], document.GetProperty("section").GetString());
+                        Assert.Equal(
+                            $"{(preferRendered ? renderedUrl : sourceUrl)}#section",
+                            document.GetProperty("url").GetString());
+                        Assert.Equal(FixtureSource, document.GetProperty("content").GetString());
+                    }
+                }
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     static void WriteFixture(string assemblyPath, string sourceUrl)
     {
-        const string documentPath = "/_/CoordinateUrlFixture.cs";
+        string documentPath = Path.ChangeExtension(assemblyPath, ".cs");
+        File.WriteAllText(documentPath, FixtureSource, Encoding.UTF8);
         var compilation = CSharpCompilation.Create(
             "CoordinateUrlFixture",
             [
                 CSharpSyntaxTree.ParseText(
-                    SourceText.From(
-                        """
-                        public static class CoordinateUrlFixture
-                        {
-                            public static int Echo(int value) => value;
-                        }
-                        """,
-                        Encoding.UTF8),
+                    SourceText.From(FixtureSource, Encoding.UTF8),
                     path: documentPath),
             ],
             [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],

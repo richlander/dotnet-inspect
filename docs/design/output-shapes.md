@@ -1426,9 +1426,10 @@ project every selected row in that set.
 | `--prefer-rendered-urls` | prefer a rendered browser view when a supported provider mapping exists; otherwise retain the original URL |
 
 The CLI owns this preference. It changes emitted links, not the selected shape,
-payload framing, or source acquisition. `--bare` still removes document
-decoration; `--print` still requests content. The former `--raw` and `--blob`
-flags are removed, not retained as aliases.
+payload framing, or source acquisition. Structured source-print output keeps
+the selected presentation URL in its `url` field, not the acquisition URL.
+`--bare` still removes document decoration; `--print` still requests content.
+The former `--raw` and `--blob` flags are removed, not retained as aliases.
 
 Conversion is provider-aware. GitHub raw-content URLs use the existing
 SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can
@@ -1459,6 +1460,9 @@ source-output tests cover the production preference and unchanged default.
 both supported GitHub forms and an unknown provider under both preferences;
 `SupportedGitHubSource_PreservesAuthoredFragment` covers general, line-range,
 and escaped fragments in the shared mapping.
+`SourcePrint_EmitsPreferredUrlAndUnchangedContent` covers type/member JSON,
+JSONL, and JSON-array source printing with both preferences, authored fragments,
+both GitHub forms, and unknown-provider fallback, preserving the acquired text.
 `CoordinateUrls_ApplyPreferenceAndPreserveLine` covers production coordinate
 output for both GitHub forms, the default, replacement of existing fragments
 with line locators, preserved queries, and unknown providers.
