@@ -1,0 +1,203 @@
+using DotnetInspector.Fixtures;
+using DotnetInspector.Queries.EmbeddedFixtures;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
+using ILInspector.SourceLink;
+using Inspector.Findings;
+
+namespace DotnetInspector.Queries.Tests;
+
+public sealed partial class AssemblyContextSourceQueryTests
+{
+    // These member-level production outcomes are PR-fast.
+    [Fact]
+    public async Task MemberSourceInspection_RealRepositoryAuthoredResultIsDetached()
+    {
+        string path = typeof(CSharpText.MemberSlicing.MemberTextSlicer).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly assembly = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        using var host = QueryHost.WithPdb(pdbPath, File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryAdapter", "MemberTextSlicer.cs")),
+            maxDecompilerBodyProjections: 0);
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([assembly.Participant]);
+            inspection = await MemberSourceInspection.ExecuteAsync(
+                group, assembly.Participant,
+                assembly.MemberRequest("ExtractMemberText", "MemberTextSlicer"),
+                host.Context, TestContext.Current.CancellationToken);
+        }
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(inspection.Content);
+        var pdb = Assert.IsType<AssemblyMemberSource.Pdb>(available.Source);
+        var house = Assert.IsType<SourceHouseOutcome.Available>(available.HouseOutcome);
+        Assert.StartsWith("public static string? ExtractMemberText(", pdb.Text.TrimStart());
+        Assert.Equal(pdb.Text, house.Source.Text);
+        Assert.Equal(SourceChecksumVerification.Exact, pdb.Inspection.ChecksumVerification);
+        Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
+        Assert.Equal(assembly.Assembly.Registration, available.Subject.Registration);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+        Assert.Equal("member-source/share",
+            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberSourceInspection_ChecksumFailureRetainsSymbolsForFallback(bool embedded)
+    {
+        TestAssembly assembly = embedded
+            ? TestAssembly.Create(File.ReadAllBytes(typeof(EmbeddedSourceFixture).Assembly.Location))
+            : TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = embedded
+            ? QueryHost.WithSource("not the checksum-verified declaration"u8.ToArray())
+            : QueryHost.WithPdb(assembly.PdbPath, "not the checksum-verified declaration"u8.ToArray());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant,
+            embedded ? assembly.MemberRequest("Echo", "EmbeddedSourceFixture")
+                : assembly.MemberRequest("Value", "Counter"),
+            host.Context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.Contains(embedded ? "Echo" : "Value", source.Text);
+        Assert.True(source.Decompilation.PdbSupplied);
+        Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, source.PdbAttempt.Outcome);
+        Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
+        Assert.IsType<SourceHouseOutcome.Failed>(available.HouseOutcome);
+        if (embedded)
+            Assert.Empty(host.SymbolRequests);
+        else
+            Assert.Single(host.SymbolRequests, uri => uri.AbsolutePath.EndsWith(".snupkg"));
+        Assert.Single(host.SourceRequests);
+    }
+
+    [Theory]
+    [InlineData("deadline")]
+    [InlineData("source-bytes")]
+    [InlineData("assembly")]
+    public async Task MemberSourceInspection_BoundsRetainFailureAndFallback(string boundary)
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(assembly.PdbPath, SourcePairBytes(FixtureCatalog.SourceDiffV1));
+        SourceHouseLimits defaults = host.Context.MemberSourceLimits;
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            MemberSourceTimeout = boundary == "deadline" ? TimeSpan.FromTicks(1) : TimeSpan.FromMinutes(5),
+            MemberSourceLimits = new(
+                boundary == "assembly" ? 1 : defaults.MaximumAssemblyBytes,
+                boundary == "assembly" ? 1 : defaults.MaximumPortablePdbBytes,
+                defaults.TargetBounds, defaults.SourceLinkReadLimits,
+                defaults.MaximumDocuments, defaults.MaximumTargetMappings, defaults.MaximumCandidateAttempts,
+                boundary == "source-bytes" ? 1 : defaults.MaximumSourceBytes,
+                defaults.MaximumSourceTextCharacters),
+        };
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant, assembly.MemberRequest("Value", "Counter"),
+            context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.True(source.Decompilation.PdbSupplied);
+        Assert.Equal(boundary == "deadline"
+            ? PdbMemberSourceOutcome.SourceDeadlineExceeded
+            : PdbMemberSourceOutcome.SourceLimitExceeded, source.PdbAttempt.Outcome);
+        Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
+        if (boundary == "assembly")
+        {
+            Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(available.LibraryFailure);
+            Assert.Null(available.HouseOutcome);
+        }
+        else
+        {
+            Assert.Equal(boundary == "deadline"
+                ? SourceHouseIncompleteBoundary.Deadline
+                : SourceHouseIncompleteBoundary.SourceBytes,
+                Assert.IsType<SourceHouseOutcome.Incomplete>(available.HouseOutcome).Boundary);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberSourceInspection_MemberAndPairBoundsAreIndependent(bool boundPair)
+    {
+        var (before, after) = SourcePairAssemblies();
+        using var host = SourcePairHost(before, after);
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            MemberSourceTimeout = boundPair ? TimeSpan.FromMinutes(5) : TimeSpan.FromTicks(1),
+            MemberSourcePairTimeout = boundPair ? TimeSpan.FromTicks(1) : TimeSpan.FromMinutes(5),
+        };
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([before.Participant]);
+        var member = await MemberSourceInspection.ExecuteAsync(
+            group, before.Participant, before.MemberRequest("Value", "Counter"),
+            context, TestContext.Current.CancellationToken);
+        var pair = await ExecuteSourcePairAsync(
+            before, after, "Value", host, sourceContext: context);
+        var type = await AssemblyContextSourceQuery.ExecuteTypeAsync(
+            group, before.Participant, before.TypeRequest("Counter"),
+            context, TestContext.Current.CancellationToken);
+
+        Assert.Equal(boundPair,
+            Assert.IsType<AssemblyMemberSourceEntry.Available>(member.Content).Source is AssemblyMemberSource.Pdb);
+        Assert.Equal(boundPair ? AssemblyMemberSourcePairStatus.Unavailable : AssemblyMemberSourcePairStatus.Compared,
+            pair.Status);
+        Assert.IsType<AssemblyTypeSource.Pdb>(
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(type).Source);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberSourceComparisonInspection_IsDetachedAndReusesPdb(bool failSource)
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(assembly.PdbPath,
+            failSource ? "different declaration"u8.ToArray() : SourcePairBytes(FixtureCatalog.SourceDiffV1));
+        InspectionEnvelope<AssemblyMemberSourceComparisonEntry> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+            inspection = await MemberSourceInspection.CompareAsync(
+                group, assembly.Participant, assembly.MemberRequest("Value", "Counter"),
+                host.Context, TestContext.Current.CancellationToken);
+        }
+
+        var available = Assert.IsType<AssemblyMemberSourceComparisonEntry.Available>(inspection.Content);
+        var decompiled = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Available>(available.Decompiled);
+        Assert.True(decompiled.Result.PdbSupplied);
+        if (failSource)
+        {
+            var pdb = Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(available.Pdb);
+            Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, pdb.Inspection.Outcome);
+            Assert.IsType<SourceHouseOutcome.Failed>(pdb.HouseOutcome);
+        }
+        else
+        {
+            var pdb = Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(available.Pdb);
+            Assert.Equal(pdb.Inspection.Text,
+                Assert.IsType<SourceHouseOutcome.Available>(pdb.HouseOutcome).Source.Text);
+        }
+        Assert.Single(host.SymbolRequests, uri => uri.AbsolutePath.EndsWith(".snupkg"));
+        Assert.Single(host.SourceRequests);
+        Assert.Equal("member-source-comparison/share",
+            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
+        Assert.Empty(inspection.Diagnostics);
+    }
+}

@@ -187,7 +187,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S @Integrations` for configured Integration concepts, distinct from observations in a library. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -217,7 +217,7 @@ dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -D
 dotnet-inspect ecosystem aspire -S @Ecosystem
-dotnet-inspect ecosystem aspire -S @Integrations
+dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
@@ -252,10 +252,11 @@ dotnet-inspect package activity --ecosystem aspire \
 UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
 activity with positive current-advisory or exact security-release evidence.
 Unavailable evidence is not treated as a negative. Human output uses the shared
-report view; `--json` emits the lossless schema-versioned report, with
-`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
-on stderr. Single-table formats and catalog-only section projections are not
-available with `package activity`.
+report view; `--json` emits the lossless schema-versioned report, while
+`--envelope` emits the same report as Content with Share and diagnostics.
+`--compact` minifies either JSON boundary. Use `--verbose` for bounded
+acquisition progress on stderr. Single-table formats and catalog-only section
+projections are not available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -352,13 +353,14 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>`, ordinary single-Library API `diff`, and online
-package range-version population support the presence-only `--envelope`
-service-output selector. It implies JSON. For `depends` and API Diff,
-unprojected `--json` emits the same Content without the service frame. Package
-version `--json` remains an explicit row projection; `--envelope` instead
-exposes the complete directed population Document, Share, and diagnostics.
-Asset-mode `depends`, other Diff modes, and other commands have not adopted
+Positional `depends <type>`, ordinary single-Library API `diff`, `package
+activity`, and online package range-version population support the
+presence-only `--envelope` service-output selector. It implies JSON. For
+`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection; `--envelope` instead exposes the complete directed population
+Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
+Discover, Count outside package population, and other commands have not adopted
 this transport.
 
 | Goal | Flags |
@@ -487,9 +489,17 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected
-matching package rows only when completion or the semantic selection proves
-the count exact.
+counts selected matching package rows only when completion or the semantic
+selection proves the count exact.
+
+Package Query output adapts after execution. The default renders `Packages`
+when at least one package matched and `Query Summary` otherwise. The summary
+reports independent `Candidates`, `Matches`, and `Evaluation Failures` integer
+columns, so a missing package (`Candidates=0`) remains distinct from an
+existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
+stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
+`Packages` retains its empty table or array when no package matched. Bare `-S`
+also requests the non-adaptive `Packages` preset.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an

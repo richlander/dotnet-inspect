@@ -226,7 +226,8 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
         new("safety.callee", AnnotationCategory.Semantics, "callee carries unsafe implementation evidence");
 
     public string Name => "call-site-semantics";
-    public IReadOnlyList<string> Produces { get; } = ["semantics.callee", "safety.callee"];
+    public IReadOnlyList<string> Produces { get; } =
+        [CalleeSemantics.Id, CalleeSafety.Id];
     public IReadOnlyList<string> DependsOn { get; } = [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForAssembly(

@@ -91,8 +91,7 @@ public static class EcosystemCommand
                 sectionCategories: catalog.SelectionCategoryMap,
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                expandCategoryAliases: false);
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         if (options.Tree)
@@ -110,8 +109,7 @@ public static class EcosystemCommand
             catalog.SelectableSectionNames,
             catalog.InfoSectionNames,
             catalog.SelectionCategoryMap,
-            selectDefault: options.SelectDefault,
-            expandCategoryAliases: false);
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteErrors(selection.Unresolved))
             return 1;
 
@@ -378,7 +376,7 @@ public static class EcosystemCommand
             scope,
             focus is null,
             static pack => pack.ToolPackages));
-        sections.Add(CreateKnownIntegrationsSection(scope, focus is null));
+        sections.Add(CreateIntegrationsSection(scope, focus is null));
         sections.Add(CreateDemosSection(scope, focus is null));
 
         // Only the platform ecosystem can answer which package identities a target subsumes, so
@@ -535,7 +533,7 @@ public static class EcosystemCommand
             emptyText);
     }
 
-    private static EcosystemSection CreateKnownIntegrationsSection(
+    private static EcosystemSection CreateIntegrationsSection(
         ImmutableArray<EcosystemPackDescriptor> packs,
         bool includeEcosystem)
     {
@@ -591,7 +589,7 @@ public static class EcosystemCommand
         }
 
         return new EcosystemSection(
-            KnownIntegrationsSection,
+            IntegrationsSection,
             "Integration concepts explicitly bound to this ecosystem by the current product build; these are not observations from a library.",
             includeEcosystem
                 ?

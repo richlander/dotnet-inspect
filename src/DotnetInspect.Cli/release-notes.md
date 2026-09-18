@@ -6,6 +6,12 @@
   acquire every direct Package member, resolve exact direct dependencies with
   existing Package owners, and emit one context-preserving, all-or-nothing
   derived Workspace packet (#7494).
+- Adds complete service `--envelope` output to `package activity` with result
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
+  emits the same owner-issued report Content without the service frame.
+  Report request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
 - **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
   `@Integrations` categories, category-first alphabetical discovery, and
   alphabetical multi-section output. Replace the former unprefixed
