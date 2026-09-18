@@ -385,11 +385,61 @@ public sealed class WorkspaceCommandTests
             "exact-library",
             "--share",
             "packet",
+            "--make-package-dependencies-explicit",
         ];
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
 
         Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task DependencyEnrichment_RequiresShare()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    MakePackageDependenciesExplicit = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--make-package-dependencies-explicit requires --share",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DependencyEnrichment_AdmitsExplicitSourcePolicy()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    MakePackageDependenciesExplicit = true,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = ["https://example.test/v3/index.json"],
+                    },
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.DoesNotContain(
+            "resource-free portable Workspace definition",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NoPackageRoots",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -28,12 +29,31 @@ public static class WorkspaceCommand
         CancellationToken cancellationToken = default)
     {
         WorkspaceContextLoadOptions loadOptions = CreateLoadOptions(options);
+        if (options.MakePackageDependenciesExplicit)
+        {
+            await using var composition =
+                new DesktopPackageSourceComposition(
+                    HttpClientFactory.Shared.Timeout);
+            var candidateSource =
+                new DesktopPackageDependencyCandidateSource(
+                    composition,
+                    options.SourceOptions,
+                    options.Verbose ? CommandError.WriteLine : null);
+            return await ExecuteCoreAsync(
+                options,
+                loadOptions,
+                payloadProvider: null,
+                candidateSource,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (options.RootRequest is null)
         {
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
                 payloadProvider: null,
+                candidateSource: null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -45,6 +65,7 @@ public static class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider,
+            candidateSource: null,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -56,12 +77,26 @@ public static class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider: null,
+            candidateSource: null,
+            cancellationToken);
+
+    internal static Task<int> ExecuteAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageDependencyCandidateSource candidateSource,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            options,
+            loadOptions,
+            payloadProvider: null,
+            candidateSource,
             cancellationToken);
 
     static async Task<int> ExecuteCoreAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
         IPackageRootPayloadProvider? payloadProvider,
+        IPackageDependencyCandidateSource? candidateSource,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -74,6 +109,22 @@ public static class WorkspaceCommand
 
         if (options.ShareFormat is { } definitionFormat)
         {
+            if (options.MakePackageDependenciesExplicit)
+            {
+                if (candidateSource is null)
+                {
+                    throw new InvalidOperationException(
+                        "Package dependency enrichment requires a candidate source.");
+                }
+
+                return await WriteEnrichedPortableDefinitionAsync(
+                    options,
+                    definitionFormat,
+                    loadOptions,
+                    candidateSource,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             return WritePortableDefinition(
                 options,
                 definitionFormat,
@@ -333,55 +384,15 @@ public static class WorkspaceCommand
     {
         try
         {
-            WorkspaceSharePacketProjectionResult projection;
-            if (options.Packet is not null)
-            {
-                WorkspaceSharePacket packet =
-                    WorkspaceSharePacketCodec.Decode(
-                        GetPacketInput(options.Packet),
-                        cancellationToken);
-                CommittedScenarioDefinitionSet definitions =
-                    WorkspaceSharePacketTransposer.ToCommittedDefinitions(
-                        packet,
-                        cancellationToken);
-                projection = WorkspaceSharePacketTransposer.ToPacket(
+            if (!TryPreparePortableDefinition(
+                    options,
+                    cancellationToken,
+                    out CommittedScenarioDefinitionSet definitions))
+                return 1;
+            WorkspaceSharePacketProjectionResult projection =
+                WorkspaceSharePacketTransposer.ToPacket(
                     definitions,
                     cancellationToken);
-            }
-            else
-            {
-                if (!TryCreateRegistrations(
-                        options,
-                        preserveAuthoredOrder: true,
-                        out var registrations)
-                    || !InspectionGraphCommand.TryCreateMembers(
-                        options.Packages,
-                        out WorkspaceMemberCoordinate[] directMembers))
-                {
-                    return 1;
-                }
-
-                if (directMembers.Length == 0 && registrations.IsEmpty)
-                {
-                    CommandError.Write(
-                        "--share requires at least one --package or --register-* input.");
-                    return 1;
-                }
-                if (directMembers.Length != 0
-                    && string.IsNullOrWhiteSpace(options.Tfm))
-                {
-                    CommandError.Write(
-                        "A shared --tfm is required when the portable Workspace definition contains packages.");
-                    return 1;
-                }
-
-                projection = WorkspaceSharePacketTransposer.ToPacket(
-                    CreatePortableDefinition(
-                        directMembers,
-                        options.Tfm,
-                        registrations),
-                    cancellationToken);
-            }
 
             if (!projection.Succeeded)
             {
@@ -415,6 +426,110 @@ public static class WorkspaceCommand
                 [ex.Message]);
             return 1;
         }
+    }
+
+    static async Task<int> WriteEnrichedPortableDefinitionAsync(
+        WorkspaceOptions options,
+        WorkspaceShareFormat format,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageDependencyCandidateSource candidateSource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!TryPreparePortableDefinition(
+                    options,
+                    cancellationToken,
+                    out CommittedScenarioDefinitionSet definitions))
+                return 1;
+
+            InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
+                envelope =
+                    await WorkspacePackageDependencyEnrichmentInspection
+                        .ExecuteAsync(
+                            new WorkspacePackageDependencyEnrichmentRequest(
+                                definitions,
+                                loadOptions,
+                                candidateSource),
+                            cancellationToken).ConfigureAwait(false);
+            if (envelope.Content
+                is WorkspacePackageDependencyEnrichmentOutcome.Failed failed)
+            {
+                CommandError.Write(
+                    "The Workspace Package dependencies could not be made explicit.",
+                    [
+                        $"{failed.Failure.Kind} at {failed.Failure.Path}: "
+                            + failed.Failure.Message,
+                    ]);
+                return 1;
+            }
+
+            return WorkspaceShareOutput.WriteScalar(envelope.Share, format);
+        }
+        catch (Exception ex) when (ex is
+            WorkspaceSharePacketException
+            or InspectionDefinitionException
+            or ArgumentException
+            or InvalidDataException)
+        {
+            CommandError.Write(
+                "The Workspace definition could not be enriched.",
+                [ex.Message]);
+            return 1;
+        }
+    }
+
+    static bool TryPreparePortableDefinition(
+        WorkspaceOptions options,
+        CancellationToken cancellationToken,
+        out CommittedScenarioDefinitionSet definitions)
+    {
+        if (options.Packet is not null)
+        {
+            WorkspaceSharePacket packet =
+                WorkspaceSharePacketCodec.Decode(
+                    GetPacketInput(options.Packet),
+                    cancellationToken);
+            definitions =
+                WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                    packet,
+                    cancellationToken);
+            return true;
+        }
+
+        if (!TryCreateRegistrations(
+                options,
+                preserveAuthoredOrder: true,
+                out var registrations)
+            || !InspectionGraphCommand.TryCreateMembers(
+                options.Packages,
+                out WorkspaceMemberCoordinate[] directMembers))
+        {
+            definitions = null!;
+            return false;
+        }
+
+        if (directMembers.Length == 0 && registrations.IsEmpty)
+        {
+            CommandError.Write(
+                "--share requires at least one --package or --register-* input.");
+            definitions = null!;
+            return false;
+        }
+        if (directMembers.Length != 0
+            && string.IsNullOrWhiteSpace(options.Tfm))
+        {
+            CommandError.Write(
+                "A shared --tfm is required when the portable Workspace definition contains packages.");
+            definitions = null!;
+            return false;
+        }
+
+        definitions = CreatePortableDefinition(
+            directMembers,
+            options.Tfm,
+            registrations);
+        return true;
     }
 
     static CommittedScenarioDefinitionSet CreatePortableDefinition(
@@ -1618,6 +1733,12 @@ public static class WorkspaceCommand
             || options.Type is not null
             || options.Member is not null
             || options.Lens is not null;
+        if (options.MakePackageDependenciesExplicit
+            && options.ShareFormat is null)
+        {
+            return "--make-package-dependencies-explicit requires --share "
+                + "packet or --share url.";
+        }
         if (options.ShareFormat is not null
             && options.RootRequest is not null)
         {
@@ -1645,6 +1766,7 @@ public static class WorkspaceCommand
                 + "cannot be combined with inventory row controls.";
         }
         if (options.ShareFormat is not null
+            && !options.MakePackageDependenciesExplicit
             && (options.IncludePrerelease
                 || HasExplicitSourceOptions(options.SourceOptions)))
         {
