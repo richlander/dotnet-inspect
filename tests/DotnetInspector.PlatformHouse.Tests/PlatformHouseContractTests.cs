@@ -147,24 +147,6 @@ public class PlatformHouseContractTests
                     "reference-1"),
                 PlatformViewDemand.Implementation);
 
-        var documentation = new PlatformHouseOperation
-            .ResolveDocumentationEvidence
-            .CompiledXmlAndSourceDerived<
-                TestDocumentationSubject,
-                TestReferenceEvidence,
-                TestViewCorrespondence>(
-                    new PlatformDocumentationSubjectEvidence<
-                        TestDocumentationSubject>(
-                            new TestDocumentationSubject(),
-                            "member-1"),
-                    new PlatformReferenceEvidence<TestReferenceEvidence>(
-                        new TestReferenceEvidence(),
-                        "reference-def-1"),
-                    new PlatformViewCorrespondenceEvidence<
-                        TestViewCorrespondence>(
-                            new TestViewCorrespondence(),
-                            "views-1"));
-
         Assert.Same(
             library,
             Assert.IsType<PlatformLibraryDemand.PlatformLibrary>(
@@ -177,9 +159,6 @@ public class PlatformHouseContractTests
                 PlatformHouseOperationSnapshot.ResolveAssemblyReference>(
                     resolveAssembly.Snapshot).Request);
         Assert.Same(reference, resolveType.StartingReference);
-        Assert.Equal(
-            PlatformDocumentationDemand.CompiledXmlAndSourceDerived,
-            documentation.Demand);
     }
 
     [Fact]
@@ -512,125 +491,6 @@ public class PlatformHouseContractTests
                     population,
                     PlatformSourceContributionCompleteness.Authoritative),
                 PlatformSourceSettlementDisposition.Selected);
-    }
-
-    [Fact]
-    public void DocumentationCompletion_RequiresEveryRequestedChannel()
-    {
-        var operation = new PlatformHouseOperation
-            .ResolveDocumentationEvidence
-            .CompiledXmlAndSourceDerived<
-                TestDocumentationSubject,
-                TestReferenceEvidence,
-                TestViewCorrespondence>(
-                    new PlatformDocumentationSubjectEvidence<
-                        TestDocumentationSubject>(
-                            new TestDocumentationSubject(),
-                            "member-1"),
-                    new PlatformReferenceEvidence<TestReferenceEvidence>(
-                        new TestReferenceEvidence(),
-                        "reference-1"),
-                    new PlatformViewCorrespondenceEvidence<
-                        TestViewCorrespondence>(
-                            new TestViewCorrespondence(),
-                            "views-1"));
-        var snapshot =
-            (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                operation.Snapshot;
-        PlatformSourceCapabilityIdentity xmlCapability =
-            PlatformSourceCapabilityIdentity.Create("xml");
-        PlatformSourceCapabilityIdentity sourceCapability =
-            PlatformSourceCapabilityIdentity.Create("source");
-        PlatformFamilyTarget target = Target();
-        var demand = new PlatformTargetDemand.Exact(target);
-        var request = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create("documentation-request"),
-            demand,
-            StandaloneOrigin(),
-            operation,
-            Plan(
-                (PlatformSourceFacet.CompiledXml, xmlCapability),
-                (PlatformSourceFacet.SourceDerivedDocumentation,
-                    sourceCapability)),
-            Work());
-        var xmlSettlement = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Documentation(
-                PlatformSourceFacet.CompiledXml,
-                xmlCapability,
-                request.Snapshot,
-                PlatformSourceGeneration.Create("xml-generation"),
-                target),
-            PlatformSourceSettlementDisposition.Selected);
-        var sourceSettlement = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Failed(
-                PlatformSourceFacet.SourceDerivedDocumentation,
-                sourceCapability,
-                request.Snapshot,
-                PlatformSourceGeneration.Create("source-generation"),
-                target),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var xml = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Available,
-            [xmlSettlement]);
-        var source = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.SourceDerivedDocumentation,
-            PlatformDocumentationAttemptKind.Failed,
-            [sourceSettlement]);
-
-        Assert.Throws<ArgumentException>(
-            () => new PlatformHouseCompletion.Documentation(
-                snapshot,
-                [xml]));
-        var completion = new PlatformHouseCompletion.Documentation(
-            snapshot,
-            [xml, source]);
-        var receipt = new PlatformHouseReceipt(
-            request.Snapshot,
-            new PlatformTargetSettlement.Exact(demand),
-            [xmlSettlement, sourceSettlement],
-            Consumed(),
-            completion);
-
-        Assert.Equal(2, completion.Attempts.Count);
-        Assert.Same(completion, receipt.Completion);
-
-        var xmlOnlyRequest = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create("xml-only-request"),
-            demand,
-            StandaloneOrigin(),
-            operation,
-            Plan((PlatformSourceFacet.CompiledXml, xmlCapability)),
-            Work());
-        var xmlOnlySettlement = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Documentation(
-                PlatformSourceFacet.CompiledXml,
-                xmlCapability,
-                xmlOnlyRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-only-generation"),
-                target),
-            PlatformSourceSettlementDisposition.Selected);
-        var xmlOnlyCompletion = new PlatformHouseCompletion.Documentation(
-            (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                xmlOnlyRequest.Snapshot.Operation,
-            [
-                new PlatformDocumentationAttempt(
-                    PlatformSourceFacet.CompiledXml,
-                    PlatformDocumentationAttemptKind.Available,
-                    [xmlOnlySettlement]),
-                new PlatformDocumentationAttempt(
-                    PlatformSourceFacet.SourceDerivedDocumentation,
-                    PlatformDocumentationAttemptKind.Unavailable,
-                    []),
-            ]);
-        var xmlOnlyReceipt = new PlatformHouseReceipt(
-            xmlOnlyRequest.Snapshot,
-            new PlatformTargetSettlement.Exact(demand),
-            [xmlOnlySettlement],
-            Consumed(),
-            xmlOnlyCompletion);
-
-        Assert.Same(xmlOnlyCompletion, xmlOnlyReceipt.Completion);
     }
 
     [Fact]
@@ -1138,7 +998,7 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
-    public void CompletedReceipt_EnforcesDiscoveryAndDocumentationPolicy()
+    public void CompletedReceipt_EnforcesDiscoveryPolicy()
     {
         PlatformSourceCapabilityIdentity firstDiscovery =
             PlatformSourceCapabilityIdentity.Create("first-discovery");
@@ -1268,242 +1128,6 @@ public class PlatformHouseContractTests
             fallbackRealization);
 
         Assert.Same(fallbackRealization, fallbackDiscoveryReceipt.Completion);
-
-        PlatformSourceCapabilityIdentity firstXml =
-            PlatformSourceCapabilityIdentity.Create("first-xml");
-        PlatformSourceCapabilityIdentity secondXml =
-            PlatformSourceCapabilityIdentity.Create("second-xml");
-        var documentationOperation = new PlatformHouseOperation
-            .ResolveDocumentationEvidence
-            .CompiledXml<TestDocumentationSubject, TestReferenceEvidence>(
-                new PlatformDocumentationSubjectEvidence<
-                    TestDocumentationSubject>(
-                        new TestDocumentationSubject(),
-                        "member"),
-                new PlatformReferenceEvidence<TestReferenceEvidence>(
-                    new TestReferenceEvidence(),
-                    "reference"));
-        var exact = new PlatformTargetDemand.Exact(target);
-        var documentationRequest = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create("documentation"),
-            exact,
-            StandaloneOrigin(),
-            documentationOperation,
-            new PlatformSourcePlan(
-                PlatformSourcePlanIdentity.Create("documentation-plan"),
-                PlatformSourcePolicyGeneration.Create("generation"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.CompiledXml,
-                        PlatformSourceSelectionMode.Fallback,
-                        [firstXml, secondXml]),
-                ]),
-            Work());
-        var laterXml = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Documentation(
-                PlatformSourceFacet.CompiledXml,
-                secondXml,
-                documentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-2"),
-                target),
-            PlatformSourceSettlementDisposition.Selected);
-        var xmlAttempt = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Available,
-            [laterXml]);
-        var documentationCompletion =
-            new PlatformHouseCompletion.Documentation(
-                (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                    documentationRequest.Snapshot.Operation,
-                [xmlAttempt]);
-
-        Assert.Throws<ArgumentException>(
-            () => new PlatformHouseReceipt(
-                documentationRequest.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
-                [laterXml],
-                Consumed(),
-                documentationCompletion));
-
-        var earlierXmlFailure = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Failed(
-                PlatformSourceFacet.CompiledXml,
-                firstXml,
-                documentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-1"),
-                target),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var mislabeledAttempt = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Failed,
-            [earlierXmlFailure, laterXml]);
-        var mislabeledCompletion =
-            new PlatformHouseCompletion.Documentation(
-                (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                    documentationRequest.Snapshot.Operation,
-                [mislabeledAttempt]);
-
-        Assert.Throws<ArgumentException>(
-            () => new PlatformHouseReceipt(
-                documentationRequest.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
-                [earlierXmlFailure, laterXml],
-                Consumed(),
-                mislabeledCompletion));
-
-        var fallbackIncompleteXml = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Incomplete(
-                PlatformSourceFacet.CompiledXml,
-                firstXml,
-                documentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-incomplete"),
-                target),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var fallbackAbsentXml = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Unavailable(
-                PlatformSourceFacet.CompiledXml,
-                secondXml,
-                documentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-absent"),
-                target,
-                PlatformSourceUnavailabilityKind.Absent),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var incompleteAttempt = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Incomplete,
-            [fallbackIncompleteXml, fallbackAbsentXml]);
-        var incompleteCompletion =
-            new PlatformHouseCompletion.Documentation(
-                (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                    documentationRequest.Snapshot.Operation,
-                [incompleteAttempt]);
-        var incompleteReceipt = new PlatformHouseReceipt(
-            documentationRequest.Snapshot,
-            new PlatformTargetSettlement.Exact(exact),
-            [fallbackIncompleteXml, fallbackAbsentXml],
-            Consumed(),
-            incompleteCompletion);
-
-        Assert.Same(incompleteCompletion, incompleteReceipt.Completion);
-        Assert.Throws<ArgumentException>(
-            () => new PlatformHouseReceipt(
-                documentationRequest.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
-                [fallbackIncompleteXml, fallbackAbsentXml],
-                Consumed(),
-                new PlatformHouseCompletion.Documentation(
-                    (PlatformHouseOperationSnapshot
-                        .ResolveDocumentationEvidence)
-                            documentationRequest.Snapshot.Operation,
-                    [
-                        new PlatformDocumentationAttempt(
-                            PlatformSourceFacet.CompiledXml,
-                            PlatformDocumentationAttemptKind.Absent,
-                            [fallbackIncompleteXml, fallbackAbsentXml]),
-                    ])));
-
-        var aggregationDocumentationRequest = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create("aggregation-documentation"),
-            exact,
-            StandaloneOrigin(),
-            documentationOperation,
-            new PlatformSourcePlan(
-                PlatformSourcePlanIdentity.Create(
-                    "aggregation-documentation-plan"),
-                PlatformSourcePolicyGeneration.Create("generation"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.CompiledXml,
-                        PlatformSourceSelectionMode.Aggregation,
-                        [firstXml, secondXml]),
-                ]),
-            Work());
-        var unavailableXml = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Unavailable(
-                PlatformSourceFacet.CompiledXml,
-                firstXml,
-                aggregationDocumentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-unavailable"),
-                target,
-                PlatformSourceUnavailabilityKind.Unavailable),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var failedXml = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Failed(
-                PlatformSourceFacet.CompiledXml,
-                secondXml,
-                aggregationDocumentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-failed"),
-                target),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var aggregateAttempt = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Failed,
-            [unavailableXml, failedXml]);
-        var aggregateCompletion =
-            new PlatformHouseCompletion.Documentation(
-                (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                    aggregationDocumentationRequest.Snapshot.Operation,
-                [aggregateAttempt]);
-        var aggregateReceipt = new PlatformHouseReceipt(
-            aggregationDocumentationRequest.Snapshot,
-            new PlatformTargetSettlement.Exact(exact),
-            [unavailableXml, failedXml],
-            Consumed(),
-            aggregateCompletion);
-
-        Assert.Same(aggregateCompletion, aggregateReceipt.Completion);
-
-        var firstAbsent = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Unavailable(
-                PlatformSourceFacet.CompiledXml,
-                firstXml,
-                aggregationDocumentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-absent-1"),
-                target,
-                PlatformSourceUnavailabilityKind.Absent),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var secondAbsent = new PlatformSourceSettlement(
-            new PlatformSourceContribution.Unavailable(
-                PlatformSourceFacet.CompiledXml,
-                secondXml,
-                aggregationDocumentationRequest.Snapshot,
-                PlatformSourceGeneration.Create("xml-absent-2"),
-                target,
-                PlatformSourceUnavailabilityKind.Absent),
-            PlatformSourceSettlementDisposition.OutcomeRelevant);
-        var absentAttempt = new PlatformDocumentationAttempt(
-            PlatformSourceFacet.CompiledXml,
-            PlatformDocumentationAttemptKind.Absent,
-            [firstAbsent, secondAbsent]);
-        var absentCompletion = new PlatformHouseCompletion.Documentation(
-            (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
-                aggregationDocumentationRequest.Snapshot.Operation,
-            [absentAttempt]);
-        var absentReceipt = new PlatformHouseReceipt(
-            aggregationDocumentationRequest.Snapshot,
-            new PlatformTargetSettlement.Exact(exact),
-            [firstAbsent, secondAbsent],
-            Consumed(),
-            absentCompletion);
-
-        Assert.Same(absentCompletion, absentReceipt.Completion);
-        Assert.Throws<ArgumentException>(
-            () => new PlatformHouseReceipt(
-                aggregationDocumentationRequest.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
-                [firstAbsent, secondAbsent],
-                Consumed(),
-                new PlatformHouseCompletion.Documentation(
-                    (PlatformHouseOperationSnapshot
-                        .ResolveDocumentationEvidence)
-                            aggregationDocumentationRequest
-                                .Snapshot.Operation,
-                    [
-                        new PlatformDocumentationAttempt(
-                            PlatformSourceFacet.CompiledXml,
-                            PlatformDocumentationAttemptKind.Unavailable,
-                            [firstAbsent, secondAbsent]),
-                    ])));
     }
 
     [Fact]
@@ -1815,8 +1439,6 @@ public class PlatformHouseContractTests
 
     sealed class TestRoutePrerequisites;
     sealed class TestReferenceCandidate;
-    sealed class TestDocumentationSubject;
-    sealed class TestReferenceEvidence;
     sealed class TestViewCorrespondence;
     sealed class TestMetadataOutcome;
 }
