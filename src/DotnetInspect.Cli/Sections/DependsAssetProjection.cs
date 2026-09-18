@@ -33,7 +33,7 @@ internal sealed record DependsAssetRequestPlan(
                 || sections.Contains(DependsAssetSections.RestoredPackages)
                 || failures,
             Traversal:
-                sections.Contains(DependsAssetSections.DependencyGraph),
+                sections.Contains(DependsAssetSections.DependencyHierarchy),
             Pruning: pruning,
             SupplementalEvidence:
                 sections.Contains(DependsAssetSections.Roots)
@@ -77,8 +77,8 @@ internal sealed record DependsRootRow
 
     internal InertString? Identity { get; }
 
-    internal DependencyGraphNodeIdentity? GraphIdentity =>
-        Content.GraphIdentity;
+    internal DependencyGraphNodeIdentity? DependencyIdentity =>
+        Content.DependencyIdentity;
 
     internal DependencyInspectionTraversalCompletion Traversal =>
         Content.Traversal;
@@ -121,7 +121,7 @@ internal sealed record DependsRootRow
 /// </summary>
 internal sealed record DependsAssetProjection(
     InspectionEnvelope<DependencyInspectionContent> Inspection,
-    ImmutableArray<DependencyGraphEdgeRow> GraphRows,
+    ImmutableArray<DependencyHierarchyOccurrenceRow> HierarchyRows,
     ImmutableArray<DependsRootRow> Roots,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
@@ -132,7 +132,9 @@ internal sealed record DependsAssetProjection(
 
     internal DependencyInspectionSummary Summary => Content.Summary;
 
-    internal DependencyGraphDocument Graph => Content.Graph;
+    internal DependencyHierarchyDocument Hierarchy => Content.Hierarchy;
+
+    internal DependencyGraphDocument Graph => Hierarchy.BackingGraph;
 
     internal ImmutableArray<DependencyInspectionDependency> Dependencies =>
         Content.Dependencies;

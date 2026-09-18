@@ -81,7 +81,7 @@ public sealed record DependencyInspectionRoot(
     DependencyInspectionRootKind Kind,
     InertString Input,
     DependencyInspectionRootState State,
-    DependencyGraphNodeIdentity? GraphIdentity,
+    DependencyGraphNodeIdentity? DependencyIdentity,
     DependencyInspectionTraversalCompletion Traversal,
     DependencyInspectionEvidenceAvailability DeclarationState,
     DependencyInspectionEvidencePhaseCompletion DeclarationCompletion,
@@ -244,8 +244,9 @@ public sealed record DependencyInspectionSummary(
     int FailedRoots,
     DependencyInspectionTraversalCompletion TraversalCompletion,
     int? RequestedDepth,
-    int GraphNodes,
-    int GraphEdges,
+    int HierarchyOccurrences,
+    int CanonicalNodes,
+    int Relationships,
     DependencyInspectionEvidencePhaseCompletion DeclarationCompletion,
     DependencyInspectionEvidencePhaseCompletion
         RestoredRelationshipCompletion,
@@ -255,7 +256,7 @@ public sealed record DependencyInspectionSummary(
 
 public sealed record DependencyInspectionContent(
     DependencyInspectionSummary Summary,
-    DependencyGraphDocument Graph,
+    DependencyHierarchyDocument Hierarchy,
     ImmutableArray<DependencyInspectionRoot> Roots,
     ImmutableArray<DependencyInspectionDependency> Dependencies,
     ImmutableArray<DependencyInspectionPruning> Pruning,
@@ -265,7 +266,7 @@ public sealed record DependencyInspectionContent(
         ReferenceEquals(this, other)
         || other is not null
         && Summary == other.Summary
-        && Graph == other.Graph
+        && Hierarchy == other.Hierarchy
         && DependencyValueEquality.SequenceEqual(Roots, other.Roots)
         && DependencyValueEquality.SequenceEqual(
             Dependencies,
@@ -277,7 +278,7 @@ public sealed record DependencyInspectionContent(
     {
         var hash = new HashCode();
         hash.Add(Summary);
-        hash.Add(Graph);
+        hash.Add(Hierarchy);
         DependencyValueEquality.AddSequenceHashCode(ref hash, Roots);
         DependencyValueEquality.AddSequenceHashCode(
             ref hash,
