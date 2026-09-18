@@ -455,6 +455,37 @@ public abstract record PortableQueryDefinitionResolution<TPlan>
 }
 
 /// <summary>
+/// Structural values supplied to one query attachment after descriptor input
+/// admission.
+/// </summary>
+public sealed class PortableQueryDefinitionAttachment
+{
+    internal PortableQueryDefinitionAttachment(
+        PortableSubjectRequestKind? subjectKind,
+        string? facetId,
+        DefinitionMemberCoordinate? stateCoordinate,
+        WorkspaceContextDefinition? selectedContext,
+        IReadOnlyList<PortableLibraryIdentity>? stateLibraryScope)
+    {
+        SubjectKind = subjectKind;
+        FacetId = facetId;
+        StateCoordinate = stateCoordinate;
+        SelectedContext = selectedContext;
+        StateLibraryScope = DefinitionCollections.Freeze(stateLibraryScope);
+    }
+
+    public PortableSubjectRequestKind? SubjectKind { get; }
+
+    public string? FacetId { get; }
+
+    public DefinitionMemberCoordinate? StateCoordinate { get; }
+
+    public WorkspaceContextDefinition? SelectedContext { get; }
+
+    public IReadOnlyList<PortableLibraryIdentity> StateLibraryScope { get; }
+}
+
+/// <summary>
 /// Owner-issued portable query purpose, structural inputs, and typed binder.
 /// </summary>
 public abstract class PortableQueryDefinitionDescriptor
@@ -479,6 +510,7 @@ public abstract class PortableQueryDefinitionDescriptor
 
     internal abstract BoundCommittedQuery Bind(
         CommittedQueryDefinition definition,
+        PortableQueryDefinitionAttachment attachment,
         CancellationToken cancellationToken);
 }
 
@@ -487,6 +519,7 @@ public sealed class PortableQueryDefinitionDescriptor<TPlan>
 {
     private readonly Func<
         PortableQueryIntent,
+        PortableQueryDefinitionAttachment,
         CancellationToken,
         PortableQueryDefinitionResolution<TPlan>> _resolve;
 
@@ -496,6 +529,7 @@ public sealed class PortableQueryDefinitionDescriptor<TPlan>
         PortableQueryDefinitionInputs inputs,
         Func<
             PortableQueryIntent,
+            PortableQueryDefinitionAttachment,
             CancellationToken,
             PortableQueryDefinitionResolution<TPlan>> resolve)
         : base(queryId, purpose, inputs)
@@ -505,13 +539,15 @@ public sealed class PortableQueryDefinitionDescriptor<TPlan>
 
     internal override BoundCommittedQuery Bind(
         CommittedQueryDefinition definition,
+        PortableQueryDefinitionAttachment attachment,
         CancellationToken cancellationToken) =>
-        _resolve(definition.Intent, cancellationToken) switch
+        _resolve(definition.Intent, attachment, cancellationToken) switch
         {
             PortableQueryDefinitionResolution<TPlan>.Accepted accepted =>
                 new BoundCommittedQuery<TPlan>(
                     definition,
                     this,
+                    attachment,
                     accepted.Plan),
             PortableQueryDefinitionResolution<TPlan>.Rejected rejected =>
                 throw new InspectionDefinitionException(
@@ -524,7 +560,8 @@ public sealed class PortableQueryDefinitionDescriptor<TPlan>
 
 public abstract record BoundCommittedQuery(
     CommittedQueryDefinition Definition,
-    PortableQueryDefinitionDescriptor Descriptor);
+    PortableQueryDefinitionDescriptor Descriptor,
+    PortableQueryDefinitionAttachment Attachment);
 
 public sealed record BoundCommittedQuery<TPlan>
     : BoundCommittedQuery
@@ -532,8 +569,9 @@ public sealed record BoundCommittedQuery<TPlan>
     public BoundCommittedQuery(
         CommittedQueryDefinition definition,
         PortableQueryDefinitionDescriptor<TPlan> descriptor,
+        PortableQueryDefinitionAttachment attachment,
         TPlan plan)
-        : base(definition, descriptor)
+        : base(definition, descriptor, attachment)
     {
         TypedDescriptor = descriptor;
         Plan = plan;
@@ -1143,15 +1181,27 @@ public sealed record CommittedViewStateDefinition
     {
         IReadOnlyList<PortableLibraryIdentity> frozen =
             DefinitionCollections.Freeze(values);
-        for (int index = 1; index < frozen.Count; index++)
+        for (int index = 0; index < frozen.Count; index++)
         {
-            if (PortableLibraryIdentityComparer.Instance.Compare(
+            if (index > 0
+                && PortableLibraryIdentityComparer.Instance.Compare(
                     frozen[index - 1],
                     frozen[index]) >= 0)
             {
                 throw new ArgumentException(
                     "libraries must contain unique identities in canonical order.",
                     nameof(values));
+            }
+            for (int previous = 0; previous < index; previous++)
+            {
+                if (PortableLibraryIdentityComparer.AreEquivalent(
+                    frozen[previous],
+                    frozen[index]))
+                {
+                    throw new ArgumentException(
+                        "libraries must not contain semantically equivalent identities.",
+                        nameof(values));
+                }
             }
         }
 
@@ -1481,6 +1531,11 @@ internal sealed class PortableLibraryIdentityComparer
 {
     public static PortableLibraryIdentityComparer Instance { get; } = new();
 
+    public static bool AreEquivalent(
+        PortableLibraryIdentity left,
+        PortableLibraryIdentity right) =>
+        ToMetadataIdentity(left).IsEquivalentTo(ToMetadataIdentity(right));
+
     public int Compare(PortableLibraryIdentity? x, PortableLibraryIdentity? y)
     {
         if (ReferenceEquals(x, y))
@@ -1529,6 +1584,14 @@ internal sealed class PortableLibraryIdentityComparer
         x is null
             ? y is null ? 0 : -1
             : y is null ? 1 : string.CompareOrdinal(x, y);
+
+    private static AssemblyReferenceIdentity ToMetadataIdentity(
+        PortableLibraryIdentity identity) =>
+        new(
+            identity.Name,
+            System.Version.Parse(identity.Version),
+            identity.Culture,
+            identity.PublicKeyToken);
 }
 
 /// <summary>One acquisition coordinate in definition JSON.</summary>

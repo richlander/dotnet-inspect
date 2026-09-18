@@ -86,6 +86,11 @@ public sealed class WorkspaceSharePacketV3TransposerTests
             Assert.IsType<BoundCommittedQuery<PackageQueryPlan>>(
                 Assert.Single(definitions.QueryBindings));
         Assert.Same(query, binding.Definition);
+        Assert.Null(binding.Attachment.SubjectKind);
+        Assert.Null(binding.Attachment.FacetId);
+        Assert.Null(binding.Attachment.StateCoordinate);
+        Assert.Null(binding.Attachment.SelectedContext);
+        Assert.Empty(binding.Attachment.StateLibraryScope);
         Assert.Equal("Microsoft.Extensions.", binding.Plan.Prefix.ToString());
         Assert.Equal(200, binding.Plan.MaximumCandidates);
         Assert.Contains(

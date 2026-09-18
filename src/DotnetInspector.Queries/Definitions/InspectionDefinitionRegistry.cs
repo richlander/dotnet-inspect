@@ -1014,17 +1014,16 @@ public sealed class InspectionDefinitionRegistry
                 $"Committed navigation '{navigation.Id}' requires at least one tab when workspace '{workspace.Id}' has contexts.");
         }
         IReadOnlyList<BoundCommittedQuery> queryBindings =
-            BindCommittedQueries(
-                records.CommittedQueries,
-                cancellationToken);
+            Array.Empty<BoundCommittedQuery>();
         if (navigation is not null && view is not null)
         {
-            ValidateCommittedView(
+            queryBindings = ValidateCommittedView(
                 scenario,
                 workspace,
                 navigation,
                 view,
-                queryBindings);
+                records.CommittedQueries,
+                cancellationToken);
         }
 
         return new CommittedScenarioDefinitionSet(
@@ -1035,30 +1034,6 @@ public sealed class InspectionDefinitionRegistry
             records.Catalogs,
             targetMatchMode,
             queryBindings);
-    }
-
-    private IReadOnlyList<BoundCommittedQuery> BindCommittedQueries(
-        IReadOnlyList<CommittedQueryDefinition> queries,
-        CancellationToken cancellationToken)
-    {
-        var bindings = new BoundCommittedQuery[queries.Count];
-        for (int index = 0; index < queries.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            CommittedQueryDefinition query = queries[index];
-            if (!_queryDescriptors.TryGetValue(
-                query.QueryId,
-                out PortableQueryDefinitionDescriptor? descriptor))
-            {
-                throw new InspectionDefinitionException(
-                    $"Query '{query.Id}' uses unknown vocabulary "
-                        + $"'{query.QueryId}'.");
-            }
-
-            bindings[index] = descriptor.Bind(query, cancellationToken);
-        }
-
-        return new ReadOnlyCollection<BoundCommittedQuery>(bindings);
     }
 
     private static Version1ScenarioDefinitionSet CreateVersion1Scenario(
@@ -1104,12 +1079,13 @@ public sealed class InspectionDefinitionRegistry
             records.Catalogs);
     }
 
-    private static void ValidateCommittedView(
+    private IReadOnlyList<BoundCommittedQuery> ValidateCommittedView(
         ScenarioDefinition scenario,
         WorkspaceDefinition? workspace,
         CommittedNavigationDefinition navigation,
         CommittedViewDefinition view,
-        IReadOnlyList<BoundCommittedQuery> queryBindings)
+        IReadOnlyList<CommittedQueryDefinition> queries,
+        CancellationToken cancellationToken)
     {
         if (view.States.Count != navigation.Tabs.Count + 1)
         {
@@ -1134,17 +1110,21 @@ public sealed class InspectionDefinitionRegistry
                 $"Committed view '{view.Id}' Workspace state cannot retain Package context.");
         }
 
-        var bindingsById = queryBindings.ToDictionary(
-            binding => binding.Definition.Id,
+        var queriesById = queries.ToDictionary(
+            query => query.Id,
             StringComparer.Ordinal);
+        var queryBindings = new List<BoundCommittedQuery>();
+        WorkspaceContextDefinition? selectedContext =
+            ResolveSelectedContext(scenario, workspace);
         ValidateQueryState(
-            scenario,
-            workspace,
             navigation,
             view,
             workspaceState,
             0,
-            bindingsById);
+            selectedContext,
+            queriesById,
+            queryBindings,
+            cancellationToken);
         for (int index = 0; index < navigation.Tabs.Count; index++)
         {
             NavigationTabDefinition tab = navigation.Tabs[index];
@@ -1167,13 +1147,14 @@ public sealed class InspectionDefinitionRegistry
             }
 
             ValidateQueryState(
-                scenario,
-                workspace,
                 navigation,
                 view,
                 state,
                 index + 1,
-                bindingsById);
+                selectedContext,
+                queriesById,
+                queryBindings,
+                cancellationToken);
         }
 
         ValidateEmptyWorkspaceComposition(
@@ -1181,7 +1162,9 @@ public sealed class InspectionDefinitionRegistry
             workspace,
             navigation,
             view,
-            bindingsById);
+            queryBindings);
+        return new ReadOnlyCollection<BoundCommittedQuery>(
+            queryBindings.ToArray());
     }
 
     private static bool IsDecorated(CommittedViewStateDefinition state) =>
@@ -1191,14 +1174,15 @@ public sealed class InspectionDefinitionRegistry
         || state.Queries.Count != 0
         || state.Libraries.Count != 0;
 
-    private static void ValidateQueryState(
-        ScenarioDefinition scenario,
-        WorkspaceDefinition? workspace,
+    private void ValidateQueryState(
         CommittedNavigationDefinition navigation,
         CommittedViewDefinition view,
         CommittedViewStateDefinition state,
         int index,
-        IReadOnlyDictionary<string, BoundCommittedQuery> bindingsById)
+        WorkspaceContextDefinition? selectedContext,
+        IReadOnlyDictionary<string, CommittedQueryDefinition> queriesById,
+        List<BoundCommittedQuery> queryBindings,
+        CancellationToken cancellationToken)
     {
         if (state.Libraries.Count != 0 && index == 0)
         {
@@ -1219,25 +1203,46 @@ public sealed class InspectionDefinitionRegistry
         bool consumesLibraryScope = false;
         foreach (string queryId in state.Queries)
         {
-            if (!bindingsById.TryGetValue(
+            if (!queriesById.TryGetValue(
                 queryId,
-                out BoundCommittedQuery? binding))
+                out CommittedQueryDefinition? query))
             {
                 throw new InspectionDefinitionException(
                     $"Committed view '{view.Id}' state {index} references "
                         + $"unknown query '{queryId}'.");
             }
-            if (!purposes.Add(binding.Descriptor.Purpose))
+            if (!_queryDescriptors.TryGetValue(
+                query.QueryId,
+                out PortableQueryDefinitionDescriptor? descriptor))
+            {
+                throw new InspectionDefinitionException(
+                    $"Query '{query.Id}' uses unknown vocabulary "
+                        + $"'{query.QueryId}'.");
+            }
+            if (!purposes.Add(descriptor.Purpose))
             {
                 throw new InspectionDefinitionException(
                     $"Committed view '{view.Id}' state {index} has duplicate "
-                        + $"query purpose '{binding.Descriptor.Purpose}'.");
+                        + $"query purpose '{descriptor.Purpose}'.");
             }
 
             PortableQueryDefinitionInputs inputs =
-                binding.Descriptor.Inputs;
+                descriptor.Inputs;
             if (inputs.CoordinateFreePrimary)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                queryBindings.Add(
+                    descriptor.Bind(
+                        query,
+                        new PortableQueryDefinitionAttachment(
+                            subjectKind: null,
+                            facetId: null,
+                            stateCoordinate: null,
+                            selectedContext: null,
+                            stateLibraryScope: null),
+                        cancellationToken));
                 continue;
+            }
 
             if (state.Subject is null
                 || !inputs.SubjectKinds.Contains(state.Subject.Kind))
@@ -1256,17 +1261,20 @@ public sealed class InspectionDefinitionRegistry
                         + $"'{queryId}' does not accept facet '{state.Facet}'.");
             }
 
+            DefinitionMemberCoordinate? stateCoordinate =
+                index == 0
+                    ? null
+                    : navigation.Tabs[index - 1].Coordinate;
             ValidateInputRequirement(
                 inputs.StateCoordinate,
-                state.Navigation is not null,
+                stateCoordinate is not null,
                 view,
                 index,
                 queryId,
                 "state coordinate");
             ValidateInputRequirement(
                 inputs.SelectedContext,
-                scenario.Context is not null
-                    || workspace?.Contexts.Count == 1,
+                selectedContext is not null,
                 view,
                 index,
                 queryId,
@@ -1282,6 +1290,27 @@ public sealed class InspectionDefinitionRegistry
             consumesLibraryScope |=
                 inputs.StateLibraryScope
                     is not PortableQueryInputRequirement.Forbidden;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            queryBindings.Add(
+                descriptor.Bind(
+                    query,
+                    new PortableQueryDefinitionAttachment(
+                        state.Subject.Kind,
+                        state.Facet,
+                        inputs.StateCoordinate
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : stateCoordinate,
+                        inputs.SelectedContext
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : selectedContext,
+                        inputs.StateLibraryScope
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : state.Libraries),
+                    cancellationToken));
         }
 
         if (state.Libraries.Count != 0 && !consumesLibraryScope)
@@ -1290,6 +1319,26 @@ public sealed class InspectionDefinitionRegistry
                 $"Committed view '{view.Id}' state {index} carries Library "
                     + "scope without a consuming query.");
         }
+    }
+
+    private static WorkspaceContextDefinition? ResolveSelectedContext(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace)
+    {
+        if (workspace is null)
+            return null;
+        if (scenario.Context is not null)
+        {
+            return workspace.Contexts.Single(
+                context => string.Equals(
+                    context.Name,
+                    scenario.Context,
+                    StringComparison.Ordinal));
+        }
+
+        return workspace.Contexts.Count == 1
+            ? workspace.Contexts[0]
+            : null;
     }
 
     private static void ValidateInputRequirement(
@@ -1319,7 +1368,7 @@ public sealed class InspectionDefinitionRegistry
         WorkspaceDefinition? workspace,
         CommittedNavigationDefinition navigation,
         CommittedViewDefinition view,
-        IReadOnlyDictionary<string, BoundCommittedQuery> bindingsById)
+        IReadOnlyList<BoundCommittedQuery> queryBindings)
     {
         if (workspace is null
             || workspace.Contexts.Count != 0
@@ -1329,8 +1378,13 @@ public sealed class InspectionDefinitionRegistry
             {
                 foreach (string queryId in state.Queries)
                 {
-                    if (bindingsById[queryId].Descriptor.Inputs
-                        .CoordinateFreePrimary)
+                    if (queryBindings.Any(
+                        binding =>
+                            string.Equals(
+                                binding.Definition.Id,
+                                queryId,
+                                StringComparison.Ordinal)
+                            && binding.Descriptor.Inputs.CoordinateFreePrimary))
                     {
                         throw new InspectionDefinitionException(
                             $"Coordinate-free primary query '{queryId}' cannot "
@@ -1355,10 +1409,13 @@ public sealed class InspectionDefinitionRegistry
             && workspaceState.Facet is null
             && workspaceState.Libraries.Count == 0
             && workspaceState.Queries.Count == 1
-            && bindingsById.TryGetValue(
-                workspaceState.Queries[0],
-                out BoundCommittedQuery? binding)
-            && binding.Descriptor.Inputs.CoordinateFreePrimary;
+            && queryBindings.Any(
+                binding =>
+                    string.Equals(
+                        binding.Definition.Id,
+                        workspaceState.Queries[0],
+                        StringComparison.Ordinal)
+                    && binding.Descriptor.Inputs.CoordinateFreePrimary);
         if (!queryOnly)
         {
             throw new InspectionDefinitionException(

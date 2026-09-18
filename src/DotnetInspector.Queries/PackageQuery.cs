@@ -674,7 +674,7 @@ public static partial class PackageQuery
             VocabularyIdentity,
             "package-query",
             PortableQueryDefinitionInputs.CoordinateFree(),
-            static (intent, cancellationToken) =>
+            static (intent, _, cancellationToken) =>
                 ResolveIntent(intent, cancellationToken) switch
                 {
                     PackageQueryPlanResult.Accepted accepted =>

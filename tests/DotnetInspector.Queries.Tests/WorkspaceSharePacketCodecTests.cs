@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Platforms;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 
@@ -252,6 +253,79 @@ public sealed class WorkspaceSharePacketCodecTests
         Assert.Equal(
             CanonicalFormat2QueryJson,
             WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Format2_RejectsSemanticallyDuplicateLibraryScope()
+    {
+        const string json =
+            """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"package"},"f":"package.overview","q":[0],"l":[["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],["system.text.json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]}]}""";
+
+        WorkspaceSharePacketException parseException =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    json,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "semantic duplicates",
+            parseException.Message,
+            StringComparison.Ordinal);
+
+        PortableLibraryIdentity[] libraries =
+        [
+            new(
+                "System.Text.Json",
+                "10.0.0.0",
+                null,
+                "cc7b13ffcd2ddd51"),
+            new(
+                "system.text.json",
+                "10.0.0.0",
+                null,
+                "cc7b13ffcd2ddd51"),
+        ];
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "P",
+                    "1.0.0",
+                    "net11.0",
+                    null),
+            ],
+            [new WorkspaceShareContext([0])],
+            focusedTabIndex: 0,
+            selectedContextIndex: 0,
+            [
+                new WorkspaceShareViewState(
+                    null,
+                    new PortableSubjectRequest.Workspace(),
+                    null,
+                    null),
+                new WorkspaceShareViewState(
+                    0,
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    [0],
+                    libraries),
+            ],
+            [
+                PortableQueryIdentity.FromCanonicalPayload(
+                    "a",
+                    "{}",
+                    TestContext.Current.CancellationToken),
+            ]);
+
+        WorkspaceSharePacketException writeException =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.SerializeJson(packet));
+
+        Assert.Contains(
+            "semantic duplicates",
+            writeException.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

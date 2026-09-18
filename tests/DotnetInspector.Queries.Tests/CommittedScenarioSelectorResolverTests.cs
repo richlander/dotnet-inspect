@@ -643,6 +643,40 @@ public sealed class CommittedScenarioSelectorResolverTests
             Assert.Single(packageState.Libraries));
     }
 
+    [Fact]
+    public async Task Resolve_QueryLibraryScopeMatchesAlternateIdentityCasing()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Package.A");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library"));
+        CommittedScenarioDefinitionSet definitions =
+            DefinitionsWithLibraryScope("navigation.library");
+
+        CommittedScenarioSelectorResolution resolved =
+            Assert.IsType<
+                CommittedScenarioSelectorResolutionResult.Resolved>(
+                    CommittedScenarioSelectorResolver.Resolve(
+                        definitions,
+                        workspace.Identity,
+                        scope,
+                        [new("package", package)])).Resolution;
+
+        var packageState =
+            Assert.IsType<ResolvedCommittedPackageViewState>(
+                resolved.ActiveState);
+        Assert.Same(
+            package.Libraries[0],
+            Assert.Single(packageState.Libraries));
+    }
+
     [Theory]
     [InlineData(
         false,
@@ -1051,7 +1085,7 @@ public sealed class CommittedScenarioSelectorResolverTests
                 PortableQueryInputRequirement.Required,
                 PortableQueryInputRequirement.Required,
                 PortableQueryInputRequirement.Required),
-            static (_, _) =>
+            static (_, _, _) =>
                 new PortableQueryDefinitionResolution<string>.Accepted(
                     "bound"));
         var registry = new InspectionDefinitionRegistry();

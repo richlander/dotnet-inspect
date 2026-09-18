@@ -1280,6 +1280,19 @@ public static class WorkspaceSharePacketCodec
                     "Workspace share view-state Library identities must be unique "
                         + "and in canonical order.");
             }
+            for (int previousIndex = 0;
+                previousIndex < index;
+                previousIndex++)
+            {
+                if (PortableLibraryIdentityComparer.AreEquivalent(
+                    libraries[previousIndex],
+                    library))
+                {
+                    throw InvalidShape(
+                        "Workspace share view-state Library identities must not "
+                            + "contain semantic duplicates.");
+                }
+            }
 
             libraries[index++] = library;
             previous = library;
@@ -1891,8 +1904,12 @@ public static class WorkspaceSharePacketCodec
             }
 
             PortableLibraryIdentity? previousLibrary = null;
-            foreach (PortableLibraryIdentity library in state.Libraries)
+            for (int libraryIndex = 0;
+                libraryIndex < state.Libraries.Count;
+                libraryIndex++)
             {
+                PortableLibraryIdentity library =
+                    state.Libraries[libraryIndex];
                 if (previousLibrary is not null
                     && PortableLibraryIdentityComparer.Instance.Compare(
                         previousLibrary,
@@ -1901,6 +1918,19 @@ public static class WorkspaceSharePacketCodec
                     throw InvalidShape(
                         "Workspace share view-state Library identities must be "
                             + "unique and in canonical order.");
+                }
+                for (int previousIndex = 0;
+                    previousIndex < libraryIndex;
+                    previousIndex++)
+                {
+                    if (PortableLibraryIdentityComparer.AreEquivalent(
+                        state.Libraries[previousIndex],
+                        library))
+                    {
+                        throw InvalidShape(
+                            "Workspace share view-state Library identities must "
+                                + "not contain semantic duplicates.");
+                    }
                 }
                 previousLibrary = library;
             }

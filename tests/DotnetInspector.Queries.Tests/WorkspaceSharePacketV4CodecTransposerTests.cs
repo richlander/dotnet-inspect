@@ -130,7 +130,7 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
                 PortableQueryInputRequirement.Required,
                 PortableQueryInputRequirement.Required,
                 PortableQueryInputRequirement.Required),
-            static (_, _) =>
+            static (_, _, _) =>
                 new PortableQueryDefinitionResolution<string>.Accepted(
                     "bound"));
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
@@ -149,6 +149,19 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
 
         Assert.Equal(InspectionDefinitionSchema.Version4, query.SchemaVersion);
         Assert.Equal("bound", binding.Plan);
+        Assert.Equal(
+            PortableSubjectRequestKind.Type,
+            binding.Attachment.SubjectKind);
+        Assert.Equal("type.metadata", binding.Attachment.FacetId);
+        Assert.Equal(
+            definitions.Navigation!.Tabs[0].Coordinate,
+            binding.Attachment.StateCoordinate);
+        Assert.Same(
+            definitions.Workspace!.Contexts[0],
+            binding.Attachment.SelectedContext);
+        Assert.Equal(
+            state.Libraries,
+            binding.Attachment.StateLibraryScope);
         Assert.Equal(["q0"], state.Queries);
         Assert.Equal(
             "Avalonia.Base",
