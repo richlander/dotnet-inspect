@@ -51,10 +51,21 @@
     <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\platform-index.json" Link="wwwroot\assets\platform-index.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Remove="wwwroot\inspect-web-*.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-host.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-package.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-metadata.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-analysis.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-source.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-call-graph.js" />
+    <_InspectWebGeneratedFacadeModule Include="wwwroot\inspect-web-catalog.js" />
   </ItemGroup>
 
   <Target Name="GenerateInspectWebEngineFacades" BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish">
     <Exec Command="node &quot;../scripts/compile-engine-facades.ts&quot; --install" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <ItemGroup>
+      <Content Include="@(_InspectWebGeneratedFacadeModule)" />
+    </ItemGroup>
   </Target>
 
   <Target Name="ValidateInspectWebFrontendBundle" BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish" DependsOnTargets="GenerateInspectWebEngineFacades">

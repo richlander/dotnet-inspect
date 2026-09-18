@@ -147,7 +147,8 @@ public sealed record InstalledReferenceRealizationRequest
     public InstalledReferenceRealizationRequest(
         InstalledReferencePackCoordinate coordinate,
         InstalledReferencePopulationDemand population,
-        InstalledReferenceWorkBudget work)
+        InstalledReferenceWorkBudget work,
+        bool includeCompiledXmlDocumentation = false)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(population);
@@ -155,11 +156,36 @@ public sealed record InstalledReferenceRealizationRequest
         Coordinate = coordinate;
         Population = population;
         Work = work;
+        IncludeCompiledXmlDocumentation =
+            includeCompiledXmlDocumentation;
     }
 
     public InstalledReferencePackCoordinate Coordinate { get; }
     public InstalledReferencePopulationDemand Population { get; }
     public InstalledReferenceWorkBudget Work { get; }
+    public bool IncludeCompiledXmlDocumentation { get; }
+}
+
+/// <summary>
+/// One immutable compiled-XML companion copied from an installed pack.
+/// </summary>
+public sealed class InstalledReferenceDocumentation
+{
+    private readonly byte[] _content;
+
+    internal InstalledReferenceDocumentation(
+        string fileName,
+        byte[] content)
+    {
+        FileName = fileName;
+        _content = content;
+    }
+
+    public string FileName { get; }
+    public long ContentLength => _content.LongLength;
+
+    public Stream OpenRead() =>
+        new MemoryStream(_content, writable: false);
 }
 
 /// <summary>One immutable reference assembly copied from an installed pack.</summary>
@@ -170,16 +196,21 @@ public sealed class InstalledReferenceLibrary
     internal InstalledReferenceLibrary(
         string fileName,
         AssemblyReferenceIdentity identity,
-        byte[] content)
+        byte[] content,
+        InstalledReferenceDocumentation? documentation = null)
     {
         FileName = fileName;
         Identity = identity;
         _content = content;
+        Documentation = documentation;
     }
 
     public string FileName { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public long ContentLength => _content.LongLength;
+    public InstalledReferenceDocumentation? Documentation { get; }
+    public long TotalContentLength =>
+        ContentLength + (Documentation?.ContentLength ?? 0);
 
     public Stream OpenRead() =>
         new MemoryStream(_content, writable: false);

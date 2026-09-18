@@ -215,6 +215,14 @@ public sealed class PackageSourceResultIdentityTests
         Assert.False(
             PackageProducerIdentity.IsCanonicalPortableKey(
                 producer.PortableKey[..^1]));
+        Assert.True(
+            PackageProducerIdentity.IsPortableKeyFor(
+                producer.Key,
+                producer.PortableKey));
+        Assert.False(
+            PackageProducerIdentity.IsPortableKeyFor(
+                producer.Key,
+                "nfp-1.0000000000000000000000000000000000000000000000000000000000000000"));
     }
 
     [Fact]

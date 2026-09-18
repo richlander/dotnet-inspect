@@ -209,6 +209,14 @@ public sealed class InstalledPlatformHouseAdapter
         }
 
         request.CancellationToken.ThrowIfCancellationRequested();
+        bool includeCompiledXmlDocumentation =
+            request.Operation is PlatformHouseOperation.Realize
+            {
+                ContentDemand: var contentDemand,
+            }
+            && contentDemand.HasFlag(
+                PlatformLibraryContentDemand
+                    .CompiledXmlDocumentation);
         if (request.Work.MaxSourceOperations == 0
             || request.Work.MaxDuration == TimeSpan.Zero)
         {
@@ -216,6 +224,14 @@ public sealed class InstalledPlatformHouseAdapter
                 request,
                 exact.Target,
                 "The House work budget does not permit installed reference realization.");
+        }
+        if (includeCompiledXmlDocumentation
+            && request.Work.MaxXmlDocuments == 0)
+        {
+            return IncompleteRealization(
+                request,
+                exact.Target,
+                "The House work budget does not permit compiled XML realization.");
         }
 
         if (housePopulation is PlatformPopulationDemand.Library
@@ -260,7 +276,8 @@ public sealed class InstalledPlatformHouseAdapter
                         population,
                         new InstalledReferenceWorkBudget(
                             request.Work.MaxAssemblies,
-                            request.Work.MaxBytes)),
+                            request.Work.MaxBytes),
+                        includeCompiledXmlDocumentation),
                     budgetCancellation.Token)
                 .ConfigureAwait(false);
         }

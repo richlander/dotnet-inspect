@@ -543,6 +543,43 @@ test("facade compilation replaces stale transient inventories", () => {
   }
 });
 
+test("MSBuild admits only the exact generated facade modules after derivation", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const project = readFileSync(
+    resolve(root, "DotnetInspect.Web/DotnetInspect.Web.csproj"),
+    "utf8",
+  );
+  const configuredModules = [
+    ...project.matchAll(
+      /<_InspectWebGeneratedFacadeModule Include="([^"]+)" \/>/gu,
+    ),
+  ].map(match => {
+    const path = match[1];
+    assert.ok(path);
+    return path.replaceAll("\\", "/");
+  });
+  assert.deepEqual(
+    configuredModules,
+    publishedFacadeModules.map(path =>
+      path.replace("DotnetInspect.Web/", "")),
+  );
+  assert.ok(
+    project.includes('<Content Remove="wwwroot\\inspect-web-*.js" />'),
+    "MSBuild must exclude wildcard-discovered transient facade modules",
+  );
+  const targetMatch =
+    /<Target Name="GenerateInspectWebEngineFacades"[\s\S]*?<\/Target>/u
+      .exec(project);
+  assert.ok(targetMatch);
+  const target = targetMatch[0];
+  const generation = target.indexOf("<Exec ");
+  const admission = target.indexOf(
+    '<Content Include="@(_InspectWebGeneratedFacadeModule)" />',
+  );
+  assert.ok(generation >= 0 && admission > generation,
+    "MSBuild must admit the exact facade set only after derivation");
+});
+
 // Every gate in this file accounts for *files*: the compiler builds a program out of
 // `.ts` files, and oxlint is handed a list of paths. Script written inside a document is
 // therefore invisible to both, and the browser runs it anyway.

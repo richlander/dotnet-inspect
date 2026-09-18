@@ -42,9 +42,14 @@ ts_output_directory="$inspect_web/DotnetInspect.Web/facades"
 dts_output_directory="$inspect_web/src/facades"
 js_output_directory="$inspect_web/DotnetInspect.Web/wwwroot"
 compiler="$inspect_web/scripts/compile-engine-facades.ts"
+stale_msbuild_module="$js_output_directory/inspect-web-stale.js"
 
 scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
+cleanup() {
+  rm -rf "$scratch"
+  rm -f "$stale_msbuild_module"
+}
+trap cleanup EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
@@ -195,6 +200,44 @@ assert_directory_inventory() {
   fi
 }
 
+seed_stale_msbuild_module() {
+  printf 'export const stale = true;\n' > "$stale_msbuild_module"
+}
+
+verify_msbuild_facade_build() {
+  seed_stale_msbuild_module
+  "$dotnet" build \
+    "$engine_csproj" \
+    -c Release \
+    --no-restore \
+    "$@" >&2
+  if [[ -e "$stale_msbuild_module" ]]; then
+    echo "error: the .NET build left the stale facade module in place." >&2
+    exit 1
+  fi
+  assert_directory_inventory \
+    "$js_output_directory" 'inspect-web-*.js' "$expected_modules"
+}
+
+verify_msbuild_facade_publish() {
+  local publish_output="$scratch/publish"
+  seed_stale_msbuild_module
+  "$dotnet" publish \
+    "$engine_csproj" \
+    -c Release \
+    --no-restore \
+    --output "$publish_output" \
+    "$@" >&2
+  if [[ -e "$stale_msbuild_module" ]]; then
+    echo "error: the .NET publish left the stale facade module in place." >&2
+    exit 1
+  fi
+  assert_directory_inventory \
+    "$js_output_directory" 'inspect-web-*.js' "$expected_modules"
+  assert_directory_inventory \
+    "$publish_output/wwwroot" 'inspect-web-*.js' "$expected_modules"
+}
+
 install_compiled_outputs() {
   rm -rf "$dts_output_directory"
   mkdir -p "$dts_output_directory" "$js_output_directory"
@@ -262,10 +305,7 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
       echo "The authoritative product VersionPrefix is empty." >&2
       exit 1
     fi
-    "$dotnet" build \
-      "$engine_csproj" \
-      -c Release \
-      -p:VersionPrefix="$version_prefix" >&2
+    verify_msbuild_facade_build "-p:VersionPrefix=$version_prefix"
     versioned_contract="$scratch/versioned-declarations"
     "$0" \
       --contract \
@@ -278,6 +318,9 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
         exit 1
       fi
     done
+    verify_msbuild_facade_publish "-p:VersionPrefix=$version_prefix"
+  else
+    verify_msbuild_facade_build
   fi
 
   echo "inspect-web canonical TypeScript facades are current and consumer-compatible."

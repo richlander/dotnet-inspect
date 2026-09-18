@@ -130,19 +130,21 @@ internal sealed record DependsAssetDocument
         return [.. selected.Select(select)];
     }
 
-    private static IEnumerable<PackageSourceResultIdentity?> EnumerateSources(
+    private static DependencyEvidenceSourceTokens CreateTokens(
         DependsAssetProjection projection)
     {
-        yield return projection.Summary.PackagePrefix?.Source;
+        DependencyEvidenceSourceTokens tokens =
+            DependencyEvidenceSourceTokens.Create();
+        tokens.Reserve(projection.Summary.PackagePrefix?.Source);
         foreach (DependsRootRow root in projection.Roots)
-            yield return root.Evidence?.Source;
+            tokens.Reserve(root.Evidence?.Source);
         foreach (DependencyInspectionPruning pruning in projection.Pruning)
         {
             foreach (PackageSourceResultIdentity? source in
                      DependsPackageEvidenceJson.Sources(
-                         pruning.CandidateOutcome))
+                         pruning.RuntimeCandidateOutcome))
             {
-                yield return source;
+                tokens.Reserve(source);
             }
         }
         foreach (DependencyInspectionFailure failure in projection.Failures)
@@ -150,61 +152,52 @@ internal sealed record DependsAssetDocument
             switch (failure)
             {
                 case DependencyInspectionFailure.Evidence evidence:
-                    yield return evidence.Value.Source;
+                    tokens.Reserve(evidence.Value.Source);
                     break;
                 case DependencyInspectionFailure.Traversal traversal:
                     foreach (PackageSourceResultIdentity? source in
                              DependsPackageEvidenceJson.Sources(
                                  traversal.Value))
                     {
-                        yield return source;
+                        tokens.Reserve(source);
                     }
                     break;
             }
         }
-
         foreach (DependencyGraphPackageProjection packageProjection in
                  projection.Graph.PackageProjections)
         {
-            yield return PackageSource(packageProjection.Evidence);
-            if (packageProjection.Candidate is { } candidate)
+            tokens.Reserve(PackageSource(packageProjection.Evidence));
+            if (packageProjection.RuntimeCandidate is { } candidate)
             {
                 foreach (PackageAcquisitionAuthorityEvidence authority in
                          candidate.Authorities)
                 {
-                    yield return authority.Observation?.Source;
+                    tokens.Reserve(authority.Observation?.Source);
                 }
             }
             foreach (PackageAuthorityFailure diagnostic in
-                     packageProjection.Diagnostics)
+                     packageProjection.RuntimeDiagnostics)
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                        ?? diagnostic.SourceFailure?.Source);
             }
         }
         foreach (DependencyGraphEdge edge in projection.Graph.Edges)
         {
             foreach (PackageAuthorityFailure diagnostic in
-                     edge.PackageDiagnostics.IsDefault
-                        ? []
-                        : edge.PackageDiagnostics)
+                     edge.RuntimePackageDiagnostics)
             {
-                yield return diagnostic.ResultSource
-                    ?? diagnostic.SourceFailure?.Source;
+                tokens.Reserve(
+                    diagnostic.ResultSource
+                        ?? diagnostic.SourceFailure?.Source);
             }
         }
-    }
-
-    private static DependencyEvidenceSourceTokens CreateTokens(
-        DependsAssetProjection projection)
-    {
-        DependencyEvidenceSourceTokens tokens =
-            DependencyEvidenceSourceTokens.Create(
-                EnumerateSources(projection));
         foreach (DependencyGraphPackageProjection packageProjection in
                  projection.Graph.PackageProjections)
         {
-            if (packageProjection.Candidate is not { } candidate)
+            if (packageProjection.RuntimeCandidate is not { } candidate)
                 continue;
             tokens.ProjectCorrespondence(candidate.Correspondence);
             foreach (PackageAcquisitionAuthorityEvidence authority in
@@ -215,7 +208,7 @@ internal sealed record DependsAssetDocument
         }
         foreach (DependencyInspectionPruning pruning in projection.Pruning)
         {
-            if (pruning.CandidateOutcome
+            if (pruning.RuntimeCandidateOutcome
                 is not PackageDependencyCandidateResult.Resolved resolved)
             {
                 continue;
@@ -232,7 +225,7 @@ internal sealed record DependsAssetDocument
         return tokens;
     }
 
-    internal static PackageSourceResultIdentity? PackageSource(
+    internal static PackageDependencyEvidenceSourceIdentity? PackageSource(
         PackageDependencyEvidenceRoot? root) =>
         (root?.Provenance
             as PackageDependencyEvidenceRootProvenance.Package)?.Source;
@@ -674,7 +667,7 @@ internal sealed record DependsPruningJson
         DependencyEvidenceSourceTokens tokens)
     {
         PackageHouseDependencyPruningResult.Evaluated? evaluated =
-            row.Result as PackageHouseDependencyPruningResult.Evaluated;
+            row.RuntimeResult as PackageHouseDependencyPruningResult.Evaluated;
         return new DependsPruningJson
         {
             Root = row.RootOccurrence,
@@ -700,8 +693,8 @@ internal sealed record DependsPruningJson
             Applicability = row.Applicability.State,
             TargetUnavailableReason =
                 row.Applicability.TargetUnavailableReason,
-            CandidateState = row.CandidateOutcome?.GetType().Name,
-            CandidateDetail = row.CandidateOutcome switch
+            CandidateState = row.RuntimeCandidateOutcome?.GetType().Name,
+            CandidateDetail = row.RuntimeCandidateOutcome switch
             {
                 PackageDependencyCandidateResult.Failed failed =>
                     failed.Failure.GetType().Name,
@@ -713,10 +706,10 @@ internal sealed record DependsPruningJson
                     "Unknown package candidate result."),
             },
             Candidate = DependsPackageCandidateOutcomeJson.CreateOptional(
-                row.CandidateOutcome,
+                row.RuntimeCandidateOutcome,
                 tokens),
             ResolvedCandidate =
-                row.CandidateOutcome
+                row.RuntimeCandidateOutcome
                     is PackageDependencyCandidateResult.Resolved resolved
                     ? DependencyGraphOutputAdapter.JsonCandidate(
                         resolved.Candidate,
@@ -845,8 +838,8 @@ internal sealed record DependsPruningFailureJson
                         candidate.DeclarationIdentity),
                 PackageId = candidate.PackageId,
                 VersionConstraint = candidate.VersionConstraint,
-                CandidateState = candidate.Outcome.GetType().Name,
-                CandidateDetail = candidate.Outcome switch
+                CandidateState = candidate.RuntimeOutcome?.GetType().Name,
+                CandidateDetail = candidate.RuntimeOutcome switch
                 {
                     PackageDependencyCandidateResult.Failed failed =>
                         failed.Failure.GetType().Name,
@@ -856,7 +849,7 @@ internal sealed record DependsPruningFailureJson
                         "A resolved pruning candidate is not a failure."),
                 },
                 Candidate = DependsPackageCandidateOutcomeJson.CreateOptional(
-                    candidate.Outcome,
+                    candidate.RuntimeOutcome,
                     tokens),
                 AffectedRoots = [candidate.RootOccurrence],
                 AffectedDeclarations = 1,
@@ -921,10 +914,10 @@ internal sealed record DependsTraversalFailureJson
             VersionConstraint = row.VersionConstraint,
             Candidate =
                 DependsPackageCandidateOutcomeJson.CreateOptional(
-                    row.CandidateOutcome,
+                    row.RuntimeCandidateOutcome,
                     tokens),
             Manifest = DependsPackageManifestFailureJson.CreateOptional(
-                row.ManifestFailure,
+                row.RuntimeManifestFailure,
                 tokens),
             BudgetKind = row.BudgetKind,
             BudgetLimit = row.BudgetLimit,
@@ -979,7 +972,7 @@ internal sealed record DependsRestoredTraversalFailureJson
             DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                    RestoredProjectDependencyTraversalFailure.Document
+                    DependencyInspectionRestoredTraversalOutcomeFailure.Document
                         document,
             } =>
                 new()
@@ -991,7 +984,8 @@ internal sealed record DependsRestoredTraversalFailureJson
             DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                    RestoredProjectDependencyTraversalFailure.Graph graph,
+                    DependencyInspectionRestoredTraversalOutcomeFailure.Graph
+                        graph,
             } => CreateGraph(graph.Failure),
             DependencyInspectionRestoredTraversalFailure.Graph graph =>
                 CreateGraph(graph.Value),
@@ -1387,13 +1381,13 @@ internal static class DependsPackageEvidenceJson
         DependencyInspectionTraversalFailure row)
     {
         foreach (PackageAuthorityFailure failure in CandidateFailures(
-                     row.CandidateOutcome))
+                     row.RuntimeCandidateOutcome))
         {
             yield return failure.ResultSource
                 ?? failure.SourceFailure?.Source;
         }
         foreach (PackageAuthorityFailure failure in ManifestFailures(
-                     row.ManifestFailure))
+                     row.RuntimeManifestFailure))
         {
             yield return failure.ResultSource
                 ?? failure.SourceFailure?.Source;

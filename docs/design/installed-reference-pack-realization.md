@@ -181,6 +181,14 @@ Subdirectories, XML documentation, analyzers, and non-DLL files are outside
 this population. The rule is source-owned; consumers must not reconstruct
 membership from a returned path or assembly-name prefix.
 
+XML documentation remains outside assembly-population membership. For an
+explicit one-Library compiled-XML content demand, however, the source checks
+the exact same-basename top-level `.xml` companion beside the selected
+reference assembly. A present companion is snapshotted under the same finite
+byte and duration budget; a missing companion is authoritative absence for
+that exact source generation. Without that demand, the source performs no XML
+read and makes no absence claim.
+
 Every selected DLL must:
 
 - fit the per-file and aggregate byte bounds;

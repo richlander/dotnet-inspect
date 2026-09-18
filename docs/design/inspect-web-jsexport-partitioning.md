@@ -913,9 +913,13 @@ managed dispatch wrappers that generation owns.
 Generated sources, transient declarations, transient JavaScript outputs,
 compiler programs, lint targets, and generated-file relaxations remain exact
 inventories. Frontend and .NET build and publish paths derive the two transient
-sets from the canonical sources before consuming them. The toolchain gate fails
-for an unowned generated artifact or a source admitted only through a broad
-directory glob.
+sets from the canonical sources before consuming them. The .NET project
+excludes wildcard-discovered facade modules from its evaluated content and
+admits only the exact generated module set after derivation, so clean
+replacement cannot leave a dangling static-web-asset item. The toolchain gate
+fails for an unowned generated artifact or a source admitted only through a
+broad directory glob, and the managed build and publish probes begin with an
+extra stale module.
 
 ## Async deployment contract
 

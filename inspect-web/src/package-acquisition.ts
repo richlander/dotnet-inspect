@@ -1,6 +1,7 @@
 import {
   graphMemberTargetWithSelectedBody,
   mergeInspectionErrorEntries,
+  packageIdentityKey,
   retainGraphOnlyBodyTarget,
   renderInspectionErrors,
 } from "./data.ts";
@@ -12,6 +13,7 @@ import type {
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
   BrowserPackageIcon as PackageIconFromPackageFacade,
+  BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
   BrowserPackageVersionSettlementInspection,
@@ -141,6 +143,7 @@ export interface AppPackage {
   inspectionErrors?: string[];
   inspectionError?: string;
   versionSettlement?: BrowserPackageVersionSettlementInspection;
+  packageInfo?: BrowserPackageInfoMeasurementInspection;
   isRuntimePack: boolean;
   surfaceRevision?: number;
 }
@@ -300,10 +303,12 @@ export function createNuGetPackageModel(
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
   versionSettlement: BrowserPackageVersionSettlementInspection,
+  packageInfo: BrowserPackageInfoMeasurementInspection,
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
   versionSettlement?: BrowserPackageVersionSettlementInspection,
+  packageInfo?: BrowserPackageInfoMeasurementInspection,
 ): AppPackage {
   const rootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
@@ -344,8 +349,37 @@ export function createNuGetPackageModel(
     ...(versionSettlement
       ? { versionSettlement }
       : {}),
+    ...(packageInfo
+      ? { packageInfo }
+      : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+  };
+}
+
+export function createWorkspaceOccurrencePackageModel(
+  result: InspectedPackageSurface,
+  activePackage: AppPackage | null | undefined,
+  retainedPackages: readonly AppPackage[],
+): AppPackage {
+  const identity = packageIdentityKey({
+    id: result.package,
+    version: result.version,
+    activeFramework: result.activeFramework,
+  });
+  const retained = activePackage
+    && packageIdentityKey(activePackage) === identity
+    ? activePackage
+    : retainedPackages.find(
+        candidate => packageIdentityKey(candidate) === identity);
+  return {
+    ...createNuGetPackageModel(result),
+    ...(retained?.versionSettlement
+      ? { versionSettlement: retained.versionSettlement }
+      : {}),
+    ...(retained?.packageInfo
+      ? { packageInfo: retained.packageInfo }
+      : {}),
   };
 }
 
@@ -680,6 +714,8 @@ export function createPackageAcquisition(
       let result: InspectedPackageSurface;
       let versionSettlement:
         BrowserPackageVersionSettlementInspection | undefined;
+      let packageInfo:
+        BrowserPackageInfoMeasurementInspection | undefined;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -700,13 +736,23 @@ export function createPackageAcquisition(
           throw new Error(
             "A settled package surface must carry a Settled inspection.");
         }
+        if (loadResult.packageInfo === null) {
+          throw new Error(
+            "A settled package surface must carry Package Info measurements.");
+        }
+        packageInfo = loadResult.packageInfo;
         result = loadResult.surface;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
-      const packageModel = versionSettlement
-        ? createNuGetPackageModel(result, versionSettlement)
-        : createNuGetPackageModel(result);
+      if (versionSettlement && !packageInfo) {
+        throw new Error(
+          "A settled package model requires Package Info measurements.");
+      }
+      const packageModel =
+        versionSettlement && packageInfo
+          ? createNuGetPackageModel(result, versionSettlement, packageInfo)
+          : createNuGetPackageModel(result);
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,
