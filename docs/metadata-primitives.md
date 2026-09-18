@@ -696,9 +696,11 @@ methods. The shared owner is the prescan and TypeSpec admission mechanism;
 the consuming owner decides what rejection means.
 
 Metadata's string-producing boundary is exercised through hostile signature
-inputs by `SignatureDecoderSafetyTests`, including every
-`GuardedSignatureText` result shape and real Metadata consumers. No
-repository-source census is part of that behavioral claim.
+inputs by `SignatureDecoderSafetyTests`, including the distinct
+`GuardedSignatureText` result shapes and representative Metadata consumers.
+Gateway-specific hostile-input coverage for
+`GuardedSignatureText.MemberRefMethodText` is **unverified**. No repository-
+source census is part of the behavioral claim.
 
 Decompiler has three string-producing metadata gateway families:
 
@@ -801,7 +803,9 @@ The current boundary is protected by:
 - `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
 - `SignatureBlobGuardTests` for structural prescan and
   `SignatureDecoderSafetyTests` for malformed and adversarial signature shapes
-  through every Metadata string gateway and representative product consumers;
+  through Metadata string result shapes and representative product consumers;
+  `GuardedSignatureText.MemberRefMethodText` gateway-specific coverage is
+  **unverified**;
 - `MethodSemanticsRowReaderTests` for lossless physical rows, raw bits, index
   widths, malformed bounds, independent IL-oracle parity, and retained-row
   budgeting;
