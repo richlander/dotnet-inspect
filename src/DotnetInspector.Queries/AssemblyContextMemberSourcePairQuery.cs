@@ -1,6 +1,7 @@
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.SourceHouse;
 
 namespace DotnetInspector.Queries;
 
@@ -38,7 +39,11 @@ public abstract record AssemblyMemberSourcePairEndpoint(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
         AssemblyMemberPdbSourceAttempt Source)
-        : AssemblyMemberSourcePairEndpoint(Subject);
+        : AssemblyMemberSourcePairEndpoint(Subject)
+    {
+        public SourceHouseOutcome? HouseOutcome { get; init; }
+        public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+    }
 
     public sealed record NotFound(
         AssemblyContextSubject Subject,
@@ -96,7 +101,7 @@ public sealed class AssemblyMemberSourcePairResult
 /// Compares verified PDB declarations for one metadata member selected in
 /// two retained images, without running decompilation or IL comparison.
 /// </summary>
-public static class AssemblyContextMemberSourcePairQuery
+public static partial class AssemblyContextMemberSourcePairQuery
 {
     public static InspectionQuery<AssemblyMemberSourcePairResult> Definition
     { get; } = new(
@@ -254,27 +259,15 @@ public static class AssemblyContextMemberSourcePairQuery
 
             AssemblyMemberSourceRequest exactRequest =
                 AssemblyMemberSourceRequest.From(target.Type, target.Member);
-            AssemblyContextSourceQuery.MemberPdbInspection pdb =
-                await AssemblyContextSourceQuery.InspectMemberPdbAsync(
+            return await AcquireAuthoredEndpointAsync(
+                    group,
                     participant,
+                    subject,
                     exactRequest,
                     context,
                     available.Value.Retained,
                     version,
                     cancellationToken).ConfigureAwait(false);
-            AssemblyMemberPdbSourceAttempt source =
-                pdb.Inspection.IsComplete
-                && pdb.Inspection.Text is not null
-                && pdb.Provenance is { } provenance
-                    ? new AssemblyMemberPdbSourceAttempt.Available(
-                        pdb.Inspection,
-                        provenance)
-                    : new AssemblyMemberPdbSourceAttempt.Unavailable(
-                        pdb.Inspection);
-            return new AssemblyMemberSourcePairEndpoint.Resolved(
-                subject,
-                exactRequest,
-                source);
         }
         catch (Exception ex) when (AssemblyContextSourceQuery.IsInspectionFailure(ex))
         {

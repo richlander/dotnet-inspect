@@ -29,6 +29,7 @@ export interface BrowserAnnotatedSource {
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
   readonly provenance: InertString;
   readonly contextLimitation: string | null;
+  readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
 }
 
@@ -43,7 +44,7 @@ export interface BrowserAnnotatedSourceFindingEvidence {
   readonly member: string;
   readonly target: BrowserCallGraphTarget;
   readonly coordinates: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceCoordinate>;
-  readonly document: unknown;
+  readonly documentId: number | null;
   readonly nodeIds: ReadonlyArray<number>;
   readonly unavailableReason: string | null;
 }
@@ -51,6 +52,11 @@ export interface BrowserAnnotatedSourceFindingEvidence {
 export interface BrowserAnnotatedSourceFindingEvidenceCoordinate {
   readonly ilOffset: number;
   readonly kind: BrowserCalleeEvidenceKind;
+}
+
+export interface BrowserAnnotatedSourceFindingEvidenceDocument {
+  readonly id: number;
+  readonly document: unknown;
 }
 
 export interface BrowserAnnotatedSourceInvocationDestination {
