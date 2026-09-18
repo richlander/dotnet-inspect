@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Adds `workspace --make-package-dependencies-explicit --share packet|url` to
+  acquire every direct Package member, resolve exact direct dependencies with
+  existing Package owners, and emit one context-preserving, all-or-nothing
+  derived Workspace packet (#7494).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection with named `--library`, `--package`, and `--platform` source
   context. Heap coordinates remain bound to the selected `--metadata-root`. The
