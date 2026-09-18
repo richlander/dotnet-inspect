@@ -209,7 +209,7 @@ static class DefiniteAssignment
             {
                 var argument = arguments[argumentIndex];
                 int parameterIndex = argumentIndex - parameterStart;
-                if (IsVerifiedOutLocal(callee, parameterIndex, argument, out int local))
+                if (callee.TryGetVerifiedOutLocal(parameterIndex, argument, out int local))
                 {
                     outAssigned.Add(local);
                     continue;
@@ -220,22 +220,6 @@ static class DefiniteAssignment
 
             foreach (int local in outAssigned)
                 assigned.Add(local);
-        }
-
-        static bool IsVerifiedOutLocal(MethodRef callee, int parameterIndex, IrExpression argument, out int local)
-        {
-            local = -1;
-            if (callee.ParameterRefKindsFacts != ParameterRefKindFacts.Known
-                || parameterIndex < 0
-                || parameterIndex >= callee.ParameterRefKinds.Length
-                || callee.ParameterRefKinds[parameterIndex] != ArgumentRefKind.Out
-                || argument is not LoadLocalAddress address)
-            {
-                return false;
-            }
-
-            local = address.Index;
-            return true;
         }
 
         static void AddVerifiedOutLocals(IrExpression expression, HashSet<int> assigned)
@@ -295,7 +279,8 @@ static class DefiniteAssignment
             for (int argumentIndex = parameterStart; argumentIndex < arguments.Count; argumentIndex++)
             {
                 int parameterIndex = argumentIndex - parameterStart;
-                if (IsVerifiedOutLocal(callee, parameterIndex, arguments[argumentIndex], out int local))
+                if (callee.TryGetVerifiedOutLocal(
+                    parameterIndex, arguments[argumentIndex], out int local))
                     assigned.Add(local);
             }
         }

@@ -328,6 +328,61 @@ function methodCostEvidenceResult(
   };
 }
 
+function callCycleRelationshipResult(
+  callCycles: AnnotatedSourceResult["viewerCatalog"]["callCycles"],
+): { readonly source: AnnotatedSourceResult; readonly factId: number } {
+  const factId = sampleDocument.facts.length;
+  const document: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [
+      ...sampleDocument.facts,
+      {
+        id: factId,
+        descriptor: "call.edge",
+        category: "Relationship",
+        conditionality: "Always",
+        detail: "Example.Targets.Caller(System.Int32)",
+        origin: "Body",
+        source_offset: 0,
+      },
+    ],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: factId, node_id: 1 },
+    ],
+  };
+
+  return {
+    factId,
+    source: {
+      document,
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        callRelationships: {
+          available: true,
+          unavailableReason: null,
+        },
+        callCycles,
+      },
+      findingEvidenceDocuments: [],
+      findingEvidence: [],
+      callRelationships: [{
+        edgeRow: 1,
+        factId,
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        callerToken: 0x06000001,
+        ilOffset: 0,
+        operandToken: 0x0A000001,
+        kind: "Call",
+        inLoop: false,
+        target: sampleInvocationTarget,
+      }],
+      provenance: inertStringFixture("test"),
+      contextLimitation: null,
+    },
+  };
+}
+
 test("the result preserves the validated portable document contract", () => {
   const document: AnnotatedSourceDocument = result.document;
   assert.equal(document, sampleDocument);
@@ -1031,6 +1086,70 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
   assert.doesNotMatch(unavailableHtml, /annotated-evidence-source/);
 });
 
+test("Finding detail renders an exact call-cycle witness and completeness", () => {
+  const factId = sampleDocument.facts.length;
+  const { source } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [{
+      findingKey: "cycle:key",
+      ordinal: 0,
+      edgeRows: [1],
+      factIds: [factId],
+      targets: [{
+        ...sampleInvocationTarget,
+        memberName: "Caller",
+      }],
+    }],
+  });
+  const model = createAnnotatedSourceViewerModel(source);
+  const html = renderAnnotatedSourceModal({
+    result: source,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      {
+        kind: "inspector",
+        factId,
+      }),
+    escapeHtml,
+  });
+
+  assert.match(html, /<h4>Call cycles<\/h4>/);
+  assert.match(html, /Direct recursion/);
+  assert.match(
+    html,
+    /Example\.Targets\.Caller → Example\.Targets\.Caller/);
+  assert.match(
+    html,
+    /Cycle census complete for the projected focus graph/);
+});
+
+test("Finding detail does not turn an incomplete empty cycle census into absence", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: false,
+    limits: ["TraversalBoundary"],
+    findings: [],
+  });
+  const model = createAnnotatedSourceViewerModel(source);
+  const html = renderAnnotatedSourceModal({
+    result: source,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /No focus cycle was observed through this relationship/);
+  assert.match(html, /Additional cycles may be unobserved/);
+  assert.match(html, /traversal boundary/);
+  assert.doesNotMatch(html, /not recursive/);
+});
+
 test("Finding detail presents method-level callee evidence without an invented line", () => {
   const source = methodCostEvidenceResult();
   const model = createAnnotatedSourceViewerModel(source);
@@ -1091,6 +1210,13 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
       callRelationships: {
         available: false,
         unavailableReason: "NotProjected",
+      },
+      callCycles: {
+        available: false,
+        unavailableReason: "NotProjected",
+        isComplete: false,
+        limits: [],
+        findings: [],
       },
     },
     findingEvidenceDocuments: [],
