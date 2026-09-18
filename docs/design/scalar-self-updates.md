@@ -100,7 +100,8 @@ result; an unchanged rendering is not evidence of newly recovered source.
 Original source and structural comparison reports accompany the PR evidence,
 including any reported correspondence gaps.
 
-Known unchanged limits stay tracked rather than promoted to success.
-Issue #7563 owns unchecked RHS arithmetic inside a checked update, #7564 owns
-volatile declarations missing from native compilation artifacts, and #7492
-owns unsupported closure-body shapes. These are not retirement claims here.
+[Scalar update overflow context](scalar-update-overflow-context.md) owns the
+subsequent checked-context repair (#7563 and #7570), not this ownership
+retirement. Known unchanged limits stay tracked rather than promoted to
+success: #7564 owns volatile declarations missing from native compilation
+artifacts, and #7492 owns unsupported closure-body shapes.
