@@ -2789,8 +2789,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput()
+    [Theory]
+    [InlineData("--schema")]
+    [InlineData("Context: Member")]
+    [InlineData("@Context")]
+    public async Task LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput(
+        string discovery)
     {
         string missingCoordinates = Path.Combine(
             Path.GetTempPath(),
@@ -2807,8 +2811,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "-D",
-            "--schema",
-            "--tree",
+            discovery,
             "--tips",
             "q");
 
@@ -2817,6 +2820,32 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.DoesNotContain(missingCoordinates, output);
         Assert.DoesNotContain(missingLibrary, output);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput()
+    {
+        string missingCoordinates = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinates-{Guid.NewGuid():N}.txt");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "--file",
+            missingCoordinates,
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "Context: Member",
+            "--effective",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Coordinate file not found", error);
+        Assert.Contains(missingCoordinates, error);
     }
 
     [Fact]

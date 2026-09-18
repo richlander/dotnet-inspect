@@ -206,7 +206,10 @@ Release CLI gates cover:
   `LibraryCommand_RemovedInlineCoordinateOptionsGiveReplacementGuidance`,
   `LibraryCoordinateCommand_FileValueMayMatchRetiredOptionName`, and
   `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for retirement,
-  parser ownership, help, and replacement guidance.
+  parser ownership, help, and replacement guidance; and
+- `LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput` and
+  `LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput` for
+  the input-free structural and materializing effective-discovery boundary.
 
 ## Other candidate surfaces
 

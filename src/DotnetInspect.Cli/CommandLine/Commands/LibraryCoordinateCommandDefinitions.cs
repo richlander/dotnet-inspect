@@ -242,8 +242,7 @@ internal static class LibraryCoordinateCommandDefinitions
             }
 
             bool structuralDiscovery =
-                opts.IsDiscoveryMode(parseResult)
-                && opts.ParseSchema(parseResult);
+                IsStructuralDiscovery(opts, parseResult);
             if (hasCoordinateFile && !structuralDiscovery)
             {
                 ILCoordinatePopulationOutcome population =
@@ -446,8 +445,7 @@ internal static class LibraryCoordinateCommandDefinitions
         }
 
         bool structuralDiscovery =
-            opts.IsDiscoveryMode(parseResult)
-            && opts.ParseSchema(parseResult);
+            IsStructuralDiscovery(opts, parseResult);
         if (!hasLibrary && !hasPackage && !hasPlatform
             && !structuralDiscovery)
         {
@@ -458,5 +456,16 @@ internal static class LibraryCoordinateCommandDefinitions
         }
 
         return true;
+    }
+
+    private static bool IsStructuralDiscovery(
+        SharedOptions options,
+        ParseResult parseResult)
+    {
+        string[]? discover = options.ParseDiscover(parseResult);
+        return discover is not null
+            && (options.ParseSchema(parseResult)
+                || (!parseResult.GetValue(options.Effective)
+                    && discover.Length > 0));
     }
 }
