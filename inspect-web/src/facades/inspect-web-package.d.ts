@@ -27,6 +27,11 @@ export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" 
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
+export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
+export type CompiledDocumentationRequestRejectionKind = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | number;
+export type CompiledDocumentationSourceEvidenceKind = "Candidate" | "Absent" | "Partial" | "Unavailable" | number;
+export type CompiledDocumentationSourceKind = "Package" | "Platform" | "DirectLibrary" | "SourceHouse" | number;
+export type CompiledDocumentationSourceRejectionKind = "SubjectMismatch" | "LibraryMismatch" | "ApiContentMismatch" | "CompanionMismatch" | number;
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -171,12 +176,6 @@ export interface BrowserMemberBodySelector {
     readonly token: number;
     readonly memberName: string;
     readonly selectorKey: string;
-}
-export interface BrowserMemberDocumentation {
-    readonly summary: string | null;
-    readonly returns: string | null;
-    readonly parameters: Readonly<Record<string, string>>;
-    readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
 }
 export interface BrowserMemberSurface {
     readonly name: string;
@@ -781,6 +780,103 @@ export interface BrowserWorkspacePackageOccurrenceView {
     readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
     readonly superseded: boolean;
 }
+export interface CompiledDocumentationAssemblyIdentity {
+    readonly name?: string;
+    readonly version?: string | null;
+    readonly culture?: string | null;
+    readonly publicKeyToken?: string | null;
+}
+export interface CompiledDocumentationEntry {
+    readonly summary?: string | null;
+    readonly remarks?: string | null;
+    readonly returns?: string | null;
+    readonly parameters: ReadonlyArray<CompiledDocumentationParameter>;
+    readonly exceptions: ReadonlyArray<CompiledDocumentationException>;
+    readonly samples: ReadonlyArray<CompiledDocumentationSample>;
+}
+export interface CompiledDocumentationException {
+    readonly reference?: string | null;
+    readonly description?: string | null;
+}
+export interface CompiledDocumentationParameter {
+    readonly name?: string;
+    readonly description?: string;
+}
+export interface CompiledDocumentationSample {
+    readonly code?: string;
+    readonly title?: string | null;
+    readonly region?: string | null;
+}
+export interface CompiledDocumentationSource {
+    readonly kind: CompiledDocumentationSourceKind;
+    readonly name?: string;
+    readonly precedence?: number | null;
+}
+export interface CompiledDocumentationSourceEvidence {
+    readonly source: CompiledDocumentationSource;
+    readonly kind: CompiledDocumentationSourceEvidenceKind;
+}
+export interface CompiledDocumentationSourceRejection {
+    readonly source: CompiledDocumentationSource;
+    readonly reason: CompiledDocumentationSourceRejectionKind;
+}
+export interface CompiledDocumentationSubject {
+    readonly assembly: CompiledDocumentationAssemblyIdentity;
+    readonly documentationId?: string;
+}
+export interface Absent {
+    readonly kind: "absent";
+    readonly subject: CompiledDocumentationSubject;
+    readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+    readonly sourcesTruncated?: boolean;
+}
+export interface Ambiguous {
+    readonly kind: "ambiguous";
+    readonly subject: CompiledDocumentationSubject;
+    readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
+    readonly candidatesTruncated?: boolean;
+}
+export interface Available {
+    readonly kind: "available";
+    readonly subject: CompiledDocumentationSubject;
+    readonly source: CompiledDocumentationSource;
+    readonly documentation: CompiledDocumentationEntry;
+}
+export interface ContentAccessFailed {
+    readonly kind: "contentAccessFailed";
+    readonly subject: CompiledDocumentationSubject;
+    readonly source: CompiledDocumentationSource;
+}
+export interface ContributionsRejected {
+    readonly kind: "contributionsRejected";
+    readonly subject: CompiledDocumentationSubject;
+    readonly rejections: ReadonlyArray<CompiledDocumentationSourceRejection>;
+    readonly rejectionsTruncated?: boolean;
+}
+export interface Incomplete {
+    readonly kind: "incomplete";
+    readonly subject: CompiledDocumentationSubject;
+    readonly reason: CompiledDocumentationIncompleteReason;
+    readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+    readonly sourcesTruncated?: boolean;
+}
+export interface MalformedOrUnreadableDocument {
+    readonly kind: "malformedOrUnreadableDocument";
+    readonly subject: CompiledDocumentationSubject;
+    readonly source: CompiledDocumentationSource;
+}
+export interface RequestRejected {
+    readonly kind: "requestRejected";
+    readonly subject: CompiledDocumentationSubject;
+    readonly reason: CompiledDocumentationRequestRejectionKind;
+}
+export interface Unavailable {
+    readonly kind: "unavailable";
+    readonly subject: CompiledDocumentationSubject;
+    readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+    readonly sourcesTruncated?: boolean;
+}
+export type CompiledDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | ContributionsRejected | MalformedOrUnreadableDocument | Incomplete | RequestRejected | ContentAccessFailed;
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
@@ -805,7 +901,7 @@ export declare function matchPackageDependencyCoordinate(packageId: string, decl
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
-export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
+export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<CompiledDocumentationOutcome>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
 export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;

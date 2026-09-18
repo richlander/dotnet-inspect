@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -670,6 +671,122 @@ internal static class BrowserPackageWorkspace
             package,
             package.CreateRootBinding(targetFramework));
     }
+
+    internal static Task<CompiledDocumentationOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                IPackageSourceClient source = Gallery;
+                IPackageSourceAuthorization authorization =
+                    SourceAuthorizationFor(source);
+                TimeSpan operationTimeout =
+                    SourceSettlementOperationTimeout(deadline.Remaining);
+                var operation = PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize,
+                    requestTimeout: operationTimeout,
+                    operationTimeout: operationTimeout);
+                var request = new PackageHouseRequest(
+                    new PackageHouseDemand.Exact(
+                        PackageSourceCoordinate.Create(
+                            packageId,
+                            version)),
+                    operation,
+                    PackageHouseTargetContext.Exact(targetFramework),
+                    PackageHouseAssetSelectionKind.Compile,
+                    PackageHouseLibraryHandoffMode.SelectedLibraries);
+                await using PackageSourceSettlementLease sourceLease =
+                    PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? source
+                                : throw new InvalidOperationException(
+                                    "The package settlement requested another configured source."));
+                PackageSourceOperationLease sourceOperation =
+                    sourceLease.IssueOperationLease(
+                        deadline.Token,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout);
+                var house = new PackageHouse(
+                    authorization,
+                    new PackagePayloadAcquisitionPlan(
+                        (authority, _) =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? StoreFor(source)
+                                : throw new InvalidOperationException(
+                                    "The package payload requested another configured source."),
+                        PackageLimits,
+                        new BrowserPackageOperationTransferPolicy(
+                            PackageTransferPolicy,
+                            deadline)));
+                PackageHouseSettlement settlement =
+                    await house.ExecuteAsync(
+                            request,
+                            sourceOperation)
+                        .ConfigureAwait(false);
+                if (settlement is not PackageHouseSettlement.Acquired acquired
+                    || settlement.Result
+                        is not PackageHouseResult.Settled
+                    || settlement.Result.Evidence.Realization
+                        is not PackageHouseRealizationReceipt.Compile realization)
+                {
+                    throw new InvalidOperationException(
+                        $"PackageHouse could not realize {packageId} {version} "
+                            + $"for {targetFramework}: "
+                            + DescribePackageHouseResult(settlement.Result));
+                }
+
+                PackageCompileAsset? asset =
+                    realization.Selection.FindAsset(assemblyIdOrName)
+                    ?? realization.Selection.Assets.FirstOrDefault(
+                        candidate =>
+                            BrowserPackageCoordinate.MatchesAssembly(
+                                candidate,
+                                assemblyIdOrName));
+                if (asset is null)
+                {
+                    throw new InvalidOperationException(
+                        $"'{assemblyIdOrName}' is not a selected compile assembly of "
+                            + $"{packageId} {version}.");
+                }
+                PackageHouseLibraryHandoff.Compile handoff =
+                    realization.LibraryHandoffs
+                        .OfType<PackageHouseLibraryHandoff.Compile>()
+                        .Single(candidate =>
+                            ReferenceEquals(candidate.Asset, asset));
+                return await PackageCompiledDocumentationQuery.ExecuteAsync(
+                        acquired,
+                        handoff,
+                        documentationId,
+                        cancellationToken: deadline.Token)
+                    .ConfigureAwait(false);
+            },
+            PackageOperationTimeout,
+            cancellationToken);
+
+    private static string DescribePackageHouseResult(
+        PackageHouseResult result) =>
+        result switch
+        {
+            PackageHouseResult.NotFound value => value.Reason.ToString(),
+            PackageHouseResult.NoMatch value => value.Reason.ToString(),
+            PackageHouseResult.Ambiguous value => value.Reason.ToString(),
+            PackageHouseResult.Rejected value => value.Reason.ToString(),
+            PackageHouseResult.Unavailable value => value.Reason.ToString(),
+            PackageHouseResult.Incomplete value => value.Reason.ToString(),
+            PackageHouseResult.Failed value => value.Reason.ToString(),
+            _ => result.GetType().Name,
+        };
 
     internal static async Task<BrowserPackageCoordinate> ReacquireAsync(
         PackageRootReacquisitionRequest request,
@@ -2532,10 +2649,25 @@ internal static class BrowserPackageWorkspace
     }
 
     internal static async ValueTask RegisterAcquiredPackageAsync(
-        BrowserPackage package)
+        BrowserPackage package) =>
+        await RegisterAcquiredPackageAsync(
+                package,
+                PackageKey(package))
+            .ConfigureAwait(false);
+
+    internal static async ValueTask RegisterGalleryPackageAsync(
+        BrowserPackage package) =>
+        await RegisterAcquiredPackageAsync(
+                package,
+                Store.PackageKey(package.PackageId, package.Version))
+            .ConfigureAwait(false);
+
+    private static async ValueTask RegisterAcquiredPackageAsync(
+        BrowserPackage package,
+        string key)
     {
         ArgumentNullException.ThrowIfNull(package);
-        string key = PackageKey(package);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Cache.Remove(key);
         while (!HasCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1))
         {

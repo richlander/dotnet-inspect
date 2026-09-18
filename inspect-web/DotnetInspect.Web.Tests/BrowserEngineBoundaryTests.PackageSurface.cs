@@ -179,45 +179,110 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void XmlDocumentation_DuplicateParametersUseTheLastCompilerEntry()
+    public async Task
+        QueryMemberDocumentation_UsesSharedPackageDocumentationContract()
     {
-        const string xml = """
-            <doc>
-              <members>
-                <member name="M:Example.M(System.Int32)">
-                  <summary>Summary</summary>
-                  <param name="value">first</param>
-                  <param name="value">second</param>
-                </member>
-              </members>
-            </doc>
-            """;
+        const string packageId = "System.Text.Json";
+        const string version = "10.0.0";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                File.ReadAllBytes(
+                    Path.Combine(
+                        AppContext.BaseDirectory,
+                        "RealAssets",
+                        "FrameworkActivation",
+                        "system.text.json.10.0.0.nupkg")),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
 
-        BrowserMemberDocumentation documentation = BrowserXmlDocumentation.Read(
-            System.Text.Encoding.UTF8.GetBytes(xml),
-            "M:Example.M(System.Int32)");
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    version,
+                    "net10.0",
+                    "System.Text.Json.dll",
+                    "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)");
+        CompiledDocumentationOutcome outcome =
+            Assert.IsAssignableFrom<CompiledDocumentationOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    CompiledDocumentationQueryJsonContext.Default
+                        .CompiledDocumentationOutcome));
 
-        Assert.Equal("Summary", documentation.Summary);
-        Assert.Equal("second", Assert.Single(documentation.Parameters).Value);
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Package,
+            available.Source.Kind);
+        Assert.Contains(
+            "Converts the JsonDocument",
+            available.Documentation.Summary,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public void XmlDocumentation_AcceptsTheDepthLimitAndRejectsTheNextElement()
+    public async Task
+        QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence()
     {
-        BrowserMemberDocumentation accepted = BrowserXmlDocumentation.Read(
-            System.Text.Encoding.UTF8.GetBytes(
-                NestedDocumentation(CSharpText.XmlDocText.MaxElementDepth)),
-            "M:Example.M");
+        string packageId =
+            $"Browser.Documentation.Absent.{Guid.NewGuid():N}";
+        const string assemblyName =
+            "DotnetInspect.Web.Interop.Package.dll";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"""
+                         <package>
+                           <metadata>
+                             <id>{packageId}</id>
+                             <version>1.0.0</version>
+                             <authors>Tests</authors>
+                             <description>Package without compiled XML documentation.</description>
+                           </metadata>
+                         </package>
+                         """)),
+                    ($"lib/net10.0/{assemblyName}",
+                        File.ReadAllBytes(
+                            typeof(DotnetInspect.Web.Interop.Package
+                                .PackageExports).Assembly.Location))),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
 
-        Assert.Equal("x", accepted.Summary);
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    "1.0.0",
+                    "net10.0",
+                    assemblyName,
+                    "M:DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes(System.String,System.String)");
+        CompiledDocumentationOutcome outcome =
+            Assert.IsAssignableFrom<CompiledDocumentationOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    CompiledDocumentationQueryJsonContext.Default
+                        .CompiledDocumentationOutcome));
 
-        XmlException failure = Assert.Throws<XmlException>(
-            () => BrowserXmlDocumentation.Read(
-                System.Text.Encoding.UTF8.GetBytes(
-                    NestedDocumentation(CSharpText.XmlDocText.MaxElementDepth + 1)),
-                "M:Example.M"));
-
-        Assert.Contains("supported element depth", failure.Message, StringComparison.Ordinal);
+        var absent =
+            Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                outcome);
+        CompiledDocumentationSourceEvidence source =
+            Assert.Single(absent.Sources);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Absent,
+            source.Kind);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Package,
+            source.Source.Kind);
     }
 
     [Fact]

@@ -30,8 +30,10 @@ remain typed **Incomplete** evidence.
 The PackageHouse and direct-Library adapters plus the shared Queries
 compiled-documentation result are implemented. Queries preserves the exact
 detached House outcome for in-process composition and publishes a separately
-owned portable terminal outcome as the source-generated JSON contract.
-Platform and source adapters, host adoption, the authored channel, field
+owned portable terminal outcome as the source-generated JSON contract. Inspect
+Web package-member documentation now consumes that PackageHouse-to-Queries
+path and its generated TypeScript declaration. CLI adoption, platform and
+source adapters, platform host adoption, the authored channel, field
 settlement, and legacy retirement remain staged.
 
 This is one focused new-owner effort under
@@ -172,10 +174,12 @@ No adjacent owner should decide the product result:
 
 The current CLI `SourceEnricher` combines package-adjacent and platform
 reference-pack XML selection, source acquisition, comment search, parsing,
-field merging, and warnings. Inspect Web separately derives an XML path from a
-package assembly and parses it with a Browser-local reader. PlatformHouse
-contracts express a third settlement path. DocumentationHouse replaces these
-with one source-neutral product boundary.
+field merging, and warnings. Inspect Web package-member documentation has
+moved from its Browser-local adjacent-path reader to DocumentationHouse;
+platform reference-pack documentation remains on the previous host path until
+slice 11. PlatformHouse contracts express the remaining platform settlement
+path. DocumentationHouse replaces these with one source-neutral product
+boundary.
 
 ## Relationship to adjacent owners
 
@@ -890,7 +894,7 @@ assembly and XML companion in the .NET 11 reference pack.
 4. **Completed.** Add the PackageHouse adapter;
 5. **Completed.** Add the direct-library adapter;
 6. **Completed.** Add the shared Queries compiled-documentation result;
-7. adopt package compiled documentation in Inspect Web;
+7. **Completed.** Adopt package compiled documentation in Inspect Web;
 8. adopt package and direct-library compiled documentation in the CLI;
 9. add the PlatformHouse adapter;
 10. remove PlatformHouse's superseded documentation contracts;
@@ -1002,6 +1006,17 @@ at no more than 1,100 code units.
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
 immutable-array, and Queries-owned values.
+
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
+executes the production package export over the real `System.Text.Json` 10.0.0
+package and requires the Queries-owned `available` case and expected member
+summary.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
+gates the neighboring package-without-companion case as typed authoritative
+`absent` evidence rather than empty browser documentation. The generated
+Inspect Web facade and frontend member-detail tests gate exhaustive consumption
+of the same discriminated contract across the C#-to-TypeScript JSON-string
+boundary.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.
