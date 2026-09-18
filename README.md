@@ -983,6 +983,10 @@ sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
+Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
+Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
+Paths` remains an exact-name section because its required cluster coordinate
+does not compose with the pair-wide category.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains
