@@ -489,6 +489,30 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         correspondence: null,
       }],
     },
+    packageInfo: {
+      content: {
+        status: "Measured",
+        packageId: "System.Text.Json",
+        packageVersion: "8.0.5",
+        compressedPackageBytes: 2048,
+        selectedTargetFramework: "net10.0",
+        availableTargetFrameworkCount: 1,
+        selectedTargetFrameworkFolders: ["lib"],
+        selectedLibraryPayloadBytes: 1024,
+        selectedLibraryCount: 1,
+        detail: null,
+        unavailableReason: null,
+        hasSelectedSlice: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-info-measurements/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -521,6 +545,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageInfo: null,
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({

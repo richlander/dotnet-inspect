@@ -525,6 +525,7 @@ function detailHtml() {
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
             inventoryHtml,
+            packageInfoHtml: "",
             comparisonHtml,
             documentsHtml,
           })

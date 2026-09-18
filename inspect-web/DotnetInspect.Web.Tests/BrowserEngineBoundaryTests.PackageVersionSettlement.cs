@@ -1,6 +1,8 @@
 using System.Text.Json;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using InertText;
 using NuGetFetch;
 
 using DotnetInspect.Web.Interop.Package;
@@ -146,6 +148,7 @@ public sealed partial class BrowserEngineBoundaryTests
         var wireResult = new BrowserPackageLoadResult(
             BrowserPackageWireProjection.Project(
                 result.VersionSettlement),
+            PackageInfo: null,
             Surface: null);
         string json = JsonSerializer.Serialize(
             wireResult,
@@ -165,7 +168,170 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void PackageSurfaceSerialization_PreservesCompleteSettlementBaseline()
+    public async Task PackageRealization_SharesOneHouseGenerationWithPackageInfoAndRoot()
+    {
+        string packageId = $"package.info.browser.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{packageId}.nuspec", System.Text.Encoding.UTF8.GetBytes(
+                $"""
+                <package>
+                  <metadata>
+                    <id>{packageId}</id>
+                    <version>{version}</version>
+                    <authors>Example</authors>
+                    <description>Example</description>
+                  </metadata>
+                </package>
+                """)),
+            ("lib/net11.0/Browser.Package.dll", assembly),
+            ("ref/net11.0/Browser.Package.dll", assembly),
+            ("runtimes/win/lib/net11.0/Browser.Package.dll", assembly));
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+
+        PackageInfoMeasurements measurements = realization.PackageInfo.Content;
+        Assert.Equal(PackageInfoMeasurementStatus.Measured, measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+        IReadOnlyList<InertString> folders =
+            measurements.SelectedTargetFrameworkFolders
+            ?? throw new InvalidOperationException(
+                "Measured Package Info did not retain its selected-TFM folders.");
+        Assert.Equal(
+            ["lib", "ref", "runtimes"],
+            folders.Select(folder => folder.ToString()));
+        Assert.Equal(1, measurements.SelectedLibraryCount);
+        Assert.Equal(assembly.LongLength, measurements.SelectedLibraryPayloadBytes);
+        PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
+            realization.Coordinate.Binding);
+        Assert.Same(
+            binding.ContentGenerationIdentity,
+            measurements.Generation);
+        Assert.Equal(
+            measurements.SelectionReceipt!.RequestedTargetFramework,
+            realization.Coordinate.Root.RequestedTargetFramework);
+        Assert.Equal(
+            measurements.SelectedLibraryCount,
+            realization.Coordinate.Root.AssetSelection.Assets.Count);
+        Assert.Equal(
+            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task PackageRealization_ReusesLegacyAcquisitionGenerationForSameSource()
+    {
+        string packageId = $"package.info.legacy-cache.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageDocuments(1);
+        var handler = new GalleryPackageHandler(packageId, version, archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackage legacy = await BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version,
+            source,
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken,
+            epochWork: null);
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+
+        Assert.False(legacy.Content.FromCache);
+        Assert.True(realization.Coordinate.Package.Content.FromCache);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            legacy.Content.ProducerKey);
+        Assert.Equal(
+            source.Source.Producer.Key,
+            realization.Coordinate.Package.Content.ProducerKey);
+        Assert.Same(
+            legacy.Content.GenerationIdentity,
+            realization.Coordinate.Package.Content.GenerationIdentity);
+        Assert.Single(handler.Requested);
+    }
+
+    [Fact]
+    public async Task LegacyAcquisition_ReusesHouseGenerationOnlyForSameSource()
+    {
+        string packageId = $"package.info.house-cache.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] firstArchive = PackageDocuments(1);
+        byte[] secondArchive = PackageDocuments(2);
+        var firstHandler = new GalleryPackageHandler(
+            packageId,
+            version,
+            firstArchive);
+        var secondHandler = new GalleryPackageHandler(
+            packageId,
+            version,
+            secondArchive);
+        using IPackageSourceClient firstSource = Gallery(firstHandler);
+        using IPackageSourceClient secondSource = Gallery(secondHandler);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                version,
+                "net11.0",
+                firstSource,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+        BrowserPackage sameSource = await BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version,
+            firstSource,
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken,
+            epochWork: null);
+        BrowserPackage otherSource = await BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version,
+            secondSource,
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken,
+            epochWork: null);
+
+        Assert.True(sameSource.Content.FromCache);
+        Assert.False(otherSource.Content.FromCache);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            sameSource.Content.ProducerKey);
+        Assert.Same(
+            realization.Coordinate.Package.Content.GenerationIdentity,
+            sameSource.Content.GenerationIdentity);
+        Assert.NotSame(
+            sameSource.Content.GenerationIdentity,
+            otherSource.Content.GenerationIdentity);
+        Assert.Single(firstHandler.Requested);
+        Assert.Single(secondHandler.Requested);
+    }
+
+    [Fact]
+    public void PackageInfoWireProjection_MatchesSharedEnvelope()
     {
         var inspection =
             new InspectionEnvelope<PackageVersionSettlementOutcome>(
@@ -190,8 +356,39 @@ public sealed partial class BrowserEngineBoundaryTests
                         InspectionDiagnosticSeverity.Warning,
                         "A neighboring source was unavailable."),
                 ]);
+        var packageInfo =
+            new InspectionEnvelope<PackageInfoMeasurements>(
+                new PackageInfoMeasurements(
+                    PackageInfoMeasurementStatus.Measured,
+                    SettlementPackageId,
+                    SettlementStableVersion,
+                    compressedPackageBytes: 4096,
+                    selectedTargetFramework: "net8.0",
+                    availableTargetFrameworkCount: 3,
+                    selectedTargetFrameworkFolders:
+                    [
+                        InertString.FromEncoded(TextPolicy.Field, "lib"),
+                        InertString.FromEncoded(TextPolicy.Field, "runtimes"),
+                        InertString.FromEncoded(
+                            TextPolicy.Field,
+                            "\\u202Ehostile"),
+                    ],
+                    selectedLibraryPayloadBytes: 2048,
+                    selectedLibraryCount: 2,
+                    detail: null,
+                    unavailableReason: null),
+                new InspectionShare.NonProjectable(
+                    "package-info-measurements/share",
+                    "No canonical Workspace share projection."),
+                [
+                    new InspectionDiagnostic(
+                        "package-info-measurements.source-failure",
+                        InspectionDiagnosticSeverity.Warning,
+                        "A package source was unavailable."),
+                ]);
         var result = new BrowserPackageLoadResult(
             BrowserPackageWireProjection.Project(inspection),
+            BrowserPackageWireProjection.Project(packageInfo),
             new BrowserPackageSurface(
                 SettlementPackageId,
                 SettlementStableVersion,
@@ -221,6 +418,26 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
 
         Assert.NotNull(roundTripped.Surface);
+        BrowserPackageInfoMeasurementInspection packageInfoBaseline =
+            Assert.IsType<BrowserPackageInfoMeasurementInspection>(
+                roundTripped.PackageInfo);
+        Assert.Equal("Measured", packageInfoBaseline.Content.Status);
+        Assert.Equal(4096, packageInfoBaseline.Content.CompressedPackageBytes);
+        Assert.Equal("net8.0", packageInfoBaseline.Content.SelectedTargetFramework);
+        Assert.Equal(
+            ["lib", "runtimes", "\\u202Ehostile"],
+            Assert.IsType<string[]>(
+                packageInfoBaseline.Content.SelectedTargetFrameworkFolders));
+        Assert.Equal(2048, packageInfoBaseline.Content.SelectedLibraryPayloadBytes);
+        Assert.Equal(2, packageInfoBaseline.Content.SelectedLibraryCount);
+        Assert.Equal(3, packageInfoBaseline.Content.AvailableTargetFrameworkCount);
+        Assert.True(packageInfoBaseline.Content.HasSelectedSlice);
+        Assert.Equal(
+            BrowserInspectionShareKind.NonProjectable,
+            packageInfoBaseline.Share.Kind);
+        Assert.Equal(
+            "package-info-measurements.source-failure",
+            Assert.Single(packageInfoBaseline.Diagnostics).Code);
         BrowserPackageVersionSettlementInspection baseline =
             roundTripped.VersionSettlement;
         Assert.Equal(

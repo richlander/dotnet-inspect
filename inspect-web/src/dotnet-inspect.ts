@@ -234,6 +234,7 @@ import {
   renderOverviewSurface,
   renderPackageOverviewContent,
 } from "./overview-surface.ts";
+import { renderPackageInfo } from "./package-info.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
@@ -6948,6 +6949,9 @@ function renderPackageOverview() {
     </section>`;
   const contentHtml = renderPackageOverviewContent({
     inventoryHtml,
+    packageInfoHtml: pkg.packageInfo
+      ? renderPackageInfo(pkg.packageInfo, escapeHtml)
+      : "",
     comparisonHtml,
     documentsHtml: documentsSection,
   });
