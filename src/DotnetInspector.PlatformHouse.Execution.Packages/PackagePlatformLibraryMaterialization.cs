@@ -587,7 +587,7 @@ public static class PackagePlatformLibraryMaterializer
         return true;
     }
 
-    static PlatformLibraryArtifactMaterializationItem ReferenceItem(
+    internal static PlatformLibraryArtifactMaterializationItem ReferenceItem(
         PackagePlatformHouseResult<
             PackageReferenceRealization>.Succeeded reference,
         PackageReferenceLibrary library) =>

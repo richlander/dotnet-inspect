@@ -1062,6 +1062,43 @@ Release.
 gates exact successful-result correspondence in Release. The source-neutral
 before-source-access validation gates above own the delegated ordering claim.
 
+### Package-backed successful-result binding adoption
+
+The package-backed adapter admits the exact one-assembly Reference population
+implied by an applicable `ResolveAssemblyReference` operation. Its authoritative
+contribution preserves the exact House request, target, package capability,
+source generation, source coordinate identity, and one-assembly population.
+The paired adapter-issued value carries the package source generation,
+reference-pack coordinate, member path, assembly identity, candidate,
+configured authority, producer identity, content generation, payload origin,
+and immutable bytes.
+
+The package execution adapter binds those facts as Artifact provenance,
+converts the snapshot to the common source-neutral materialization item, and
+delegates the operation unchanged to
+`PlatformHouseAssemblyReferenceResolver`. Package Source operation settlement
+completes before this bridge consumes the successful result; no Package Source
+lease, payload, or store lifetime enters the Artifact, temporary Library, or
+House result.
+
+This adapter does not duplicate Artifact publication, Library ownership,
+Metadata projection, terminal precedence, cleanup, or receipt construction.
+The returned decision therefore remains detached terminal data: the shared
+executor settles the exact package contribution once and retires every
+temporary Library and Artifact authority before publication. Package
+source-terminal orchestration, fallback or aggregation, source-relative
+lineage, and ladder or host composition remain later owner-adoption slices.
+
+`PackagePlatformAssemblyReferenceResolverTests.AdapterProducesExactBindingContributionAfterPackageSettlement`
+gates the authoritative one-assembly package contribution after Package Source
+operation settlement in Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_PreservesPackageProvenanceAndSettlesContribution`
+gates package-backed reference provenance and exact source settlement in
+Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsSuccessfulResultForDifferentRequest`
+gates exact successful-result correspondence in Release. The source-neutral
+before-source-access validation gates above own the delegated ordering claim.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the

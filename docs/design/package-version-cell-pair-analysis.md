@@ -350,7 +350,7 @@ This operation is step 6 of the temporal ownership path:
    #7337.
 6. Bounded PackageHouse baseline/checkpoint Analysis — this owner.
 7. Shared Diff History and metadata-only version-count terminals, followed by
-   subject CLI cutover with top-level `timeline` removal.
+   top-level Diff and subject-section adoption with `timeline` removal.
 8. Browser Compare and version-count adoption.
 
 The later Diff History terminal supplies the population order and stable
