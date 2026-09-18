@@ -229,9 +229,13 @@ itself approval for archive acquisition and permits at most 20 candidates; use
 `--nuspec-only` to reject such a query. `--count` observes selected rows and
 succeeds only when completion or a satisfied finite row selection proves that
 count exact. Reached candidate bounds and failures remain visible.
-Package Query does not
-accept API-search scopes, source overrides, or ranking. Query-execution flags
-cannot be combined with `-Q`.
+Default non-count output shows `Packages` when at least one package matched and
+`Query Summary` otherwise. The summary separates candidate, match, and
+evaluation-failure counts; select a stable shape with `-S Packages` or
+`-S "Query Summary"`. Bare `-S` selects the non-adaptive `Packages` preset, and
+explicit `Packages` preserves its empty schema.
+Package Query does not accept API-search scopes, source overrides, or ranking.
+Query-execution flags cannot be combined with `-Q`.
 
 `library -Q Integrations` describes the concept and ecosystem facets for the
 whole Integration family. All integrations are enabled by default; use

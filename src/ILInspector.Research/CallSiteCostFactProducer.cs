@@ -159,7 +159,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
         new("cost.callee", AnnotationCategory.Cost, "callee carries notable cost signals");
 
     public string Name => "call-site-cost";
-    public IReadOnlyList<string> Produces { get; } = ["cost.callee"];
+    public IReadOnlyList<string> Produces { get; } = [CalleeCost.Id];
     public IReadOnlyList<string> DependsOn { get; } = [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForAssembly(

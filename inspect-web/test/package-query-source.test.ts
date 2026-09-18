@@ -65,6 +65,7 @@ function succeeded(
     value: null,
     inspection: {
       content: {
+        hasPackages: false,
         results: [],
         failures: [],
         completion: value.completion!,

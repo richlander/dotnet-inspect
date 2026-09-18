@@ -368,13 +368,15 @@ reached through a runtime flag (`IrInvariants.Enabled`, env var
 the pipeline — test suite, harness, sweep, benchmark — validates after every
 pass in the same build users run.
 
-The shipped CLI is the one sanctioned opt-out
+The shipped CLI deliberately opts out
 (`IrInvariants.DisableForShippedTool()` in `src/DotnetInspect.Cli/Program.cs`), so
 the tool pays nothing on the decompile hot path. Declining validation has
-exactly one form — `Enabled`'s setter is private, so the compiler rejects any
-other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
-a new host cannot quietly decline. An explicit `DOTNET_INSPECT_IR_INVARIANTS`
-value (trimmed, case-insensitive) outranks the opt-out in both directions.
+one public API — `Enabled`'s setter is private, so callers cannot mutate either
+level independently. `IrInvariantsHostContractTests` pins that API shape,
+default-on behavior, environment precedence, and the fact that a disarmed test
+run fails loudly. It does not inventory trusted host call sites. An explicit
+`DOTNET_INSPECT_IR_INVARIANTS` value (trimmed, case-insensitive) outranks the
+host choice in both directions.
 
 The check is **leveled**, but both levels are armed together, so the leveling
 names what is checked rather than offering a way to check less:

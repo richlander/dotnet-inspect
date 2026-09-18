@@ -881,7 +881,21 @@ public static class SourceHouse
                 == SourceLinkResolver.SourceResolutionMethod.Inferred
                 ? SourceHouseMappingStrength.InferredTypeDocument
                 : SourceHouseMappingStrength.CorrelatedTypeDocument;
+        SourceLinkResolver.TypeSourceInfo detachedMapping =
+            typeMapping with
+            {
+                Checksum = typeMapping.Checksum?.ToArray(),
+                AdditionalSourceFiles =
+                [
+                    .. typeMapping.AdditionalSourceFiles.Select(
+                        static additional => additional with
+                        {
+                            Checksum = additional.Checksum?.ToArray(),
+                        }),
+                ],
+            };
         var typeEvidence = new SourceHouseAuthoredMapping.Type(
+            detachedMapping,
             typeDocument,
             strength,
             typeMapping.IsPartialType,

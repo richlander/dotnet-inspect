@@ -57,6 +57,66 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     [InlineData("authored")]
     [InlineData("missing")]
     [InlineData("deadline")]
+    public async Task TypeSourceEnvelope_PreservesBrowserPreferenceAndFallback(string scenario)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        using var host = new SourcePairHost(
+            scenario == "missing" ? null : FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.Old),
+            FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.New));
+        BrowserSourceComparisonRequest request = await pair.Request("Counter", "Value");
+        await using BrowserMemberResolution.ScopedResolution resolved =
+            await BrowserMemberResolution.ImplementationMemberAsync(
+                request.PackageId, request.BeforeVersion, request.Framework,
+                request.Assembly, request.TypeIdentity, request.MemberName,
+                request.SelectorKey, request.MetadataToken, TestContext.Current.CancellationToken);
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            TypeSourceTimeout = scenario == "deadline" ? TimeSpan.FromTicks(1) : TimeSpan.FromMinutes(5),
+        };
+
+        var inspection = await resolved.Scope.UseImplementationParticipant(
+            resolved.ImplementationParticipant,
+            (group, participant) => TypeSourceInspection.ExecuteAsync(
+                group, participant, AssemblyTypeSourceRequest.From(resolved.Member.Type),
+                context, TestContext.Current.CancellationToken));
+        var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
+        BrowserSource source = SourceExports.Adapt(inspection.Content, resolved.ImplementationParticipant);
+
+        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Equal(scenario == "authored" ? "pdb" : "decompiled", source.Provider);
+        Assert.Contains("Counter", source.Text);
+        if (scenario == "authored")
+        {
+            SourceHouseOutcome.Available outcome = Assert.IsType<SourceHouseOutcome.Available>(
+                available.HouseOutcome);
+            Assert.Equal(SourceHouseSourceUnitScope.PrimaryTypeDocument,
+                Assert.IsType<SourceHouseAuthoredMapping.Type>(outcome.AuthoredAttempt.Mapping).Scope);
+            Assert.Null(source.PdbSourceLimitation);
+            Assert.NotNull(source.Url);
+        }
+        else
+        {
+            Assert.True(Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source)
+                .Decompilation.PdbSupplied);
+            Assert.NotNull(source.PdbSourceLimitation);
+            Assert.Null(source.Url);
+            if (scenario == "deadline")
+            {
+                Assert.Equal(SourceHouseIncompleteBoundary.Deadline,
+                    Assert.IsType<SourceHouseOutcome.Incomplete>(available.HouseOutcome).Boundary);
+                Assert.Contains("Deadline", source.PdbSourceLimitation);
+                Assert.Empty(host.SourceRequests);
+            }
+        }
+        Assert.Empty(host.SymbolRequests);
+    }
+
+    [Theory]
+    [InlineData("authored")]
+    [InlineData("missing")]
+    [InlineData("deadline")]
     public async Task MemberSourceEnvelope_PreservesBrowserPreferenceAndFallback(string scenario)
     {
         await using Pair pair = await Pair.OpenAsync();
