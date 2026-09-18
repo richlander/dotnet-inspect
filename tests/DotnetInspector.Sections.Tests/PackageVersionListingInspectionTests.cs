@@ -124,12 +124,19 @@ public sealed class PackageVersionListingInspectionTests
         InspectionDiagnostic diagnostic =
             Assert.Single(envelope.Diagnostics);
         Assert.Equal(
+            PackageAuthorityFailureKind.AuthenticationRequired,
+            Assert.Single(listed.AuthorityFailures).Kind);
+        Assert.Equal(
             "package-version-listing.source-failure",
             diagnostic.Code);
         Assert.Contains(
             "credentials",
             diagnostic.Summary.ToString(),
             StringComparison.OrdinalIgnoreCase);
+        using JsonDocument json = JsonDocument.Parse(Serialize(envelope));
+        Assert.False(
+            json.RootElement.GetProperty("content")
+                .TryGetProperty("authorityFailures", out _));
     }
 
     [Theory]

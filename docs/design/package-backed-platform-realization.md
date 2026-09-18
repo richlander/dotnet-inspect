@@ -392,6 +392,15 @@ Nested entries, XML companions, analyzers, `data/` files, and non-DLL entries
 are outside the population. Package entry paths use `/`; host filesystem path
 rules and casing do not define membership.
 
+XML documentation remains outside assembly-population membership. For an
+explicit one-Library compiled-XML content demand, however, the source checks
+the case-insensitive same-basename top-level `.xml` companion for the selected
+reference entry. A present companion is snapshotted from retained package
+content under the same finite entry, byte, and operation bounds; a missing
+companion is authoritative absence for that exact package content generation.
+Without that demand, the source performs no XML read and makes no absence
+claim.
+
 The source enumerates the admitted package content once under a finite entry
 bound. Two entries that collide case-insensitively at the selected logical
 coordinate reject the population. The source sorts selected logical
