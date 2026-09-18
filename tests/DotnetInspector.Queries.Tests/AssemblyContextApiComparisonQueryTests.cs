@@ -683,7 +683,7 @@ public sealed class AssemblyContextApiComparisonQueryTests(ITestOutputHelper out
     /// A minimal public API surface with exactly <paramref name="typeCount"/> public types,
     /// an optional field on the last type, and no forwarders or interfaces.
     /// </summary>
-    static byte[] BuildTypedApiSurfaceImage(
+    internal static byte[] BuildTypedApiSurfaceImage(
         int typeCount,
         string assemblyName = "ComparisonBudget",
         byte[]? fieldSignature = null)

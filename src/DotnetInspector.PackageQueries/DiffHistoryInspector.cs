@@ -147,19 +147,21 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .NoApplicableInput(),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
 
         var matches =
-            new List<PackageVersionCellApiFindingSet>();
+            new List<(
+                PackageVersionCellApiFindingSet FindingSet,
+                FindingInspection<ApiMemberHandle>.Complete Inspection)>();
         var failures = new List<string>();
         foreach (PackageVersionCellApiFindingSet findingSet
             in api.Findings)
         {
             switch (findingSet.Members.Value)
             {
-                case FindingInspection<ApiMemberHandle>.Complete:
-                    matches.Add(findingSet);
+                case FindingInspection<ApiMemberHandle>.Complete complete:
+                    matches.Add((findingSet, complete));
                     break;
                 case FindingInspection<ApiMemberHandle>.Absent:
                     break;
@@ -194,14 +196,14 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .SubjectAbsent(),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
         if (matches.Count > 1)
         {
             ImmutableArray<DiffHistoryResolvedAssembly> assemblies =
             [
                 .. matches.Select(static match =>
-                    Resolve(match.Assembly.Subject)),
+                    Resolve(match.FindingSet.Assembly.Subject)),
             ];
             var inspection =
                 new FindingInspection<ApiMemberHandle>.Failed(
@@ -218,10 +220,18 @@ public static class DiffHistoryInspector
                     new DiffHistoryApiMemberSubjectResolution
                         .Ambiguous(assemblies),
                     participants: participants),
-                Surface: null);
+                ComparisonSurface: null);
         }
 
-        PackageVersionCellApiFindingSet match = matches[0];
+        PackageVersionCellApiFindingSet match =
+            matches[0].FindingSet;
+        FindingInspection<ApiMemberHandle>.Complete selectedInspection =
+            matches[0].Inspection;
+        ApiSurface? comparisonSurface =
+            selectedInspection.Findings.All(static finding =>
+                finding.Payload.Member.SignatureDecodeStatus is null)
+                ? match.Assembly.Value.Surface
+                : null;
         return new(
             new(
                 cell.Address,
@@ -231,7 +241,7 @@ public static class DiffHistoryInspector
                 new DiffHistoryApiMemberSubjectResolution.Resolved(
                     Resolve(match.Assembly.Subject)),
                 participants: participants),
-            match.Assembly.Value.Surface);
+            comparisonSurface);
     }
 
     static EvaluatedApiMembers Failed(
@@ -255,7 +265,7 @@ public static class DiffHistoryInspector
                 new DiffHistoryApiMemberSubjectResolution.Failed(),
                 projectionTruncation,
                 participants),
-            Surface: null);
+            ComparisonSurface: null);
 
     static DiffHistoryApiParticipantEvidence DetachParticipant(
         AssemblyContextEntry<AssemblyApiSurface> participant)
@@ -434,8 +444,8 @@ public static class DiffHistoryInspector
         }
 
         return MetadataFindings.CompareApiMembers(
-            source.Surface,
-            destination.Surface,
+            source.ComparisonSurface,
+            destination.ComparisonSurface,
             Subject(request.ApiInspection.TypeFullName),
             request.ApiInspection.TypeFullName,
             request.ComparisonOptions,
@@ -447,5 +457,5 @@ public static class DiffHistoryInspector
 
     sealed record EvaluatedApiMembers(
         DiffHistoryApiMemberEvaluation Row,
-        ApiSurface? Surface);
+        ApiSurface? ComparisonSurface);
 }

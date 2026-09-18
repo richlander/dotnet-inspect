@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
@@ -288,6 +290,95 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     Assert.IsType<DiffHistoryOutcome.Available>(
                         envelope.Content).Count);
         Assert.Equal(0, Assert.Single(completed.Counts).Value);
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountDegradedSignaturesRemainSourceInsufficient()
+    {
+        var signature = new BlobBuilder();
+        SignatureTypeEncoder fieldType =
+            new BlobEncoder(signature).FieldSignature();
+        for (int depth = 0;
+            depth <= SignatureBlobGuard.DefaultMaxDepth;
+            depth++)
+        {
+            fieldType = fieldType.SZArray();
+        }
+        fieldType.Object();
+        byte[] image =
+            AssemblyContextApiComparisonQueryTests
+                .BuildTypedApiSurfaceImage(
+                    1,
+                    "SignatureComparison",
+                    signature.ToArray());
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.DegradedHistory",
+                "1.0.0",
+                "2.0.0");
+        IPackageContent[] contents =
+        [
+            population[0].Content(
+                ($"lib/{Framework}/SignatureComparison.dll", image)),
+            population[1].Content(
+                ($"lib/{Framework}/SignatureComparison.dll", image)),
+        ];
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            return population[position].Realize(
+                execution,
+                contents[position]);
+        });
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "ComparisonBudgetTypes.Type0")),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.All(
+            document.Evaluations,
+            static evaluation =>
+            {
+                var complete = Assert.IsType<
+                    FindingInspection<ApiMemberHandle>.Complete>(
+                        evaluation.Inspection.Value);
+                Assert.Equal(
+                    SignatureDecodeStatus.Degraded,
+                    Assert.Single(complete.Findings)
+                        .Payload.Member.SignatureDecodeStatus);
+            });
+        DiffHistoryChangedVersionAssessment<ApiMemberHandle> assessment =
+            Assert.Single(document.ChangedVersionAssessments);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Failed,
+            assessment.State);
+        Assert.IsType<FindingComparison<ApiMemberHandle>.Failed>(
+            assessment.Comparison!.Value);
+        var source = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Failed,
+            Assert.Single(source.Sources)
+                .Evidence.FirstUnestablishedAssessment!.State);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code
+                    == "diff-history.count-source-insufficient");
     }
 
     [Fact]
