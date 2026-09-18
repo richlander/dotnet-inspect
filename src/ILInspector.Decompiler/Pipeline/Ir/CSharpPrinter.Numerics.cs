@@ -1,3 +1,5 @@
+using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -2975,7 +2977,9 @@ public sealed partial class CSharpPrinter
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
             && type.Name is "Byte" or "SByte" or "Int16" or "UInt16" or "Char";
 
-    static string BinaryOperator(Binary binary) => binary.Kind switch
+    static string BinaryOperator(Binary binary) => BinaryOperator(binary.Kind);
+
+    static string BinaryOperator(BinaryKind kind) => kind switch
     {
         BinaryKind.Add => "+",
         BinaryKind.Subtract => "-",

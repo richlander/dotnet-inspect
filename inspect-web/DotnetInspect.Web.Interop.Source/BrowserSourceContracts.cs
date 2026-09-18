@@ -125,6 +125,33 @@ public sealed record BrowserAnnotatedSourceFindingEvidenceCoordinate(
     int IlOffset,
     BrowserCalleeEvidenceKind Kind);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceState>))]
+public enum BrowserCalleeEvidenceState
+{
+    Instruction,
+    Method,
+    InstructionUnavailable,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCostCalleeEvidenceInputKind>))]
+public enum BrowserCostCalleeEvidenceInputKind
+{
+    AllocationInLoop,
+    Reflection,
+    CallInLoop,
+    RootReach,
+    DirectCallers,
+    LoopCalls,
+}
+
+public sealed record BrowserCostCalleeEvidenceInput(
+    BrowserCostCalleeEvidenceInputKind Kind,
+    int? Value);
+
+public sealed record BrowserAnnotatedSourceFindingEvidenceDocument(
+    int Id,
+    JsonElement Document);
+
 /// <summary>
 /// One exact caller Finding joined to method-qualified evidence in its physical callee.
 /// </summary>
@@ -133,8 +160,10 @@ public sealed record BrowserAnnotatedSourceFindingEvidence(
     int InstanceKey,
     string Member,
     BrowserCallGraphTarget Target,
+    BrowserCalleeEvidenceState State,
+    BrowserCostCalleeEvidenceInput[] AggregateInputs,
     BrowserAnnotatedSourceFindingEvidenceCoordinate[] Coordinates,
-    JsonElement? Document,
+    int? DocumentId,
     int[] NodeIds,
     string? UnavailableReason);
 
@@ -188,6 +217,8 @@ public sealed record BrowserMemberFindingCensus
         BrowserAnnotatedSourceCapabilityUnavailableReason
             destinationUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceFindingEvidenceDocument[]?
+            findingEvidenceDocuments = null,
         BrowserAnnotatedSourceFindingEvidence[]?
             findingEvidence = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
@@ -297,6 +328,7 @@ public sealed record BrowserMemberFindingCensus
         ValidateFindingEvidence(
             document,
             projectedIdentities,
+            findingEvidenceDocuments,
             findingEvidence);
 
         return new BrowserMemberFindingCensus(
@@ -308,6 +340,7 @@ public sealed record BrowserMemberFindingCensus
                 contextLimitation,
                 invocationDestinations,
                 destinationUnavailableReason,
+                findingEvidenceDocuments,
                 findingEvidence,
                 findingEvidenceUnavailableReason),
             projectedIdentities);
@@ -316,10 +349,22 @@ public sealed record BrowserMemberFindingCensus
     static void ValidateFindingEvidence(
         AnnotatedSourceDocument document,
         IReadOnlyList<BrowserSourceFactInstance> sourceFactInstances,
+        IReadOnlyList<BrowserAnnotatedSourceFindingEvidenceDocument>?
+            findingEvidenceDocuments,
         IReadOnlyList<BrowserAnnotatedSourceFindingEvidence>? findingEvidence)
     {
         if (findingEvidence is null)
+        {
+            if (findingEvidenceDocuments is { Count: > 0 })
+            {
+                throw new InvalidOperationException(
+                    "Member Finding census carries callee documents without evidence rows.");
+            }
             return;
+        }
+
+        Dictionary<int, AnnotatedSourceDocument> evidenceDocuments =
+            ValidateFindingEvidenceDocuments(findingEvidenceDocuments);
 
         Dictionary<int, int> instanceKeyByFactId =
             sourceFactInstances.ToDictionary(
@@ -331,11 +376,14 @@ public sealed record BrowserMemberFindingCensus
                 .Where(fact =>
                     fact.Origin == AnnotatedSourceFactOrigin.Body
                     && fact.Descriptor is
-                        "semantics.callee" or "safety.callee")
+                        "cost.callee"
+                        or "semantics.callee"
+                        or "safety.callee")
                 .Select(fact => fact.Id),
         ];
         var evidenceFactIds = new HashSet<int>();
         var evidenceKeys = new HashSet<int>();
+        var referencedDocumentIds = new HashSet<int>();
         for (int index = 0; index < findingEvidence.Count; index++)
         {
             BrowserAnnotatedSourceFindingEvidence evidence =
@@ -374,6 +422,7 @@ public sealed record BrowserMemberFindingCensus
                     $"Member Finding census evidence row {index} carries no callee member target.");
             }
             if (evidence.Coordinates is null
+                || evidence.AggregateInputs is null
                 || evidence.NodeIds is null
                 || evidence.Coordinates.Any(coordinate =>
                     coordinate is null || coordinate.IlOffset < 0)
@@ -385,76 +434,191 @@ public sealed record BrowserMemberFindingCensus
                     $"Member Finding census evidence row {index} carries invalid coordinates or node ids.");
             }
 
+            bool methodEvidence = document.Facts[evidence.FactId].Descriptor
+                == "cost.callee";
             bool unavailable =
                 !string.IsNullOrWhiteSpace(evidence.UnavailableReason);
-            AnnotatedSourceDocument? evidenceDocument =
-                evidence.Document is { } serializedDocument
-                    ? DeserializeDocument(serializedDocument, index)
-                    : null;
-            if (unavailable)
+            AnnotatedSourceDocument? evidenceDocument = null;
+            if (evidence.DocumentId is int referencedDocumentId)
             {
-                if (evidence.NodeIds.Length != 0)
+                if (!evidenceDocuments.TryGetValue(
+                    referencedDocumentId,
+                    out evidenceDocument))
                 {
                     throw new InvalidOperationException(
-                        $"Unavailable member Finding evidence row {index} cannot carry node ids.");
+                        $"Member Finding census evidence row {index} names no callee document.");
                 }
-                if (evidenceDocument is not null
-                    && evidence.Coordinates.Length == 0)
-                {
-                    throw new InvalidOperationException(
-                        $"Unavailable member Finding evidence row {index} cannot carry a document without coordinates.");
-                }
-                if (evidenceDocument is not null
-                    && FindEvidenceNodeIds(
-                        evidenceDocument,
-                        evidence,
-                        index,
-                        out _) is not null)
-                {
-                    throw new InvalidOperationException(
-                        $"Member Finding census evidence row {index} is unavailable despite exact serialized correspondence.");
-                }
+                referencedDocumentIds.Add(referencedDocumentId);
             }
-            else if (evidenceDocument is null
-                || evidence.Coordinates.Length == 0
-                || evidence.NodeIds.Length == 0)
+            if (methodEvidence)
             {
-                throw new InvalidOperationException(
-                    $"Available member Finding evidence row {index} requires a document, coordinates, and node ids.");
+                ValidateMethodFindingEvidence(
+                    evidence,
+                    evidenceDocument,
+                    index);
             }
             else
             {
-                int[] expectedNodeIds =
-                    FindEvidenceNodeIds(
-                    evidenceDocument,
+                ValidateInstructionFindingEvidence(
                     evidence,
-                    index,
-                    out string? failure)
-                    ?? throw new InvalidOperationException(failure);
-                if (!evidence.NodeIds.SequenceEqual(expectedNodeIds))
-                {
-                    throw new InvalidOperationException(
-                        $"Member Finding census evidence row {index} node ids "
-                            + "do not equal its exact coordinate matches.");
-                }
+                    evidenceDocument,
+                    unavailable,
+                    index);
             }
         }
 
         if (!eligibleFactIds.SetEquals(evidenceFactIds))
         {
             throw new InvalidOperationException(
-                "Member Finding census evidence does not cover every instruction-level callee Finding.");
+                "Member Finding census evidence does not cover every callee Finding.");
+        }
+        if (!evidenceDocuments.Keys.ToHashSet().SetEquals(referencedDocumentIds))
+        {
+            throw new InvalidOperationException(
+                "Member Finding census carries an unreferenced callee document.");
         }
     }
 
-    static AnnotatedSourceDocument DeserializeDocument(
-        JsonElement document,
-        int evidenceIndex) =>
-        document.Deserialize(
-            AnnotatedSourceDocumentCompactJsonContext.Default
-                .AnnotatedSourceDocument)
-        ?? throw new InvalidOperationException(
-            $"Member Finding census evidence row {evidenceIndex} carries no callee document.");
+    static void ValidateMethodFindingEvidence(
+        BrowserAnnotatedSourceFindingEvidence evidence,
+        AnnotatedSourceDocument? evidenceDocument,
+        int index)
+    {
+        if (evidence.State != BrowserCalleeEvidenceState.Method
+            || evidence.Coordinates.Length != 0
+            || evidenceDocument is not null
+            || evidence.DocumentId is not null
+            || evidence.NodeIds.Length != 0
+            || evidence.UnavailableReason is not null
+            || evidence.AggregateInputs.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Method-level member Finding evidence row {index} carries an instruction projection or incomplete aggregate inputs.");
+        }
+
+        int previousKind = -1;
+        foreach (BrowserCostCalleeEvidenceInput input in evidence.AggregateInputs)
+        {
+            if (input is null
+                || !Enum.IsDefined(input.Kind)
+                || (int)input.Kind <= previousKind)
+            {
+                throw new InvalidOperationException(
+                    $"Method-level member Finding evidence row {index} carries invalid or unordered aggregate inputs.");
+            }
+            previousKind = (int)input.Kind;
+
+            bool counted = input.Kind is
+                BrowserCostCalleeEvidenceInputKind.Reflection
+                or BrowserCostCalleeEvidenceInputKind.RootReach
+                or BrowserCostCalleeEvidenceInputKind.DirectCallers
+                or BrowserCostCalleeEvidenceInputKind.LoopCalls;
+            if (counted != (input.Value is int value && value > 0))
+            {
+                throw new InvalidOperationException(
+                    $"Method-level member Finding evidence row {index} carries an invalid aggregate input value.");
+            }
+        }
+    }
+
+    static void ValidateInstructionFindingEvidence(
+        BrowserAnnotatedSourceFindingEvidence evidence,
+        AnnotatedSourceDocument? evidenceDocument,
+        bool unavailable,
+        int index)
+    {
+        if (evidence.State == BrowserCalleeEvidenceState.Method
+            || !Enum.IsDefined(evidence.State)
+            || evidence.AggregateInputs.Length != 0
+            || (evidence.State == BrowserCalleeEvidenceState.Instruction
+                && evidence.Coordinates.Length == 0)
+            || (evidence.State
+                    == BrowserCalleeEvidenceState.InstructionUnavailable
+                && (evidence.Coordinates.Length != 0 || !unavailable)))
+        {
+            throw new InvalidOperationException(
+                $"Instruction-level member Finding evidence row {index} carries an invalid evidence state.");
+        }
+
+        if (unavailable)
+        {
+            if (evidence.NodeIds.Length != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Unavailable member Finding evidence row {index} cannot carry node ids.");
+            }
+            if (evidenceDocument is not null
+                && evidence.Coordinates.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Unavailable member Finding evidence row {index} cannot carry a document without coordinates.");
+            }
+            if (evidenceDocument is not null
+                && FindEvidenceNodeIds(
+                    evidenceDocument,
+                    evidence,
+                    index,
+                    out _) is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Member Finding census evidence row {index} is unavailable despite exact serialized correspondence.");
+            }
+        }
+        else if (evidenceDocument is null
+            || evidence.Coordinates.Length == 0
+            || evidence.NodeIds.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Available member Finding evidence row {index} requires a document, coordinates, and node ids.");
+        }
+        else
+        {
+            int[] expectedNodeIds =
+                FindEvidenceNodeIds(
+                    evidenceDocument,
+                    evidence,
+                    index,
+                    out string? failure)
+                    ?? throw new InvalidOperationException(failure);
+            if (!evidence.NodeIds.SequenceEqual(expectedNodeIds))
+            {
+                throw new InvalidOperationException(
+                    $"Member Finding census evidence row {index} node ids "
+                        + "do not equal its exact coordinate matches.");
+            }
+        }
+    }
+
+    static Dictionary<int, AnnotatedSourceDocument>
+        ValidateFindingEvidenceDocuments(
+            IReadOnlyList<BrowserAnnotatedSourceFindingEvidenceDocument>?
+                findingEvidenceDocuments)
+    {
+        var result = new Dictionary<int, AnnotatedSourceDocument>();
+        if (findingEvidenceDocuments is null)
+            return result;
+
+        for (int index = 0; index < findingEvidenceDocuments.Count; index++)
+        {
+            BrowserAnnotatedSourceFindingEvidenceDocument entry =
+                findingEvidenceDocuments[index]
+                    ?? throw new InvalidOperationException(
+                        $"Member Finding census callee document {index} is null.");
+            if (entry.Id < 0 || result.ContainsKey(entry.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Member Finding census callee document {index} has an invalid or duplicate id.");
+            }
+            AnnotatedSourceDocument document =
+                entry.Document.Deserialize(
+                    AnnotatedSourceDocumentCompactJsonContext.Default
+                        .AnnotatedSourceDocument)
+                ?? throw new InvalidOperationException(
+                    $"Member Finding census callee document {index} carries no document.");
+            result.Add(entry.Id, document);
+        }
+        return result;
+    }
 
     static int[]? FindEvidenceNodeIds(
         AnnotatedSourceDocument document,
@@ -545,6 +709,8 @@ public sealed record BrowserCallGraphTarget(
 /// </param>
 public sealed record BrowserAnnotatedSource
 {
+    private readonly BrowserAnnotatedSourceFindingEvidenceDocument[]
+        _findingEvidenceDocuments;
     private readonly BrowserAnnotatedSourceFindingEvidence[]
         _findingEvidence;
 
@@ -553,12 +719,15 @@ public sealed record BrowserAnnotatedSource
         BrowserAnnotatedSourceViewerCatalog ViewerCatalog,
         InertString Provenance,
         string? ContextLimitation,
+        BrowserAnnotatedSourceFindingEvidenceDocument[]
+            FindingEvidenceDocuments,
         BrowserAnnotatedSourceFindingEvidence[] FindingEvidence)
     {
         this.Document = Document;
         this.ViewerCatalog = ViewerCatalog;
         this.Provenance = Provenance;
         this.ContextLimitation = ContextLimitation;
+        _findingEvidenceDocuments = [.. FindingEvidenceDocuments];
         _findingEvidence = [.. FindingEvidence];
     }
 
@@ -567,6 +736,8 @@ public sealed record BrowserAnnotatedSource
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString Provenance { get; }
     public string? ContextLimitation { get; }
+    public BrowserAnnotatedSourceFindingEvidenceDocument[]
+        FindingEvidenceDocuments => [.. _findingEvidenceDocuments];
     public BrowserAnnotatedSourceFindingEvidence[] FindingEvidence =>
         [.. _findingEvidence];
 
@@ -579,6 +750,8 @@ public sealed record BrowserAnnotatedSource
         BrowserAnnotatedSourceCapabilityUnavailableReason
             destinationUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceFindingEvidenceDocument[]?
+            findingEvidenceDocuments = null,
         BrowserAnnotatedSourceFindingEvidence[]?
             findingEvidence = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
@@ -601,6 +774,7 @@ public sealed record BrowserAnnotatedSource
                 findingEvidenceUnavailableReason),
             provenance,
             contextLimitation,
+            findingEvidenceDocuments ?? [],
             findingEvidence ?? []);
     }
 

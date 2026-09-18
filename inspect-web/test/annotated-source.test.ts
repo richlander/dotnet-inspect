@@ -22,7 +22,6 @@ import {
   toggleCoordinates,
 } from "../src/annotated-source-session.ts";
 import type {
-  AnnotatedSourceFindingEvidence,
   AnnotatedSourceResult,
 } from "../src/annotated-source-session.ts";
 import {
@@ -36,6 +35,7 @@ import {
   csharpOnlyEmptyViewerCatalog,
   sampleCalleeDocument,
   sampleCalleeEvidence,
+  sampleCalleeEvidenceDocuments,
   sampleInvocationTarget,
   sampleViewerCatalog,
 } from "./annotated-source-result-fixture.ts";
@@ -205,6 +205,7 @@ function escapeHtml(value: unknown) {
 const result: AnnotatedSourceResult = {
   document: sampleDocument,
   viewerCatalog: sampleViewerCatalog,
+  findingEvidenceDocuments: [],
   findingEvidence: [],
   provenance: inertStringFixture("decompiled from IL"),
   contextLimitation: null,
@@ -254,7 +255,9 @@ function invocationResult(): AnnotatedSourceResult {
 }
 
 function calleeEvidenceResult(
-  evidence: AnnotatedSourceFindingEvidence = sampleCalleeEvidence,
+  evidence: AnnotatedSourceResult["findingEvidence"][number] =
+    sampleCalleeEvidence,
+  evidenceDocument: AnnotatedSourceDocument = sampleCalleeDocument,
 ): AnnotatedSourceResult {
   return {
     ...result,
@@ -272,6 +275,54 @@ function calleeEvidenceResult(
         unavailableReason: null,
       },
     },
+    findingEvidenceDocuments: evidence.documentId === null
+      ? []
+      : [{
+          ...sampleCalleeEvidenceDocuments[0],
+          document: evidenceDocument,
+        }],
+    findingEvidence: [evidence],
+  };
+}
+
+function methodCostEvidenceResult(
+  evidence: AnnotatedSourceResult["findingEvidence"][number] = {
+    ...sampleCalleeEvidence,
+    state: "Method",
+    aggregateInputs: [
+      {
+        kind: "AllocationInLoop",
+        value: null,
+      },
+      {
+        kind: "Reflection",
+        value: 3,
+      },
+    ],
+    coordinates: [],
+    documentId: null,
+    nodeIds: [],
+  },
+): AnnotatedSourceResult {
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      facts: sampleDocument.facts.map(fact =>
+        fact.id === 0
+          ? { ...fact, descriptor: "cost.callee" }
+          : fact),
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      findingEvidence: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    findingEvidenceDocuments: evidence.documentId === null
+      ? []
+      : sampleCalleeEvidenceDocuments,
     findingEvidence: [evidence],
   };
 }
@@ -286,10 +337,44 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
 
   assert.equal(model.findingEvidence.length, 1);
   assert.equal(model.findingEvidenceByFactId.get(0)?.instanceKey, 41);
+  assert.equal(
+    model.findingEvidenceByFactId.get(0)?.document,
+    sampleCalleeDocument,
+  );
   assert.throws(
     () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
       ...sampleCalleeEvidence,
-      document: null,
+      documentId: 99,
+    })),
+    /names no callee document/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [
+        ...sampleCalleeEvidenceDocuments,
+        ...sampleCalleeEvidenceDocuments,
+      ],
+    }),
+    /invalid or duplicate id/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [
+        ...sampleCalleeEvidenceDocuments,
+        {
+          id: 1,
+          document: sampleCalleeDocument,
+        },
+      ],
+    }),
+    /unreferenced callee evidence document/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      documentId: null,
     })),
     /requires a document, coordinates, and node ids/,
   );
@@ -301,29 +386,29 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     /node ids do not equal its exact coordinate matches/,
   );
   assert.throws(
-    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      document: {
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
         ...sampleCalleeDocument,
         nodes: [{
           ...sampleCalleeDocument.nodes[0],
           spans: [{ start: 99, length: 1 }],
         }],
       },
-    })),
+    )),
     /outside the document text/,
   );
   assert.throws(
-    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      document: {
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
         ...sampleCalleeDocument,
         nodes: [{
           ...sampleCalleeDocument.nodes[0],
           kind: "InvocationExpression",
         }],
       },
-    })),
+    )),
     /matches 0 StackAllocationExpression nodes/,
   );
   assert.throws(
@@ -337,9 +422,12 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     /matches 0 StackAllocationExpression nodes/,
   );
   assert.throws(
-    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      document: {
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        nodeIds: [1],
+      },
+      {
         ...sampleCalleeDocument,
         text: `${sampleCalleeDocument.text}; stackalloc byte[2]`,
         nodes: [
@@ -358,14 +446,13 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
           },
         ],
       },
-      nodeIds: [1],
-    })),
+    )),
     /node ids do not equal its exact coordinate matches/,
   );
   assert.throws(
-    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      document: {
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
         ...sampleCalleeDocument,
         nodes: [{
           ...sampleCalleeDocument.nodes[0],
@@ -374,7 +461,7 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
           },
         }],
       },
-    })),
+    )),
     /provenance must be a non-empty C# IL-offset set/,
   );
   assert.throws(
@@ -386,19 +473,22 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
     /unavailable despite exact serialized correspondence/,
   );
   const reverseSourceOrder = createAnnotatedSourceViewerModel(
-    calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      coordinates: [
-        {
-          ilOffset: 2,
-          kind: "Localloc",
-        },
-        {
-          ilOffset: 9,
-          kind: "Localloc",
-        },
-      ],
-      document: {
+    calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        coordinates: [
+          {
+            ilOffset: 2,
+            kind: "Localloc",
+          },
+          {
+            ilOffset: 9,
+            kind: "Localloc",
+          },
+        ],
+        nodeIds: [0, 1],
+      },
+      {
         ...sampleCalleeDocument,
         text: `${sampleCalleeDocument.text}; stackalloc byte[2]`,
         nodes: [
@@ -420,24 +510,26 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
           },
         ],
       },
-      nodeIds: [0, 1],
-    }),
+    ),
   );
   assert.deepEqual(reverseSourceOrder.findingEvidence[0]?.nodeIds, [0, 1]);
   const sharedNode = createAnnotatedSourceViewerModel(
-    calleeEvidenceResult({
-      ...sampleCalleeEvidence,
-      coordinates: [
-        {
-          ilOffset: 2,
-          kind: "Localloc",
-        },
-        {
-          ilOffset: 9,
-          kind: "Localloc",
-        },
-      ],
-      document: {
+    calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        coordinates: [
+          {
+            ilOffset: 2,
+            kind: "Localloc",
+          },
+          {
+            ilOffset: 9,
+            kind: "Localloc",
+          },
+        ],
+        nodeIds: [0],
+      },
+      {
         ...sampleCalleeDocument,
         nodes: [{
           ...sampleCalleeDocument.nodes[0],
@@ -446,16 +538,61 @@ test("viewer model validates exact callee evidence documents and node kinds", ()
           },
         }],
       },
-      nodeIds: [0],
-    }),
+    ),
   );
   assert.deepEqual(sharedNode.findingEvidence[0]?.nodeIds, [0]);
   assert.throws(
     () => createAnnotatedSourceViewerModel({
       ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [],
       findingEvidence: [],
     }),
-    /does not cover every instruction-level callee Finding/,
+    /does not cover every callee Finding/,
+  );
+});
+
+test("viewer model validates method-level cost evidence without a source coordinate", () => {
+  const model = createAnnotatedSourceViewerModel(methodCostEvidenceResult());
+  const evidence = model.findingEvidence[0]!;
+
+  assert.equal(evidence.state, "Method");
+  assert.deepEqual(evidence.aggregateInputs, [
+    {
+      kind: "AllocationInLoop",
+      value: null,
+    },
+    {
+      kind: "Reflection",
+      value: 3,
+    },
+  ]);
+  assert.equal(evidence.document, null);
+  assert.deepEqual(evidence.coordinates, []);
+  assert.deepEqual(evidence.nodeIds, []);
+
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      aggregateInputs: [],
+    })),
+    /invalid aggregate inputs/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      coordinates: [{
+        ilOffset: 2,
+        kind: "Localloc",
+      }],
+    })),
+    /instruction projection/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(methodCostEvidenceResult({
+      ...evidence,
+      documentId: 0,
+    })),
+    /instruction projection/,
   );
 });
 
@@ -861,9 +998,13 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
   });
   assert.match(coordinates, /stack allocation\s*· IL_0002/);
 
-  const unavailableSource = calleeEvidenceResult({
-    ...sampleCalleeEvidence,
-    document: {
+  const unavailableSource = calleeEvidenceResult(
+    {
+      ...sampleCalleeEvidence,
+      nodeIds: [],
+      unavailableReason: "No unique callee source node.",
+    },
+    {
       ...sampleCalleeDocument,
       nodes: [{
         ...sampleCalleeDocument.nodes[0],
@@ -872,9 +1013,7 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
         },
       }],
     },
-    nodeIds: [],
-    unavailableReason: "No unique callee source node.",
-  });
+  );
   const unavailableModel = createAnnotatedSourceViewerModel(unavailableSource);
   const unavailableHtml = renderAnnotatedSourceModal({
     result: unavailableSource,
@@ -889,6 +1028,32 @@ test("Finding detail separates caller targets from exact callee evidence", () =>
   });
   assert.match(unavailableHtml, /No unique callee source node\./);
   assert.doesNotMatch(unavailableHtml, /annotated-evidence-source/);
+});
+
+test("Finding detail presents method-level callee evidence without an invented line", () => {
+  const source = methodCostEvidenceResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const html = renderAnnotatedSourceModal({
+    result: source,
+    session: selectFinding(
+      openModalSession(
+        model,
+        createEmbeddedSession(model),
+      ).modal,
+      { kind: "inspector", factId: 0 },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /Caller relationship targets/);
+  assert.match(html, /Method-level aggregate evidence/);
+  assert.match(html, /no singular source line is claimed/);
+  assert.match(html, /Allocation in loop/);
+  assert.match(html, /Reflection calls[\s\S]*<strong>3<\/strong>/);
+  assert.match(html, /data-destination="member">Member<\/button>/);
+  assert.match(html, /data-destination="source">Source<\/button>/);
+  assert.doesNotMatch(html, /annotated-evidence-source/);
+  assert.doesNotMatch(html, /IL_000/);
 });
 
 test("mixed-line hidden media keeps its layout text but removes its action", () => {
@@ -923,6 +1088,7 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         unavailableReason: "NotProjected",
       },
     },
+    findingEvidenceDocuments: [],
     findingEvidence: [],
     provenance: inertStringFixture("mixed media"),
     contextLimitation: null,
@@ -948,6 +1114,7 @@ test("source text is escaped while source actions and chrome remain separate", (
       targets: [],
     },
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
+    findingEvidenceDocuments: [],
     findingEvidence: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,

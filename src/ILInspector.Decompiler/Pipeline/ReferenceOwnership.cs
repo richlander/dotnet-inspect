@@ -4,10 +4,26 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Shared reference-scope atoms for proof-backed rewrites that consume compiler
 /// scaffolds and must prove their temporaries do not escape the owned shape.
 /// Intentionally small: this is not a general ownership framework, only the
-/// repeated local/stack-slot location proof the passes already composed by hand.
+/// repeated local/stack-slot and branch-target proofs already used by the pipeline.
 /// </summary>
 public static class ReferenceOwnership
 {
+    internal static HashSet<int> CollectBranchTargets(IrNode functionScope)
+    {
+        var targets = new HashSet<int>();
+        foreach (var node in functionScope.DescendantsOutsideNestedFunctions)
+        {
+            switch (node)
+            {
+                case Branch branch: targets.Add(branch.TargetOffset); break;
+                case ConditionalBranch conditional: targets.Add(conditional.TargetOffset); break;
+                case Leave leave: targets.Add(leave.TargetOffset); break;
+                case SwitchBranch sw: foreach (int t in sw.TargetOffsets) targets.Add(t); break;
+            }
+        }
+        return targets;
+    }
+
     public static bool IsInside(IrNode node, IrNode root)
     {
         for (var current = node; current is not null; current = current.Parent)

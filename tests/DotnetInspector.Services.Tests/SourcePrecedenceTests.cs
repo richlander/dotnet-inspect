@@ -20,7 +20,7 @@ namespace DotnetInspector.Services.Tests;
 /// carries. Source order does not decide either answer.
 /// </para>
 /// <para>
-/// Ordering was previously precedence for <c>--latest-version</c> alone, which meant a feed
+/// Ordering was previously precedence for the fresh latest projection alone, which meant a feed
 /// appended after nuget.org could not raise the answer for a package nuget.org also carried. That
 /// silently hid exactly what a private feed exists to publish, and it disagreed with both
 /// <c>--versions</c> and wildcard resolution in this same file. NuGet has no such rule either:

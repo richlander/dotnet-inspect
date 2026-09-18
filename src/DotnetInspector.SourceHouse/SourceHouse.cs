@@ -1215,6 +1215,12 @@ public static class SourceHouse
                                 or InvalidOperationException)
                         {
                             string detail = ExceptionDetail(exception);
+                            string code = exception switch
+                            {
+                                CSharpTextComplexityException => "SourceTooComplex",
+                                InvalidMemberTextCoordinatesException => "InvalidSequencePointCoordinates",
+                                _ => "SourceExtractionFailed",
+                            };
                             attempts.Add(
                                 Attempt(
                                     capability,
@@ -1222,11 +1228,11 @@ public static class SourceHouse
                                     bytes.Length,
                                     verification,
                                     new(
-                                        "MemberSlicingFailed",
+                                        code,
                                         detail)));
                             observedFailure ??= new(
                                 SourceHouseFailureStage.SourceSlicing,
-                                "MemberSlicingFailed",
+                                code,
                                 detail);
                             continue;
                         }
@@ -1398,21 +1404,15 @@ public static class SourceHouse
             return true;
 
         ApiType type = types[0];
-        int matches = 0;
-        foreach (ApiMember candidate in type.Members.Concat(
-            type.Members.SelectMany(
-                owner => ApiMemberAccessors.Create(owner, type))))
-        {
-            if (candidate.MetadataToken
+        // An explicit accessor can appear as both a physical method and an
+        // accessor projection; the same token and anchor still name one target.
+        return type.Members.Concat(
+                type.Members.SelectMany(
+                    owner => ApiMemberAccessors.Create(owner, type)))
+            .Any(candidate => candidate.MetadataToken
                     == memberTarget.MetadataToken
                 && ApiMemberIdentity.GetMemberAnchor(type, candidate)
-                    == memberTarget.Member)
-            {
-                matches++;
-            }
-        }
-
-        return matches == 1;
+                    == memberTarget.Member);
     }
 
     private static ApiSurfaceInspectionFailure?

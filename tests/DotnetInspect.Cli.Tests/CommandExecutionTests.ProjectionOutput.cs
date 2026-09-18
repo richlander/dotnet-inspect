@@ -517,7 +517,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions", "--print")]
     [InlineData("--versions-with-feed", "--value")]
-    [InlineData("--latest-version", "--urls")]
+    [InlineData("--version", "--urls")]
     [InlineData("--tfms", "--paths")]
     [InlineData("--layout", "--print")]
     [InlineData("--content", "--value")]
@@ -525,7 +525,7 @@ public partial class CommandExecutionTests
         string lens,
         string projection)
     {
-        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+        var target = lens is "--version" or "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),
@@ -545,14 +545,14 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]
-    [InlineData("--latest-version")]
+    [InlineData("--version")]
     [InlineData("--tfms")]
     [InlineData("--layout")]
     [InlineData("--content")]
     public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
         string lens)
     {
-        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+        var target = lens is "--version" or "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),
@@ -628,6 +628,41 @@ public partial class CommandExecutionTests
                 "library", "--platform", "System.Text.Json",
                 "--il-offsets", path,
                 "--json", "--columns", "Member", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires lowered JSON", error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_LibraryCoordinateFileFailsClosed()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            "sample 0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                path,
+                "--platform",
+                "System.Text.Json",
+                "--json",
+                "--columns",
+                "Member",
+                "--tips",
+                "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);

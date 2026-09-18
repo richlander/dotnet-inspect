@@ -133,43 +133,29 @@ public partial class PackageCommand
                     "integration_type",
                     "look_for",
                 ]),
+            new(
+                IntegrationSectionNames.Integrations,
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    "Integration",
+                    "Kind",
+                    "Shape",
+                    "Symbol",
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    "integration",
+                    "kind",
+                    "shape",
+                    "symbol",
+                ]),
         };
-        schemas.AddRange(
-            LibraryIntegrationCatalog.All.Select(descriptor =>
-                new AllLibrariesRowSchema(
-                    descriptor.SectionName,
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "API",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "api",
-                    ],
-                    [
-                        "Package",
-                        "Version",
-                        "Library",
-                        "TFM",
-                        "Kind",
-                        "Type",
-                    ],
-                    [
-                        "package",
-                        "version",
-                        "library",
-                        "tfm",
-                        "kind",
-                        "type",
-                    ])));
         return schemas;
     }
 
@@ -552,7 +538,7 @@ public partial class PackageCommand
     {
         List<string> conflicts = [];
         if (options.ExplicitVersion != null) conflicts.Add("--version");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
@@ -628,7 +614,7 @@ public partial class PackageCommand
             List<string> conflicts = [];
             if (options.ListLayout) conflicts.Add("--layout");
             if (options.ListTfms) conflicts.Add("--tfms");
-            if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+            if (options.ListVersions) conflicts.Add("--versions/--version");
             if (options.ShowDependencies) conflicts.Add("--dependencies");
             if (options.PackageLibrary != null) conflicts.Add("--library");
             if (options.AllLibraries) conflicts.Add("--all-libraries");

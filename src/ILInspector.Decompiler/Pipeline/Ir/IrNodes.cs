@@ -4997,6 +4997,59 @@ public sealed class StoreIndirect : IrNode
     public override string Describe() => $"StoreIndirect {Type?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
 }
 
+/// <summary>
+/// An unchecked integer pointer-element update. Evaluate pointer and index once,
+/// read the selected location, evaluate Value, then write the result to that location.
+/// </summary>
+public sealed class PointerElementCompoundAssignment : IrNode
+{
+    public PointerElementCompoundAssignment(
+        TypeRef elementType, BinaryKind operation, IrExpression pointer, IrExpression index, IrExpression value)
+    {
+        ElementType = elementType;
+        Operation = operation;
+        AddChild(pointer);
+        AddChild(index);
+        AddChild(value);
+    }
+
+    public TypeRef ElementType { get; }
+    public BinaryKind Operation { get; }
+    public IrExpression Pointer => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public IrExpression Value => (IrExpression)Children[2];
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe() => $"PointerElementCompoundAssignment {ElementType.ToDisplayString()} {Operation}";
+}
+
+public enum PointerUpdateKind { Add, Subtract, Increment, Decrement }
+
+/// <summary>A decided pointer-place read, element displacement, and write, in that evaluation order.</summary>
+public sealed class PointerCompoundAssignment : IrNode
+{
+    public PointerCompoundAssignment(
+        TypeRef pointerType, PointerUpdateKind kind, bool isChecked,
+        IrExpression target, IrExpression index, MethodRef? setter = null)
+    {
+        PointerType = pointerType;
+        Kind = kind;
+        IsChecked = isChecked;
+        Setter = setter;
+        AddChild(target);
+        AddChild(index);
+    }
+
+    public TypeRef PointerType { get; }
+    public PointerUpdateKind Kind { get; }
+    public bool IsChecked { get; }
+    public MethodRef? Setter { get; }
+    public IrExpression Target => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => [PointerType];
+    public override string Describe() => $"PointerCompoundAssignment {Kind}{(IsChecked ? " checked" : "")}";
+}
+
 /// <summary>initobj: default-initialize the storage at an address.</summary>
 public sealed class CopyBlock : IrNode
 {

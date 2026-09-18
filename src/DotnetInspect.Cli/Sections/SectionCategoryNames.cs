@@ -41,6 +41,12 @@ public static class SectionCategoryNames
     /// </summary>
     public const string Vocabulary = "@Vocabulary";
 
+    /// <summary>
+    /// Product-configured knowledge available on the selected ecosystem route.
+    /// This is the ecosystem command's base category.
+    /// </summary>
+    public const string Ecosystem = "@Ecosystem";
+
     /// <summary>Vocabularies consumed by API type and member queries.</summary>
     public const string Api = "@API";
 
@@ -88,11 +94,11 @@ public static class SectionCategoryNames
     public const string Context = "@Context";
 
     /// <summary>
-    /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members
-    /// plus <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose
-    /// applicability is a capability predicate, each member's applicability is evidence-based
-    /// (a cheap reference probe), so the whole category hyper-subscribes away for a library
-    /// with no integrations.
+    /// Ecosystem integration sections. At library scope these are observed <c>Integrations</c> plus
+    /// <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose applicability
+    /// is a capability predicate, each member's applicability is evidence-based (a cheap
+    /// reference probe), so the whole category hyper-subscribes away for a library with no
+    /// integrations.
     /// </summary>
     public const string Integrations = "@Integrations";
 

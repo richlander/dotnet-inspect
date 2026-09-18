@@ -748,7 +748,8 @@ comparison capability is created by relocating the command.
 
 ### Target requests
 
-These are proposed examples, not currently executable new syntax:
+Except for the package version Count example, these are proposed examples and
+not currently executable new syntax:
 
 ```bash
 # Compare Libraries acquired from two package versions
