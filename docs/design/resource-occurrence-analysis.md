@@ -196,10 +196,13 @@ an ArrayPool compatibility requirement.
 
 `MethodBodyAnalysisContext` already provides one operation-local body context
 to focused Analysis producers. `LibraryBodyAnalysisService` already coordinates
-selected producers over an exact path or caller-owned immutable image and
-returns detached `LibraryBodyIndex` evidence. Resource Occurrence Analysis
-follows those boundaries rather than creating another assembly service or
-moving execution into the result.
+selected producers over an exact path or caller-owned immutable image. Its
+current `LibraryBodyIndex` return is a temporary compatibility shape for
+unmigrated consumers; the target service publication is explicitly named,
+owner-typed results. Resource Occurrence Analysis follows the service's
+execution and lifetime boundaries, not its compatibility result shape, and
+publishes `ResourceOccurrenceAnalysisResult` rather than extending
+`LibraryBodyIndex`.
 
 Resolved Resource Effects already preserve exact physical invocation identity,
 bound resource kinds, source declarations, authority evidence, and visible
