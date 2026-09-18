@@ -591,12 +591,22 @@ public partial class CommandExecutionTests
                 "--rows", "2..",
                 "--paths",
                 "--tips", "q");
+            var shorthand = await RunAppAsync(
+                "package", packagePath,
+                "--path", "skills/*/SKILL.md",
+                "-1", "--tail",
+                "--paths",
+                "--tips", "q");
+
             Assert.Equal(0, alias.Exit);
             Assert.Empty(alias.Error);
             Assert.Equal("README.md", alias.Output.Trim());
             Assert.Equal(0, path.Exit);
             Assert.Empty(path.Error);
             Assert.Equal(secondSkill, path.Output.Trim());
+            Assert.Equal(0, shorthand.Exit);
+            Assert.Empty(shorthand.Error);
+            Assert.Equal(secondSkill, shorthand.Output.Trim());
         }
         finally
         {
