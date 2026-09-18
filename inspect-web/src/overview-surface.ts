@@ -16,6 +16,7 @@ export interface OverviewSurfaceOptions {
 
 export interface PackageOverviewContentOptions {
   inventoryHtml: string;
+  packageInfoHtml: string;
   comparisonHtml: string;
   documentsHtml: string;
 }
@@ -31,6 +32,7 @@ export function renderPackageOverviewContent(
   return `<div class="package-overview-content">
     <div class="package-overview-inventory">${options.inventoryHtml}</div>
     <aside class="package-overview-resources" aria-label="Package resources">
+      ${options.packageInfoHtml}
       ${options.documentsHtml}
       ${options.comparisonHtml}
     </aside>

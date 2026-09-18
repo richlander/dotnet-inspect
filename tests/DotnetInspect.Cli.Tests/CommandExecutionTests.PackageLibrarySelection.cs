@@ -1,3 +1,5 @@
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using System.IO.Compression;
 
@@ -64,6 +66,27 @@ public partial class CommandExecutionTests
                 "--tsv", "--columns", "Name",
                 "--rows", "1",
                 "--tips", "q");
+            var producerOnly = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "References",
+                "--tsv", "--columns", "Library",
+                "--rows", "1",
+                "--tips", "q");
+            var fieldOnly = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--tsv", "--columns", "Field",
+                "--rows", "1",
+                "--tips", "q");
+            var valueOnly = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--tsv", "--columns", "Value",
+                "--rows", "1",
+                "--tips", "q");
 
             Assert.Equal(0, markdown.Exit);
             Assert.StartsWith(
@@ -118,6 +141,43 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "lib/net10.0/Latest.One.dll",
                 projected.Output);
+
+            Assert.Equal(0, producerOnly.Exit);
+            Assert.Empty(producerOnly.Error);
+            string[] producerLines = producerOnly.Output
+                .ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("library", producerLines[0]);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll",
+                producerLines);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll",
+                producerLines);
+
+            Assert.Equal(0, fieldOnly.Exit);
+            Assert.Empty(fieldOnly.Error);
+            Assert.StartsWith(
+                "library\tfield\n",
+                fieldOnly.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll\t",
+                fieldOnly.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll\t",
+                fieldOnly.Output);
+
+            Assert.Equal(0, valueOnly.Exit);
+            Assert.Empty(valueOnly.Error);
+            Assert.StartsWith(
+                "library\tvalue\n",
+                valueOnly.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll\t",
+                valueOnly.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll\t",
+                valueOnly.Output);
         }
         finally
         {
@@ -295,6 +355,36 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task PackageAllLibraries_CountRejectsSelectedInspectionFailure()
+    {
+        var options = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+        };
+        var inspection = FailedResourceTriageInspection();
+        bool rejected = false;
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => rejected =
+                LibraryCommand.RejectIncompleteAggregateCount(
+                    [inspection],
+                    options,
+                    participantIncomplete: false));
+
+        Assert.True(rejected);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Contains(
+            "Count output is unavailable because one or more "
+            + "selected package Libraries could not be inspected.",
+            error);
     }
 
     [Fact]

@@ -168,13 +168,23 @@ public class LibraryCommand
             return 1;
         }
         var assemblyPath = options.AssemblyName;
+        bool aggregatePackageSelection =
+            assemblyPath is { Length: 0 }
+            && !string.IsNullOrEmpty(options.PackagePath);
         var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
         var groupQueryCatalog = catalog.GroupQueryCatalog;
 
-        var schemaMap = CreateStructuralSchema();
+        var schemaMap = aggregatePackageSelection
+            ? PackageCommand.PackageAllLibrariesDiscoverySchema(
+                options.Count
+                    ? StructuralOutputShape.Count
+                    : options.TabularExplicitlySet
+                        ? StructuralOutputShape.Rows
+                        : StructuralOutputShape.Document)
+            : CreateStructuralSchema();
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -926,8 +936,6 @@ public class LibraryCommand
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
-                bool aggregatePackageSelection =
-                    assemblyPath is { Length: 0 };
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath, options.PackagePath, options.Tfm,
                     aggregatePackageSelection,
@@ -1125,18 +1133,24 @@ public class LibraryCommand
                     CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
-                if (aggregatePackageSelection
-                    && options.Count
-                    && (libraryInspectionIncomplete
-                        || collection.IdentifierAuditFailures.Count > 0
-                        || descriptorSelectionExitCode != 0))
+                if (aggregatePackageSelection && options.Count)
                 {
-                    PackageCommand.WriteIdentifierAuditFailures(
-                        collection.IdentifierAuditFailures);
-                    CommandError.Write(
-                        "Count output is unavailable because one or more "
-                        + "selected package Libraries could not be inspected.");
-                    return 1;
+                    bool participantIncomplete =
+                        libraryInspectionIncomplete
+                        || collection.IdentifierAuditFailures.Count > 0
+                        || descriptorSelectionExitCode != 0;
+                    if (participantIncomplete)
+                    {
+                        PackageCommand.WriteIdentifierAuditFailures(
+                            collection.IdentifierAuditFailures);
+                    }
+                    if (RejectIncompleteAggregateCount(
+                            inspections,
+                            options,
+                            participantIncomplete))
+                    {
+                        return 1;
+                    }
                 }
 
                 foreach (var insp in inspections)
@@ -1487,6 +1501,31 @@ public class LibraryCommand
         })
             ? 1
             : 0;
+    }
+
+    internal static bool RejectIncompleteAggregateCount(
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options,
+        bool participantIncomplete)
+    {
+        if (!options.Count)
+            return false;
+
+        var selectedFailures =
+            SelectedInspectionFailures(inspections, options);
+        if (!participantIncomplete
+            && selectedFailures.Count == 0)
+        {
+            return false;
+        }
+
+        WriteInspectionFailureWarnings(
+            inspections.Count,
+            selectedFailures);
+        CommandError.Write(
+            "Count output is unavailable because one or more "
+            + "selected package Libraries could not be inspected.");
+        return true;
     }
 
     private static bool RejectFailedExactIdentifierAudit(
@@ -3558,15 +3597,9 @@ public class LibraryCommand
                 .Select(failure => (Inspection: pair.First, Failure: failure)))
             .DistinctBy(entry => (entry.Inspection, entry.Failure))
             .ToList();
-        foreach (var (inspection, failure) in relevantFailures)
-        {
-            var prefix = inspections.Count > 1
-                ? LibraryViewText.DocumentTitle(inspection) + ": "
-                : string.Empty;
-            CommandError.WriteWarning(
-                $"{prefix}{failure.Section} inspection failed "
-                + $"({failure.Finding}): {failure.Reason}");
-        }
+        WriteInspectionFailureWarnings(
+            inspections.Count,
+            relevantFailures);
 
         var unexplained = empty
             .Where(section => !relevantFailures.Any(
@@ -3712,6 +3745,50 @@ public class LibraryCommand
                && section.Equals(
                    IntegrationSectionNames.Integrations,
                    StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<(
+        LibraryInspection Inspection,
+        LibraryInspectionFailureJson Failure)> SelectedInspectionFailures(
+            IReadOnlyList<LibraryInspection> inspections,
+            LibraryOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return [];
+
+        return
+        [
+            .. inspections
+                .SelectMany(inspection =>
+                    (inspection.InspectionFailures ?? [])
+                        .Where(failure => sections.Any(section =>
+                            FailureAffectsSection(
+                                failure.Section,
+                                section)))
+                        .Select(failure => (
+                            Inspection: inspection,
+                            Failure: failure)))
+                .DistinctBy(entry => (
+                    entry.Inspection,
+                    entry.Failure)),
+        ];
+    }
+
+    private static void WriteInspectionFailureWarnings(
+        int inspectionCount,
+        IEnumerable<(
+            LibraryInspection Inspection,
+            LibraryInspectionFailureJson Failure)> failures)
+    {
+        foreach (var (inspection, failure) in failures)
+        {
+            var prefix = inspectionCount > 1
+                ? LibraryViewText.DocumentTitle(inspection) + ": "
+                : string.Empty;
+            CommandError.WriteWarning(
+                $"{prefix}{failure.Section} inspection failed "
+                + $"({failure.Finding}): {failure.Reason}");
+        }
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)

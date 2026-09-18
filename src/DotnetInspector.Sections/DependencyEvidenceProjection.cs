@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
@@ -81,7 +82,7 @@ public sealed record DependencyEvidenceRootRow(
     string? PackageId,
     string? PackageVersion,
     PackageManifestIdentityProvenance? IdentityProvenance,
-    PackageSourceResultIdentity? Source,
+    PackageDependencyEvidenceSourceIdentity? Source,
     string? ContentDigest,
     RestoredProjectSelectionIdentity? RestoredSelection,
     DependencyEvidenceDeclarationState DeclarationState,
@@ -172,11 +173,12 @@ public sealed record DependencyEvidenceFailureRow(
     PackageDependencyEvidenceRootIdentity? RootIdentity,
     PackageDependencyEvidenceGroupIdentity? Group,
     int? GroupIndex,
-    PackageSourceResultIdentity? Source,
+    PackageDependencyEvidenceSourceIdentity? Source,
     InertString? Subject,
     string? PackageId,
     string? PackageVersion,
     InertString? SourceLabel,
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
     InertString Message,
     int Occurrences,
     string? EvidenceIdentity = null);
@@ -615,7 +617,7 @@ public sealed record DependencyEvidenceProjection(
                     profile.PackageId,
                     profile.Coordinate?.PackageId,
                     profile.Coordinate?.Version,
-                    profile.Source.Producer.Display,
+                    profile.Source.ProducerDisplay,
                     profile.Message,
                     1),
             PackageDependencyEvidenceRootFailure.Acquisition acquisition =>
@@ -830,7 +832,7 @@ public sealed record DependencyEvidenceProjection(
             : throw new InvalidOperationException(
                 "The current CLI restored-graph projection requires a restored-project failure.");
 
-    private static PackageSourceResultIdentity? RootSource(
+    private static PackageDependencyEvidenceSourceIdentity? RootSource(
         PackageDependencyEvidenceRoot root) =>
         (root.Provenance as PackageDependencyEvidenceRootProvenance.Package)?.Source;
 

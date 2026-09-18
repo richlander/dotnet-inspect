@@ -18,7 +18,8 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 
 internal sealed class ProducerLibraryTableFormatter(
     IMarkoutFormatter inner,
-    string library) : IMarkoutFormatter, ITableFormatter
+    string library,
+    string[]? projectedColumns) : IMarkoutFormatter, ITableFormatter
 {
     public void FormatTable(
         TextWriter writer,
@@ -47,6 +48,40 @@ internal sealed class ProducerLibraryTableFormatter(
             rowWithLibrary[0] = library;
             row.CopyTo(rowWithLibrary, 1);
             rowsWithLibrary.Add(rowWithLibrary);
+        }
+
+        if (projectedColumns is { Length: > 0 })
+        {
+            var projection = MarkoutProjection.WithColumns(projectedColumns);
+            if (!projection.TryResolveColumns(
+                    headersWithLibrary,
+                    out ColumnProjectionResolution resolution))
+            {
+                return;
+            }
+
+            int[] selectedColumns =
+            [
+                0,
+                .. resolution.ColumnMap
+                    .Where(static index => index != 0)
+                    .Distinct(),
+            ];
+            bool producerSelected =
+                resolution.ColumnMap.Contains(0);
+            if (!producerSelected && selectedColumns.Length == 1)
+                return;
+
+            headersWithLibrary =
+            [
+                .. selectedColumns.Select(
+                    index => headersWithLibrary[index]),
+            ];
+            rowsWithLibrary =
+            [
+                .. rowsWithLibrary.Select(row =>
+                    selectedColumns.Select(index => row[index]).ToArray()),
+            ];
         }
 
         tableFormatter.FormatTable(
@@ -780,7 +815,8 @@ public static class OutputFormatter
                 : new ProducerLibraryTableFormatter(
                     formatter,
                     LibraryViewText.Contain(producerLibrary)
-                        ?? string.Empty);
+                        ?? string.Empty,
+                    options.Columns);
 
         // The metadata lens owns its own tabular rendering for the same reason it owns its
         // Markdown rendering: per-table column shapes have no static row type for Markout to bind.
@@ -1001,6 +1037,8 @@ public static class OutputFormatter
                     {
                         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                         var writerOpts = WriterOptions(inspection);
+                        writerOpts.Projection =
+                            BuildProjection(fields: options.Fields);
                         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                         WriteLibraryTabular(
                             auditView,
