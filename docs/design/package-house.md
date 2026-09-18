@@ -63,14 +63,22 @@ The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
 composition now supplies only the configured House and source operation.
 Requested `--verbose` source-fetch progress still flows to stderr through the
 settlement's optional discovery callback.
+Online ordinary `package Package --versions` queries consume a separate shared
+`PackageVersionListingInspection` envelope over PackageHouse listing
+settlement. The House result preserves authoritative or partial Package Source
+discovery, while the inspection detaches version rows, source rows, typed
+failures, and diagnostics for CLI projection. Raw listing may publish
+usable partial rows because it selects no coordinate; source failures remain
+visible and cannot become authoritative absence. Inspect Web's
+`BrowserPackageVersionInventory` is the planned second host adopter under
+[#7530](https://github.com/richlander/dotnet-inspect/issues/7530).
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
 existing latest-settlement, source-failure, listing, and rendering cases preserve
 neighboring behavior.
-This is payload-free adoption: ordinary version listings, CLI pinned and range
-queries, offline behavior, and package-content/Workspace
-adoption remain separate slices.
+This is payload-free adoption: CLI pinned queries, offline behavior, and
+package-content/Workspace adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
@@ -293,6 +301,65 @@ edge realization owned by #6424: the supplied target remains the operation
 target, and no traversal occurrence or originating target correspondence is
 inferred.
 
+## Version-listing settlement
+
+[#7530](https://github.com/richlander/dotnet-inspect/issues/7530) adds one
+resource-free PackageHouse operation for raw configured-source version
+listing. This is not a `PackageHouseDemand`: a raw listing preserves a
+population and may disclose partial evidence without selecting or authorizing
+one exact coordinate.
+
+`PackageHouseVersionListingRequest` retains one canonical package ID, one
+`Settle` operation, the explicit prerelease and unlisted policies, and an
+optional caller association. PackageHouse consumes one deadline-matched
+`PackageSourceOperationLease`, applies the host-authorized source plan, and
+requests version discovery with those exact policies and no source-side result
+limit. It acquires no manifest, payload, store, Library, or Workspace
+participant.
+
+The closed result family preserves the exact request, completed discovery when
+one exists, and operation-corresponding House failures:
+
+- `Available` retains authoritative or partial discovery that can safely
+  publish raw rows;
+- `NotFound` requires authoritative discovery in which no configured authority
+  observed the package;
+- `Incomplete`, `Rejected`, `Unavailable`, and `Failed` preserve their existing
+  Package Source terminal distinctions and publish no listing rows.
+
+An authoritative package whose versions are all excluded by the requested
+prerelease or listing policy is an available empty listing, not package
+absence. Partial discovery may produce available rows because raw listing
+chooses no coordinate, but every lower-owner failure remains attached and the
+result cannot claim authoritative absence. A failed discovery never becomes an
+available empty listing. Operation timeout remains terminal and caller
+cancellation produces no result.
+
+`PackageVersionListingInspection` projects the House result into
+`InspectionEnvelope<PackageVersionListingOutcome>`. Available Content retains
+the normalized request, authoritative-or-partial completeness, ordered
+deduplicated version rows, and per-authority source rows. Typed non-success
+retains inert reason text, operation timeout, and credential-safe authority
+failures. Available source failures become ordered diagnostics rather than
+disappearing or invalidating usable raw rows.
+
+CLI `package Package --versions`, `--versions-with-feed`,
+`--include-unlisted`, and Count are the first production adopter. Existing
+human, JSON, JSONL, and TSV output remains a host projection. Explicit
+`--envelope` publishes the complete detached listing Content. Count is a
+terminal projection over the selected version or version/source collection:
+ordinary `--count` and `--count --json` emit the scalar, while `--count
+--envelope` makes the same scalar the Content of an
+`InspectionEnvelope<int>`. Listing Content has no redundant Count property.
+
+The second planned adopter is Inspect Web's
+`BrowserPackageVersionInventory`, which will consume the same House listing
+evidence while retaining Browser-owned current-version insertion and
+previous-version presentation. That follow-on retires its direct Gallery
+version-result input. Exact pinned verification, latest selection, range
+vectors and cells, offline queries, and payload acquisition remain outside
+this listing operation.
+
 ## Version-population settlement
 
 [#7115](https://github.com/richlander/dotnet-inspect/issues/7115) adds one
@@ -488,6 +555,33 @@ compile-to-implementation pairing. Its result must retain available slices
 even when the selected projection is empty or unsuccessful. PackageHouse does
 not select a namesake or representative assembly: every selected asset remains
 available for a later Library-focused consumer.
+
+The selected-slice measurement projection joins only evidence from that same
+acquisition generation and compile selection receipt. It reports:
+
+- the retained compressed package archive length;
+- the selected framework and available compile-slice count;
+- one uncompressed payload length for every selected compile asset; and
+- the selected Library count and sum of those payload lengths.
+
+One selected compile asset represents one Library measurement. When the
+selector supplies a distinct implementation counterpart, including a
+RID-specific implementation, its package-entry length is the Library payload
+length. Otherwise the selected compile asset supplies the length. The
+projection never adds both the reference and implementation entry, substitutes
+an unrelated runtime asset, chooses a representative assembly, or includes an
+unselected framework slice.
+
+Measured, selected-empty, no-slice, no-applicable-slice, invalid-selection,
+House-failure, and unavailable-measurement outcomes remain distinct.
+Selected-empty retains package and slice measurements with zero selected
+Library entries; it is not collapsed with a missing or rejected selection.
+When archive length is available, no-slice, no-applicable-slice, and invalid
+selection outcomes retain the package-level measurements even though they
+cannot produce selected-slice measurements.
+The completed projection is resource-free and retains the acquisition and
+selection receipts that establish its package generation and policy
+correspondence.
 
 An operation that wants multiple framework slices issues separately associated
 package-local selections and reports them as separate projections. It does not
@@ -1276,6 +1370,7 @@ them.
 | Source result independence | House results, decisions, candidates, evidence, receipts, and acquired payloads retain no operation lease or live source authority. |
 | Source capability ownership | Releasing an operation or settling its root does not dispose caller-owned clients, stores, or retained payload content. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
+| Version listing | Raw listing preserves authoritative or partial source evidence, publishes usable partial rows with failures disclosed, requires authoritative evidence for package absence, and never acquires payloads. |
 | Version population | One complete metadata-only discovery serves multiple exact population cells without rediscovery; cells preserve reporting authorities, require their exact vector address, use fresh operations, and reject another Package Source root generation. |
 | Pruning order | `KnownPlatformPackageAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
@@ -1284,6 +1379,7 @@ them.
 | Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
 | Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
+| Selected-slice measurements | Multi-Library selection measures the retained archive and exactly one owner-paired payload entry per selected compile asset, including RID-specific implementation preference. Selected-empty, no-slice, no-applicable-slice, invalid-selection, House-failure, and unavailable entry-manifest outcomes remain typed and retain the acquisition and selection receipts. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
 | Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |

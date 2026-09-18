@@ -36,6 +36,8 @@ export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | 
 
 export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
 
+export type CandidateOpenFailureKind = number;
+
 export type ExactTypeInspectionFailureKind = number;
 
 export type ExactTypeInspectionOutcome = number;
@@ -59,10 +61,6 @@ export interface AssemblyContextSubject {
   readonly provenance: AssemblyResolutionProvenance;
 }
 
-export interface AssemblyContextTypeDependencyEntry {
-  readonly subject: AssemblyContextSubject;
-}
-
 export interface AssemblyContextTypeDependencyResult {
   readonly dependency: TypeDependencyResult;
   readonly participants: ReadonlyArray<AssemblyContextTypeDependencyEntry>;
@@ -75,9 +73,6 @@ export interface AssemblyReferenceIdentity {
   readonly version: string | null;
   readonly culture: string | null;
   readonly publicKeyToken: string | null;
-}
-
-export interface AssemblyResolutionProvenance {
 }
 
 export interface BrowserAssemblyMetadata {
@@ -493,6 +488,12 @@ export interface BrowserTypeSurface {
   readonly platformPack: string | null;
 }
 
+export interface CandidateOpenFailure {
+  readonly kind: CandidateOpenFailureKind;
+  readonly detail: string;
+  readonly metadataRootReason: MetadataRootMalformedReason | null;
+}
+
 export interface ExactTypeApi {
   readonly fullName: string;
   readonly namespace: string | null;
@@ -587,11 +588,6 @@ export interface InspectionEnvelope<T0> {
   readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
-export interface InspectionShare {
-  readonly fullUrl: string | null;
-  readonly packet: string | null;
-}
-
 export interface RowWindowFailure {
   readonly stageNumber: number;
   readonly requiredPosition: number;
@@ -645,6 +641,77 @@ export interface TypeDependencySectionResult {
   readonly queryResult: AssemblyContextTypeDependencyResult;
   readonly rowSelection: TypeDependencyRowSelectionResult;
 }
+
+export interface Completed {
+  readonly kind: "completed";
+  readonly subject: AssemblyContextSubject;
+}
+
+export interface Rejected {
+  readonly kind: "rejected";
+  readonly subject: AssemblyContextSubject;
+  readonly failure: CandidateOpenFailure;
+}
+
+export type AssemblyContextTypeDependencyEntry = Completed | Rejected;
+
+export interface DesignatedAsset {
+  readonly kind: "designated";
+  readonly resolverSource: string;
+}
+
+export interface EmbeddedAsset {
+  readonly kind: "embedded";
+  readonly contentRef: string;
+  readonly digest: string;
+  readonly declaredName: string;
+}
+
+export interface LocalAsset {
+  readonly kind: "local";
+  readonly resolverSource: string;
+}
+
+export interface PackageAsset {
+  readonly kind: "package";
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly tfm: string | null;
+  readonly rid: string | null;
+  readonly assetPath: string | null;
+}
+
+export interface PlatformAsset {
+  readonly kind: "platform";
+  readonly framework: string;
+  readonly frameworkVersion: string | null;
+  readonly resolverSource: string;
+}
+
+export interface ProjectAsset {
+  readonly kind: "project";
+  readonly project: string;
+  readonly tfm: string | null;
+  readonly rid: string | null;
+}
+
+export type AssemblyResolutionProvenance = PackageAsset | PlatformAsset | ProjectAsset | LocalAsset | EmbeddedAsset | DesignatedAsset;
+
+export interface Available {
+  readonly kind: "available";
+  readonly fullUrl: string;
+  readonly packet: string;
+}
+
+export interface NonProjectable {
+  readonly kind: "nonProjectable";
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string;
+  readonly reason: InertString;
+}
+
+export type InspectionShare = Available | NonProjectable;
 
 type $ManagedExports = {
   readonly "DotnetInspect": {
