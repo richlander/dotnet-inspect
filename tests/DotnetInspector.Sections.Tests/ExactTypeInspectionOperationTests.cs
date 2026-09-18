@@ -15,7 +15,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Sections.Tests;
 
-public sealed class ExactTypeInspectionOperationTests
+public sealed partial class ExactTypeInspectionOperationTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
     const string PackageId = "dotnet-inspector.sections.test";
