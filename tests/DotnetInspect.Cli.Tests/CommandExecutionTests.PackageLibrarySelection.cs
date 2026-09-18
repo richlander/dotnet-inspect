@@ -872,6 +872,87 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task ToolPointerPackageReferenceDoesNotSubstitutePayloadPackage()
+    {
+        const string Source = "https://tool-wrapper.test/v3/index.json";
+        var (packagePath, _, tempDir) = CreateLocalToolPackageSet();
+        string payloadPath =
+            Path.Combine(tempDir, "Test.Tool.any.1.0.0.nupkg");
+        byte[] pointerArchive = await File.ReadAllBytesAsync(
+            packagePath,
+            TestContext.Current.CancellationToken);
+        byte[] payloadArchive = await File.ReadAllBytesAsync(
+            payloadPath,
+            TestContext.Current.CancellationToken);
+        List<string> requests = [];
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetPackageSourceHandlerForTesting(
+                _ => new ToolPackageFeedHandler(
+                    Source,
+                    pointerArchive,
+                    payloadArchive,
+                    requests));
+        DotnetInspector.Networking.HttpClientFactory
+            .SetAuthenticationDecorator(
+                _ => new ToolPackageFeedHandler(
+                    Source,
+                    pointerArchive,
+                    payloadArchive,
+                    requests));
+        try
+        {
+            var results = new[]
+            {
+                await RunAppAsync(
+                    "library", "--package", "Test.Tool@1.0.0",
+                    "--source", Source,
+                    "-S", "Library Info"),
+                await RunAppAsync(
+                    "package", "Test.Tool@1.0.0",
+                    "--source", Source,
+                    "-S", "Library Info"),
+            };
+
+            foreach (var result in results)
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.True(
+                    result.Error.Contains(
+                        "Package 'Test.Tool' has no selected compile libraries",
+                        StringComparison.OrdinalIgnoreCase),
+                    result.Error + Environment.NewLine
+                        + string.Join(Environment.NewLine, requests));
+                Assert.DoesNotContain(
+                    "Test.Tool.any",
+                    result.Error,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            Assert.Contains(
+                requests,
+                request => request.EndsWith(
+                    "/test.tool/1.0.0/test.tool.1.0.0.nupkg",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                requests,
+                request => request.EndsWith(
+                    "/test.tool.any/1.0.0/test.tool.any.1.0.0.nupkg",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory
+                .SetPackageSourceHandlerForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--all-libraries")]
     [InlineData("--all-libraries=false")]

@@ -3639,6 +3639,11 @@ public class LibraryCommand
             return null;
         }
         var resolution = outcome.Result!;
+        if (RejectToolWrapperLowerSubject(resolution))
+        {
+            PackageExtractor.Cleanup(resolution.TempDir);
+            return null;
+        }
 
         string extractPath = resolution.ExtractPath;
         string? tempDir = resolution.TempDir;
@@ -3748,6 +3753,19 @@ public class LibraryCommand
             nupkgPath,
             resolvedPackageName,
             resolvedPackageVersion);
+    }
+
+    internal static bool RejectToolWrapperLowerSubject(
+        PackageExtractionResult resolution)
+    {
+        ToolWrapperPackage? wrapper =
+            resolution.ToolWrapperChain.FirstOrDefault();
+        if (wrapper is null)
+            return false;
+
+        CommandError.Write(
+            $"Package '{wrapper.PackageName}' has no selected compile libraries.");
+        return true;
     }
 
     private static IReadOnlyList<PackageCompileAssetSelection>

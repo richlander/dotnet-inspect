@@ -1709,11 +1709,13 @@ public partial class CommandExecutionTests
               </RuntimeIdentifierPackages>
             </DotNetCliTool>
             """);
+        WriteToolPackageNuspec(pointerRoot, "Test.Tool");
 
         var payloadRoot = Path.Combine(tempDir, "payload");
         var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
         Directory.CreateDirectory(payloadToolsDir);
         File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        WriteToolPackageNuspec(payloadRoot, "Test.Tool.any");
 
         var ridRoot = Path.Combine(tempDir, "rid");
         var ridToolsDir = Path.Combine(ridRoot, "tools", "any", "linux-x64");
@@ -1725,6 +1727,7 @@ public partial class CommandExecutionTests
               </Commands>
             </DotNetCliTool>
             """);
+        WriteToolPackageNuspec(ridRoot, "Test.Tool.linux-x64");
 
         var pointerPackagePath = Path.Combine(tempDir, "Test.Tool.1.0.0.nupkg");
         var payloadPackagePath = Path.Combine(tempDir, "Test.Tool.any.1.0.0.nupkg");
@@ -1734,6 +1737,61 @@ public partial class CommandExecutionTests
         ZipFile.CreateFromDirectory(ridRoot, ridPackagePath);
 
         return (pointerPackagePath, ridPackagePath, tempDir);
+
+        static void WriteToolPackageNuspec(
+            string packageRoot,
+            string packageId)
+        {
+            File.WriteAllText(
+                Path.Combine(packageRoot, $"{packageId}.nuspec"),
+                $$"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>{{packageId}}</id>
+                    <version>1.0.0</version>
+                    <authors>tests</authors>
+                    <description>test tool package</description>
+                  </metadata>
+                </package>
+                """);
+        }
+    }
+
+    private sealed class ToolPackageFeedHandler(
+        string source,
+        byte[] pointerArchive,
+        byte[] payloadArchive,
+        List<string> requests) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            requests.Add(url);
+            string flat =
+                new Uri(new Uri(source), "flat2/").AbsoluteUri;
+            HttpContent content = url switch
+            {
+                _ when url == source => new StringContent($$"""
+                    {"version":"3.0.0","resources":[
+                      {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                    ]}
+                    """),
+                _ when url == $"{flat}test.tool/1.0.0/test.tool.1.0.0.nupkg" =>
+                    new ByteArrayContent(pointerArchive),
+                _ when url == $"{flat}test.tool.any/1.0.0/test.tool.any.1.0.0.nupkg" =>
+                    new ByteArrayContent(payloadArchive),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected tool package request: {url}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+                RequestMessage = request,
+            });
+        }
     }
 
     public CommandExecutionTests()

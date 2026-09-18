@@ -1078,6 +1078,14 @@ public partial class PackageCommand
                     options);
             }
 
+            if ((options.AggregateLibraries
+                    || options.PackageLibrary != null
+                    || options.NamesakeLibrary)
+                && LibraryCommand.RejectToolWrapperLowerSubject(resolution))
+            {
+                return 1;
+            }
+
             if (options.AggregateLibraries)
             {
                 return await ExecutePackageAggregateLibrariesAsync(
