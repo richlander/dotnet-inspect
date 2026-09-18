@@ -44,9 +44,28 @@ public sealed partial class PackagePlatformSource
         PackageReferencePopulationDemand population,
         PackageReferenceWorkBudget work,
         PackageSourceOperationLease operation)
+        => RealizeAsync(
+            selection,
+            population,
+            work,
+            includeCompiledXmlDocumentation: false,
+            operation);
+
+    public Task<PackagePlatformSourceOutcome<PackageReferenceRealization>> RealizeAsync(
+        PackagePlatformTargetSelection selection,
+        PackageReferencePopulationDemand population,
+        PackageReferenceWorkBudget work,
+        bool includeCompiledXmlDocumentation,
+        PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        return RealizeCoreAsync(selection?.Coordinate, selection, population, work, operation);
+        return RealizeCoreAsync(
+            selection?.Coordinate,
+            selection,
+            population,
+            work,
+            includeCompiledXmlDocumentation,
+            operation);
     }
 
     /// <summary>Authorizes an exact target established outside this source's discovery.</summary>
@@ -55,9 +74,28 @@ public sealed partial class PackagePlatformSource
         PackageReferencePopulationDemand population,
         PackageReferenceWorkBudget work,
         PackageSourceOperationLease operation)
+        => RealizeAsync(
+            coordinate,
+            population,
+            work,
+            includeCompiledXmlDocumentation: false,
+            operation);
+
+    public Task<PackagePlatformSourceOutcome<PackageReferenceRealization>> RealizeAsync(
+        PackageReferencePackCoordinate coordinate,
+        PackageReferencePopulationDemand population,
+        PackageReferenceWorkBudget work,
+        bool includeCompiledXmlDocumentation,
+        PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        return RealizeCoreAsync(coordinate, null, population, work, operation);
+        return RealizeCoreAsync(
+            coordinate,
+            null,
+            population,
+            work,
+            includeCompiledXmlDocumentation,
+            operation);
     }
 
     async Task<PackagePlatformSourceOutcome<PackagePlatformTargetInventory>> DiscoverCoreAsync(
@@ -140,6 +178,7 @@ public sealed partial class PackagePlatformSource
         PackagePlatformTargetSelection? selection,
         PackageReferencePopulationDemand population,
         PackageReferenceWorkBudget work,
+        bool includeCompiledXmlDocumentation,
         PackageSourceOperationLease operation)
     {
         using (operation)
@@ -216,7 +255,7 @@ public sealed partial class PackagePlatformSource
 
                 PackagePlatformSourceOutcome<PackageReferenceRealization> outcome = await SnapshotAsync(
                     generation, coordinate, population, work, candidate, acquired,
-                    packageFailures, operation).ConfigureAwait(false);
+                    packageFailures, includeCompiledXmlDocumentation, operation).ConfigureAwait(false);
                 return outcome is PackagePlatformSourceOutcome<PackageReferenceRealization>.NotSucceeded failure
                     ? failure.WithPackageFailures(packageFailures)
                     : outcome;
@@ -254,6 +293,7 @@ public sealed partial class PackagePlatformSource
         PackageAcquisitionCandidate candidate,
         ConfiguredPackagePayloadResult acquired,
         ImmutableArray<PackageAuthorityFailure> packageFailures,
+        bool includeCompiledXmlDocumentation,
         PackageSourceOperationLease operation)
     {
         AcquiredPackageSourcePayload payload = acquired.Payload!;
@@ -273,6 +313,7 @@ public sealed partial class PackagePlatformSource
         int observed = 0;
         var paths = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var documentationPaths = new List<string>();
         foreach (string path in content.EnumerateEntries())
         {
             operation.ThrowIfExpired();
@@ -283,9 +324,26 @@ public sealed partial class PackagePlatformSource
             if (!path.StartsWith(prefix, StringComparison.Ordinal))
                 continue;
             ReadOnlySpan<char> name = path.AsSpan(prefix.Length);
-            if (name.Contains('/') || !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                || (requestedName is not null && !name.Equals(requestedName, StringComparison.OrdinalIgnoreCase)))
+            if (name.Contains('/'))
                 continue;
+            if (includeCompiledXmlDocumentation
+                && name.EndsWith(
+                    ".xml",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                documentationPaths.Add(path);
+                continue;
+            }
+            if (!name.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                || (requestedName is not null
+                    && !name.Equals(
+                        requestedName,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
             if (!seen.Add(path))
                 return Rejected<PackageReferenceRealization>(generation,
                     PackagePlatformSourceDiagnosticKind.InvalidLayout,
@@ -364,8 +422,121 @@ public sealed partial class PackagePlatformSource
                 return Rejected<PackageReferenceRealization>(generation,
                     PackagePlatformSourceDiagnosticKind.DuplicateAssemblyIdentity,
                     "The reference population contains equivalent assembly identities.");
-            libraries.Add(new(path, identity, bytes));
-            remaining -= bytes.LongLength;
+
+            PackageReferenceDocumentation? documentation = null;
+            string expectedDocumentationPath =
+                path[..^".dll".Length] + ".xml";
+            string? documentationPath = null;
+            if (includeCompiledXmlDocumentation)
+            {
+                foreach (string candidatePath
+                    in documentationPaths)
+                {
+                    if (!string.Equals(
+                            candidatePath,
+                            expectedDocumentationPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    if (documentationPath is not null)
+                    {
+                        return Rejected<
+                            PackageReferenceRealization>(
+                                generation,
+                                PackagePlatformSourceDiagnosticKind
+                                    .InvalidLayout,
+                                "Reference-pack documentation entries collide at the selected logical coordinate.");
+                    }
+                    documentationPath = candidatePath;
+                }
+            }
+            if (documentationPath is not null)
+            {
+                long documentationAllowance = Math.Min(
+                    remaining - bytes.LongLength,
+                    Limits.MaxEntryBytes);
+                if (content is IPackageContentEntryManifest
+                        documentationManifest
+                    && documentationManifest.TryGetEntryLength(
+                        documentationPath,
+                        out long documentationLength)
+                    && documentationLength > documentationAllowance)
+                {
+                    return Incomplete<PackageReferenceRealization>(
+                        generation,
+                        "A compiled-XML companion exceeds the byte allowance.");
+                }
+                if (!content.TryOpenEntry(
+                        documentationPath,
+                        documentationAllowance,
+                        out Stream? documentationStream))
+                {
+                    return Rejected<PackageReferenceRealization>(
+                        generation,
+                        PackagePlatformSourceDiagnosticKind.InvalidLayout,
+                        "A selected compiled-XML entry is missing from the retained package.");
+                }
+
+                byte[] documentationBytes;
+                await using (documentationStream)
+                {
+                    if (documentationStream.CanSeek
+                        && documentationStream.Length
+                            > documentationAllowance)
+                    {
+                        return Incomplete<
+                            PackageReferenceRealization>(
+                                generation,
+                                "A compiled-XML companion exceeds the byte allowance.");
+                    }
+                    using var documentationSnapshot =
+                        new MemoryStream();
+                    byte[] documentationBuffer =
+                        new byte[81920];
+                    while (true)
+                    {
+                        int read =
+                            await documentationStream.ReadAsync(
+                                    documentationBuffer,
+                                    operation
+                                        .OperationCancellationToken)
+                                .ConfigureAwait(false);
+                        operation.ThrowIfExpired();
+                        if (read == 0)
+                            break;
+                        if (read
+                            > documentationAllowance
+                                - documentationSnapshot.Length)
+                        {
+                            return Incomplete<
+                                PackageReferenceRealization>(
+                                    generation,
+                                    "A compiled-XML companion exceeds the observed byte allowance.");
+                        }
+                        documentationSnapshot.Write(
+                            documentationBuffer,
+                            0,
+                            read);
+                    }
+                    documentationBytes =
+                        documentationSnapshot.ToArray();
+                }
+                documentation =
+                    new PackageReferenceDocumentation(
+                        documentationPath,
+                        documentationBytes);
+            }
+
+            libraries.Add(
+                new(
+                    path,
+                    identity,
+                    bytes,
+                    documentation));
+            remaining -=
+                bytes.LongLength
+                + (documentation?.ContentLength ?? 0);
         }
 
         operation.ThrowIfExpired();

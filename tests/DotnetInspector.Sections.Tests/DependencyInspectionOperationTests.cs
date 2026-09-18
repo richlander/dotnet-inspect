@@ -316,9 +316,11 @@ public sealed class DependencyInspectionOperationTests
                 "nuget.org",
                 "https://api.nuget.org/v3/index.json"),
             PackageSourceAssociation.Create());
+        PackageDependencyEvidenceSourceIdentity evidenceSource =
+            PackageDependencyEvidenceSourceIdentity.Create(source.Source);
         var failure =
             new PackageDependencyEvidenceRootFailure.PackageProfile(
-                source.Source,
+                evidenceSource,
                 PackageProfileFailureKind.ManifestAcquisition,
                 ManifestFailureReason: null,
                 Coordinate: null,
@@ -330,7 +332,7 @@ public sealed class DependencyInspectionOperationTests
                     128));
         var prefix = new PackageDependencyEvidencePackagePrefixCompletion(
             new InertString(TextPolicy.Field, "Example"),
-            source.Source,
+            evidenceSource,
             candidates: 1,
             matches: 0,
             failures: 1,
@@ -377,9 +379,11 @@ public sealed class DependencyInspectionOperationTests
                 "nuget.org",
                 "https://api.nuget.org/v3/index.json"),
             PackageSourceAssociation.Create());
+        PackageDependencyEvidenceSourceIdentity evidenceSource =
+            PackageDependencyEvidenceSourceIdentity.Create(source.Source);
         var failure =
             new PackageDependencyEvidenceRootFailure.PackageProfile(
-                source.Source,
+                evidenceSource,
                 PackageProfileFailureKind.ManifestAcquisition,
                 ManifestFailureReason: null,
                 Coordinate: null,
@@ -532,13 +536,15 @@ public sealed class DependencyInspectionOperationTests
                 "nuget.org",
                 "https://api.nuget.org/v3/index.json"),
             PackageSourceAssociation.Create());
+        PackageDependencyEvidenceSourceIdentity evidenceSource =
+            PackageDependencyEvidenceSourceIdentity.Create(source.Source);
         ImmutableArray<PackageDependencyEvidenceRootFailure> failures =
             failedRootCount == 0
                 ? []
                 :
                 [
                     new PackageDependencyEvidenceRootFailure.PackageProfile(
-                        source.Source,
+                        evidenceSource,
                         PackageProfileFailureKind.ManifestAcquisition,
                         ManifestFailureReason: null,
                         Coordinate: null,
@@ -551,7 +557,7 @@ public sealed class DependencyInspectionOperationTests
                 ];
         var prefix = new PackageDependencyEvidencePackagePrefixCompletion(
             new InertString(TextPolicy.Field, "Example"),
-            source.Source,
+            evidenceSource,
             candidates: failedRootCount,
             matches: 0,
             failures: failedRootCount,
