@@ -37,12 +37,6 @@ public enum CompiledDocumentationRequestRejectionKind
     LeaseReferenceMismatch,
 }
 
-public enum CompiledDocumentationFailureKind
-{
-    MalformedOrUnreadableDocument,
-    ContentAccessFailed,
-}
-
 public enum CompiledDocumentationIncompleteReason
 {
     Deadline,
@@ -116,8 +110,8 @@ public sealed record CompiledDocumentationEntry(
     typeof(CompiledDocumentationOutcome.ContributionsRejected),
     "contributionsRejected")]
 [JsonDerivedType(
-    typeof(CompiledDocumentationOutcome.ContributionFailed),
-    "contributionFailed")]
+    typeof(CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
+    "malformedOrUnreadableDocument")]
 [JsonDerivedType(
     typeof(CompiledDocumentationOutcome.Incomplete),
     "incomplete")]
@@ -125,8 +119,8 @@ public sealed record CompiledDocumentationEntry(
     typeof(CompiledDocumentationOutcome.RequestRejected),
     "requestRejected")]
 [JsonDerivedType(
-    typeof(CompiledDocumentationOutcome.RequestFailed),
-    "requestFailed")]
+    typeof(CompiledDocumentationOutcome.ContentAccessFailed),
+    "contentAccessFailed")]
 public abstract record CompiledDocumentationOutcome(
     CompiledDocumentationSubject Subject)
 {
@@ -168,10 +162,9 @@ public abstract record CompiledDocumentationOutcome(
         bool RejectionsTruncated)
         : CompiledDocumentationOutcome(Subject);
 
-    public sealed record ContributionFailed(
+    public sealed record MalformedOrUnreadableDocument(
         CompiledDocumentationSubject Subject,
-        CompiledDocumentationSource Source,
-        CompiledDocumentationFailureKind Reason)
+        CompiledDocumentationSource Source)
         : CompiledDocumentationOutcome(Subject);
 
     public sealed record Incomplete(
@@ -188,9 +181,8 @@ public abstract record CompiledDocumentationOutcome(
         CompiledDocumentationRequestRejectionKind Reason)
         : CompiledDocumentationOutcome(Subject);
 
-    public sealed record RequestFailed(
-        CompiledDocumentationSubject Subject,
-        CompiledDocumentationFailureKind Reason)
+    public sealed record ContentAccessFailed(
+        CompiledDocumentationSubject Subject)
         : CompiledDocumentationOutcome(Subject);
 }
 
@@ -255,9 +247,7 @@ public static class CompiledDocumentationQuery
                     subject,
                     Snapshot(rejected.Rejection.Kind)),
             DocumentationHouseOutcome.Failed failed =>
-                new CompiledDocumentationOutcome.RequestFailed(
-                    subject,
-                    Snapshot(failed.Failure.Kind)),
+                ContentAccessFailed(subject, failed.Failure.Kind),
             DocumentationHouseOutcome.Incomplete incomplete =>
                 Incomplete(
                     subject,
@@ -288,10 +278,7 @@ public static class CompiledDocumentationQuery
             DocumentationCompiledXmlAttempt.Rejected rejected =>
                 ContributionsRejected(subject, rejected.Rejections),
             DocumentationCompiledXmlAttempt.Failed failed =>
-                new CompiledDocumentationOutcome.ContributionFailed(
-                    subject,
-                    Snapshot(failed.Selected),
-                    Snapshot(failed.Failure.Kind)),
+                MalformedOrUnreadableDocument(subject, failed),
             DocumentationCompiledXmlAttempt.Incomplete incomplete =>
                 Incomplete(
                     subject,
@@ -300,6 +287,31 @@ public static class CompiledDocumentationQuery
                     incomplete.Selected),
             _ => throw new InvalidOperationException(
                 "Unknown compiled-XML attempt."),
+        };
+
+    private static CompiledDocumentationOutcome.ContentAccessFailed
+        ContentAccessFailed(
+            CompiledDocumentationSubject subject,
+            DocumentationCompiledXmlFailureKind kind) =>
+        kind switch
+        {
+            DocumentationCompiledXmlFailureKind.ContentAccessFailed =>
+                new(subject),
+            _ => throw new InvalidOperationException(
+                "Unexpected top-level compiled-XML failure kind."),
+        };
+
+    private static CompiledDocumentationOutcome.MalformedOrUnreadableDocument
+        MalformedOrUnreadableDocument(
+            CompiledDocumentationSubject subject,
+            DocumentationCompiledXmlAttempt.Failed failed) =>
+        failed.Failure.Kind switch
+        {
+            DocumentationCompiledXmlFailureKind
+                .MalformedOrUnreadableDocument =>
+                new(subject, Snapshot(failed.Selected)),
+            _ => throw new InvalidOperationException(
+                "Unexpected contribution failure kind."),
         };
 
     private static CompiledDocumentationOutcome.Absent Absent(
@@ -524,20 +536,6 @@ public static class CompiledDocumentationQuery
                     .LeaseReferenceMismatch,
             _ => throw new InvalidOperationException(
                 "Unknown DocumentationHouse rejection kind."),
-        };
-
-    private static CompiledDocumentationFailureKind Snapshot(
-        DocumentationCompiledXmlFailureKind kind) =>
-        kind switch
-        {
-            DocumentationCompiledXmlFailureKind
-                .MalformedOrUnreadableDocument =>
-                CompiledDocumentationFailureKind
-                    .MalformedOrUnreadableDocument,
-            DocumentationCompiledXmlFailureKind.ContentAccessFailed =>
-                CompiledDocumentationFailureKind.ContentAccessFailed,
-            _ => throw new InvalidOperationException(
-                "Unknown compiled-XML failure kind."),
         };
 
     private static CompiledDocumentationIncompleteReason Snapshot(

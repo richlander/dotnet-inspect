@@ -71,10 +71,13 @@ public sealed class CompiledDocumentationQueryTests
                     nameof(CompiledDocumentationOutcome.ContributionsRejected.RejectionsTruncated),
                     nameof(CompiledDocumentationOutcome.Subject)]),
             (
-                typeof(CompiledDocumentationOutcome.ContributionFailed),
-                "contributionFailed",
-                [nameof(CompiledDocumentationOutcome.ContributionFailed.Reason),
-                    nameof(CompiledDocumentationOutcome.ContributionFailed.Source),
+                typeof(
+                    CompiledDocumentationOutcome
+                        .MalformedOrUnreadableDocument),
+                "malformedOrUnreadableDocument",
+                [nameof(
+                    CompiledDocumentationOutcome
+                        .MalformedOrUnreadableDocument.Source),
                     nameof(CompiledDocumentationOutcome.Subject)]),
             (
                 typeof(CompiledDocumentationOutcome.Incomplete),
@@ -89,10 +92,9 @@ public sealed class CompiledDocumentationQueryTests
                 [nameof(CompiledDocumentationOutcome.RequestRejected.Reason),
                     nameof(CompiledDocumentationOutcome.Subject)]),
             (
-                typeof(CompiledDocumentationOutcome.RequestFailed),
-                "requestFailed",
-                [nameof(CompiledDocumentationOutcome.RequestFailed.Reason),
-                    nameof(CompiledDocumentationOutcome.Subject)]),
+                typeof(CompiledDocumentationOutcome.ContentAccessFailed),
+                "contentAccessFailed",
+                [nameof(CompiledDocumentationOutcome.Subject)]),
         ];
 
         JsonPolymorphicAttribute polymorphic =
@@ -702,21 +704,68 @@ public sealed class CompiledDocumentationQueryTests
                 malformedLibrary.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
-        CompiledDocumentationOutcome.ContributionFailed failed =
+        CompiledDocumentationOutcome.MalformedOrUnreadableDocument failed =
             Assert.IsType<
-                CompiledDocumentationOutcome.ContributionFailed>(
+                CompiledDocumentationOutcome
+                    .MalformedOrUnreadableDocument>(
                     malformed.Content);
-        Assert.Equal(
-            CompiledDocumentationFailureKind.MalformedOrUnreadableDocument,
-            failed.Reason);
         using JsonDocument failedJson =
             JsonDocument.Parse(Serialize(malformed.Content));
         AssertPropertyNames(
             failedJson.RootElement,
             "kind",
             "subject",
-            "source",
-            "reason");
+            "source");
+        Assert.Equal(
+            "malformedOrUnreadableDocument",
+            failedJson.RootElement
+                .GetProperty("kind")
+                .GetString());
+        CompiledDocumentationOutcome failedCopy =
+            JsonSerializer.Deserialize(
+                Serialize(malformed.Content),
+                CompiledDocumentationQueryJsonContext
+                    .Default
+                    .CompiledDocumentationOutcome)!;
+        Assert.IsType<
+            CompiledDocumentationOutcome.MalformedOrUnreadableDocument>(
+                failedCopy);
+
+        LibraryOperationLease disposedOperation =
+            malformedLibrary.IssueOperation();
+        disposedOperation.Dispose();
+        CompiledDocumentationQueryResult contentAccessFailed =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(
+                    malformedSubject,
+                    DirectLibraryDocumentationHouseAdapter
+                        .CreateCompiledXmlContributions(
+                            malformedLibrary.Reference,
+                            malformedSubject)),
+                disposedOperation,
+                TestContext.Current.CancellationToken);
+        Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
+            contentAccessFailed.Content);
+        byte[] contentAccessPayload = Serialize(contentAccessFailed.Content);
+        using JsonDocument contentAccessJson =
+            JsonDocument.Parse(contentAccessPayload);
+        AssertPropertyNames(
+            contentAccessJson.RootElement,
+            "kind",
+            "subject");
+        Assert.Equal(
+            "contentAccessFailed",
+            contentAccessJson.RootElement
+                .GetProperty("kind")
+                .GetString());
+        CompiledDocumentationOutcome contentAccessCopy =
+            JsonSerializer.Deserialize(
+                contentAccessPayload,
+                CompiledDocumentationQueryJsonContext
+                    .Default
+                    .CompiledDocumentationOutcome)!;
+        Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
+            contentAccessCopy);
     }
 
     [Fact]

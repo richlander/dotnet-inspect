@@ -733,7 +733,8 @@ Queries-owned outcome. Its common subject contains only the exact assembly
 identity and compiler documentation ID needed for correlation. A required
 `kind` discriminator selects one case-specific shape: `available`, `absent`,
 `unavailable`, `ambiguous`, `contributionsRejected`,
-`contributionFailed`, `incomplete`, `requestRejected`, or `requestFailed`.
+`malformedOrUnreadableDocument`, `incomplete`, `requestRejected`, or
+`contentAccessFailed`.
 Available content carries the selected source and documentation. Each
 non-available case carries only its applicable reason and bounded source
 evidence; repeated source arrays retain at most eight distinct values and state
@@ -747,6 +748,10 @@ authoritatively report absence. An `incomplete` result with a selected
 candidate prioritizes that candidate before the other observed contributions;
 a companion-selection-partial result similarly prioritizes partial
 contributions.
+Malformed or unreadable contributed XML and top-level content-access failure
+are separate singleton wire cases. Their concrete discriminators encode the
+failure reason without a redundant reason property or a shared enum that would
+admit cross-case combinations the producer cannot emit.
 
 Request, operation-plan, policy-generation, demand, work-charge, lease-consumer,
 duplicate type/member anchors, full contribution history, and nullable
@@ -970,8 +975,9 @@ the exact House outcome remains available in process, the transferred operation
 is settled, the Library owner can retire before serialization, and the
 source-generated JSON contract round trips the separately copied portable
 outcome. Neighboring absent, unavailable, contribution-rejected,
-contribution-failed, and top-level lease-rejected results each retain a
-discriminator-specific shape rather than becoming empty documentation.
+malformed-document, content-access-failed, and top-level lease-rejected results
+each retain a discriminator-specific shape rather than becoming empty
+documentation.
 The absent gates cover both a selected document without the requested member
 and a package-shaped authoritative missing-companion contribution preceded by
 eight distinct unavailable sources; each preserves its applicable source
