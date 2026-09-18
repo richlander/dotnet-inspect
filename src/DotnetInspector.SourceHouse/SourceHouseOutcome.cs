@@ -10,6 +10,7 @@ public enum SourceHouseSourceUnitScope
 {
     ExactMember,
     PrimaryTypeDocument,
+    AdditionalTypeDocument,
 }
 
 public enum SourceHouseMappingStrength
@@ -59,27 +60,43 @@ public abstract class SourceHouseAuthoredMapping
     public sealed class Type : SourceHouseAuthoredMapping
     {
         public Type(
+            SourceLinkResolver.TypeSourceInfo sourceMapping,
             SourceDocumentObservation document,
             SourceHouseMappingStrength mappingStrength,
             bool partial,
             IReadOnlyList<SourceHouseAdditionalTypeDocument>
                 additionalDocuments)
             : base(
-                SourceHouseSourceUnitScope.PrimaryTypeDocument,
+                DocumentScope(sourceMapping, document),
                 mappingStrength,
                 partial)
         {
-            ArgumentNullException.ThrowIfNull(document);
             ArgumentNullException.ThrowIfNull(additionalDocuments);
 
+            SourceMapping = sourceMapping;
             Document = document;
             AdditionalDocuments =
                 ImmutableArray.CreateRange(additionalDocuments);
         }
 
+        public SourceLinkResolver.TypeSourceInfo SourceMapping { get; }
         public SourceDocumentObservation Document { get; }
         public IReadOnlyList<SourceHouseAdditionalTypeDocument>
             AdditionalDocuments { get; }
+
+        private static SourceHouseSourceUnitScope DocumentScope(
+            SourceLinkResolver.TypeSourceInfo mapping,
+            SourceDocumentObservation document)
+        {
+            ArgumentNullException.ThrowIfNull(mapping);
+            ArgumentNullException.ThrowIfNull(document);
+            return string.Equals(
+                document.OriginalPath,
+                mapping.SourceFilePath,
+                StringComparison.Ordinal)
+                    ? SourceHouseSourceUnitScope.PrimaryTypeDocument
+                    : SourceHouseSourceUnitScope.AdditionalTypeDocument;
+        }
     }
 }
 

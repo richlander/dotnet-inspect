@@ -18,16 +18,19 @@ public sealed class ResearchFindingEvidence :
     ResearchFindingEvidence(
         MethodIdentity subject,
         ResearchFindingEvidenceState state,
-        ImmutableArray<ResearchEvidenceLocation> locations)
+        ImmutableArray<ResearchEvidenceLocation> locations,
+        ImmutableArray<CallSiteCostEvidenceInput> aggregateInputs)
     {
         Subject = subject;
         State = state;
         Locations = locations;
+        AggregateInputs = aggregateInputs;
     }
 
     public MethodIdentity Subject { get; }
     public ResearchFindingEvidenceState State { get; }
     public ImmutableArray<ResearchEvidenceLocation> Locations { get; }
+    public ImmutableArray<CallSiteCostEvidenceInput> AggregateInputs { get; }
 
     internal static ResearchFindingEvidence? Project(IAnnotation annotation)
         => annotation switch
@@ -35,7 +38,8 @@ public sealed class ResearchFindingEvidence :
             Annotation<CallSiteCostEvidence> cost => new(
                 cost.Payload.Callee,
                 ResearchFindingEvidenceState.Method,
-                [cost.Payload.EvidenceLocation]),
+                [cost.Payload.EvidenceLocation],
+                [.. cost.Payload.AggregateInputs]),
             Annotation<CallSiteSemanticsEvidence> semantics =>
                 Instructions(
                     semantics.Payload.Callee,
@@ -54,18 +58,22 @@ public sealed class ResearchFindingEvidence :
             ? new(
                 subject,
                 ResearchFindingEvidenceState.InstructionUnavailable,
+                [],
                 [])
             : new(
                 subject,
                 ResearchFindingEvidenceState.Instruction,
                 [.. coordinates.Select(static coordinate =>
-                    coordinate.Location)]);
+                    coordinate.Location)],
+                []);
 
     public bool Equals(ResearchFindingEvidence? other)
         => other is not null
             && Equals(Subject, other.Subject)
             && State == other.State
-            && Locations.AsSpan().SequenceEqual(other.Locations.AsSpan());
+            && Locations.AsSpan().SequenceEqual(other.Locations.AsSpan())
+            && AggregateInputs.AsSpan().SequenceEqual(
+                other.AggregateInputs.AsSpan());
 
     public override bool Equals(object? obj)
         => obj is ResearchFindingEvidence other && Equals(other);
@@ -77,6 +85,8 @@ public sealed class ResearchFindingEvidence :
         hash.Add(State);
         foreach (ResearchEvidenceLocation location in Locations)
             hash.Add(location);
+        foreach (CallSiteCostEvidenceInput input in AggregateInputs)
+            hash.Add(input);
         return hash.ToHashCode();
     }
 }

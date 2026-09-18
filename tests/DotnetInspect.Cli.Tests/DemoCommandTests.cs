@@ -576,8 +576,7 @@ public class DemoCommandTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Equal(
-            "Error: --lines and --tail-lines cannot be combined with JSON "
-                + "output; use semantic -n to select complete JSON rows.",
+            "Error: Rendered-line selection cannot be combined with JSON output.",
             error.Trim());
     }
 

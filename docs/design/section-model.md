@@ -655,21 +655,39 @@ operand chooses the available section set:
 
 | Route | `@Ecosystem` members |
 | --- | --- |
-| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos` |
-| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos` |
-| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos`, `Pruning` |
+| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos`, `Pruning` |
 
 `@Ecosystem` is the base category and always means every section available on
-the already-selected route. `@Integrations` is a domain category containing
-`Known Integrations`; it describes product-configured bindings rather than
-observations from a library. Focus remains the only operation that changes the
-available section set.
+the already-selected route. Exact `Integrations` describes product-configured
+bindings rather than observations from a library. Ecosystem does not publish a
+single-member `@Integrations` category. Focus remains the only operation that
+changes the available section set.
 
 Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
 section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
-set in alphabetical order. The former unprefixed `Integrations` alias is not
-part of the authored catalog; use `@Integrations` or exact
-`Known Integrations`.
+set in alphabetical order. Select `Integrations` directly for configured
+bindings.
+
+## Graph libraries category map
+
+The `graph libraries` command's authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
+
+`@Libraries` is the base category and composes the four pair-wide projections
+in alphabetical section order. Ordinary output remains the exact `Call Sites`
+view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
+summary pair.
+
+`Public Root Paths` remains uncategorized and exact-name-only because it
+requires one positive `Cluster` coordinate before acquisition. Wildcard and
+category selection do not opt into it. The pairwise call-use, direct-use
+cluster, and cluster root-path designs continue to own the section semantics;
+this document owns only their command catalog composition.
 
 ## Registration invariants
 
@@ -688,15 +706,16 @@ The section pipeline and derived catalog gates enforce these invariants:
    Transitions` is its only standalone section. Every project section belongs
    to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
    and decompiler vocabularies cross-listed in their domain categories. Every
-   ecosystem route places all its available sections in `@Ecosystem` and
-   cross-lists `Known Integrations` in `@Integrations`. Gates:
+   ecosystem route places all its available sections, including exact
+   `Integrations`, in `@Ecosystem`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
-   `EcosystemPipelines_UseRouteSpecificAuthoredCategories`.
+   `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
+   `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -712,9 +731,9 @@ sets so stale and missing entries both fail.
 ## Migration
 
 The library model is the reference implementation. Package, type listing,
-member inspection, diff, project, vocabulary, and ecosystem use the same
-size/cost axes, base-category scope, authored category model, and curated
-discovery. Remaining commands should migrate incrementally.
+member inspection, diff, project, vocabulary, ecosystem, and `graph libraries`
+use the same size/cost axes, base-category scope, authored category model, and
+curated discovery. Remaining commands should migrate incrementally.
 
 During migration:
 

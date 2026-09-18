@@ -187,7 +187,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S @Integrations` for configured Integration concepts, distinct from observations in a library. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -217,7 +217,7 @@ dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -D
 dotnet-inspect ecosystem aspire -S @Ecosystem
-dotnet-inspect ecosystem aspire -S @Integrations
+dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
@@ -252,10 +252,11 @@ dotnet-inspect package activity --ecosystem aspire \
 UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
 activity with positive current-advisory or exact security-release evidence.
 Unavailable evidence is not treated as a negative. Human output uses the shared
-report view; `--json` emits the lossless schema-versioned report, with
-`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
-on stderr. Single-table formats and catalog-only section projections are not
-available with `package activity`.
+report view; `--json` emits the lossless schema-versioned report, while
+`--envelope` emits the same report as Content with Share and diagnostics.
+`--compact` minifies either JSON boundary. Use `--verbose` for bounded
+acquisition progress on stderr. Single-table formats and catalog-only section
+projections are not available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -352,13 +353,14 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>`, ordinary single-Library API `diff`, and online
-package range-version population support the presence-only `--envelope`
-service-output selector. It implies JSON. For `depends` and API Diff,
-unprojected `--json` emits the same Content without the service frame. Package
-version `--json` remains an explicit row projection; `--envelope` instead
-exposes the complete directed population Document, Share, and diagnostics.
-Asset-mode `depends`, other Diff modes, and other commands have not adopted
+Positional `depends <type>`, ordinary single-Library API `diff`, `package
+activity`, and online package range-version population support the
+presence-only `--envelope` service-output selector. It implies JSON. For
+`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection; `--envelope` instead exposes the complete directed population
+Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
+Discover, Count outside package population, and other commands have not adopted
 this transport.
 
 | Goal | Flags |
@@ -378,12 +380,11 @@ this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
-`-n N` selects the command's declared items. That normally means semantic rows.
-For `skill` and focused skill-document commands, text lines are the only item
-domain, so bare `-n` selects rendered lines. Other commands without a
-semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
-lines or `--tail-lines` for the last N. Rendered-line clipping is not available
-with JSON document output.
+`-n N` selects the command's items. It selects semantic rows when the active
+command or lens declares them; otherwise it selects the first N rendered lines.
+Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
+on a semantic-row command, and `--tail-lines` selects rendered lines from the
+end. Rendered-line clipping is not available with JSON document output.
 
 Useful discovery and projection patterns:
 
@@ -487,9 +488,17 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected
-matching package rows only when completion or the semantic selection proves
-the count exact.
+counts selected matching package rows only when completion or the semantic
+selection proves the count exact.
+
+Package Query output adapts after execution. The default renders `Packages`
+when at least one package matched and `Query Summary` otherwise. The summary
+reports independent `Candidates`, `Matches`, and `Evaluation Failures` integer
+columns, so a missing package (`Candidates=0`) remains distinct from an
+existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
+stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
+`Packages` retains its empty table or array when no package matched. Bare `-S`
+also requests the non-adaptive `Packages` preset.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
@@ -562,9 +571,10 @@ share the package id and version.
 ### Workspace inventory and structural navigation
 
 Append `--share packet` or `--share url` to author the complete durable
-Workspace definition without Package acquisition or live Workspace
-construction. The selected scalar is the `workspace` command's result on
-stdout, rather than the additive stderr side output used by noun commands:
+Workspace definition. Ordinary authoring performs no Package acquisition or
+live Workspace construction. The selected scalar is the `workspace` command's
+result on stdout, rather than the additive stderr side output used by noun
+commands:
 
 ```bash
 dotnet-inspect workspace \
@@ -581,15 +591,36 @@ while registration options retain their authored cross-kind order. A
 scanner-bearing Ecosystem fails visibly as non-projectable; the command never
 drops its scanner to manufacture a packet.
 
+Add `--make-package-dependencies-explicit` to acquire every direct Package
+member, resolve its exact direct dependencies for the member's effective
+target, and append those dependencies to the same context before emitting the
+derived packet:
+
+```bash
+dotnet-inspect workspace \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --tfm net10.0 \
+  --make-package-dependencies-explicit \
+  --share packet
+```
+
+The transformation also accepts `--packet` or the exact Inspect Web URL as its
+input. Existing members retain their order; new members use owner-issued
+dependency order and are deduplicated only within each context. The command
+emits no packet unless every selected Package root completes and the complete
+derived definition remains projectable. Unlike ordinary resource-free
+`--share`, this explicit transformation admits `--preview` and NuGet source
+policy because acquisition is part of the requested operation.
+
 `--packet` accepts either canonical packet text or the exact
 `https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
 re-emits the canonical packet or selected URL without complete restoration.
 The `--share` selection governs this scalar; inventory output formats apply
 only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
-controls, `--root-request`, `--preview`, explicit NuGet source policy, or
-Package Navigation selectors because those options request runtime acquisition
-or observation rather than a definition transformation.
+controls, `--root-request`, or Package Navigation selectors. `--preview` and
+explicit NuGet source policy are accepted only with the explicit
+dependency-enrichment transformation.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -607,10 +638,13 @@ dotnet-inspect workspace \
 ```
 
 Use repeatable `--kind package|exact-library|package-prefix|ecosystem` to
-select inventory kinds without changing Workspace construction. JSON and
-JSONL retain the typed entry arms and their portable details. `--verbose`
-adds each Package producer, requested/selected/effective target, runtime
-identifier, and asset-selection status to human output.
+select inventory kinds without changing Workspace construction. `-n N`,
+`--tail`, and `--rows A..B` select complete typed entries after that filter;
+`--count` observes the selected entries, while `--lines` explicitly selects
+rendered lines. JSON and JSONL retain the typed entry arms and their portable
+details. `--verbose` adds each Package producer,
+requested/selected/effective target, runtime identifier, and asset-selection
+status to human output.
 
 Restore one current-format canonical Workspace packet or exact Inspect Web URL
 for inventory instead of supplying direct construction options:
@@ -973,6 +1007,10 @@ sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
+Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
+Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
+Paths` remains an exact-name section because its required cluster coordinate
+does not compose with the pair-wide category.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

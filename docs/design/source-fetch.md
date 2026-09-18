@@ -38,7 +38,7 @@ library, API, diff, and source-enrichment paths through `PdbSourceHouse`.
 Browser/Wasm supplies the same adapter with an in-memory content store and a
 host source policy.
 
-The selected-member source pair also consumes the public
+Shared type/member Source and the selected-member source pair also consume the public
 `FetchVerifiedSourceBytesAsync`/`FetchSourceResult` boundary through a
 SourceHouse capability adapter. This is the same existing validated-byte
 operation and failure family, not another transport or cache policy.
@@ -66,7 +66,7 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
   best-effort misses or acceptance, and cancellation before committing a
   write. The desktop compatibility adapter preserves `PersistentCache`'s
   best-effort read and write semantics.
-- `PdbSourceHouse`, or SourceHouse for the selected-member pair, owns
+- `PdbSourceHouse`, or SourceHouse for shared type/member Source, member comparison and pairs, owns
   local/repository/remote ordering, decoding, and settled PDB-source outcomes.
 - `SourceAvailabilityService` and `SourceIntegrityService` own their distinct
   endpoint and audit claims.

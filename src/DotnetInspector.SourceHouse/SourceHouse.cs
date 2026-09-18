@@ -867,6 +867,20 @@ public static class SourceHouse
                 documentsObserved,
                 typeMappingsObserved);
         }
+        if (target is SourceHouseTarget.TypeTarget
+            { OriginalDocumentPath: { } selectedPath })
+        {
+            if (!string.Equals(sourcePath, selectedPath, StringComparison.Ordinal)
+                && !typeMapping.AdditionalSourceFiles.Any(
+                    additional => string.Equals(
+                        additional.FilePath, selectedPath, StringComparison.Ordinal)))
+            {
+                return MappingPreparation.Unavailable(
+                    documentsObserved,
+                    typeMappingsObserved);
+            }
+            sourcePath = selectedPath;
+        }
         SourceDocumentObservation? typeDocument =
             SelectDocument(documents, documentRowId: null, sourcePath);
         if (typeDocument is null)
@@ -881,7 +895,21 @@ public static class SourceHouse
                 == SourceLinkResolver.SourceResolutionMethod.Inferred
                 ? SourceHouseMappingStrength.InferredTypeDocument
                 : SourceHouseMappingStrength.CorrelatedTypeDocument;
+        SourceLinkResolver.TypeSourceInfo detachedMapping =
+            typeMapping with
+            {
+                Checksum = typeMapping.Checksum?.ToArray(),
+                AdditionalSourceFiles =
+                [
+                    .. typeMapping.AdditionalSourceFiles.Select(
+                        static additional => additional with
+                        {
+                            Checksum = additional.Checksum?.ToArray(),
+                        }),
+                ],
+            };
         var typeEvidence = new SourceHouseAuthoredMapping.Type(
+            detachedMapping,
             typeDocument,
             strength,
             typeMapping.IsPartialType,
@@ -1404,21 +1432,15 @@ public static class SourceHouse
             return true;
 
         ApiType type = types[0];
-        int matches = 0;
-        foreach (ApiMember candidate in type.Members.Concat(
-            type.Members.SelectMany(
-                owner => ApiMemberAccessors.Create(owner, type))))
-        {
-            if (candidate.MetadataToken
+        // An explicit accessor can appear as both a physical method and an
+        // accessor projection; the same token and anchor still name one target.
+        return type.Members.Concat(
+                type.Members.SelectMany(
+                    owner => ApiMemberAccessors.Create(owner, type)))
+            .Any(candidate => candidate.MetadataToken
                     == memberTarget.MetadataToken
                 && ApiMemberIdentity.GetMemberAnchor(type, candidate)
-                    == memberTarget.Member)
-            {
-                matches++;
-            }
-        }
-
-        return matches == 1;
+                    == memberTarget.Member);
     }
 
     private static ApiSurfaceInspectionFailure?

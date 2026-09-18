@@ -680,10 +680,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   committed logical Package membership and order, closed-by-default selective
   dependency expansion, scope revisions, logical limits, and complete
   scope-operation results.
-- [Workspace default target framework](design/workspace-default-target-framework.md):
-  one configurable, host-neutral fallback target retained by every Workspace,
-  with `net11.0` as the product default and explicit required-versus-preferred
-  selection intent.
+- [Traversal target-framework policy](design/traversal-target-framework-policy.md):
+  one configurable, host-neutral governing target retained by every Workspace,
+  with `net12.0` as the product default and package-local selection remaining
+  a separate PackageHouse policy.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
@@ -842,6 +842,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
+- [Annotated Source Finding provenance](design/annotated-source-finding-provenance.md):
+  complete descriptor classification across the production member-census and
+  call-relationship profiles.
+- [Annotated Source C# projection](design/annotated-source-csharp-projection.md):
+  lossless retained-plane rebasing and explicit original-to-projected C# node
+  identity for one annotated-source document.
 - [Annotated Source invocation destinations](design/annotated-source-invocation-destinations.md):
   Research composition of physical direct calls, Decompiler-issued invocation
   nodes, and CallGraph-owned typed targets.

@@ -56,6 +56,8 @@ export const sampleCalleeEvidence = {
     ...sampleInvocationTarget,
     kind: "method",
   },
+  state: "Instruction",
+  aggregateInputs: [],
   coordinates: [{
     ilOffset: 2,
     kind: "Localloc",

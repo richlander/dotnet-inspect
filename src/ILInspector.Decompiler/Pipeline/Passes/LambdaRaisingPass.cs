@@ -264,6 +264,7 @@ public sealed class LambdaRaisingPass : IIrPass
             foreach (var store in captureStores)
                 store.Detach();
             alloc.Detach();
+            function.MarkLocalEliminated(slot);
         }
     }
 
@@ -520,6 +521,8 @@ public sealed class LambdaRaisingPass : IIrPass
             if (allowLocalStatements && statement is StoreLocal)
                 continue;
             if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
+            if (allowLocalStatements && statement is PointerCompoundAssignment { Target: LoadLocal or LoadStackSlot })
                 continue;
             if (statement is not ExpressionStatement)
                 return false;

@@ -4,6 +4,20 @@ using Inspector.Findings;
 
 namespace ILInspector.Research;
 
+public enum CallSiteCostEvidenceInputKind
+{
+    AllocationInLoop,
+    Reflection,
+    CallInLoop,
+    RootReach,
+    DirectCallers,
+    LoopCalls,
+}
+
+public sealed record CallSiteCostEvidenceInput(
+    CallSiteCostEvidenceInputKind Kind,
+    int? Value = null);
+
 public sealed record CallSiteCostEvidence(
     MethodIdentity Callee,
     ResearchEvidenceLocation EvidenceLocation,
@@ -11,38 +25,81 @@ public sealed record CallSiteCostEvidence(
     MethodLeverage? Leverage,
     bool CallInLoop)
 {
-    public string Detail
+    public IReadOnlyList<CallSiteCostEvidenceInput> AggregateInputs
     {
         get
         {
-            var parts = new List<string>();
+            var inputs = new List<CallSiteCostEvidenceInput>();
             if (Signals.AllocInLoop)
-                parts.Add("alloc-loop");
+            {
+                inputs.Add(new(
+                    CallSiteCostEvidenceInputKind.AllocationInLoop));
+            }
             if (Signals.Reflection > 0)
-                parts.Add("reflection");
+            {
+                inputs.Add(new(
+                    CallSiteCostEvidenceInputKind.Reflection,
+                    Signals.Reflection));
+            }
             if (CallInLoop)
-                parts.Add("call-in-loop");
+            {
+                inputs.Add(new(
+                    CallSiteCostEvidenceInputKind.CallInLoop));
+            }
             if (Leverage is not null)
             {
                 if (Leverage.RootReach
                     >= CallSiteCostFactProducer.RootReachThreshold)
                 {
-                    parts.Add($"root-reach {Leverage.RootReach}");
+                    inputs.Add(new(
+                        CallSiteCostEvidenceInputKind.RootReach,
+                        Leverage.RootReach));
                 }
                 if (Leverage.DirectCallerCount
                     >= CallSiteCostFactProducer.DirectCallerThreshold)
                 {
-                    parts.Add(
-                        $"direct-callers {Leverage.DirectCallerCount}");
+                    inputs.Add(new(
+                        CallSiteCostEvidenceInputKind.DirectCallers,
+                        Leverage.DirectCallerCount));
                 }
                 if (Leverage.LoopCallCount
                     >= CallSiteCostFactProducer.LoopCallThreshold)
                 {
-                    parts.Add($"loop-calls {Leverage.LoopCallCount}");
+                    inputs.Add(new(
+                        CallSiteCostEvidenceInputKind.LoopCalls,
+                        Leverage.LoopCallCount));
                 }
             }
+            return inputs;
+        }
+    }
 
-            string text = parts.Count == 0
+    public string Detail
+    {
+        get
+        {
+            string[] parts =
+            [
+                .. AggregateInputs.Select(static input =>
+                    input.Kind switch
+                    {
+                        CallSiteCostEvidenceInputKind.AllocationInLoop =>
+                            "alloc-loop",
+                        CallSiteCostEvidenceInputKind.Reflection =>
+                            "reflection",
+                        CallSiteCostEvidenceInputKind.CallInLoop =>
+                            "call-in-loop",
+                        CallSiteCostEvidenceInputKind.RootReach =>
+                            $"root-reach {input.Value}",
+                        CallSiteCostEvidenceInputKind.DirectCallers =>
+                            $"direct-callers {input.Value}",
+                        CallSiteCostEvidenceInputKind.LoopCalls =>
+                            $"loop-calls {input.Value}",
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(input)),
+                    }),
+            ];
+            string text = parts.Length == 0
                 ? "notable"
                 : string.Join("; ", parts);
             return $"callee {Callee.Name}: {text}";
@@ -102,7 +159,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
         new("cost.callee", AnnotationCategory.Cost, "callee carries notable cost signals");
 
     public string Name => "call-site-cost";
-    public IReadOnlyList<string> Produces { get; } = ["cost.callee"];
+    public IReadOnlyList<string> Produces { get; } = [CalleeCost.Id];
     public IReadOnlyList<string> DependsOn { get; } = [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForAssembly(

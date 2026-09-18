@@ -30,9 +30,9 @@ remain typed **Incomplete** evidence.
 The PackageHouse and direct-Library adapters plus the shared Queries
 compiled-documentation result are implemented. Queries preserves the exact
 detached House outcome for in-process composition and publishes a separately
-owned portable snapshot as the source-generated JSON contract. Platform and
-source adapters, host adoption, the authored channel, field settlement, and
-legacy retirement remain staged.
+owned portable terminal outcome as the source-generated JSON contract.
+Platform and source adapters, host adoption, the authored channel, field
+settlement, and legacy retirement remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -708,7 +708,7 @@ DotnetInspector.Queries
   -> DocumentationHouse
   - executes an already-authorized source-neutral request
   - retains the exact detached outcome for in-process composition
-  - publishes a copied portable snapshot as the sole JSON contract
+  - publishes a copied portable terminal outcome as the sole JSON contract
 ```
 
 PackageHouse, PlatformHouse, SourceHouse, direct-Library composition, and
@@ -723,23 +723,53 @@ authorization, obtain one exact Library operation lease, and transfer it before
 the House operation starts. `CompiledDocumentationQuery` owns no source adapter
 selection or acquisition. It invokes the House with that prepared request and
 transferred lease, then copies the settled result into
-`CompiledDocumentationQuerySnapshot` before returning.
+`CompiledDocumentationOutcome` before returning.
 
 The exact `DocumentationHouseOutcome` remains available on the in-process
 Queries result and is excluded from JSON. It retains reference-scoped Library,
 content, subject, and receipt correspondence that must not be mistaken for a
 portable interchange identity. The JSON context registers only the
-Queries-owned snapshot: copied subject identity, owner-issued classifications,
-source provenance, documentation fields, work evidence, and final lease
-consumer. It contains no Library or Artifact reference, lease, reader, stream,
-callback, or reopening capability. This is the producer-owned snapshot
-boundary required by
+Queries-owned outcome. A completed host adapter serializes that outcome to one
+JSON string; the string, not a UTF-8 byte array, is the C#-to-TypeScript
+exchange. Its common subject contains only the exact assembly identity and
+compiler documentation ID needed for correlation. A required `kind`
+discriminator selects one case-specific shape: `available`, `absent`,
+`unavailable`, `ambiguous`, `contributionsRejected`,
+`malformedOrUnreadableDocument`, `incomplete`, `requestRejected`, or
+`contentAccessFailed`.
+Available content carries the selected source and documentation. Each
+non-available case carries only its applicable reason and bounded source
+evidence; repeated source arrays retain at most eight distinct values and state
+when more values were omitted. Within every bounded source-evidence list,
+evidence that establishes the terminal case precedes contextual evidence, so
+the bound cannot retain only evidence for a weaker outcome. An `absent` result
+caused by a selected compiled XML document that lacks the requested member
+carries that selected candidate as its sole decisive evidence. An `absent`
+result with no selected candidate prioritizes contributions that
+authoritatively report absence. An `incomplete` result with a selected
+candidate prioritizes that candidate before the other observed contributions;
+a companion-selection-partial result similarly prioritizes partial
+contributions.
+Malformed or unreadable contributed XML and top-level content-access failure
+are separate singleton-cause wire cases. Their concrete discriminators encode
+the failure reason without a redundant reason property or a shared enum that
+would admit cross-case combinations the producer cannot emit. Both retain the
+selected source that established the terminal case.
+
+Request, operation-plan, policy-generation, demand, work-charge, lease-consumer,
+duplicate type/member anchors, full contribution history, and nullable
+alternatives for other terminal cases remain only in the exact in-process
+outcome. The portable outcome contains no Library or Artifact reference, lease,
+reader, stream, callback, or reopening capability. This is the producer-owned
+content boundary required by
 [host-observable content kinds](host-observable-content-kinds.md#serialization-ready-schema);
 serialization does not walk a lower-owner correspondence graph after the
-operation or Library lifetime ends.
+operation or Library lifetime ends. The discriminator and case-specific
+properties are also the semantic C#-to-TypeScript contract; the Inspect Web
+adapter in slice 7 owns its generated TypeScript declaration and export.
 
 This L1 operation returns the bare Queries result. A completed L2 or host
-handoff wraps the portable snapshot in `InspectionEnvelope<TContent>`; it does
+handoff wraps the portable outcome in `InspectionEnvelope<TContent>`; it does
 not envelope the lower House outcome or nest envelopes around House and Query
 stages.
 
@@ -947,14 +977,31 @@ real `System.Text.Json` 10.0.0 assembly and documentation. It demonstrates that
 the exact House outcome remains available in process, the transferred operation
 is settled, the Library owner can retire before serialization, and the
 source-generated JSON contract round trips the separately copied portable
-snapshot. Neighboring unavailable, contribution-rejected, and top-level
-lease-rejected results remain visible rather than becoming empty documentation.
-A top-level deadline reached after contribution observation retains
-value-deduplicated source, kind, and precedence provenance without presenting
-the unfinished channel as a completed attempt.
-`SnapshotContract_ContainsOnlyPortableValues` provides full public-type-closure
-coverage for the claim that this snapshot contains only primitive, string,
-enum, nullable, immutable-array, and Queries-owned snapshot values.
+outcome. Neighboring absent, unavailable, contribution-rejected,
+malformed-document, content-access-failed, and top-level lease-rejected results
+each retain a discriminator-specific shape rather than becoming empty
+documentation. Both failure shapes retain the selected source and round trip
+without a redundant reason property.
+The absent gates cover both a selected document without the requested member
+and a package-shaped authoritative missing-companion contribution preceded by
+eight distinct unavailable sources; each preserves its applicable source
+provenance after Library retirement.
+The selected-incomplete gate similarly places eight unavailable sources before
+a candidate whose compiled XML exceeds the byte limit and proves that the
+selected candidate remains first in the bounded portable evidence.
+The neighboring companion-selection-partial gate proves the same ordering when
+no candidate was selected and the partial contribution itself establishes
+incompleteness.
+A four-million-contribution input constrained by a nine-entry House limit
+retains eight distinct source, kind, and precedence values plus explicit
+truncation without presenting unfinished work as available documentation. That
+JSON string is 999 UTF-16 code units and is gated at no more than 1,024 code
+units. The available real-package JSON string is 1,028 code units and is gated
+at no more than 1,100 code units.
+`PortableContract_IsDiscriminatedAndQueriesOwned` provides full public-type
+closure plus exact discriminator and case-property coverage for the claim that
+the portable outcome contains only primitive, string, enum, nullable,
+immutable-array, and Queries-owned values.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

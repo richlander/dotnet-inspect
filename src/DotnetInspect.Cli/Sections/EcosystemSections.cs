@@ -9,7 +9,7 @@ public static class EcosystemSections
     public const string NamespaceHintsSection = "Namespace Hints";
     public const string CorePackagesSection = "Core Packages";
     public const string ToolPackagesSection = "Tool Packages";
-    public const string KnownIntegrationsSection = "Known Integrations";
+    public const string IntegrationsSection = "Integrations";
     public const string DemosSection = "Demos";
     public const string PruningSection = "Pruning";
 
@@ -45,19 +45,15 @@ public static class EcosystemSections
             .Add<NamespaceHints>()
             .Add<CorePackages>()
             .Add<ToolPackages>()
-            .Add<KnownIntegrations>()
+            .Add<Integrations>()
             .Add<Demos>();
 
         if (includePruning)
             pipeline.Add<Pruning>();
 
-        return pipeline
-            .AddBaseCategory(
-                SectionCategoryNames.Ecosystem,
-                pipeline.SelectableSectionNames)
-            .AddCategory(
-                SectionCategoryNames.Integrations,
-                KnownIntegrations.Name);
+        return pipeline.AddBaseCategory(
+            SectionCategoryNames.Ecosystem,
+            pipeline.SelectableSectionNames);
     }
 
     public sealed class CatalogIndex :
@@ -115,10 +111,10 @@ public static class EcosystemSections
         public static bool CanRender(EcosystemDiscoveryModel model) => true;
     }
 
-    public sealed class KnownIntegrations :
+    public sealed class Integrations :
         ISectionDescriptor<EcosystemDiscoveryModel>
     {
-        public static string Name => KnownIntegrationsSection;
+        public static string Name => IntegrationsSection;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool Info => true;

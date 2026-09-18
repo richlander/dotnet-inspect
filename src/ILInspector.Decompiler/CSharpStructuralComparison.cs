@@ -503,8 +503,8 @@ public static partial class CSharpBodyDiff
                     // text rather than risk treating a merely differently-interleaved,
                     // unchanged multi-line call as a rewrite.
                     callSiteRewriteMatched = matches.Any(match =>
-                        beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
-                        && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
+                        beforeProjection.OriginalToProjectedNodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
+                        && afterProjection.OriginalToProjectedNodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
                         && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
                         && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
                         && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
@@ -517,14 +517,13 @@ public static partial class CSharpBodyDiff
                             afterProjection.Document,
                             afterCallNode));
                 }
-                catch (ArgumentException)
+                catch (InvalidOperationException)
                 {
                     // A structural IL node elsewhere in the document does not
-                    // fit CSharpAnnotatedSourceProjection.Create's narrower
-                    // contract. This carve-out has no evidence either way in
-                    // that case, so it declines to guess rather than let an
-                    // unrelated shape it was never asked to verify surface as
-                    // a thrown exception from a public correspondence API.
+                    // prove complete-line ownership for projection. This
+                    // carve-out has no evidence either way in that case, so it
+                    // declines to guess rather than let unrelated invalid
+                    // coverage surface from a public correspondence API.
                     callSiteRewriteMatched = false;
                 }
             }
@@ -620,23 +619,23 @@ public static partial class CSharpBodyDiff
         var after = CSharpAnnotatedSourceProjection.Create(correspondence.After);
         int[] beforeNodeIds =
         [
-            .. correspondence.Matches.Select(match => before.NodeIds[match.Before.NodeId]),
+            .. correspondence.Matches.Select(match => before.OriginalToProjectedNodeIds[match.Before.NodeId]),
             .. correspondence.UnmatchedBefore
                 .Where(static unmatched => IsSelected(unmatched.Reason))
-                .Select(unmatched => before.NodeIds[unmatched.Node.NodeId])
+                .Select(unmatched => before.OriginalToProjectedNodeIds[unmatched.Node.NodeId])
         ];
         int[] afterNodeIds =
         [
-            .. correspondence.Matches.Select(match => after.NodeIds[match.After.NodeId]),
+            .. correspondence.Matches.Select(match => after.OriginalToProjectedNodeIds[match.After.NodeId]),
             .. correspondence.UnmatchedAfter
                 .Where(static unmatched => IsSelected(unmatched.Reason))
-                .Select(unmatched => after.NodeIds[unmatched.Node.NodeId])
+                .Select(unmatched => after.OriginalToProjectedNodeIds[unmatched.Node.NodeId])
         ];
         CSharpNodeCorrespondence[] matches =
         [
             .. correspondence.Matches.Select(match => new CSharpNodeCorrespondence(
-                before.NodeIds[match.Before.NodeId],
-                after.NodeIds[match.After.NodeId],
+                before.OriginalToProjectedNodeIds[match.Before.NodeId],
+                after.OriginalToProjectedNodeIds[match.After.NodeId],
                 match.Moved))
         ];
 

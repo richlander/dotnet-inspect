@@ -54,9 +54,9 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package --latest-version` and equivalent `@latest` version
-queries consume the shared `PackageVersionSettlementInspection` envelope,
-also used by Inspect Web exact/latest package opening. The shared inspection
+The CLI's online `package Package@latest --version` query and `@latest` package
+opening consume the shared `PackageVersionSettlementInspection` envelope, also
+used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
 render or consume the selected coordinate rather than choosing a latest row.
 The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
@@ -66,7 +66,7 @@ settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
-existing latest-version, source-failure, listing, and rendering cases preserve
+existing latest-settlement, source-failure, listing, and rendering cases preserve
 neighboring behavior.
 This is payload-free adoption: ordinary version listings, CLI pinned and range
 queries, offline behavior, and package-content/Workspace
@@ -489,6 +489,33 @@ even when the selected projection is empty or unsuccessful. PackageHouse does
 not select a namesake or representative assembly: every selected asset remains
 available for a later Library-focused consumer.
 
+The selected-slice measurement projection joins only evidence from that same
+acquisition generation and compile selection receipt. It reports:
+
+- the retained compressed package archive length;
+- the selected framework and available compile-slice count;
+- one uncompressed payload length for every selected compile asset; and
+- the selected Library count and sum of those payload lengths.
+
+One selected compile asset represents one Library measurement. When the
+selector supplies a distinct implementation counterpart, including a
+RID-specific implementation, its package-entry length is the Library payload
+length. Otherwise the selected compile asset supplies the length. The
+projection never adds both the reference and implementation entry, substitutes
+an unrelated runtime asset, chooses a representative assembly, or includes an
+unselected framework slice.
+
+Measured, selected-empty, no-slice, no-applicable-slice, invalid-selection,
+House-failure, and unavailable-measurement outcomes remain distinct.
+Selected-empty retains package and slice measurements with zero selected
+Library entries; it is not collapsed with a missing or rejected selection.
+When archive length is available, no-slice, no-applicable-slice, and invalid
+selection outcomes retain the package-level measurements even though they
+cannot produce selected-slice measurements.
+The completed projection is resource-free and retains the acquisition and
+selection receipts that establish its package generation and policy
+correspondence.
+
 An operation that wants multiple framework slices issues separately associated
 package-local selections and reports them as separate projections. It does not
 merge incompatible slices into one selected universe. The coordinator for that
@@ -590,7 +617,8 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI latest-version queries, and Inspect Web exact/latest package opening.
+CLI `Package@latest --version` queries, and Inspect Web exact/latest package
+opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,
 then continues existing payload acquisition and Workspace admission.
@@ -1283,6 +1311,7 @@ them.
 | Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
 | Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
+| Selected-slice measurements | Multi-Library selection measures the retained archive and exactly one owner-paired payload entry per selected compile asset, including RID-specific implementation preference. Selected-empty, no-slice, no-applicable-slice, invalid-selection, House-failure, and unavailable entry-manifest outcomes remain typed and retain the acquisition and selection receipts. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
 | Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |

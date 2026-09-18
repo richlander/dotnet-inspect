@@ -8,11 +8,14 @@ namespace DotnetInspect.Cli.Sections;
 
 public static class PackageQuerySections
 {
+    public const string QuerySummaryName = "Query Summary";
+
     public static SectionCatalog<PackageQueryView> Catalog { get; } =
         new SectionPipeline<PackageQueryView>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
             .Add<PackageRows>()
+            .Add<QuerySummary>()
             .Compile();
 
     public static DocumentSchema CreateSchema() =>
@@ -35,6 +38,14 @@ public static class PackageQuerySections
                 .. RowWindow.Apply(rows, results)
                     .Select(match => new PackageQueryRow(match)),
             ],
+            QuerySummary =
+            [
+                new(
+                    summary.Candidates,
+                    summary.Matches,
+                    summary.Failures,
+                    summary.Completion),
+            ],
         };
     }
 
@@ -45,6 +56,16 @@ public static class PackageQuerySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static bool CanRender(PackageQueryView model) => model.Results.Count > 0;
+        public static bool CanRender(PackageQueryView model) => true;
+    }
+
+    public sealed class QuerySummary : ISectionDescriptor<PackageQueryView>
+    {
+        public static string Name => QuerySummaryName;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionCost Cost => SectionCost.NetworkFree;
+        public static bool CanRender(PackageQueryView model) => true;
     }
 }

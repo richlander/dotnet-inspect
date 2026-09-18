@@ -237,6 +237,7 @@ function inspected(
     value: null,
     inspection: {
       content: {
+        hasPackages: results.length > 0,
         results,
         failures,
         completion: {
@@ -614,6 +615,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       event: null,
       inspection: {
         content: {
+          hasPackages: true,
           results: [matchEvent.row],
           failures: [failureEvent.failure],
           completion: completionEvent.completion,
