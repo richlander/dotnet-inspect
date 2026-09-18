@@ -314,7 +314,10 @@ public sealed record PackageQuerySummary(
 public sealed record PackageQueryDocument(
     ImmutableArray<PackageQueryMatch> Results,
     ImmutableArray<PackageQueryFailure> Failures,
-    PackageQuerySummary Summary);
+    PackageQuerySummary Summary)
+{
+    public bool HasPackages => !Results.IsEmpty;
+}
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
 public sealed record PackageQueryProgress(

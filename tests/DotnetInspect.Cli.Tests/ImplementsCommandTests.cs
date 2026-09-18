@@ -151,7 +151,7 @@ public sealed class ImplementsCommandTests
     }
 
     [Fact]
-    public async Task CommandLine_NumericTypeFilterPointsToSemanticLimit()
+    public async Task CommandLine_NumericTypeFilterIsOrdinaryFilterInput()
     {
         string assembly = typeof(ImplementsCommandTests).Assembly.Location;
         var result = await ExecuteCommandLineAsync(
@@ -164,11 +164,9 @@ public sealed class ImplementsCommandTests
             "-t",
             "1");
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "-t selects a type filter; use -n N to select implementer rows.",
-            result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Empty(ReadJsonTypes(result.Output));
     }
 
     [Fact]
@@ -205,7 +203,7 @@ public sealed class ImplementsCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--lines and --tail-lines cannot be combined with JSON output",
+            "Rendered-line selection cannot be combined with JSON output",
             result.Error);
     }
 

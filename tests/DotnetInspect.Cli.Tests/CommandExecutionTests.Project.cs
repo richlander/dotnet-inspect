@@ -885,7 +885,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--lines and --tail-lines cannot be combined with JSON output",
+            "Rendered-line selection cannot be combined with JSON output",
             error);
         Assert.DoesNotContain(
             "not found",
