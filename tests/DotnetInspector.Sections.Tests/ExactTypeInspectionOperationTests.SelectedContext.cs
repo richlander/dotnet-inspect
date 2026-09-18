@@ -50,7 +50,6 @@ public sealed partial class ExactTypeInspectionOperationTests
         await ActivateAsync(coordinator, candidate);
         using WorkspaceRealizationOperationLease authority =
             await AdmitAsync(coordinator);
-        Assert.Null(Assert.Single(context.Receipt.Members).Coordinate);
 
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
             SelectedContextExactTypeInspectionOperation.Execute(
@@ -394,6 +393,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                 input,
                 loaded);
         }
+        Assert.Null(Assert.Single(context.Receipt.Members).Coordinate);
         await ActivateAsync(coordinator, candidate);
         using WorkspaceRealizationOperationLease authority =
             await AdmitAsync(coordinator);
