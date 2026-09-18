@@ -123,7 +123,8 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             failedRoots:
             [
                 new PackageDependencyEvidenceRootFailure.PackageProfile(
-                    source.Source,
+                    PackageDependencyEvidenceSourceIdentity.Create(
+                        source.Source).WithAssociation(1),
                     PackageProfileFailureKind.ManifestAcquisition,
                     ManifestFailureReason: null,
                     Coordinate: null,

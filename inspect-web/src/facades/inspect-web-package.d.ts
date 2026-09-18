@@ -525,8 +525,28 @@ export interface BrowserPackageIcon {
     readonly mediaType: string;
     readonly base64: string;
 }
+export interface BrowserPackageInfoMeasurementInspection {
+    readonly content: BrowserPackageInfoMeasurements;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserPackageInfoMeasurements {
+    readonly status: string;
+    readonly packageId: string;
+    readonly packageVersion: string;
+    readonly compressedPackageBytes: number | null;
+    readonly selectedTargetFramework: string | null;
+    readonly availableTargetFrameworkCount: number | null;
+    readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
+    readonly selectedLibraryPayloadBytes: number | null;
+    readonly selectedLibraryCount: number | null;
+    readonly detail: string | null;
+    readonly unavailableReason: string | null;
+    readonly hasSelectedSlice: boolean;
+}
 export interface BrowserPackageLoadResult {
     readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+    readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
     readonly surface: BrowserPackageSurface | null;
 }
 export interface BrowserPackagePruningRequest {
@@ -977,7 +997,7 @@ export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]
 export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageActivity(operationId: string, reason: string): BrowserPackageChangesCancellation;
 export declare function cancelPackageQuery(operationId: string, reason: string): BrowserPackageQueryCancellation;
-export declare function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole>;
+export declare function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: ReadonlyArray<string>): ReadonlyArray<BrowserPackageGraphIdentityRole>;
 export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
@@ -986,7 +1006,7 @@ export declare function listPackageActivityPackageSets(): BrowserPackageChangesP
 export declare function listPackageQueryCatalog(): BrowserPackageQueryCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
 export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string>;
-export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
+export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
@@ -1002,4 +1022,4 @@ export declare function resolvePackageDependencyVersion(packageId: string, decla
 export declare function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
 export declare function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
-export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;
+export declare function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit>;

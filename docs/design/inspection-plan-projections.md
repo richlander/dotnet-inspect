@@ -435,5 +435,5 @@ The design remains **unverified** until the production slices provide:
 - Replacing Markout rendering, the Section Model, the View Facet Registry,
   query planning, or Workspace Definitions.
 - Treating the plan as a second CLI grammar or reconstructing it from argv.
-- Choosing a new CLI passthrough spelling. Existing `--raw` remains the
-  GitHub-URL-shape option unless its owner separately changes it.
+- Choosing a new CLI passthrough spelling. The separate
+  `--prefer-rendered-urls` preference does not select a service-output shape.

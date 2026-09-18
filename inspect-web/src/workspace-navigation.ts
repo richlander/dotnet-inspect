@@ -632,23 +632,26 @@ export type ShareStateResult = DecodedShareState | { error: string } | null;
 export type WorkspaceShareDecoder =
   (value: string) => BrowserWorkspaceShareDecodeResult;
 export type WorkspaceShareEncoder =
-  (stateJson: string) => BrowserWorkspaceShareEncodeResult;
+  (state: BrowserWorkspaceShareState) => BrowserWorkspaceShareEncodeResult;
 export type AsyncWorkspaceShareDecoder =
   (value: string) => Promise<BrowserWorkspaceShareDecodeResult>;
 export type AsyncWorkspaceShareEncoder =
-  (stateJson: string) => Promise<BrowserWorkspaceShareEncodeResult>;
+  (state: BrowserWorkspaceShareState) =>
+    Promise<BrowserWorkspaceShareEncodeResult>;
 
 const invalidShareState =
   "The shared workspace state is invalid and was ignored.";
 
-function workspaceShareStateJson(state: WorkspaceUrlState): string {
-  return JSON.stringify({
+function workspaceShareState(
+  state: WorkspaceUrlState,
+): BrowserWorkspaceShareState {
+  return {
     tabs: state.tabs,
     contexts: state.contexts,
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
-  } satisfies BrowserWorkspaceShareState);
+  };
 }
 
 function encodedWorkspaceSharePacket(
@@ -666,7 +669,7 @@ export function encodeWorkspaceShareState(
   encode: WorkspaceShareEncoder,
 ): string {
   return encodedWorkspaceSharePacket(
-    encode(workspaceShareStateJson(state)));
+    encode(workspaceShareState(state)));
 }
 
 export async function encodeWorkspaceShareStateAsync(
@@ -674,7 +677,7 @@ export async function encodeWorkspaceShareStateAsync(
   encode: AsyncWorkspaceShareEncoder,
 ): Promise<string> {
   return encodedWorkspaceSharePacket(
-    await encode(workspaceShareStateJson(state)));
+    await encode(workspaceShareState(state)));
 }
 
 function decodeWorkspaceShareState(
@@ -1144,7 +1147,8 @@ export interface WorkspaceLocationDependencies {
   replace(url: string, historyState: unknown): void;
   push(url: string, historyState: unknown): void;
   decode(value: string): BrowserWorkspaceShareDecodeResult;
-  encode(stateJson: string): BrowserWorkspaceShareEncodeResult;
+  encode(state: BrowserWorkspaceShareState):
+    BrowserWorkspaceShareEncodeResult;
 }
 
 export interface AsyncWorkspaceLocationPersistence {
@@ -1169,14 +1173,16 @@ export interface AsyncWorkspaceLocationDependencies {
   replace(url: string, historyState: unknown): void;
   push(url: string, historyState: unknown): void;
   decode(value: string): Promise<BrowserWorkspaceShareDecodeResult>;
-  encode(stateJson: string): Promise<BrowserWorkspaceShareEncodeResult>;
+  encode(state: BrowserWorkspaceShareState):
+    Promise<BrowserWorkspaceShareEncodeResult>;
 }
 
 export function createAsyncWorkspaceLocationPersistence(
   dependencies: AsyncWorkspaceLocationDependencies,
 ): AsyncWorkspaceLocationPersistence {
   const decode = (value: string) => dependencies.decode(value);
-  const encode = (stateJson: string) => dependencies.encode(stateJson);
+  const encode = (state: BrowserWorkspaceShareState) =>
+    dependencies.encode(state);
   const build = (state: WorkspaceUrlState, base?: string) =>
     buildWorkspaceStateUrlAsync(
       base ?? dependencies.current().href,
@@ -1247,7 +1253,8 @@ export function createWorkspaceLocationPersistence(
   dependencies: WorkspaceLocationDependencies,
 ): WorkspaceLocationPersistence {
   const decode = (value: string) => dependencies.decode(value);
-  const encode = (stateJson: string) => dependencies.encode(stateJson);
+  const encode = (state: BrowserWorkspaceShareState) =>
+    dependencies.encode(state);
   const build = (state: WorkspaceUrlState, base?: string) =>
     buildWorkspaceStateUrl(
       base ?? dependencies.current().href,
