@@ -224,7 +224,7 @@ dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
 dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
-dotnet-inspect ecosystem platform -S Pruning
+dotnet-inspect ecosystem runtime -S Pruning
 ```
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
@@ -259,7 +259,7 @@ report view; `--json` emits the lossless schema-versioned report, while
 acquisition progress on stderr. Single-table formats and catalog-only section
 projections are not available with `package activity`.
 
-`ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
+`ecosystem runtime -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
 platform target supplies, so a reference to one resolves to the platform rather
 than to the package. `Kind` separates a version that moves with the framework
@@ -316,7 +316,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
-source locations; these remain outside the default Finding set.
+source locations; these remain outside the default Finding set. Selecting a
+recursive relationship shows its exact direct or mutual cycle witness and
+whether the bounded focus-graph census was complete.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -449,10 +451,11 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
-scalar, including with `--json`; `--count --envelope` emits the complete
-population envelope with both the directed version Document and typed Count
-component. `--preview`, `--include-unlisted`, configured source options, and
-`--versions-with-feed` remain semantic population inputs.
+scalar, including with `--json`; `--count --envelope` makes that same integer
+the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
+the complete directed version Document. `--preview`, `--include-unlisted`,
+configured source options, and `--versions-with-feed` remain semantic
+population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
