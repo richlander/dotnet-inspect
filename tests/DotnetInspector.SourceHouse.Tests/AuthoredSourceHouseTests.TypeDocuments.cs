@@ -13,7 +13,7 @@ public sealed partial class AuthoredSourceHouseTests
         var asset = PartialTypeAsset();
         string selectedPath = additional
             ? asset.Additional.FilePath
-            : asset.Mapping.SourceFilePath!;
+            : TypeSourceDocumentSelection.SelectDefault(asset.Mapping)!.FilePath;
         var target = new SourceHouseTarget.TypeTarget(
             asset.Target.Type, selectedPath);
         await using LibraryFixture library = await LibraryFixture.CreateAsync(
@@ -44,15 +44,22 @@ public sealed partial class AuthoredSourceHouseTests
         Assert.True(mapping.IsPartial);
         Assert.Equal(SourceHouseMappingStrength.CorrelatedTypeDocument, mapping.Strength);
         Assert.Equal(selectedPath, mapping.Document.OriginalPath);
-        Assert.Equal(asset.Mapping.SourceFilePath, mapping.SourceMapping.SourceFilePath);
-        Assert.Equal(asset.Mapping.SourceUrl, mapping.SourceMapping.SourceUrl);
-        Assert.Equal(asset.Mapping.LineNumber, mapping.SourceMapping.LineNumber);
-        Assert.Equal(asset.Mapping.Checksum, mapping.SourceMapping.Checksum);
+        Assert.Equal(asset.Mapping.Type, mapping.SourceMapping.Type);
         Assert.Equal(
-            asset.Mapping.AdditionalSourceFiles.Select(file => file.FilePath),
-            mapping.SourceMapping.AdditionalSourceFiles.Select(file => file.FilePath));
+            asset.Mapping.Documents.Select(file => file.FilePath),
+            mapping.SourceMapping.Documents.Select(file => file.FilePath));
+        foreach (var (expected, actual) in asset.Mapping.Documents.Zip(mapping.SourceMapping.Documents))
+        {
+            Assert.Equal(expected.SourceUrl, actual.SourceUrl);
+            Assert.Equal(expected.GitHubBrowseUrl, actual.GitHubBrowseUrl);
+            Assert.Equal(expected.ResolutionMethod, actual.ResolutionMethod);
+            Assert.Equal(expected.ChecksumAlgorithm, actual.ChecksumAlgorithm);
+            Assert.Equal(expected.Checksum, actual.Checksum);
+        }
         Assert.Equal(
-            asset.Mapping.AdditionalSourceFiles.Select(file => file.FilePath),
+            asset.Mapping.Documents
+                .Where(file => file.FilePath != TypeSourceDocumentSelection.SelectDefault(asset.Mapping)!.FilePath)
+                .Select(file => file.FilePath),
             mapping.AdditionalDocuments.Select(file => file.OriginalPath));
         Assert.Equal(selectedPath,
             Assert.IsType<SourceHouseTarget.TypeTarget>(available.Receipt.Request.Target)
@@ -103,8 +110,7 @@ public sealed partial class AuthoredSourceHouseTests
             "basename" => Path.GetFileName(additional),
             _ => throw new ArgumentOutOfRangeException(nameof(selection)),
         };
-        Assert.NotEqual(asset.Mapping.SourceFilePath, selectedPath);
-        Assert.DoesNotContain(asset.Mapping.AdditionalSourceFiles,
+        Assert.DoesNotContain(asset.Mapping.Documents,
             file => file.FilePath == selectedPath);
         await using LibraryFixture library = await LibraryFixture.CreateAsync(
             asset.AssemblyPath, Path.ChangeExtension(asset.AssemblyPath, ".pdb"));
@@ -205,7 +211,7 @@ public sealed partial class AuthoredSourceHouseTests
         string AssemblyPath,
         SourceHouseTarget.TypeTarget Target,
         SourceLinkResolver.TypeSourceInfo Mapping,
-        SourceLinkResolver.PartialSourceFile Additional,
+        SourceLinkResolver.TypeSourceDocument Additional,
         string UnrelatedPath) PartialTypeAsset()
     {
         string assemblyPath = typeof(SourceLinkService).Assembly.Location;
@@ -213,14 +219,13 @@ public sealed partial class AuthoredSourceHouseTests
         using var source = SourceLinkService.Open(assemblyPath);
         var mapping = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
             source.ResolveTypeSource(target.Type));
-        Assert.True(mapping.IsPartialType);
-        var additional = Assert.Single(mapping.AdditionalSourceFiles,
+        Assert.True(mapping.Documents.Length > 1);
+        var additional = Assert.Single(mapping.Documents,
             file => file.FilePath.EndsWith(
                 "SourceLinkService.SourceContent.cs", StringComparison.Ordinal));
         string unrelatedPath = source.GetTrackedFiles()
             .Select(document => document.FilePath)
-            .First(path => path != mapping.SourceFilePath
-                && !mapping.AdditionalSourceFiles.Any(file => file.FilePath == path));
+            .First(path => !mapping.Documents.Any(file => file.FilePath == path));
         return (assemblyPath, target, mapping, additional, unrelatedPath);
     }
 }

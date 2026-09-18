@@ -93,8 +93,9 @@ requirement, but is not intrinsically unsafe under updated rules. Target
 dereferences and consumed member contracts retain their own requirements.
 
 The pointer branch in `CSharpPrinter.CompoundStatement` retires in this slice.
-Other scalar/enum compound families and general pointer-expression rendering
-remain separate work under #2095.
+The subsequent [scalar self-update decision](scalar-self-updates.md) owns
+ordinary same-place selection. Scalar/enum numeric binding and general
+pointer-expression rendering remain separate work under #2095.
 
 ## Gates
 

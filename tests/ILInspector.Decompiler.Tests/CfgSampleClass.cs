@@ -1668,16 +1668,29 @@ public class CfgSampleClass
 
     // `t & AttributeTargets.Class` compiles to `ldarg; ldc.i4.4; and`; the 4 stays
     // a bare int once the enum shape is unknown, so the mask is `t & 4` (CS0019).
-    // The fix casts the int operand to the enum: `t & (AttributeTargets)4`.
+    // The fix restores the exact declared member: `t & AttributeTargets.Class`.
     public static System.AttributeTargets CrossAssemblyEnumBitwise(System.AttributeTargets t) => t & System.AttributeTargets.Class;
 
     // A cross-assembly enum (StringComparison, CoreLib) passed as a CALL ARGUMENT
     // lowers to `ldc.i4.5` for OrdinalIgnoreCase. With the enum shape unknown, the
     // bare `5` makes overload resolution miss the instance string.Equals(string,
     // StringComparison) and fall back to the static object.Equals(object, object),
-    // which then can't be called on an instance (CS0176). The fix casts the
-    // argument to the enum: `s.Equals("x", (StringComparison)5)`.
+    // which then can't be called on an instance (CS0176). The resolver-backed
+    // member map restores `StringComparison.OrdinalIgnoreCase`.
     public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
+
+    public static bool CrossAssemblyEnumUnnamed(string s) => s.Equals("x", (System.StringComparison)123);
+
+    public static int CrossAssemblyRoslynEnum(Microsoft.CodeAnalysis.TypeKind kind) => kind switch
+    {
+        Microsoft.CodeAnalysis.TypeKind.Enum => 1,
+        Microsoft.CodeAnalysis.TypeKind.Struct => 2,
+        _ => 0,
+    };
+
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt
+        CrossAssemblyExternalUIntConstant()
+        => ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt.Top;
 
     static void TakesCommandBehavior(System.Data.CommandBehavior behavior) => _ = behavior;
 
@@ -1700,7 +1713,7 @@ public class CfgSampleClass
     // table switches on the enum's underlying int, so the raised case labels are
     // bare integers. With the enum shape unknown, `case 1:` is CS0266 — C#
     // converts int->enum implicitly only for the literal 0 — so the printer must
-    // spell each label as the enum: `case (DayOfWeek)1:`.
+    // restore the exact declared members from the resolved definition.
     public static int CrossAssemblyEnumSwitch(System.DayOfWeek day)
     {
         switch (day)

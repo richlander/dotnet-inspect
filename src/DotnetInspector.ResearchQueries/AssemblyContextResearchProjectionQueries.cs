@@ -28,6 +28,11 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// The whole-assembly Analysis features the projection's fact context is built with. The default
 /// matches what the Research fact producers observe through.
 /// </param>
+/// <param name="CallRelationships">
+/// Includes exact body-local <c>call.edge</c> Findings in the member census. This requires an
+/// exact <paramref name="MethodToken"/> and a source document so every relationship retains its
+/// product-issued source targets.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -41,7 +46,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool InvocationDestinations = false,
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
-    LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default);
+    LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
+    bool CallRelationships = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -91,12 +97,26 @@ public sealed record AssemblyMemberFindingEvidence(
     IReadOnlyList<int> NodeIds,
     string? UnavailableReason);
 
+/// <summary>
+/// One physical call relationship joined to its stable graph target.
+/// </summary>
+public sealed record AssemblyMemberCallRelationship(
+    AnnotatedCallGraphOccurrence Occurrence,
+    CallGraphNode Target);
+
+/// <summary>
+/// Exact source-targeted call occurrences from one depth-one graph projection.
+/// </summary>
+public sealed record AssemblyMemberCallRelationshipOverlay(
+    IReadOnlyList<AssemblyMemberCallRelationship> Relationships);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
-    IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations);
+    IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
+    AssemblyMemberCallRelationshipOverlay? CallRelationships = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -218,6 +238,13 @@ public static class AssemblyContextMemberProjectionQuery
                 "Invocation destinations require a source document.",
                 nameof(request));
         }
+        if (request.CallRelationships
+            && (!request.SourceDocument || request.MethodToken is null))
+        {
+            throw new ArgumentException(
+                "Call relationships require a source document and an exact MethodDef token.",
+                nameof(request));
+        }
         if (request.FindingEvidence
             && (!request.SourceDocument || !request.FactRows))
         {
@@ -266,6 +293,19 @@ public static class AssemblyContextMemberProjectionQuery
                     resolver);
             ResearchAssemblyContext? assembly =
                 index is null ? null : ResearchAssemblyContext.Create(index);
+            CallRelationshipProjection? callRelationships =
+                index is not null
+                    && request.MethodToken is int requestedMethodToken
+                    && request.CallRelationships
+                    ? ProjectCallRelationships(index, requestedMethodToken)
+                    : null;
+            if (request.CallRelationships
+                && index is not null
+                && callRelationships is null)
+            {
+                throw new InvalidOperationException(
+                    "Call relationship projection produced no callee topology.");
+            }
             ResearchViews.MemberProjectionResult projection =
                 ResearchViews.ProjectMember(
                     new ResearchViews.MemberProjectionRequest(
@@ -279,12 +319,22 @@ public static class AssemblyContextMemberProjectionQuery
                         SemanticsOverlay: false,
                         request.FactRows,
                         request.AnnotatedStage,
-                        Registry: null,
+                        Registry: request.CallRelationships
+                                && callRelationships is not null
+                            ? ResearchFactRegistry
+                                .MemberCensusWithCallRelationships
+                            : null,
                         request.MethodToken,
                         request.PrinterOptions,
                         CaretFocus: null,
                         request.SourceDocument,
-                        assembly));
+                        assembly,
+                        CallSites: request.CallRelationships
+                                && callRelationships is not null
+                            ? callRelationships.Calls
+                                .Select(call => call.Call)
+                                .ToArray()
+                            : null));
             IReadOnlyList<AssemblyMemberFindingEvidence>? findingEvidence =
                 request.FindingEvidence
                     ? assembly is null
@@ -295,18 +345,36 @@ public static class AssemblyContextMemberProjectionQuery
                             assembly,
                             request.PrinterOptions)
                     : null;
-            IReadOnlyList<AssemblyMemberInvocationDestination> destinations =
-                request.InvocationDestinations
-                    && index is not null
-                    && projection.SourceDocument is { } document
-                    && projection.SelectedMethodToken is { } methodToken
-                    ? ProjectInvocationDestinations(index, methodToken, document)
-                    : [];
+            IReadOnlyList<AssemblyMemberInvocationDestination> destinations = [];
+            if (request.InvocationDestinations
+                && index is not null
+                && projection.SourceDocument is { } document
+                && projection.SelectedMethodToken is { } methodToken)
+            {
+                CallRelationshipProjection? destinationRelationships =
+                    callRelationships
+                    ?? ProjectCallRelationships(index, methodToken);
+                if (destinationRelationships is not null)
+                {
+                    destinations = ProjectInvocationDestinations(
+                        destinationRelationships,
+                        document);
+                }
+            }
+            AssemblyMemberCallRelationshipOverlay? relationshipOverlay =
+                request.CallRelationships
+                    && callRelationships is not null
+                    && projection.SourceDocument is { } relationshipDocument
+                    ? ProjectCallRelationshipOverlay(
+                        callRelationships,
+                        relationshipDocument)
+                    : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
                 findingEvidence,
-                destinations);
+                destinations,
+                relationshipOverlay);
             resolver.ValidateForPublication();
             return result;
         }
@@ -625,17 +693,17 @@ public static class AssemblyContextMemberProjectionQuery
         AnnotatedSourceDocument? Document,
         string? Failure);
 
-    static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
+    sealed record CallRelationshipProjection(
+        CallGraphProjection Graph,
+        ImmutableArray<AnnotatedCallGraphMappedCall> Calls);
+
+    static CallRelationshipProjection? ProjectCallRelationships(
         LibraryBodyIndex index,
-        int callerToken,
-        AnnotatedSourceDocument document)
+        int callerToken)
     {
         index.GetDirectCallsByEvidenceMethod()
             .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
         DirectCall[] calls = callArray.IsDefault ? [] : [.. callArray];
-        if (calls.Length == 0)
-            return [];
-
         CallTreeNode? calleeRoot = index.BuildCallTree(
             callerToken,
             maxDepth: 1,
@@ -643,15 +711,36 @@ public static class AssemblyContextMemberProjectionQuery
                 ? int.MaxValue
                 : calls.Length + 1);
         if (calleeRoot is null)
-            return [];
+            return null;
 
-        CallGraphProjection graph = CallGraphProjection.FromCallees(calleeRoot);
+        CallGraphProjection graph =
+            CallGraphProjection.FromCallees(calleeRoot);
+        (
+            ImmutableArray<AnnotatedCallGraphMappedCall> mapped,
+            string? failure) =
+            AnnotatedCallGraphOccurrenceProjection.MapCalls(
+                graph,
+                calls,
+                omitNotProjected: false);
+        if (failure is not null)
+            throw new InvalidOperationException(failure);
+        return new(graph, mapped);
+    }
+
+    static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
+        CallRelationshipProjection relationships,
+        AnnotatedSourceDocument document)
+    {
         return
         [
-            .. calls
-                .Select(call => (
-                    Node: InnermostInvocationNodeAtOffset(document, call.ILOffset),
-                    Target: FindCallee(graph, call)))
+            .. relationships.Calls
+                .Select(mapped => (
+                    Node: InnermostInvocationNodeAtOffset(
+                        document,
+                        mapped.Call.ILOffset),
+                    Target: FindCallee(
+                        relationships.Graph,
+                        mapped.Call)))
                 .Where(pair => pair.Node is not null && pair.Target is not null)
                 .Select(pair => (Node: pair.Node!, Target: pair.Target!))
                 .GroupBy(pair => pair.Node.Id)
@@ -666,6 +755,38 @@ public static class AssemblyContextMemberProjectionQuery
                     group.NodeId,
                     group.Targets[0])),
         ];
+    }
+
+    static AssemblyMemberCallRelationshipOverlay
+        ProjectCallRelationshipOverlay(
+            CallRelationshipProjection relationships,
+            AnnotatedSourceDocument document)
+    {
+        (
+            ImmutableArray<AnnotatedCallGraphOccurrence> occurrences,
+            string? failure) =
+            AnnotatedCallGraphOccurrenceProjection.MapFacts(
+                relationships.Calls,
+                document);
+        if (failure is not null)
+            throw new InvalidOperationException(failure);
+
+        var rows =
+            new AssemblyMemberCallRelationship[occurrences.Length];
+        for (int index = 0; index < rows.Length; index++)
+        {
+            DirectCall call = relationships.Calls[index].Call;
+            if (relationships.Graph.FindFocusCalleeTarget(
+                    call,
+                    out CallGraphNode target)
+                != CallGraphRowMatch.Found)
+            {
+                throw new InvalidOperationException(
+                    $"Call site IL_{call.ILOffset:X4} has no stable graph target.");
+            }
+            rows[index] = new(occurrences[index], target);
+        }
+        return new(rows);
     }
 
     static CallGraphNode? FindCallee(

@@ -380,6 +380,24 @@ public interface ICompleteRestorationHost<TActivation>
         CancellationToken cancellationToken = default);
 }
 
+internal sealed record CompleteRestorationInvocation(
+    ImmutableArray<PackageRootBinding> PackageRoots,
+    IReadOnlyDictionary<string, PackageArtifactRootRequest> PackageRequests,
+    IReadOnlyDictionary<string, NavigationPackageEvaluation>
+        PackageEvaluations);
+
+internal delegate ValueTask<ImmutableArray<PackageRootBinding>>
+    CompleteRestorationPackageRootsOperation(
+        ImmutableArray<PackageRootBinding> packageRoots,
+        IReadOnlyDictionary<string, PackageArtifactRootRequest> packageRequests,
+        CancellationToken cancellationToken);
+
+internal delegate ValueTask CompleteRestorationWorkspaceOperation(
+    InspectionWorkspace workspace,
+    CompleteWorkspaceActivation activation,
+    CompleteRestorationInvocation invocation,
+    CancellationToken cancellationToken);
+
 public abstract record CompleteRestorationHostResult<TActivation>
 {
     private protected CompleteRestorationHostResult()
@@ -469,13 +487,53 @@ public abstract record CompleteRestorationResult<TActivation>
 
 public static class CompleteRestorationCoordinator
 {
-    public static async ValueTask<CompleteRestorationResult<TActivation>>
+    public static ValueTask<CompleteRestorationResult<TActivation>>
         RestoreAsync<TActivation>(
             CompleteRestorationPreparationResult preparation,
             ICompleteRestorationIntentAuthority authority,
             ICompleteRestorationHost<TActivation> host,
             CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken = default) =>
+        RestoreCoreAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            packageRootsOperation: null,
+            operation: null,
+            cancellationToken);
+
+    internal static ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreWithOperationAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CompleteRestorationPackageRootsOperation packageRootsOperation,
+            CompleteRestorationWorkspaceOperation operation,
             CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(packageRootsOperation);
+        ArgumentNullException.ThrowIfNull(operation);
+        return RestoreCoreAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            packageRootsOperation,
+            operation,
+            cancellationToken);
+    }
+
+    private static async ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreCoreAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CompleteRestorationPackageRootsOperation? packageRootsOperation,
+            CompleteRestorationWorkspaceOperation? operation,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(preparation);
         ArgumentNullException.ThrowIfNull(authority);
@@ -540,6 +598,8 @@ public static class CompleteRestorationCoordinator
                             workspace,
                             authority,
                             options,
+                            packageRootsOperation,
+                            operation,
                             revocation,
                             cancellationToken).ConfigureAwait(false);
                     if (result
@@ -649,6 +709,8 @@ public static class CompleteRestorationCoordinator
             InspectionWorkspace workspace,
             ICompleteRestorationIntentAuthority authority,
             CompleteRestorationExecutionOptions options,
+            CompleteRestorationPackageRootsOperation? packageRootsOperation,
+            CompleteRestorationWorkspaceOperation? operation,
             CancellationToken constructionRevocation,
             CancellationToken cancellationToken)
     {
@@ -727,8 +789,6 @@ public static class CompleteRestorationCoordinator
                             .RuntimeFailure));
             }
 
-            ImmutableArray<PackageRootBinding> roots =
-                DistinctPackageRoots(packageRoots);
             PackageNavigationRequestResolution packageRequests =
                 ResolvePackageNavigationRequests(
                     plan,
@@ -737,6 +797,21 @@ public static class CompleteRestorationCoordinator
             {
                 return new CompleteWorkspacePreparationResult.Failed(
                     packageRequests.Failure);
+            }
+            ImmutableArray<PackageRootBinding> roots =
+                DistinctPackageRoots(packageRoots);
+            if (packageRootsOperation is not null)
+            {
+                roots = await packageRootsOperation(
+                    roots,
+                    packageRequests.Requests!,
+                    token).ConfigureAwait(false);
+                if (roots.IsDefault
+                    || roots.Any(static root => root is null))
+                {
+                    throw new InvalidOperationException(
+                    "The Package Root operation returned an invalid collection.");
+                }
             }
             WorkspaceScopeOperationResult scopeResult =
                 await workspace.ReplaceScopeAsync(
@@ -864,13 +939,25 @@ public static class CompleteRestorationCoordinator
             CompleteRestorationProjection projection =
                 ((CompleteRestorationProjectionResult.Projected)
                     projectionResult).Projection;
-            return new CompleteWorkspacePreparationResult.Prepared(
-                new CompleteWorkspaceActivation(
-                    plan.Intent,
-                    plan.Request,
-                    workspace.Identity,
-                    snapshot,
-                    projection));
+            var activation = new CompleteWorkspaceActivation(
+                plan.Intent,
+                plan.Request,
+                workspace.Identity,
+                snapshot,
+                projection);
+            if (operation is not null)
+            {
+                await operation(
+                    workspace,
+                    activation,
+                    new CompleteRestorationInvocation(
+                        roots,
+                        packageRequests.Requests!,
+                        resolved.PackageEvaluations!),
+                    token).ConfigureAwait(false);
+            }
+
+            return new CompleteWorkspacePreparationResult.Prepared(activation);
         }
         catch (OperationCanceledException)
         {
@@ -1023,6 +1110,9 @@ public static class CompleteRestorationCoordinator
         var facts =
             ImmutableArray.CreateBuilder<
                 CommittedPackageStateResolutionFacts>();
+        var packageEvaluations =
+            new Dictionary<string, NavigationPackageEvaluation>(
+                StringComparer.Ordinal);
         foreach (NavigationTabDefinition tab
             in definitions.Navigation?.Tabs ?? [])
         {
@@ -1050,8 +1140,9 @@ public static class CompleteRestorationCoordinator
                     options.PackageSurfaceLimits,
                     cancellationToken).ConfigureAwait(false);
             if (evaluated.Failure is not null)
-                return new(null, null, null, evaluated.Failure);
+                return new(null, null, null, null, evaluated.Failure);
             facts.Add(new(tab.Id, evaluated.Package!));
+            packageEvaluations.Add(tab.Id, evaluated.Package!);
         }
 
         CommittedScenarioSelectorResolutionResult selector =
@@ -1067,6 +1158,7 @@ public static class CompleteRestorationCoordinator
                 null,
                 null,
                 null,
+                null,
                 new CompleteRestorationFailure
                     .SelectorResolutionFailed(failed.Failure));
         }
@@ -1077,7 +1169,7 @@ public static class CompleteRestorationCoordinator
         DetachedCommittedResult detached =
             DetachCommitted(resolution, schemaVersion, options);
         if (detached.Failure is not null)
-            return new(null, null, null, detached.Failure);
+            return new(null, null, null, null, detached.Failure);
         NavigationInitialization initialization =
             resolution.ActiveState
                 is ResolvedCommittedPackageViewState activePackageState
@@ -1097,6 +1189,7 @@ public static class CompleteRestorationCoordinator
             initialization,
             package,
             detached.State,
+            packageEvaluations,
             null);
     }
 
@@ -1360,6 +1453,8 @@ public static class CompleteRestorationCoordinator
         NavigationInitialization? Initialization,
         NavigationPackageEvaluation? Package,
         CompleteRestorationResolvedState? State,
+        IReadOnlyDictionary<string, NavigationPackageEvaluation>?
+            PackageEvaluations,
         CompleteRestorationFailure? Failure);
 
     private sealed record PackageEvaluationResult(

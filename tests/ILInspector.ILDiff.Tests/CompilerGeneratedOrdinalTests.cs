@@ -482,11 +482,10 @@ public class CompilerGeneratedOrdinalTests
     /// <see cref="UnrelatedAttribute_DoesNotFold"/> reached through the other spelling.
     /// </summary>
     /// <remarks>
-    /// Deleting the whole branch is <em>not</em> a faithful tamper for this control: the
-    /// walk to the declaring type is itself observed by
-    /// <c>IlAssemblyDiffMetadataGraphSafetyTests.MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk</c>,
-    /// so removing the walk fails that census test for a reason unrelated to identity. A
-    /// tamper that keeps the walk and drops only the comparison passed the whole suite
+    /// Deleting the whole branch is <em>not</em> a faithful tamper for this control because
+    /// it also removes the supported definition spelling proven by
+    /// <see cref="LocallyDefinedCompilerGeneratedAttribute_IsRecognized"/>. A tamper that
+    /// keeps the lookup and drops only the identity comparison passed the whole suite
     /// before this control existed.
     /// </remarks>
     [Theory]

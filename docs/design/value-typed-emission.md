@@ -774,6 +774,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    separately decides same-pointer storage updates after materialization,
    retiring the printer's pointer-compound branch without broadening storage
    admission.
+   [Scalar self-update decisions](scalar-self-updates.md) separately annotate
+   ordinary stores after coercion, retiring their same-place/unit-step discovery
+   while retaining existing numeric binding and residual-slot reconciliation.
    The unchanged shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy

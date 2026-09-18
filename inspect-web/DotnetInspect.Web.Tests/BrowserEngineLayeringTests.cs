@@ -108,6 +108,9 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(
+            "T:ILInspector.Analysis.LibraryBodyAnalysisService",
+            banned);
+        Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup",
@@ -206,6 +209,9 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains(
             "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",
+            banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.SelectedContextExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceDeclarationContext,DotnetInspector.Queries.SelectedContextExactTypeInspectionRequest)",
             banned);
 
         // #3932's streaming form releases the participant terminally, and this engine reuses one

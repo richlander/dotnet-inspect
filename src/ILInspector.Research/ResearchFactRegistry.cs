@@ -161,6 +161,16 @@ public sealed class ResearchFactRegistry
 {
     public const string CallRelationshipDescriptorId = "call.edge";
 
+    static readonly IResearchFactProducer[] DefaultProducers =
+    [
+        new AllocationOccurrenceFactProducer(),
+        new UnsafetyOccurrenceFactProducer(),
+        new CallSiteCostFactProducer(),
+        new CallSiteSemanticsFactProducer(),
+        new MethodHeaderLeverageFactProducer(),
+        new DecompilerLifetimeFactProducer(),
+    ];
+
     readonly IReadOnlyList<IResearchFactProducer> _producers;
 
     public ResearchFactRegistry(params IResearchFactProducer[] producers)
@@ -184,13 +194,8 @@ public sealed class ResearchFactRegistry
     public ImmutableArray<string> DescriptorIds { get; }
     public ResearchFactRequirements Requirements { get; }
 
-    public static ResearchFactRegistry Default { get; } = new(
-        new AllocationOccurrenceFactProducer(),
-        new UnsafetyOccurrenceFactProducer(),
-        new CallSiteCostFactProducer(),
-        new CallSiteSemanticsFactProducer(),
-        new MethodHeaderLeverageFactProducer(),
-        new DecompilerLifetimeFactProducer());
+    public static ResearchFactRegistry Default { get; } =
+        new(DefaultProducers);
 
     /// <summary>
     /// The body-local relationship dimension. Its call evidence is supplied by
@@ -202,6 +207,18 @@ public sealed class ResearchFactRegistry
     /// </summary>
     public static ResearchFactRegistry CallRelationships { get; } = new(
         new DirectCallFactProducer());
+
+    /// <summary>
+    /// The ordinary member Finding census plus exact body-local call
+    /// relationships supplied by a retained call-graph acquisition.
+    /// </summary>
+    public static ResearchFactRegistry MemberCensusWithCallRelationships
+        { get; } =
+        new(
+            [
+                .. DefaultProducers,
+                new DirectCallFactProducer(),
+            ]);
 
     public FindingCensus<IAnnotation> CollectCensus(ResearchFactContext context)
     {
