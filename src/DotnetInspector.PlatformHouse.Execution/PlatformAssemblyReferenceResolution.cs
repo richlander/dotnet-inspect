@@ -65,7 +65,9 @@ public static class PlatformHouseAssemblyReferenceResolver
         if (PlatformHouseLibraryRealizer.ExceedsBudget(
                 consumedWork,
                 request)
-            || contribution is PlatformSourceContribution.Incomplete)
+            || (validSourceTerminal
+                && contribution
+                    is PlatformSourceContribution.Incomplete))
         {
             return Incomplete(
                 request,

@@ -284,21 +284,30 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(PackageSourceTerminalCase.Unavailable)]
+    [InlineData(PackageSourceTerminalCase.Incomplete)]
     public async Task
-        ResolveAsync_RejectsForeignPackageSourceTerminal()
+        ResolveAsync_RejectsForeignPackageSourceTerminal(
+            PackageSourceTerminalCase terminalCase)
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
         byte[] image = Image();
         await using PackagePlatformTestEnvironment environment =
-            TerminalEnvironment(
-                PackageSourceTerminalCase.Unavailable);
+            TerminalEnvironment(terminalCase);
         PackagePlatformHouseAdapter adapter = Adapter(environment);
         AssemblyReferenceIdentity identity =
             PackagePlatformTestData.Identity(image);
         PlatformHouseRequest sourceRequest =
-            Request(adapter, identity, cancellationToken);
+            Request(
+                adapter,
+                identity,
+                cancellationToken,
+                maxSourceOperations:
+                    terminalCase == PackageSourceTerminalCase.Incomplete
+                        ? 0
+                        : 1);
         PlatformHouseRequest executionRequest =
             Request(adapter, identity, cancellationToken);
         PackagePlatformHouseResult<PackageReferenceRealization> result =
@@ -317,8 +326,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
                 executionRequest,
                 result,
-                TerminalConsumed(
-                    PackageSourceTerminalCase.Unavailable));
+                TerminalConsumed(terminalCase));
 
         var rejected = Assert.IsType<
             PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
@@ -330,7 +338,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
                 .Kind);
         Assert.Empty(rejected.Receipt.SourceSettlements);
         Assert.Equal(
-            PackagePlatformSourceDiagnosticKind.AuthorizationDenied,
+            ExpectedDiagnostic(terminalCase),
             terminal.Diagnostic.Kind);
     }
 

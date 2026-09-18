@@ -1135,7 +1135,8 @@ gates the four package terminal arms, exact outcome-relevant settlement, source
 failure stage, retained package diagnostic, and absence of further source work
 in Release.
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignPackageSourceTerminal`
-gates foreign owner evidence before settlement in Release.
+gates foreign unavailable and incomplete owner evidence before settlement in
+Release.
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal`
 gates typed incomplete precedence without settling that foreign evidence.
 
