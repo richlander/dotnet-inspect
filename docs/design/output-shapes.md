@@ -1445,7 +1445,8 @@ This one-step CLI adoption, tracked by #7619, replaces option registration,
 parsers, and consumers together; Browser/Wasm does not parse these flags and
 gains no new UI or policy.
 Existing typed sections, Markout rendering, and payload lowering are unchanged.
-Real evidence uses `Newtonsoft.Json` source links and the repository's own
+Real evidence uses `Newtonsoft.Json@13.0.3` source links and this repository's
+[SourceLinkService.cs at 0cdbe500d](https://github.com/richlander/dotnet-inspect/blob/0cdbe500d11cb77ae7fb3c8612a5ba7bcc83ff86/src/ILInspector.SourceLink/SourceLinkService.cs)
 source URL. PR-fast CLI parsing and service URL-conversion tests cover unknown
 providers and literal `/raw/` path segments; focused package/member/library
 source-output tests cover the production preference and unchanged default.
