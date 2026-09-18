@@ -25,7 +25,7 @@ The operator explicitly approved this bounded cross-owner replacement:
 
 - the Workspace API defaults to an empty Workspace and has no curated option;
 - the Ecosystems API owns product curation: the initial platform composition
-  contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
+  contains .NET Runtime, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
   approved separate all-known construction, now including Aspire, AI, Azure,
   and Blazor, and #7001 adds construction from an explicit ordered ecosystem
   selection;
@@ -172,7 +172,7 @@ no acquisition or analysis and never consults
 The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
-1. Platform
+1. .NET Runtime
 2. ASP.NET Core
 3. Microsoft.Extensions
 
@@ -211,7 +211,7 @@ The CLI and Inspect Web do not maintain separate curated manifests. Reusable
 Workspace Scope remains independent of the application catalog, and callers
 that choose raw construction do not reference the curated composition.
 
-Platform, ASP.NET Core, and Microsoft.Extensions are separate registrations
+.NET Runtime, ASP.NET Core, and Microsoft.Extensions are separate registrations
 even when the applicable platform target subsumes some ASP.NET Core or
 Microsoft.Extensions packages. Platform/package pruning remains a per-target
 fact; it does not merge ecosystem identities or rewrite saved registration
@@ -229,7 +229,7 @@ declarations include `System.Text.Json@11.0.0-preview.7.26381.103`.
 - package-mode `depends` is a package-authorship question. Its target adoption
   chooses raw construction so the package-declared route remains the
   high-fidelity starting point.
-- adding explicit Platform scope registers `ecosystem.platform` and activates
+- adding explicit .NET Runtime ecosystem scope registers `ecosystem.runtime` and activates
   pruning eligibility. The pruning owner still compares against the exact
   selected platform target; a .NET 10 target cannot subsume that newer .NET 11
   preview package merely because the assembly name overlaps.
@@ -252,7 +252,7 @@ default:
    registration-bearing Scope revision, as owned by
    [Spotlight destination
    activation](inspect-web-spotlight-destination-activation.md).
-2. Ecosystems passes the complete Platform, ASP.NET Core, and
+2. Ecosystems passes the complete .NET Runtime, ASP.NET Core, and
    Microsoft.Extensions registration sequence through Workspace's neutral
    explicit-initialization API. Construction performs no source work.
 3. The selected package becomes explicit Workspace membership and its selected
@@ -263,9 +263,9 @@ default:
    Workspace, while the request still supplies finite discovery, acquisition,
    traversal, and result bounds.
 5. Resolution retains the exact route and evidence selected for each edge.
-   Platform registration makes target-applicable Platform candidates and
-   pruning available; it does not convert package-authored evidence into
-   Platform evidence or require every consumer to prefer Platform.
+   The .NET Runtime Ecosystem registration makes target-applicable Platform
+   candidates and pruning available; it does not convert package-authored
+   evidence into Platform evidence or require every consumer to prefer Platform.
 6. Saving or sharing the resulting configuration records the exact expanded
    membership and registration intent selected for that Workspace. Restoration
    uses raw construction and never re-evaluates the product's later curated
@@ -285,7 +285,7 @@ System.Memory.Data (package membership)
 └─ System.Text.Json
    ├─ dependency definition: retain the package-authored route
    └─ curated traversal: an exact target-applicable Platform route may prune
-      the package edge when ecosystem.platform is registered
+      the package edge when ecosystem.runtime is registered
       └─ continuation remains available to System.Text.Encodings.Web
 ```
 
@@ -435,9 +435,9 @@ reconstructing graph identity or focal-length semantics.
 
 Issue [#6248](https://github.com/richlander/dotnet-inspect/issues/6248)
 separately owns cause-oriented incomplete-result diagnostics. A caller that
-chooses curated construction gains Platform registration and should remove the
-common missing-corelib case once the resolution and acquisition path is
-adopted. Raw callers retain responsibility for their explicit population, and
+chooses curated construction gains the .NET Runtime Ecosystem registration and
+should remove the common missing-corelib case once the resolution and
+acquisition path is adopted. Raw callers retain responsibility for their explicit population, and
 the diagnostic remains necessary for other missing populations and failures.
 
 ## Workspace and persistence experience
@@ -448,7 +448,7 @@ permission editor:
 ```text
 Workspace                                                   [Edit]
   Registered scope
-    Platform
+    .NET Runtime
     ASP.NET Core
     Microsoft.Extensions
     Contoso.*
@@ -551,7 +551,7 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Azure, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
+| Construct through the Ecosystems factories | The platform variant contains .NET Runtime, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Azure, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
 | Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |

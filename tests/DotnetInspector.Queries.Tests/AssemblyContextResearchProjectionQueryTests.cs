@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
@@ -551,6 +552,153 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public async Task MemberProjection_ProjectsRepeatedDirectRecursionAsOneCycle()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                CycleRequest(
+                    image,
+                    "Target",
+                    "InstanceRecursionApi",
+                    "RecurseTwice")));
+
+        AssemblyMemberCallCycleInspection cycles =
+            Assert.IsType<AssemblyMemberCallCycleInspection>(
+                projection.CallCycles);
+        AssemblyMemberCallCycle cycle =
+            Assert.Single(cycles.Findings);
+        Assert.True(cycles.IsComplete);
+        Assert.Single(cycle.EdgeRows);
+        Assert.Equal(2, cycle.FactIds.Count);
+        Assert.Single(cycle.Targets);
+        Assert.Equal(
+            "RecurseTwice",
+            cycle.Targets[0].Member.Name);
+        AssemblyMemberCallRelationshipOverlay relationships =
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                projection.CallRelationships);
+        Assert.Equal(
+            cycle.FactIds.Order(),
+            relationships.Relationships
+                .Select(relationship =>
+                    relationship.Occurrence.FactId)
+                .Order());
+        Assert.All(
+            relationships.Relationships,
+            relationship => Assert.Equal(
+                cycle.EdgeRows[0],
+                relationship.Occurrence.EdgeRow));
+    }
+
+    [Fact]
+    public async Task MemberProjection_ProjectsMutualRecursionAsAnOrderedCycle()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                CycleRequest(
+                    image,
+                    "Target",
+                    "InstanceRecursionApi",
+                    "IsEven")));
+
+        AssemblyMemberCallCycle cycle = Assert.Single(
+            Assert.IsType<AssemblyMemberCallCycleInspection>(
+                projection.CallCycles)
+                .Findings);
+        Assert.Equal(2, cycle.EdgeRows.Count);
+        Assert.Single(cycle.FactIds);
+        Assert.Equal(
+            ["IsOdd", "IsEven"],
+            cycle.Targets.Select(target =>
+                target.Member.Name));
+    }
+
+    [Fact]
+    public async Task MemberProjection_ReportsACompleteEmptyCycleCensus()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                CycleRequest(
+                    image,
+                    "Target",
+                    "Api",
+                    "Leaf")));
+
+        AssemblyMemberCallCycleInspection cycles =
+            Assert.IsType<AssemblyMemberCallCycleInspection>(
+                projection.CallCycles);
+        Assert.True(cycles.IsComplete);
+        Assert.Empty(cycles.Findings);
+    }
+
+    [Fact]
+    public async Task MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                CycleRequest(
+                    image,
+                    "Target",
+                    "InstanceRecursionApi",
+                    "RecurseAsync")));
+
+        AssemblyMemberCallCycleInspection cycles =
+            Assert.IsType<AssemblyMemberCallCycleInspection>(
+                projection.CallCycles);
+        Assert.Empty(cycles.Findings);
+        Assert.False(cycles.IsComplete);
+        Assert.True(cycles.Limits.HasFlag(
+            AnnotatedCallGraphCycleLimit
+                .IncompleteCorrespondence));
+        Assert.NotNull(projection.Projection.SourceDocument);
+        Assert.NotNull(projection.CallRelationships);
+    }
+
+    [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
         ImmutableArray<byte> image = BuildVersionedInvocationImage();
@@ -650,6 +798,21 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.Contains(
             "source document and an exact MethodDef token",
             missingToken.Message,
+            StringComparison.Ordinal);
+
+        ArgumentException missingRelationships =
+            Assert.Throws<ArgumentException>(() =>
+                AssemblyContextMemberProjectionQuery.Execute(
+                    group,
+                    InvocationRequest(
+                        nameof(ResearchProjectionProbe.InvokeLocal))
+                        with
+                        {
+                            CallCycles = true,
+                        }));
+        Assert.Contains(
+            "exact call relationships",
+            missingRelationships.Message,
             StringComparison.Ordinal);
     }
 
@@ -935,6 +1098,28 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         };
     }
 
+    static AssemblyContextMemberProjectionRequest CycleRequest(
+        ImmutableArray<byte> image,
+        string typeNamespace,
+        string typeName,
+        string member)
+    {
+        int methodToken = MethodToken(
+            image,
+            typeNamespace,
+            typeName,
+            member);
+        return new AssemblyContextMemberProjectionRequest(
+            $"{typeNamespace}.{typeName}",
+            member,
+            MethodToken: methodToken,
+            SourceDocument: true,
+            FactRows: true,
+            InvocationDestinations: true,
+            CallRelationships: true,
+            CallCycles: true);
+    }
+
     static string NodeText(
         AnnotatedSourceDocument document,
         AnnotatedSourceNode node) =>
@@ -1070,6 +1255,17 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         IAssemblyBindingPolicy policy)
     {
         ImmutableArray<byte> image = SelfImage();
+        return ContentGroup(
+            workspace,
+            policy,
+            image);
+    }
+
+    static AssemblyContextGroup ContentGroup(
+        InspectionWorkspace workspace,
+        IAssemblyBindingPolicy policy,
+        ImmutableArray<byte> image)
+    {
         return workspace.CreateAssemblyContextGroup(
             [Participant(image, ContentIdentity(image), policy)]);
     }

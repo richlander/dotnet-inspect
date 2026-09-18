@@ -263,6 +263,13 @@ const result: AnnotatedSourceResult = {
       available: false,
       unavailableReason: "NotProjected",
     },
+    callCycles: {
+      available: false,
+      unavailableReason: "NotProjected",
+      isComplete: false,
+      limits: [],
+      findings: [],
+    },
   },
   findingEvidenceDocuments: [{
     id: 0,
