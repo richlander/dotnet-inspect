@@ -119,13 +119,6 @@
     <PackageReference Include="Markout" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="System.CommandLine" />
-    <!-- .NET 11 RC1's in-box generator predates updated memory-safety syntax.
-         Consume the RC2 fix as an analyzer only; runtime JSON remains supplied
-         by the selected shared framework. -->
-    <PackageReference Include="System.Text.Json"
-                      IncludeAssets="analyzers;build;buildTransitive"
-                      ExcludeAssets="compile;runtime"
-                      PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

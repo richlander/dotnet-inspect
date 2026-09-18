@@ -1,6 +1,7 @@
 #:project ../../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../../../src/ILInspector.Metadata/ILInspector.Metadata.csproj
 #:property OwnsItsOwnStderr=true
+#:property MemorySafetyRules=updated
 
 using System.IO.Compression;
 using System.Reflection.Metadata;
@@ -270,7 +271,13 @@ record Supply(string Pack, string Family, string Package, string Version);
 record AssemblyInfo(string Name, string File, string Version, int PublicTypes, bool IsFacade, string? DominantForwardTarget);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(Row))]
-[JsonSerializable(typeof(Supply))]
-[JsonSerializable(typeof(string))]
+[JsonSerializable(
+    typeof(Row),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(Supply),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(string),
+    GenerationMode = System.Text.Json.Serialization.JsonSourceGenerationMode.Serialization)]
 partial class CatalogJsonContext : JsonSerializerContext;

@@ -1,5 +1,6 @@
 #:project ../src/NuGetFetch/NuGetFetch.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
+#:property MemorySafetyRules=updated
 
 using System.Security.Cryptography;
 using System.Text;
@@ -158,6 +159,10 @@ sealed record CorpusManifest(int SchemaVersion, string PlatformVersion,
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = true)]
-[JsonSerializable(typeof(CorpusManifest))]
-[JsonSerializable(typeof(TierRecord[]))]
+[JsonSerializable(
+    typeof(CorpusManifest),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(TierRecord[]),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
 partial class CorpusJsonContext : JsonSerializerContext;

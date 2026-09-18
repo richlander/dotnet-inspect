@@ -1,5 +1,6 @@
 #:project ../src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj
 #:property EnablePreviewFeatures=true
+#:property MemorySafetyRules=updated
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -584,5 +585,7 @@ readonly record struct MetricSummary(
     WriteIndented = true)]
 [JsonSerializable(typeof(BenchmarkManifest))]
 [JsonSerializable(typeof(SemanticProjection))]
-[JsonSerializable(typeof(BenchmarkReport))]
+[JsonSerializable(
+    typeof(BenchmarkReport),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
 partial class BenchmarkJsonContext : JsonSerializerContext;

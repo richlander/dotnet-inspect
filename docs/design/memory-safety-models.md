@@ -335,16 +335,18 @@ Non-AOT builds retain the compiler's memory-safety rules default.
 
 The .NET 11 RC1 `System.Text.Json` source generator predates the updated
 `safe extern` syntax. The build consumes the RC2 backport of
-dotnet/runtime#133886 as an analyzer-only dependency while continuing to compile
-and run against the selected shared framework. Affected readonly record values
-are registered for serialization-only generation in output contexts, avoiding
-unsafe boxed-struct setters without changing the value models. The one affected
-value that participates in existing API-output round trips uses a typed safe
-converter for both directions.
+dotnet/runtime#133886 as an analyzer-only dependency in compilations that enable
+the updated rules, while continuing to compile and run against the selected
+shared framework. Repository file-based apps with source-generated JSON opt
+into the same rules explicitly. Affected readonly record values are registered
+for serialization-only generation in output contexts, avoiding unsafe
+boxed-struct setters without changing the value models. The one affected value
+that participates in existing API-output round trips uses a typed safe converter
+for both directions.
 
-The same targets file has a fixture-only alias that maps text values such as
-`updated` to the raw compiler feature. That alias is test infrastructure, not
-SDK behavior or user-facing configuration guidance.
+The same targets file has a repository-local alias that maps text values such
+as `updated` to the raw compiler feature. Fixtures and file-based apps use that
+alias; it is not SDK behavior or user-facing configuration guidance.
 
 ### Unsafe-context permission is independent
 

@@ -1,5 +1,6 @@
 #:project ../src/UntrustedDocuments/UntrustedDocuments.csproj
 #:property EnablePreviewFeatures=true
+#:property MemorySafetyRules=updated
 
 using System.Diagnostics;
 using System.Globalization;
@@ -306,8 +307,12 @@ sealed class Cost
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(ChangeRow))]
-[JsonSerializable(typeof(Summary))]
+[JsonSerializable(
+    typeof(ChangeRow),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(
+    typeof(Summary),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
 partial class ProbeJson : JsonSerializerContext;
 
 static class ProbeTests

@@ -1,6 +1,7 @@
 #:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
+#:property MemorySafetyRules=updated
 
 using System.Text;
 using System.Security.Cryptography;
@@ -1693,5 +1694,7 @@ readonly record struct WriteOutcome(string? Error, string TemporaryFate);
 
 [JsonSerializable(typeof(List<PackageListEntry>))]
 [JsonSerializable(typeof(PackagePinFile))]
-[JsonSerializable(typeof(PackageSweepManifest))]
+[JsonSerializable(
+    typeof(PackageSweepManifest),
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
 sealed partial class PackageSweepJsonContext : JsonSerializerContext;

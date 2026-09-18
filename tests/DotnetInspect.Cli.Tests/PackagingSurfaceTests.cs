@@ -111,20 +111,62 @@ public sealed class PackagingSurfaceTests
         Assert.Contains(
             "updated-memory-safety-rules",
             features.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+        AssertProperty(
+            nativeAotGroup,
+            "UsePatchedSystemTextJsonGenerator",
+            "true");
     }
 
     [Fact]
-    public void CliUsesPatchedSystemTextJsonGeneratorAsAnalyzerOnly()
+    public void UpdatedMemorySafetyBuildsUsePatchedJsonGenerator()
     {
         string root = FindRepositoryRoot();
-        var project = XDocument.Load(
-            Path.Combine(
-                root,
-                "src",
-                "DotnetInspect.Cli",
-                "DotnetInspect.Cli.csproj"));
+        var targets = XDocument.Load(
+            Path.Combine(root, "Directory.Build.targets"));
+        XElement updatedRulesGroup = Assert.Single(
+            targets.Descendants(),
+            static element =>
+                element.Name.LocalName == "PropertyGroup"
+                && string.Equals(
+                    element.Attribute("Condition")?.Value,
+                    "'$(MemorySafetyRules)' == 'updated' or '$(MemorySafetyRules)' == 'on' or '$(MemorySafetyRules)' == 'new'",
+                    StringComparison.Ordinal));
+
+        XElement features = Assert.Single(
+            updatedRulesGroup.Elements(),
+            static element => element.Name.LocalName == "Features");
+        Assert.Contains(
+            "updated-memory-safety-rules",
+            features.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+        AssertProperty(
+            updatedRulesGroup,
+            "UsePatchedSystemTextJsonGenerator",
+            "true");
+    }
+
+    [Fact]
+    public void PatchedSystemTextJsonGeneratorIsAnalyzerOnly()
+    {
+        string root = FindRepositoryRoot();
+        var targets = XDocument.Load(
+            Path.Combine(root, "Directory.Build.targets"));
+        XElement itemGroup = Assert.Single(
+            targets.Descendants(),
+            static element =>
+                element.Name.LocalName == "ItemGroup"
+                && string.Equals(
+                    element.Attribute("Condition")?.Value,
+                    "'$(TargetFramework)' == 'net11.0' and '$(UsePatchedSystemTextJsonGenerator)' == 'true'",
+                    StringComparison.Ordinal)
+                && element.Elements().Any(
+                    static child =>
+                        child.Name.LocalName == "PackageReference"
+                        && string.Equals(
+                            child.Attribute("Include")?.Value,
+                            "System.Text.Json",
+                            StringComparison.Ordinal)));
         XElement packageReference = Assert.Single(
-            project.Descendants(),
+            itemGroup.Elements(),
             static element =>
                 element.Name.LocalName == "PackageReference"
                 && string.Equals(
@@ -134,13 +176,43 @@ public sealed class PackagingSurfaceTests
 
         Assert.Equal(
             "analyzers;build;buildTransitive",
-            packageReference.Attribute("IncludeAssets")?.Value);
+            packageReference.Element("IncludeAssets")?.Value);
         Assert.Equal(
             "compile;runtime",
-            packageReference.Attribute("ExcludeAssets")?.Value);
+            packageReference.Element("ExcludeAssets")?.Value);
         Assert.Equal(
             "all",
-            packageReference.Attribute("PrivateAssets")?.Value);
+            packageReference.Element("PrivateAssets")?.Value);
+    }
+
+    [Theory]
+    [InlineData("System.IO.Pipelines")]
+    [InlineData("System.Text.Encodings.Web")]
+    [InlineData("System.Text.Json")]
+    public void JsonGeneratorPackagesRemainEligibleOnBothRestoreSources(
+        string packageId)
+    {
+        string root = FindRepositoryRoot();
+        var config = XDocument.Load(
+            Path.Combine(root, "eng", "NuGet.Config"));
+        string[] sources = config
+            .Descendants()
+            .Where(static element =>
+                element.Name.LocalName == "packageSource")
+            .Where(element => element
+                .Elements()
+                .Any(child =>
+                    child.Name.LocalName == "package"
+                    && string.Equals(
+                        child.Attribute("pattern")?.Value,
+                        packageId,
+                        StringComparison.Ordinal)))
+            .Select(static element => element.Attribute("key")?.Value)
+            .OfType<string>()
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(["dotnet11", "nuget.org"], sources);
     }
 
     /// <summary>

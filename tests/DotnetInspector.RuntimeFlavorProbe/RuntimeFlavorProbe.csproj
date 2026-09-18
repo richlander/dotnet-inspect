@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/DotnetInspect.Cli/VersionInfo.cs" Link="VersionInfo.cs" />
+    <Compile Include="../../src/DotnetInspect.Cli/VersionInfo.RuntimeFlavor.cs"
+             Link="VersionInfo.RuntimeFlavor.cs" />
   </ItemGroup>
 </Project>
