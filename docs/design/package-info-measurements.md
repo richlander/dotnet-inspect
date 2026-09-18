@@ -63,6 +63,22 @@ ambiguous entry paths, missing selected entry length, invalid entry length, or
 size overflow remains a structural unavailable or invalid result. These states
 must not become zero-valued success.
 
+## Motivating evidence
+
+`AWSSDK.Core@4.0.102.6` demonstrates the whole-package versus selected-slice
+distinction: its 2.2 MB compressed archive selects a 1 MB `net8.0` slice.
+`Microsoft.Data.SqlClient@6.1.3` demonstrates role correspondence: Package Info
+measures the 908.1 KB `lib/net9.0` implementation rather than the smaller
+reference facade or larger RID-qualified copies. `dotnet-inspect.any@0.25.0`
+demonstrates the no-representative-assembly case: its selected `net10.0` tool
+slice contains 41 Libraries.
+
+The real-package gate uses `System.Text.Json@10.0.0`, already restored by the
+Services test project, to prove the query over an immutable nuget.org archive.
+Synthetic fixtures preserve the multi-Library, implementation-correspondence,
+tool-closure, empty-group, and unavailable-capability boundaries without
+manufacturing product evidence.
+
 ## Composition and adoption
 
 The first production consumer is CLI Package Info. The CLI supplies retained
@@ -109,6 +125,7 @@ dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
 | Property | Gate |
 | --- | --- |
 | Receipt retains exact content generation, profile, and target request | `CompileProfile_AggregatesImplementationEntries` and `CompileProfile_ExplicitTargetReportsCompatibleSelection` |
+| An immutable nuget.org package produces coherent archive and selected-slice measurements | `RealPackage_SystemTextJsonReportsArchiveAndSelectedSlice` |
 | Archive size reports retained compressed bytes | `CompileProfile_AggregatesImplementationEntries` |
 | Compile measurement uses every selected Library and implementation correspondence | `CompileProfile_AggregatesImplementationEntries` |
 | Explicit selection reports the actual compatible TFM | `CompileProfile_ExplicitTargetReportsCompatibleSelection` |

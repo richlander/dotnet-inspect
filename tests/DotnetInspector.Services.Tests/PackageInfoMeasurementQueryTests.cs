@@ -7,6 +7,38 @@ namespace DotnetInspector.Services.Tests;
 public sealed class PackageInfoMeasurementQueryTests
 {
     [Fact]
+    public void RealPackage_SystemTextJsonReportsArchiveAndSelectedSlice()
+    {
+        string packagePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageHouse",
+            "System.Text.Json.10.0.0.nupkg");
+        byte[] package = File.ReadAllBytes(packagePath);
+        var content = new InMemoryPackageContent(
+            package,
+            fromCache: false,
+            producerKey: "nuget.org");
+
+        PackageInfoMeasurementReceipt receipt =
+            PackageInfoMeasurementQuery.Evaluate(
+                content,
+                "System.Text.Json",
+                PackageInfoSliceProfile.Compile);
+
+        var archive = Assert.IsType<PackageArchiveSizeMeasurement.Available>(
+            receipt.ArchiveSize);
+        var selected =
+            Assert.IsType<PackageSelectedTfmMeasurement.Available>(
+                receipt.SelectedTargetFramework);
+        Assert.Equal(package.Length, archive.Bytes);
+        Assert.Equal("net10.0", selected.TargetFramework);
+        Assert.Equal(1, selected.LibraryCount);
+        Assert.True(selected.UncompressedSize > 0);
+        Assert.True(archive.Bytes > selected.UncompressedSize);
+    }
+
+    [Fact]
     public void CompileProfile_AggregatesImplementationEntries()
     {
         InMemoryPackageContent content = Content(

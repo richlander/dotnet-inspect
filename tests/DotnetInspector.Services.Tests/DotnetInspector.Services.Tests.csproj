@@ -53,6 +53,9 @@
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.xml"
           Link="RealAssets/PackageHouse/System.Text.Json.xml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/system.text.json.10.0.0.nupkg"
+          Link="RealAssets/PackageHouse/System.Text.Json.10.0.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
