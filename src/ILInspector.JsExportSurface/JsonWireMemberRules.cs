@@ -192,6 +192,44 @@ public static class JsonWireMemberRules
             : JsonWireMemberPresence.Absent;
     }
 
+    public static JsonWireMemberPresence GetPresence(
+        ApiMember member,
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        JsonWireIgnoreCondition defaultIgnoreCondition)
+    {
+        JsonWireMemberPresence presence = GetPresence(
+            member,
+            direction,
+            assemblyIdentity,
+            typesByScopedIdentity);
+        if (presence != JsonWireMemberPresence.Present
+            || direction != JsonWireDirection.Serialize
+            || member.JsonIgnoreConditions.Count != 0
+            || defaultIgnoreCondition == JsonWireIgnoreCondition.Never)
+        {
+            return presence;
+        }
+
+        if (defaultIgnoreCondition
+            != JsonWireIgnoreCondition.WhenWritingNull)
+        {
+            return JsonWireMemberPresence.Unsupported;
+        }
+
+        return CanMemberValueBeNull(
+                member,
+                assemblyIdentity,
+                typesByScopedIdentity) switch
+            {
+                true => JsonWireMemberPresence.Conditional,
+                false => JsonWireMemberPresence.Present,
+                null => JsonWireMemberPresence.Unsupported,
+            };
+    }
+
     /// <summary>
     /// True when the member is present or conditionally present in at least one
     /// requested wire direction.

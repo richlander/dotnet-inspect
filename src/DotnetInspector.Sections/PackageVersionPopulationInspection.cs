@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
-using DotnetInspector.RowSelection;
 using InertText;
 using NuGetFetch;
 
@@ -102,7 +101,10 @@ public static class PackageVersionPopulationInspection
                 document,
                 countRequest is null
                     ? null
-                    : Count(document, countRequest));
+                    : PackageVersionCountProjection.Count(
+                        document.Versions,
+                        document.SourceListings,
+                        countRequest));
         }
 
         (PackageVersionPopulationFailureKind kind, InertString reason) =
@@ -141,52 +143,6 @@ public static class PackageVersionPopulationInspection
                 reason,
                 population.Evidence.HasOperationTimeout,
                 failures));
-    }
-
-    private static PackageVersionPopulationCountOutcome Count(
-        PackageVersionPopulationDocument document,
-        PackageVersionPopulationCountRequest request) =>
-        request.Cohort switch
-        {
-            PackageVersionPopulationCountCohort.Versions =>
-                CountRows(document.Versions, request),
-            PackageVersionPopulationCountCohort.SourceListings =>
-                CountRows(document.SourceListings, request),
-            _ => throw new InvalidOperationException(
-                $"Unknown package version population Count cohort '{request.Cohort}'."),
-        };
-
-    private static PackageVersionPopulationCountOutcome CountRows<T>(
-        IReadOnlyList<T> rows,
-        PackageVersionPopulationCountRequest request)
-    {
-        if (request.RowSelection is not { Operations.Count: > 0 })
-        {
-            return new PackageVersionPopulationCountOutcome.Completed(
-                new(request.Cohort, rows.Count));
-        }
-
-        RowsCohortResult<string, T> selected =
-            RowsCohortExecutor.ApplyUnordered(
-                [
-                    RowsCohortSequence<string, T>.Create(
-                        "Package versions",
-                        rows),
-                ],
-                request.RowSelection);
-        if (selected.IsSuccess)
-        {
-            return new PackageVersionPopulationCountOutcome.Completed(
-                new(request.Cohort, selected.RowSets[0].Values.Count));
-        }
-
-        RowsCohortSemanticFailure<string> failure = selected.Failure!;
-        return new PackageVersionPopulationCountOutcome.Rejected(
-            new(
-                request.Cohort,
-                failure.Failure.StageNumber,
-                failure.Failure.RequiredPosition,
-                failure.Failure.AvailableCount));
     }
 
     private static InertString DescribeNoMatch(

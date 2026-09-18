@@ -201,11 +201,14 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
             var resolver = AssemblyContextAnalysisSource.Resolver(
                 group,
                 subject);
-            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisRequest request =
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities);
+            index = LibraryBodyAnalysisService.AnalyzeImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
+                request,
                 resolver);
 
             ImmutableArray<

@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web;
 
@@ -51,6 +52,16 @@ internal static class BrowserApiSurfacePolicy
     internal static ApiSurfaceProjectionLimits Limits { get; } =
         new(
             MaxParticipants,
+            MaxTypes,
+            MaxMembers,
+            MaxInspectionFailures,
+            MaxTypeForwarders,
+            MaxMetadataRows,
+            MaxRetainedTextCharacters);
+
+    /// <summary>The per-assembly bounds for operations over a member exposed by this surface.</summary>
+    internal static ApiSurfaceExtractionBounds ExtractionBounds { get; } =
+        new(
             MaxTypes,
             MaxMembers,
             MaxInspectionFailures,
