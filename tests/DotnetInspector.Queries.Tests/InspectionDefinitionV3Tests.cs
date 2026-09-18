@@ -1,4 +1,5 @@
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -166,10 +167,6 @@ public sealed class InspectionDefinitionV3Tests
 
     [Theory]
     [InlineData(
-        """{"schemaVersion":3,"kind":"workspace","id":"w","contexts":[]}""")]
-    [InlineData(
-        """{"schemaVersion":3,"kind":"workspace","id":"w","contexts":[],"registrations":[]}""")]
-    [InlineData(
         """{"schemaVersion":2,"kind":"workspace","id":"w","contexts":[{"name":"g","members":[{"kind":"package","id":"P","version":"1.0.0"}]}],"registrations":[{"kind":"packagePrefix","prefix":"P."}]}""")]
     [InlineData(
         """{"schemaVersion":3,"kind":"workspace","id":"w","contexts":[],"registrations":[{"kind":"packagePrefix","prefix":"P."},{"kind":"packagePrefix","prefix":"P."}]}""")]
@@ -178,6 +175,64 @@ public sealed class InspectionDefinitionV3Tests
     {
         Assert.Throws<InspectionDefinitionException>(
             () => InspectionDefinitionJson.Parse(json));
+    }
+
+    [Fact]
+    public void Workspace_EmptyVersion3_IsAdmittedForPeerComposition()
+    {
+        var workspace = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(
+                """{"schemaVersion":3,"kind":"workspace","id":"w","contexts":[],"registrations":[]}"""));
+
+        Assert.Empty(workspace.Contexts);
+        Assert.Empty(workspace.Registrations);
+    }
+
+    [Fact]
+    public void Query_CanonicalizesReadablePayload()
+    {
+        var query = Assert.IsType<CommittedQueryDefinition>(
+            InspectionDefinitionJson.Parse(
+                """
+                {
+                  "schemaVersion": 3,
+                  "kind": "query",
+                  "id": "extensions-with-di",
+                  "queryId": "package-query/v1",
+                  "payload": {
+                    "b": [["candidates", 200]],
+                    "t": [
+                      ["prerelease", "eq", "stable"],
+                      ["prefix", "eq", "Microsoft.Extensions."],
+                      ["depends", "eq", "Microsoft.Extensions.DependencyInjection"]
+                    ]
+                  }
+                }
+                """));
+
+        Assert.Equal(
+            """{"t":[["depends","eq","Microsoft.Extensions.DependencyInjection"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","stable"]],"b":[["candidates",200]]}""",
+            query.Payload);
+        var roundTripped = Assert.IsType<CommittedQueryDefinition>(
+            InspectionDefinitionJson.Parse(
+                InspectionDefinitionJson.Serialize(query)));
+        Assert.Equal(query.Identity, roundTripped.Identity);
+    }
+
+    [Fact]
+    public void Query_RejectsBlankProgrammaticVocabulary()
+    {
+        PortableQueryIdentity identity =
+            PortableQueryIdentity.FromCanonicalPayload(
+                " ",
+                "{}",
+                TestContext.Current.CancellationToken);
+
+        Assert.Throws<ArgumentException>(
+            () => new CommittedQueryDefinition(
+                InspectionDefinitionSchema.Version3,
+                "query",
+                identity));
     }
 
     [Fact]

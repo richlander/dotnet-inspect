@@ -62,7 +62,10 @@ public static partial class SourceExports
             findingEvidenceDocuments: null,
             findingEvidence: null,
             findingEvidenceUnavailableReason:
-                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            callRelationships: source.CallRelationships,
+            callRelationshipsUnavailableReason:
+                source.CallRelationshipsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -110,7 +113,9 @@ public static partial class SourceExports
             source.DestinationUnavailableReason,
             source.FindingEvidenceDocuments,
             source.FindingEvidence,
-            source.FindingEvidenceUnavailableReason);
+            source.FindingEvidenceUnavailableReason,
+            source.CallRelationships,
+            source.CallRelationshipsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -159,7 +164,8 @@ public static partial class SourceExports
                         FactRows: factRows,
                         FindingEvidence: factRows,
                         InvocationDestinations: true,
-                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
+                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
+                        CallRelationships: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -238,6 +244,30 @@ public static partial class SourceExports
                 }),
             ];
         }
+        BrowserAnnotatedSourceCallRelationship[]? callRelationships = null;
+        if (projection.CallRelationships is { } projectedRelationships)
+        {
+            callRelationships =
+            [
+                .. projectedRelationships.Relationships.Select(
+                    relationship =>
+                        new BrowserAnnotatedSourceCallRelationship(
+                            relationship.Occurrence.EdgeRow,
+                            relationship.Occurrence.FactId,
+                            relationship.Occurrence.ModuleVersionId,
+                            relationship.Occurrence.CallerToken,
+                            relationship.Occurrence.ILOffset,
+                            relationship.Occurrence.OperandToken,
+                            CallKind(relationship.Occurrence.Kind),
+                            relationship.Occurrence.InLoop,
+                            BrowserSourceWireProjection.Project(
+                                BrowserCallGraphProjection.Target(
+                                    relationship.Target,
+                                    [participant.Assembly.Identity],
+                                    null,
+                                    scope.SurfaceParticipants)))),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -253,6 +283,12 @@ public static partial class SourceExports
             findingEvidenceDocuments,
             findingEvidence,
             findingEvidence is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            callRelationships,
+            callRelationships is null
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
@@ -314,6 +350,25 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static BrowserAnnotatedSourceCallKind CallKind(
+        Analysis.CallKind kind) =>
+        kind switch
+        {
+            Analysis.CallKind.Call =>
+                BrowserAnnotatedSourceCallKind.Call,
+            Analysis.CallKind.CallVirtual =>
+                BrowserAnnotatedSourceCallKind.CallVirtual,
+            Analysis.CallKind.NewObject =>
+                BrowserAnnotatedSourceCallKind.NewObject,
+            Analysis.CallKind.LoadFunction =>
+                BrowserAnnotatedSourceCallKind.LoadFunction,
+            Analysis.CallKind.LoadVirtualFunction =>
+                BrowserAnnotatedSourceCallKind.LoadVirtualFunction,
+            Analysis.CallKind.CallIndirect =>
+                BrowserAnnotatedSourceCallKind.CallIndirect,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     private sealed record MemberSourceProjection(
         ResearchViews.MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
@@ -325,5 +380,8 @@ public static partial class SourceExports
             FindingEvidenceDocuments,
         BrowserAnnotatedSourceFindingEvidence[]? FindingEvidence,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            FindingEvidenceUnavailableReason);
+            FindingEvidenceUnavailableReason,
+        BrowserAnnotatedSourceCallRelationship[]? CallRelationships,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            CallRelationshipsUnavailableReason);
 }

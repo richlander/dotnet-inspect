@@ -50,6 +50,7 @@ function sampleResult(
     viewerCatalog: sampleViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],
+    callRelationships: [],
     provenance: inertStringFixture("test"),
     contextLimitation: null,
   };
@@ -74,15 +75,15 @@ test("viewer model derives supported, annotatable, and default sets from product
 });
 
 test("viewer model retains product-issued invocation destinations by node", () => {
-  const document: AnnotatedSourceDocument = {
+  const invocationDocument: AnnotatedSourceDocument = {
     ...sampleDocument,
     nodes: sampleDocument.nodes.map(node =>
       node.id === 1
         ? { ...node, kind: "InvocationExpression" }
         : node),
   };
-  const model = createAnnotatedSourceViewerModel({
-    ...sampleResult(document),
+  const invocationModel = createAnnotatedSourceViewerModel({
+    ...sampleResult(invocationDocument),
     viewerCatalog: {
       ...sampleViewerCatalog,
       invocationLikeNodeKinds: ["InvocationExpression"],
@@ -97,11 +98,81 @@ test("viewer model retains product-issued invocation destinations by node", () =
     },
   });
 
-  assert.equal(model.invocationDestinations.length, 1);
-  assert.equal(model.invocationDestinations[0]?.nodeId, 1);
+  assert.equal(invocationModel.invocationDestinations.length, 1);
+  assert.equal(invocationModel.invocationDestinations[0]?.nodeId, 1);
   assert.equal(
-    model.invocationDestinations[0]?.target.selectorKey,
+    invocationModel.invocationDestinations[0]?.target.selectorKey,
     "method:Target",
+  );
+});
+
+test("viewer model retains exact non-default call relationships", () => {
+  const relationshipFact = {
+    id: sampleDocument.facts.length,
+    descriptor: "call.edge",
+    category: "Relationship",
+    conditionality: "Always",
+    detail: "Example.Targets.Target(System.Int32)",
+    origin: "Body",
+    source_offset: 0,
+  } as const;
+  const relationshipDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [...sampleDocument.facts, relationshipFact],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: relationshipFact.id, node_id: 1 },
+    ],
+  };
+  const relationshipModel = createAnnotatedSourceViewerModel({
+    ...sampleResult(relationshipDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    callRelationships: [{
+      edgeRow: 1,
+      factId: relationshipFact.id,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 0,
+      operandToken: 0x0A000001,
+      kind: "Call",
+      inLoop: false,
+      target: sampleInvocationTarget,
+    }],
+  });
+
+  assert.equal(relationshipModel.callRelationships.length, 1);
+  assert.equal(
+    relationshipModel.callRelationships[0]?.factId,
+    relationshipFact.id);
+  assert.ok(
+    relationshipModel.annotatableFindingIds.includes(relationshipFact.id));
+  assert.ok(
+    !relationshipModel.defaultFindingIds.includes(relationshipFact.id));
+});
+
+test("viewer model rejects call relationships without exact occurrence evidence", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      callRelationships: [{
+        edgeRow: 1,
+        factId: 0,
+        moduleVersionId: "not-a-guid",
+        callerToken: 0x06000001,
+        ilOffset: 0,
+        operandToken: 0x0A000001,
+        kind: "Call",
+        inLoop: false,
+        target: sampleInvocationTarget,
+      }],
+    }),
+    /Unavailable Annotated Source call relationships cannot carry rows/,
   );
 });
 

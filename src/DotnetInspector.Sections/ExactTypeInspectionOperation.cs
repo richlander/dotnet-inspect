@@ -268,7 +268,7 @@ public static class ExactTypeInspectionOperation
             encoded);
     }
 
-    static ImmutableArray<InspectionDiagnostic> Diagnostics(
+    internal static ImmutableArray<InspectionDiagnostic> Diagnostics(
         ExactTypeInspectionResult result)
     {
         var diagnostics =
@@ -352,6 +352,8 @@ public static class ExactTypeInspectionOperation
                 "exact-type.type-resolution-unavailable",
             ExactTypeInspectionFailureKind.SupplierUnavailable =>
                 "exact-type.supplier-unavailable",
+            ExactTypeInspectionFailureKind.DefiningSourceUnavailable =>
+                "exact-type.defining-source-unavailable",
             ExactTypeInspectionFailureKind.InspectionIncomplete =>
                 "exact-type.inspection-incomplete",
             ExactTypeInspectionFailureKind.ProjectionTruncated =>

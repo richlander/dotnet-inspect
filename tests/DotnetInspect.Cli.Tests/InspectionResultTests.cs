@@ -274,7 +274,7 @@ public class InspectionResultTests
     }
 
     [Fact]
-    public void PackageInfo_RendersHighestTfmAndTfmCount()
+    public void PackageInfo_DoesNotInferMeasurementsFromLegacyTfmInventory()
     {
         var result = new InspectionResult
         {
@@ -285,8 +285,9 @@ public class InspectionResultTests
 
         var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
 
-        Assert.Contains("| Highest TFM | net10.0 |", output);
-        Assert.Contains("| TFM Count | 3 |", output);
+        Assert.DoesNotContain("| Highest TFM |", output);
+        Assert.DoesNotContain("| Selected TFM |", output);
+        Assert.DoesNotContain("| TFM Count |", output);
         Assert.Contains("## Target Frameworks", output);
         Assert.Contains("| TFM |", output);
         Assert.DoesNotContain("| TFM | net10.0 |", output);
@@ -351,8 +352,7 @@ public class InspectionResultTests
 
         Assert.True(
             packageInfo.IndexOf("| Authors |", StringComparison.Ordinal) < packageInfo.IndexOf("| Content |", StringComparison.Ordinal)
-            && packageInfo.IndexOf("| Content |", StringComparison.Ordinal) < packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal)
-            && packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| Content |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
             && packageInfo.IndexOf("| License |", StringComparison.Ordinal) < packageInfo.IndexOf("| Version |", StringComparison.Ordinal),
             output);
     }

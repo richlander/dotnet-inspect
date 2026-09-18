@@ -176,40 +176,29 @@ public partial class DependsCommand
                 && !options.EnvelopeOutput
                     ? context.WithVerboseLogging(enabled: false)
                     : context;
-            var builder = new EvidenceInspectionBuilder<
-                DependencyInspectionContent,
-                DependencyInspectionEvidenceDocument>();
-            builder.RequestEvidence(
-                options.EvidenceEnvelopePath is not null
-                || DependsAssetSections.RequestsEvidence(includeSections));
-            var state = new DependsAssetInspectionState(
-                options,
-                inspectionContext,
-                plan,
-                options.Effective && options.Depth is null
-                    ? 1
-                    : options.Depth,
-                pruneSource,
-                sharePreparation);
-            (
-                InspectionEnvelope<DependencyInspectionContent> inspection,
-                EvidenceInspectionEnvelope<
-                    DependencyInspectionContent,
-                    DependencyInspectionEvidenceDocument>? evidence) =
-                await builder.BuildAsync(
-                    state,
-                    static (operation, token) =>
-                        ExecuteAssetInspectionAsync(operation, token),
-                    static (operation, token) =>
-                        ExecuteAssetInspectionWithEvidenceAsync(
-                            operation,
-                            token),
-                    cancellationToken)
-                    .ConfigureAwait(false);
+            using IDisposable? networkTrafficLogSuppression =
+                options.ShareFormat is not null
+                && !options.EnvelopeOutput
+                    ? DotnetInspector.Networking.HttpClientFactory
+                        .SuppressNetworkTrafficLogging()
+                    : null;
             DependsAssetProjection projection =
-                state.Projection
-                ?? throw new InvalidOperationException(
-                    "Dependency inspection completed without its host projection.");
+                await AcquireAssetProjectionAsync(
+                    options,
+                    inspectionContext,
+                    plan,
+                    options.Effective && options.Depth is null
+                        ? 1
+                        : options.Depth,
+                    pruneSource,
+                    sharePreparation,
+                    cancellationToken).ConfigureAwait(false);
+            InspectionEnvelope<DependencyInspectionContent> inspection =
+                projection.Inspection;
+            EvidenceInspectionEnvelope<
+                DependencyInspectionContent,
+                DependencyInspectionEvidenceDocument>? evidence =
+                    projection.Enriched;
             cancellationToken.ThrowIfCancellationRequested();
             if (options.Effective)
             {
@@ -324,95 +313,6 @@ public partial class DependsCommand
             CommandError.Write(exception);
             return 1;
         }
-    }
-
-    private static async ValueTask<
-        InspectionEnvelope<DependencyInspectionContent>>
-        ExecuteAssetInspectionAsync(
-            DependsAssetInspectionState operation,
-            CancellationToken cancellationToken)
-    {
-        (DependencyInspectionResult result, InspectionShare share) =
-            await PrepareAssetInspectionAsync(
-                operation,
-                cancellationToken)
-                .ConfigureAwait(false);
-        return DependencyInspectionOperation.Execute(
-            result,
-            share);
-    }
-
-    private static async ValueTask<EvidenceInspectionEnvelope<
-        DependencyInspectionContent,
-        DependencyInspectionEvidenceDocument>>
-        ExecuteAssetInspectionWithEvidenceAsync(
-            DependsAssetInspectionState operation,
-            CancellationToken cancellationToken)
-    {
-        (DependencyInspectionResult result, InspectionShare share) =
-            await PrepareAssetInspectionAsync(
-                operation,
-                cancellationToken)
-                .ConfigureAwait(false);
-        return DependencyInspectionOperation.ExecuteWithEvidence(
-            result,
-            share);
-    }
-
-    private static async ValueTask<(
-        DependencyInspectionResult Result,
-        InspectionShare Share)> PrepareAssetInspectionAsync(
-            DependsAssetInspectionState operation,
-            CancellationToken cancellationToken)
-    {
-        using IDisposable? networkTrafficLogSuppression =
-            operation.Options.ShareFormat is not null
-            && !operation.Options.EnvelopeOutput
-                ? DotnetInspector.Networking.HttpClientFactory
-                    .SuppressNetworkTrafficLogging()
-                : null;
-        DependsAssetProjection projection =
-            await AcquireAssetProjectionAsync(
-                operation.Options,
-                operation.Context,
-                operation.Plan,
-                operation.TraversalDepth,
-                operation.PruneSource,
-                operation.SharePreparation,
-                cancellationToken).ConfigureAwait(false);
-        operation.Projection = projection;
-        return (
-            projection.Result,
-            operation.SharePreparation?.Share
-                ?? new InspectionShare.NonProjectable(
-                "asset-dependencies/share",
-                "Share projection was not requested."));
-    }
-
-    private sealed class DependsAssetInspectionState(
-        DependsOptions options,
-        CommandContext context,
-        DependsAssetRequestPlan plan,
-        int? traversalDepth,
-        Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-        DependsShareProjection.AssetSharePreparation.Projectable?
-            sharePreparation)
-    {
-        internal DependsOptions Options { get; } = options;
-
-        internal CommandContext Context { get; } = context;
-
-        internal DependsAssetRequestPlan Plan { get; } = plan;
-
-        internal int? TraversalDepth { get; } = traversalDepth;
-
-        internal Func<string, InstalledPlatformPruneSource.Result>
-            PruneSource { get; } = pruneSource;
-
-        internal DependsShareProjection.AssetSharePreparation.Projectable?
-            SharePreparation { get; } = sharePreparation;
-
-        internal DependsAssetProjection? Projection { get; set; }
     }
 
     private static bool ValidateAssetOptions(
@@ -809,20 +709,6 @@ public partial class DependsCommand
             }
         }
 
-        var evidenceDocument = new DependencyInspectionEvidenceDocument(
-            evidenceOutcome,
-            [
-                .. admittedIndexes.Select(static occurrence =>
-                    new DependencyRootOccurrenceIdentity(occurrence)),
-            ],
-            [
-                .. failedIndexes.Select(static occurrence =>
-                    occurrence is { } value
-                        ? new DependencyRootOccurrenceIdentity(value)
-                        : (DependencyRootOccurrenceIdentity?)null),
-            ]);
-        DependencyEvidenceProjection evidence =
-            DependencyEvidenceProjection.Create(evidenceDocument);
         List<LibraryAssetResult> libraries =
             await AcquireLibraryRootsAsync(
                 options,
@@ -992,59 +878,103 @@ public partial class DependsCommand
             graphDocuments);
         ImmutableArray<DependencyGraphEdgeRow> graphRows =
             [.. DependencyGraphOutputAdapter.EdgeRows(graph)];
-        ImmutableArray<DependencyInspectionFailure> failures =
-        [
-            .. BuildFailures(
-                evidence,
+        ImmutableArray<DependencyInspectionFailure> additionalFailures =
+            BuildAdditionalFailures(
                 packageTraversal,
                 packageOccurrences,
                 libraries,
                 acquisition,
-                plan),
-            .. pruning.Failures,
+                plan);
+        ImmutableArray<DependencyInspectionRootInput> rootInputs =
+            BuildRootInputs(
+                evidenceOutcome,
+                admittedIndexes,
+                acquisition,
+                packageTraversal,
+                packageOccurrences,
+                libraries,
+                plan,
+                graph);
+        ImmutableArray<DependencyRootOccurrenceIdentity>
+            admittedRootOccurrences =
+        [
+            .. admittedIndexes.Select(static occurrence =>
+                new DependencyRootOccurrenceIdentity(occurrence)),
         ];
-        ImmutableArray<DependsRootRow> roots = BuildRoots(
-            options,
+        ImmutableArray<DependencyRootOccurrenceIdentity?>
+            failedRootOccurrences =
+        [
+            .. failedIndexes.Select(static occurrence =>
+                occurrence is { } value
+                    ? new DependencyRootOccurrenceIdentity(value)
+                    : (DependencyRootOccurrenceIdentity?)null),
+        ];
+        int requestedRoots = options.PackagePrefix is null
+            ? options.AssetRoots.Length
+            : evidenceOutcome.RootSet.AdmittedRootCount
+                + evidenceOutcome.RootSet.FailedRootCount
+                + evidenceOutcome.RootSet.RejectedRootCount;
+        var operationRequest = new DependencyInspectionOperationRequest(
+            new DependencyInspectionPlan(
+                plan.Declarations,
+                plan.RestoredRelationships,
+                plan.Traversal,
+                plan.Pruning,
+                options.Tfm is null
+                    ? null
+                    : new InertString(TextPolicy.Field, options.Tfm),
+                plan.Traversal ? traversalDepth : null),
+            requestedRoots,
+            options.PackagePrefix is not null,
+            evidenceOutcome,
+            admittedRootOccurrences,
+            failedRootOccurrences,
+            rootInputs,
+            graph,
+            additionalFailures,
+            pruning.Rows,
+            pruning.Failures,
+            pruning.Summary,
+            sharePreparation?.Share
+                ?? new InspectionShare.NonProjectable(
+                    "asset-dependencies/share",
+                    "Share projection was not requested."));
+        var builder = new EvidenceInspectionBuilder<
+            DependencyInspectionContent,
+            DependencyInspectionEvidenceDocument>();
+        builder.RequestEvidence(
+            plan.SupplementalEvidence
+            || options.EvidenceEnvelopePath is not null);
+        (
+            InspectionEnvelope<DependencyInspectionContent> inspection,
+            EvidenceInspectionEnvelope<
+                DependencyInspectionContent,
+                DependencyInspectionEvidenceDocument>? enriched) =
+            builder.Build(
+                operationRequest,
+                static request =>
+                    DependencyInspectionOperation.Execute(request),
+                static request =>
+                    DependencyInspectionOperation.ExecuteWithEvidence(
+                        request));
+        DependencyEvidenceProjection? evidence = enriched is null
+            ? null
+            : DependencyEvidenceProjection.Create(enriched.Evidence);
+        ImmutableArray<DependsRootRow> roots = BuildPresentationRoots(
             evidenceOutcome,
             evidence,
-            admittedIndexes,
             acquisition,
-            packageTraversal,
-            packageOccurrences,
             libraries,
-            plan,
-            graph);
-        ImmutableArray<DependencyInspectionDependency> dependencies =
-            plan.Declarations
-                ? BuildDependencies(evidence)
-                : [];
-        DependencyInspectionSummary summary = BuildSummary(
-            options,
-            evidence,
-            roots,
-            graph,
-            plan,
-            traversalDepth,
-            pruning.Summary);
+            inspection.Content.Roots);
 
         return new DependsAssetProjection(
-            summary,
-            graph,
+            inspection,
             graphRows,
             roots,
-            dependencies,
-            pruning.Rows,
-            plan.RestoredRelationships
-                ? evidence.RestoredEdges
-                : [],
-            failures,
-            plan.Declarations
-                ? evidence.DependencyGroups
-                : [],
-            plan.RestoredRelationships
-                ? evidence.RestoredPackages
-                : [],
-            evidenceDocument);
+            evidence?.RestoredEdges ?? [],
+            evidence?.DependencyGroups ?? [],
+            evidence?.RestoredPackages ?? [],
+            enriched);
     }
 
     private static DependencyEvidenceAcquisitionOptions EvidenceOptions(
@@ -1137,8 +1067,8 @@ public partial class DependsCommand
         return results;
     }
 
-    private static ImmutableArray<DependencyInspectionFailure> BuildFailures(
-        DependencyEvidenceProjection evidence,
+    private static ImmutableArray<DependencyInspectionFailure>
+        BuildAdditionalFailures(
         PackageDependencyTraversalOutcome? packageTraversal,
         IReadOnlyList<int> packageOccurrences,
         IReadOnlyList<LibraryAssetResult> libraries,
@@ -1146,22 +1076,6 @@ public partial class DependsCommand
         DependsAssetRequestPlan plan)
     {
         var failures = ImmutableArray.CreateBuilder<DependencyInspectionFailure>();
-        failures.AddRange(
-            evidence.Failures
-                .Where(failure => failure.Phase switch
-                {
-                    DependencyEvidenceFailurePhase.Root
-                        or DependencyEvidenceFailurePhase.PackageProfile =>
-                            true,
-                    DependencyEvidenceFailurePhase.Declaration =>
-                        plan.Declarations,
-                    DependencyEvidenceFailurePhase.Graph =>
-                        plan.RestoredRelationships,
-                    _ => false,
-                })
-                .Select(static failure =>
-                    new DependencyInspectionFailure.Evidence(failure)));
-
         if (plan.Traversal && packageTraversal is not null)
         {
             foreach (PackageDependencyTraversalFailedResolutionNode failed in
@@ -1406,58 +1320,23 @@ public partial class DependsCommand
                 "Unknown package candidate outcome."),
         };
 
-    private static ImmutableArray<DependencyInspectionDependency> BuildDependencies(
-        DependencyEvidenceProjection evidence)
+    private static ImmutableArray<DependencyInspectionRootInput>
+        BuildRootInputs(
+            PackageDependencyEvidenceOutcome evidenceOutcome,
+            IReadOnlyList<int> admittedIndexes,
+            DependencyEvidenceAcquisitionBatch? acquisition,
+            PackageDependencyTraversalOutcome? packageTraversal,
+            IReadOnlyList<int> packageOccurrences,
+            IReadOnlyList<LibraryAssetResult> libraries,
+            DependsAssetRequestPlan plan,
+            DependencyGraphDocument graph)
     {
-        var restoredByDeclaration = evidence.RestoredEdges
-            .Where(static edge => edge.DeclarationAssociation is not null)
-            .ToDictionary(
-                static edge => (
-                    edge.RootIndex,
-                    edge.RootIdentity,
-                    edge.DeclarationAssociation!.Value),
-                static edge => edge);
-        return
-        [
-            .. evidence.Dependencies.Select(declaration =>
-            {
-                DependencyEvidenceRestoredEdgeRow? restored =
-                    restoredByDeclaration.TryGetValue(
-                        (
-                            declaration.RootIndex,
-                            declaration.RootIdentity,
-                            declaration.DeclarationIdentity),
-                        out DependencyEvidenceRestoredEdgeRow? associated)
-                    && associated.Dependency.Coordinate.PackageId.Equals(
-                        declaration.PackageId,
-                        StringComparison.Ordinal)
-                        ? associated
-                        : null;
-                return new DependencyInspectionDependency(
-                    declaration,
-                    restored?.PackageVersion,
-                    restored?.Dependency,
-                    restored?.Identity);
-            }),
-        ];
-    }
-
-    private static ImmutableArray<DependsRootRow> BuildRoots(
-        DependsOptions options,
-        PackageDependencyEvidenceOutcome evidenceOutcome,
-        DependencyEvidenceProjection evidence,
-        IReadOnlyList<int> admittedIndexes,
-        DependencyEvidenceAcquisitionBatch? acquisition,
-        PackageDependencyTraversalOutcome? packageTraversal,
-        IReadOnlyList<int> packageOccurrences,
-        IReadOnlyList<LibraryAssetResult> libraries,
-        DependsAssetRequestPlan plan,
-        DependencyGraphDocument graph)
-    {
-        Dictionary<int, DependencyEvidenceRootRow> evidenceRows =
-            evidence.Roots.ToDictionary(static root => root.RootIndex);
-        var roots = ImmutableArray.CreateBuilder<DependsRootRow>();
-        var packageCompletion = new Dictionary<int, DependencyInspectionTraversalCompletion>();
+        var roots =
+            ImmutableArray.CreateBuilder<DependencyInspectionRootInput>();
+        var packageCompletion =
+            new Dictionary<
+                int,
+                DependencyInspectionTraversalCompletion>();
         if (packageTraversal is not null)
         {
             for (int index = 0; index < packageTraversal.Roots.Length; index++)
@@ -1470,7 +1349,6 @@ public partial class DependsCommand
         var graphIdentityByOccurrence = graph.Roots.ToDictionary(
             static root => root.OccurrenceIndex,
             root => graph.Nodes[root.NodeId].Identity);
-        bool selectionRequested = plan.Declarations || plan.Traversal;
         if (acquisition is not null)
         {
             foreach (DependencyEvidenceAcquiredRoot acquired in acquisition.Roots)
@@ -1479,8 +1357,6 @@ public partial class DependsCommand
                 {
                     PackageDependencyEvidenceRoot evidenceRoot =
                         evidenceOutcome.Roots[inputIndex];
-                    DependencyEvidenceRootRow evidenceRow =
-                        evidenceRows[acquired.Root.OccurrenceIndex];
                     DependencyInspectionTraversalCompletion traversal =
                         plan.Traversal
                             ? RootTraversal(
@@ -1492,86 +1368,34 @@ public partial class DependsCommand
                         graphIdentityByOccurrence.GetValueOrDefault(
                             acquired.Root.OccurrenceIndex)
                         ?? GraphIdentity(evidenceRoot);
-                    DependsRootSelection selection = RootSelection(
-                        evidenceRow,
-                        evidence,
-                        options.Tfm,
-                        selectionRequested);
                     roots.Add(
-                        new DependsRootRow(
-                            acquired.Root.OccurrenceIndex,
+                        new DependencyInspectionRootInput(
+                            new DependencyRootOccurrenceIdentity(
+                                acquired.Root.OccurrenceIndex),
                             acquired.Root.Kind,
                             new InertString(
                                 TextPolicy.Field,
                                 acquired.Root.Value),
-                            evidenceRoot.Provenance.AcquisitionForm.ToString(),
                             DependencyInspectionRootState.Admitted,
-                            identity is null
-                                ? null
-                                : DependencyGraphOutputAdapter.Kind(identity),
-                            identity is null
-                                ? null
-                                : DependencyGraphOutputAdapter.IdentityText(
-                                    identity),
-                            traversal,
-                            plan.Declarations
-                                ? DeclarationState(evidenceRow)
-                                : DependencyInspectionEvidenceAvailability.NotRequested,
-                            plan.Declarations
-                                ? DeclarationCompletion(evidenceRow)
-                                : DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                            selection.Status,
-                            plan.RestoredRelationships
-                                ? RelationshipState(evidenceRow)
-                                : DependencyInspectionEvidenceAvailability.NotRequested,
-                            plan.RestoredRelationships
-                                ? RelationshipCompletion(evidenceRow)
-                                : DependencyInspectionEvidencePhaseCompletion.NotRequested)
-                        {
-                            GraphIdentity = identity,
-                            Evidence = evidenceRow,
-                            SelectedGroup = selection.SelectedGroup,
-                            SelectedGroupIndex =
-                                selection.SelectedGroupIndex,
-                            SelectedSourceOccurrence =
-                                selection.SelectedSourceOccurrence,
-                            RequestedFramework =
-                                selection.RequestedFramework,
-                            SelectedFramework =
-                                selection.SelectedFramework,
-                        });
+                            identity,
+                            traversal));
                 }
                 else
                 {
                     roots.Add(
-                        new DependsRootRow(
-                            acquired.Root.OccurrenceIndex,
+                        new DependencyInspectionRootInput(
+                            new DependencyRootOccurrenceIdentity(
+                                acquired.Root.OccurrenceIndex),
                             acquired.Root.Kind,
                             new InertString(
                                 TextPolicy.Field,
                                 acquired.Root.Value),
-                            SourceFor(acquired.Root),
                             DependencyInspectionRootState.Failed,
-                            identityKind: null,
-                            identity: null,
+                            GraphIdentity: null,
                             plan.Traversal
                                 ? DependencyInspectionTraversalCompletion.Failed
-                                : DependencyInspectionTraversalCompletion.NotRequested,
-                            plan.Declarations
-                                ? DependencyInspectionEvidenceAvailability.Failed
-                                : DependencyInspectionEvidenceAvailability.NotRequested,
-                            plan.Declarations
-                                ? DependencyInspectionEvidencePhaseCompletion.Failed
-                                : DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                            selectionRequested
-                                ? DependencyInspectionSelectionStatus.Unavailable
-                                : DependencyInspectionSelectionStatus.NotRequested,
-                            plan.RestoredRelationships
-                                ? DependencyInspectionEvidenceAvailability.Failed
-                                : DependencyInspectionEvidenceAvailability.NotRequested,
-                            plan.RestoredRelationships
-                                ? DependencyInspectionEvidencePhaseCompletion.Failed
-                                : DependencyInspectionEvidencePhaseCompletion.NotRequested));
+                                : DependencyInspectionTraversalCompletion
+                                    .NotRequested));
                 }
             }
         }
@@ -1584,58 +1408,22 @@ public partial class DependsCommand
                 PackageDependencyEvidenceRoot evidenceRoot =
                     evidenceOutcome.Roots[inputIndex];
                 int occurrence = admittedIndexes[inputIndex];
-                DependencyEvidenceRootRow evidenceRow =
-                    evidenceRows[occurrence];
                 DependencyGraphNodeIdentity? identity =
                     graphIdentityByOccurrence.GetValueOrDefault(occurrence)
                     ?? GraphIdentity(evidenceRoot);
-                DependsRootSelection selection = RootSelection(
-                    evidenceRow,
-                    evidence,
-                    options.Tfm,
-                    selectionRequested);
                 roots.Add(
-                    new DependsRootRow(
-                        occurrence,
+                    new DependencyInspectionRootInput(
+                        new DependencyRootOccurrenceIdentity(occurrence),
                         DependencyInspectionRootKind.Package,
                         evidenceRoot.Display,
-                        "PackagePrefix",
                         DependencyInspectionRootState.Admitted,
-                        identity is null
-                            ? null
-                            : DependencyGraphOutputAdapter.Kind(identity),
-                        identity is null
-                            ? null
-                            : DependencyGraphOutputAdapter.IdentityText(
-                                identity),
+                        identity,
                         plan.Traversal
                             ? packageCompletion.GetValueOrDefault(
                                 occurrence,
                                 DependencyInspectionTraversalCompletion.Partial)
-                            : DependencyInspectionTraversalCompletion.NotRequested,
-                        plan.Declarations
-                            ? DeclarationState(evidenceRow)
-                            : DependencyInspectionEvidenceAvailability.NotRequested,
-                        plan.Declarations
-                            ? DeclarationCompletion(evidenceRow)
-                            : DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                        selection.Status,
-                        plan.RestoredRelationships
-                            ? RelationshipState(evidenceRow)
-                            : DependencyInspectionEvidenceAvailability.NotRequested,
-                        plan.RestoredRelationships
-                            ? RelationshipCompletion(evidenceRow)
-                            : DependencyInspectionEvidencePhaseCompletion.NotRequested)
-                    {
-                        GraphIdentity = identity,
-                        Evidence = evidenceRow,
-                        SelectedGroup = selection.SelectedGroup,
-                        SelectedGroupIndex = selection.SelectedGroupIndex,
-                        SelectedSourceOccurrence =
-                            selection.SelectedSourceOccurrence,
-                        RequestedFramework = selection.RequestedFramework,
-                        SelectedFramework = selection.SelectedFramework,
-                    });
+                            : DependencyInspectionTraversalCompletion
+                                .NotRequested));
             }
         }
 
@@ -1648,46 +1436,106 @@ public partial class DependsCommand
                     library.Document.Roots[0].NodeId].Identity;
             bool admitted = identity is not null;
             roots.Add(
-                new DependsRootRow(
-                    library.Root.OccurrenceIndex,
+                new DependencyInspectionRootInput(
+                    new DependencyRootOccurrenceIdentity(
+                        library.Root.OccurrenceIndex),
                     DependencyInspectionRootKind.Library,
                     new InertString(
                         TextPolicy.Field,
                         library.Root.Value),
-                    LibrarySource(library.Result),
                     admitted
                         ? DependencyInspectionRootState.Admitted
                         : DependencyInspectionRootState.Failed,
-                    identity is null
-                        ? null
-                        : DependencyGraphOutputAdapter.Kind(identity),
-                    identity is null
-                        ? null
-                        : DependencyGraphOutputAdapter.IdentityText(identity),
+                    identity,
                     !plan.Traversal
                         ? DependencyInspectionTraversalCompletion.NotRequested
-                        : LibraryCompletion(library),
-                    plan.Declarations
-                        ? DependencyInspectionEvidenceAvailability.NotApplicable
-                        : DependencyInspectionEvidenceAvailability.NotRequested,
-                    plan.Declarations
-                        ? DependencyInspectionEvidencePhaseCompletion.NotApplicable
-                        : DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                    selectionRequested
-                        ? DependencyInspectionSelectionStatus.NotApplicable
-                        : DependencyInspectionSelectionStatus.NotRequested,
-                    plan.RestoredRelationships
-                        ? DependencyInspectionEvidenceAvailability.NotApplicable
-                        : DependencyInspectionEvidenceAvailability.NotRequested,
-                    plan.RestoredRelationships
-                        ? DependencyInspectionEvidencePhaseCompletion.NotApplicable
-                        : DependencyInspectionEvidencePhaseCompletion.NotRequested)
-                {
-                    GraphIdentity = identity,
-                });
+                        : LibraryCompletion(library)));
         }
 
-        return [.. roots.OrderBy(static root => root.Occurrence)];
+        return
+        [
+            .. roots.OrderBy(static root => root.Identity.Value),
+        ];
+    }
+
+    private static ImmutableArray<DependsRootRow> BuildPresentationRoots(
+        PackageDependencyEvidenceOutcome evidenceOutcome,
+        DependencyEvidenceProjection? evidence,
+        DependencyEvidenceAcquisitionBatch? acquisition,
+        IReadOnlyList<LibraryAssetResult> libraries,
+        ImmutableArray<DependencyInspectionRoot> contentRoots)
+    {
+        Dictionary<int, DependencyEvidenceAcquiredRoot>? acquiredRoots =
+            acquisition?.Roots.ToDictionary(
+                static root => root.Root.OccurrenceIndex);
+        Dictionary<int, LibraryAssetResult> libraryRoots =
+            libraries.ToDictionary(
+                static root => root.Root.OccurrenceIndex);
+        Dictionary<int, DependencyEvidenceRootRow>? evidenceRows =
+            evidence?.Roots.ToDictionary(static root => root.RootIndex);
+        var roots =
+            ImmutableArray.CreateBuilder<DependsRootRow>(
+                contentRoots.Length);
+
+        foreach (DependencyInspectionRoot content in contentRoots)
+        {
+            string source;
+            DependencyEvidenceRootRow? evidenceRoot = null;
+            if (content.Kind == DependencyInspectionRootKind.Library)
+            {
+                source = LibrarySource(
+                    libraryRoots[content.Identity.Value].Result);
+            }
+            else if (acquiredRoots is null)
+            {
+                source = "PackagePrefix";
+                evidenceRows?.TryGetValue(
+                    content.Identity.Value,
+                    out evidenceRoot);
+            }
+            else
+            {
+                DependencyEvidenceAcquiredRoot acquired =
+                    acquiredRoots[content.Identity.Value];
+                source = acquired.InputIndex is { } inputIndex
+                    ? evidenceOutcome.Roots[inputIndex]
+                        .Provenance.AcquisitionForm.ToString()
+                    : SourceFor(acquired.Root);
+                evidenceRows?.TryGetValue(
+                    content.Identity.Value,
+                    out evidenceRoot);
+            }
+
+            DependencyGraphNodeIdentity? identity = content.GraphIdentity;
+            var row = new DependsRootRow(
+                content,
+                source,
+                identity is null
+                    ? null
+                    : DependencyGraphOutputAdapter.Kind(identity),
+                identity is null
+                    ? null
+                    : DependencyGraphOutputAdapter.IdentityText(identity))
+            {
+                Evidence = evidenceRoot,
+            };
+            if (evidenceRoot is not null && evidence is not null)
+            {
+                DependsRootSelection selection = RootSelection(
+                    evidenceRoot,
+                    evidence);
+                row = row with
+                {
+                    SelectedGroup = selection.SelectedGroup,
+                    SelectedGroupIndex = selection.SelectedGroupIndex,
+                    SelectedSourceOccurrence =
+                        selection.SelectedSourceOccurrence,
+                };
+            }
+            roots.Add(row);
+        }
+
+        return roots.ToImmutable();
     }
 
     private static string LibrarySource(
@@ -1703,104 +1551,25 @@ public partial class DependsCommand
             _ => "Library",
         };
 
-    private static DependencyInspectionEvidenceAvailability DeclarationState(
-        DependencyEvidenceRootRow root) =>
-        root.DeclarationState switch
-        {
-            DependencyEvidenceDeclarationState.NotApplicable =>
-                DependencyInspectionEvidenceAvailability.NotApplicable,
-            DependencyEvidenceDeclarationState.Available =>
-                DependencyInspectionEvidenceAvailability.Available,
-            DependencyEvidenceDeclarationState.Unavailable =>
-                DependencyInspectionEvidenceAvailability.Unavailable,
-            DependencyEvidenceDeclarationState.Failed =>
-                DependencyInspectionEvidenceAvailability.Failed,
-            _ => throw new InvalidOperationException(
-                "Unknown declaration state."),
-        };
-
-    private static DependencyInspectionEvidencePhaseCompletion DeclarationCompletion(
-        DependencyEvidenceRootRow root) =>
-        root.DeclarationState switch
-        {
-            DependencyEvidenceDeclarationState.NotApplicable =>
-                DependencyInspectionEvidencePhaseCompletion.NotApplicable,
-            DependencyEvidenceDeclarationState.Available
-                when root.DeclarationCompletion
-                    == PackageDependencyEvidencePhaseCompletion.Complete =>
-                        DependencyInspectionEvidencePhaseCompletion.Complete,
-            DependencyEvidenceDeclarationState.Available =>
-                DependencyInspectionEvidencePhaseCompletion.Partial,
-            DependencyEvidenceDeclarationState.Unavailable =>
-                DependencyInspectionEvidencePhaseCompletion.Unavailable,
-            DependencyEvidenceDeclarationState.Failed =>
-                DependencyInspectionEvidencePhaseCompletion.Failed,
-            _ => throw new InvalidOperationException(
-                "Unknown declaration completion."),
-        };
-
-    private static DependencyInspectionEvidenceAvailability RelationshipState(
-        DependencyEvidenceRootRow root) =>
-        root.GraphState switch
-        {
-            DependencyEvidenceGraphState.NotApplicable =>
-                DependencyInspectionEvidenceAvailability.NotApplicable,
-            DependencyEvidenceGraphState.Available =>
-                DependencyInspectionEvidenceAvailability.Available,
-            DependencyEvidenceGraphState.Unavailable =>
-                DependencyInspectionEvidenceAvailability.Unavailable,
-            DependencyEvidenceGraphState.Failed =>
-                DependencyInspectionEvidenceAvailability.Failed,
-            _ => throw new InvalidOperationException(
-                "Unknown restored-relationship state."),
-        };
-
     private static DependsRootSelection RootSelection(
         DependencyEvidenceRootRow root,
-        DependencyEvidenceProjection evidence,
-        string? requestedFramework,
-        bool requested)
+        DependencyEvidenceProjection evidence)
     {
-        if (!requested)
-        {
-            return new DependsRootSelection(
-                DependencyInspectionSelectionStatus.NotRequested,
-                SelectedGroup: null,
-                SelectedGroupIndex: null,
-                SelectedSourceOccurrence: null,
-                RequestedFramework: null,
-                SelectedFramework: null);
-        }
-
         if (root.Owner
             != PackageDependencyEvidenceInputKind.RestoredProject)
         {
             return new DependsRootSelection(
-                PackageSelectionStatus(root),
                 root.SelectedGroup,
                 root.SelectedGroupIndex,
-                root.SelectedSourceOccurrence,
-                root.RequestedFramework,
-                root.SelectedFramework);
+                root.SelectedSourceOccurrence);
         }
 
-        InertString? requestedFrameworkText =
-            requestedFramework is null
-                ? null
-                : new InertString(
-                    TextPolicy.Field,
-                    requestedFramework);
         if (root.RestoredTargetFrameworkIdentity is not { } selectedFramework)
         {
             return new DependsRootSelection(
-                requestedFramework is null
-                    ? DependencyInspectionSelectionStatus.Unavailable
-                    : DependencyInspectionSelectionStatus.NoMatchingTargetFramework,
                 SelectedGroup: null,
                 SelectedGroupIndex: null,
-                SelectedSourceOccurrence: null,
-                requestedFrameworkText,
-                SelectedFramework: null);
+                SelectedSourceOccurrence: null);
         }
 
         PackageDependencyEvidenceGroupOccurrence.RestoredProject?
@@ -1828,50 +1597,10 @@ public partial class DependsCommand
             }
         }
         return new DependsRootSelection(
-            DependencyInspectionSelectionStatus.Selected,
             selectedGroup?.Identity,
             selectedGroup?.GroupIndex,
-            selectedOccurrence,
-            requestedFrameworkText,
-            root.RestoredTargetFrameworkSpelling);
+            selectedOccurrence);
     }
-
-    private static DependencyInspectionSelectionStatus PackageSelectionStatus(
-        DependencyEvidenceRootRow root) =>
-        root.SelectionStatus switch
-        {
-            PackageDependencyEvidenceSelectionStatus.Selected =>
-                DependencyInspectionSelectionStatus.Selected,
-            PackageDependencyEvidenceSelectionStatus.NoDependencyGroups =>
-                DependencyInspectionSelectionStatus.NoDependencyGroups,
-            PackageDependencyEvidenceSelectionStatus
-                .NoMatchingTargetFramework =>
-                    DependencyInspectionSelectionStatus.NoMatchingTargetFramework,
-            PackageDependencyEvidenceSelectionStatus.Unavailable =>
-                DependencyInspectionSelectionStatus.Unavailable,
-            _ => throw new InvalidOperationException(
-                "Unknown dependency selection status."),
-        };
-
-    private static DependencyInspectionEvidencePhaseCompletion RelationshipCompletion(
-        DependencyEvidenceRootRow root) =>
-        root.GraphState switch
-        {
-            DependencyEvidenceGraphState.NotApplicable =>
-                DependencyInspectionEvidencePhaseCompletion.NotApplicable,
-            DependencyEvidenceGraphState.Available
-                when root.GraphCompletion
-                    == PackageDependencyEvidencePhaseCompletion.Complete =>
-                        DependencyInspectionEvidencePhaseCompletion.Complete,
-            DependencyEvidenceGraphState.Available =>
-                DependencyInspectionEvidencePhaseCompletion.Partial,
-            DependencyEvidenceGraphState.Unavailable =>
-                DependencyInspectionEvidencePhaseCompletion.Unavailable,
-            DependencyEvidenceGraphState.Failed =>
-                DependencyInspectionEvidencePhaseCompletion.Failed,
-            _ => throw new InvalidOperationException(
-                "Unknown restored-relationship completion."),
-        };
 
     private static DependencyInspectionTraversalCompletion LibraryCompletion(
         LibraryAssetResult library) =>
@@ -1928,144 +1657,6 @@ public partial class DependsCommand
                 DependencyInspectionTraversalCompletion.Failed,
             _ => DependencyInspectionTraversalCompletion.Partial,
         };
-    }
-
-    private static DependencyInspectionSummary BuildSummary(
-        DependsOptions options,
-        DependencyEvidenceProjection evidence,
-        ImmutableArray<DependsRootRow> roots,
-        DependencyGraphDocument graph,
-        DependsAssetRequestPlan plan,
-        int? traversalDepth,
-        DependencyInspectionPruningSummary pruning)
-    {
-        int admitted = roots.Count(
-            static root => root.State == DependencyInspectionRootState.Admitted);
-        int failed = options.PackagePrefix is null
-            ? roots.Length - admitted
-            : evidence.Summary.FailedRootCount
-                + evidence.Summary.RejectedRootCount;
-        int requested = options.PackagePrefix is null
-            ? options.AssetRoots.Length
-            : evidence.Summary.AdmittedRootCount
-                + evidence.Summary.FailedRootCount
-                + evidence.Summary.RejectedRootCount;
-        DependencyInspectionRootSetCompletion rootSet =
-            failed == 0
-            && IsCompleteCommandRootSet(
-                evidence.Summary.RootSetCompletion,
-                evidence.Summary.RejectedRootCount,
-                evidence.Summary.FailedRootCount,
-                evidence.Summary.IsTruncated,
-                evidence.Summary.PackagePrefix?.TruncationReason)
-                ? DependencyInspectionRootSetCompletion.Complete
-                : admitted == 0
-                    ? DependencyInspectionRootSetCompletion.Failed
-                    : DependencyInspectionRootSetCompletion.Partial;
-        DependencyInspectionTraversalCompletion traversal = plan.Traversal
-            ? AggregateTraversal(roots)
-            : DependencyInspectionTraversalCompletion.NotRequested;
-        return new DependencyInspectionSummary(
-            rootSet,
-            requested,
-            admitted,
-            failed,
-            traversal,
-            plan.Traversal ? traversalDepth : null,
-            graph.Nodes.Length,
-            graph.Edges.Length,
-            AggregateEvidencePhase(
-                roots,
-                static root => root.DeclarationCompletion,
-                plan.Declarations),
-            AggregateEvidencePhase(
-                roots,
-                static root => root.RestoredRelationshipCompletion,
-                plan.RestoredRelationships),
-            pruning,
-            options.PackagePrefix is not null,
-            evidence.Summary.PackagePrefix);
-    }
-
-    internal static bool IsCompleteCommandRootSet(
-        PackageDependencyEvidenceRootSetCompletion completion,
-        int rejectedRootCount,
-        int failedRootCount,
-        bool isTruncated,
-        PackageSearchTruncationReason? truncationReason) =>
-        completion == PackageDependencyEvidenceRootSetCompletion.Complete
-        || rejectedRootCount == 0
-        && failedRootCount == 0
-        && isTruncated
-        && truncationReason == PackageSearchTruncationReason.RequestedLimit;
-
-    private static DependencyInspectionEvidencePhaseCompletion AggregateEvidencePhase(
-        ImmutableArray<DependsRootRow> roots,
-        Func<DependsRootRow, DependencyInspectionEvidencePhaseCompletion> select,
-        bool requested)
-    {
-        if (!requested)
-            return DependencyInspectionEvidencePhaseCompletion.NotRequested;
-
-        DependencyInspectionEvidencePhaseCompletion[] states =
-        [
-            .. roots.Select(select),
-        ];
-        if (states.Length == 0
-            || states.All(static state =>
-                state == DependencyInspectionEvidencePhaseCompletion.Failed))
-        {
-            return DependencyInspectionEvidencePhaseCompletion.Failed;
-        }
-        if (states.Any(static state =>
-            state is DependencyInspectionEvidencePhaseCompletion.Partial
-                or DependencyInspectionEvidencePhaseCompletion.Failed)
-            || states.Any(static state =>
-                state == DependencyInspectionEvidencePhaseCompletion.Unavailable)
-            && states.Any(static state =>
-                state == DependencyInspectionEvidencePhaseCompletion.Complete))
-        {
-            return DependencyInspectionEvidencePhaseCompletion.Partial;
-        }
-        if (states.Any(static state =>
-            state == DependencyInspectionEvidencePhaseCompletion.Unavailable))
-        {
-            return DependencyInspectionEvidencePhaseCompletion.Unavailable;
-        }
-        if (states.Any(static state =>
-            state == DependencyInspectionEvidencePhaseCompletion.Complete))
-        {
-            return DependencyInspectionEvidencePhaseCompletion.Complete;
-        }
-        return DependencyInspectionEvidencePhaseCompletion.NotApplicable;
-    }
-
-    private static DependencyInspectionTraversalCompletion AggregateTraversal(
-        ImmutableArray<DependsRootRow> roots)
-    {
-        if (roots.IsEmpty
-            || roots.All(static root =>
-                root.Traversal == DependencyInspectionTraversalCompletion.Failed))
-        {
-            return DependencyInspectionTraversalCompletion.Failed;
-        }
-        if (roots.Any(static root =>
-            root.Traversal is DependencyInspectionTraversalCompletion.Partial
-                or DependencyInspectionTraversalCompletion.Failed))
-        {
-            return DependencyInspectionTraversalCompletion.Partial;
-        }
-        if (roots.Any(static root =>
-            root.Traversal == DependencyInspectionTraversalCompletion.DepthBounded))
-        {
-            return DependencyInspectionTraversalCompletion.DepthBounded;
-        }
-        if (roots.Any(static root =>
-            root.Traversal == DependencyInspectionTraversalCompletion.SourceBounded))
-        {
-            return DependencyInspectionTraversalCompletion.SourceBounded;
-        }
-        return DependencyInspectionTraversalCompletion.Complete;
     }
 
     private static DependencyInspectionTraversalCompletion Convert(
@@ -2932,10 +2523,7 @@ public partial class DependsCommand
         DependencyGraphDocument? Document);
 
     private sealed record DependsRootSelection(
-        DependencyInspectionSelectionStatus Status,
         PackageDependencyEvidenceGroupIdentity? SelectedGroup,
         int? SelectedGroupIndex,
-        PackageDependencyEvidenceGroupOccurrence? SelectedSourceOccurrence,
-        InertString? RequestedFramework,
-        InertString? SelectedFramework);
+        PackageDependencyEvidenceGroupOccurrence? SelectedSourceOccurrence);
 }

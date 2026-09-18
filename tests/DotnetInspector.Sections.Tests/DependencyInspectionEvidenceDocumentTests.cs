@@ -12,47 +12,43 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class DependencyInspectionEvidenceDocumentTests
 {
     [Fact]
-    public void OperationReusesSettledContentAndEvidence()
+    public void OperationPreservesSettledShareAcrossOrdinaryAndEnriched()
     {
         DependencyInspectionEvidenceDocument evidence = EmptyDocument();
-        var content = new DependencyInspectionContent(
-            new DependencyInspectionSummary(
-                DependencyInspectionRootSetCompletion.Complete,
-                RequestedRoots: 0,
-                AdmittedRoots: 0,
-                FailedRoots: 0,
-                DependencyInspectionTraversalCompletion.NotRequested,
-                RequestedDepth: null,
-                GraphNodes: 0,
-                GraphEdges: 0,
-                DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                DependencyInspectionPruningSummary.NotRequested,
-                IsPrefixRootSet: false,
-                PackagePrefix: null),
-            new DependencyGraphDocument([], [], [], [], []),
-            [],
-            [],
-            [],
-            []);
-        var result = new DependencyInspectionResult(content, evidence);
         var share = new InspectionShare.NonProjectable(
             "asset-dependencies/share",
             "No exact package root was requested.");
-
+        var request = new DependencyInspectionOperationRequest(
+            new DependencyInspectionPlan(
+                Declarations: false,
+                RestoredRelationships: false,
+                Traversal: false,
+                Pruning: false,
+                RequestedFramework: null,
+                RequestedDepth: null),
+            requestedRoots: 0,
+            isPrefixRootSet: false,
+            evidence.PackageInputs,
+            evidence.AdmittedRootOccurrences,
+            evidence.FailedRootOccurrences,
+            roots: [],
+            new DependencyGraphDocument([], [], [], [], []),
+            additionalFailures: [],
+            pruning: [],
+            pruningFailures: [],
+            DependencyInspectionPruningSummary.NotRequested,
+            share);
         InspectionEnvelope<DependencyInspectionContent> ordinary =
-            DependencyInspectionOperation.Execute(result, share);
+            DependencyInspectionOperation.Execute(request);
         EvidenceInspectionEnvelope<
             DependencyInspectionContent,
             DependencyInspectionEvidenceDocument> enriched =
-                DependencyInspectionOperation.ExecuteWithEvidence(
-                    result,
-                    share);
+                DependencyInspectionOperation.ExecuteWithEvidence(request);
 
-        Assert.Same(content, ordinary.Content);
-        Assert.Same(content, enriched.Inspection.Content);
-        Assert.Same(evidence, enriched.Evidence);
         Assert.Equal(ordinary, enriched.Inspection);
+        Assert.Same(share, ordinary.Share);
+        Assert.Same(share, enriched.Inspection.Share);
+        Assert.Same(evidence.PackageInputs, enriched.Evidence.PackageInputs);
     }
 
     [Fact]

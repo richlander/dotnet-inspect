@@ -287,7 +287,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:150:106595379D82]",
+                "Library[schema:129:1E932053EF20]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"

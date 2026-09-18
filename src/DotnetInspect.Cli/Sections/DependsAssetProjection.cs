@@ -12,7 +12,8 @@ internal sealed record DependsAssetRequestPlan(
     bool Declarations,
     bool RestoredRelationships,
     bool Traversal,
-    bool Pruning)
+    bool Pruning,
+    bool SupplementalEvidence)
 {
     internal static DependsAssetRequestPlan FromSections(
         IReadOnlySet<string> sections)
@@ -33,7 +34,12 @@ internal sealed record DependsAssetRequestPlan(
                 || failures,
             Traversal:
                 sections.Contains(DependsAssetSections.DependencyGraph),
-            Pruning: pruning);
+            Pruning: pruning,
+            SupplementalEvidence:
+                sections.Contains(DependsAssetSections.Roots)
+                || sections.Contains(DependsAssetSections.RestoredEdges)
+                || sections.Contains(DependsAssetSections.DependencyGroups)
+                || sections.Contains(DependsAssetSections.RestoredPackages));
     }
 }
 
@@ -43,39 +49,19 @@ internal sealed record DependsAssetRequestPlan(
 internal sealed record DependsRootRow
 {
     internal DependsRootRow(
-        int occurrence,
-        DependencyInspectionRootKind kind,
-        InertString input,
+        DependencyInspectionRoot content,
         string source,
-        DependencyInspectionRootState state,
         string? identityKind,
-        InertString? identity,
-        DependencyInspectionTraversalCompletion traversal,
-        DependencyInspectionEvidenceAvailability declarationState,
-        DependencyInspectionEvidencePhaseCompletion declarationCompletion,
-        DependencyInspectionSelectionStatus selection,
-        DependencyInspectionEvidenceAvailability restoredRelationshipState,
-        DependencyInspectionEvidencePhaseCompletion
-            restoredRelationshipCompletion)
+        InertString? identity)
     {
-        Content = new DependencyInspectionRoot(
-            new DependencyRootOccurrenceIdentity(occurrence),
-            kind,
-            input,
-            state,
-            GraphIdentity: null,
-            traversal,
-            declarationState,
-            declarationCompletion,
-            selection,
-            restoredRelationshipState,
-            restoredRelationshipCompletion);
+        Content = content
+            ?? throw new ArgumentNullException(nameof(content));
         IdentityKind = identityKind;
         Identity = identity;
         Source = source;
     }
 
-    internal DependencyInspectionRoot Content { get; private init; }
+    internal DependencyInspectionRoot Content { get; }
 
     internal int Occurrence => Content.Identity.Value;
 
@@ -91,11 +77,8 @@ internal sealed record DependsRootRow
 
     internal InertString? Identity { get; }
 
-    internal DependencyGraphNodeIdentity? GraphIdentity
-    {
-        get => Content.GraphIdentity;
-        init => Content = Content with { GraphIdentity = value };
-    }
+    internal DependencyGraphNodeIdentity? GraphIdentity =>
+        Content.GraphIdentity;
 
     internal DependencyInspectionTraversalCompletion Traversal =>
         Content.Traversal;
@@ -127,17 +110,9 @@ internal sealed record DependsRootRow
         SelectedSourceOccurrence
     { get; init; }
 
-    internal InertString? RequestedFramework
-    {
-        get => Content.RequestedFramework;
-        init => Content = Content with { RequestedFramework = value };
-    }
+    internal InertString? RequestedFramework => Content.RequestedFramework;
 
-    internal InertString? SelectedFramework
-    {
-        get => Content.SelectedFramework;
-        init => Content = Content with { SelectedFramework = value };
-    }
+    internal InertString? SelectedFramework => Content.SelectedFramework;
 }
 
 /// <summary>
@@ -145,28 +120,31 @@ internal sealed record DependsRootRow
 /// settled by one dependency inspection.
 /// </summary>
 internal sealed record DependsAssetProjection(
-    DependencyInspectionSummary Summary,
-    DependencyGraphDocument Graph,
+    InspectionEnvelope<DependencyInspectionContent> Inspection,
     ImmutableArray<DependencyGraphEdgeRow> GraphRows,
     ImmutableArray<DependsRootRow> Roots,
-    ImmutableArray<DependencyInspectionDependency> Dependencies,
-    ImmutableArray<DependencyInspectionPruning> Pruning,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
-    ImmutableArray<DependencyInspectionFailure> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
-    DependencyInspectionEvidenceDocument Evidence)
+    EvidenceInspectionEnvelope<
+        DependencyInspectionContent,
+        DependencyInspectionEvidenceDocument>? Enriched)
 {
-    internal DependencyInspectionResult Result { get; } =
-        new(
-            new DependencyInspectionContent(
-                Summary,
-                Graph,
-                [.. Roots.Select(static root => root.Content)],
-                Dependencies,
-                Pruning,
-                Failures),
-            Evidence);
+    internal DependencyInspectionContent Content => Inspection.Content;
 
-    internal DependencyInspectionContent Content => Result.Content;
+    internal DependencyInspectionSummary Summary => Content.Summary;
+
+    internal DependencyGraphDocument Graph => Content.Graph;
+
+    internal ImmutableArray<DependencyInspectionDependency> Dependencies =>
+        Content.Dependencies;
+
+    internal ImmutableArray<DependencyInspectionPruning> Pruning =>
+        Content.Pruning;
+
+    internal ImmutableArray<DependencyInspectionFailure> Failures =>
+        Content.Failures;
+
+    internal DependencyInspectionEvidenceDocument? Evidence =>
+        Enriched?.Evidence;
 }

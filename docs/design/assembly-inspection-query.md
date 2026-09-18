@@ -1028,13 +1028,21 @@ borrows the admitted lease for the full query, so disposing the outer lease
 rejects later execution and concurrent disposal cannot release realization
 drainage before the in-flight query detaches its result.
 
-The Metadata query considers only participants realized from the requested
-package coordinate. It projects public members for public Types and complete
-members for an exact non-public Type, prefers an exact full-name declaration
-over fuzzy generic-name matching, and retains every declaration matched by a
-non-full-name lookup through terminal resolution. It follows Type forwarders
-through the group binding policy and collapses roots only when Metadata resolves
-every matching root to the same terminal definition. Distinct resolved terminal
+`SelectedContextExactTypeInspectionRequest` names the same Type selection
+without a Package coordinate.
+`SelectedContextExactTypeInspectionOperation.Execute` consumes one admitted
+`WorkspaceDeclarationContext` and considers every participant in that exact
+realized context. It never chooses a Package, uses the focused Navigation tab,
+or searches outside the supplied context. The Package operation and
+selected-context operation share the Metadata query; their only selection
+difference is the owner-issued participant set.
+
+The query projects public members for public Types and complete members for an
+exact non-public Type, prefers an exact full-name declaration over fuzzy
+generic-name matching, and retains every declaration matched by a non-full-name
+lookup through terminal resolution. It follows Type forwarders through the
+group binding policy and collapses roots only when Metadata resolves every
+matching root to the same terminal definition. Distinct resolved terminal
 definitions are ambiguous; any non-resolved matching root makes the selection
 unavailable because it could terminate at a different definition.
 `TypeResolutionAmbiguity.AssemblyBinding` is unavailable rather than
@@ -1076,6 +1084,16 @@ injective definition identity with ordinal equality, while the adjacent
 relationship projection
 continues to consume the Research query identity.
 
+The selected-context result additionally retains every distinct defining source
+needed to explain a unique or ambiguous outcome. Each source carries the
+context/member occurrence, exact Library source coordinate, exact assembly
+identity, realized source facts, image-selection provenance, and structured
+Type identity. A forwarded Type names its terminal supplier as the defining
+source rather than the facade that requested it. Missing source-coordinate
+evidence makes the outcome `Unavailable`; a host never reconstructs Package or
+Library identity from paths, headings, or participant order. An ambiguity
+across two Libraries retains both defining sources and never selects the first.
+
 The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
 content contains declaration facts, member signatures and inventory, exact
 assembly identities, forwarding evidence, suggestions, and typed failure
@@ -1090,6 +1108,15 @@ the retained evidence. That projection is scoped to the selected terminal Type
 and its retained members; failures owned by discarded declarations do not
 become exact-Type warnings. Non-constraint failures remain package-wide because
 they may establish that lookup or extraction was incomplete.
+
+The selected-context operation returns
+`InspectionEnvelope<SelectedContextExactTypeInspectionResult>`. Its nested
+inspection is the same exact-Type result and diagnostics; its defining-source
+vector uses the existing Type-declaration locator transport identities. The
+operation has no complete portable Workspace scenario, so its Share is
+explicitly non-projectable. A later Workspace-aware composition may preserve
+the content and diagnostics while projecting a derived packet from the complete
+definition; it must not rerun Type inspection.
 
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
 view for an explicit package version and TFM. Explicit sections, alternate
@@ -1106,7 +1133,9 @@ The Release gates are:
   conclusive ambiguity, matching malformed-declaration and forwarder failures,
   ordinal definition identity, disposed-lease rejection, visible participant
   rejection, bounded truncation, nonfatal constraint diagnostics, stable
-  diagnostics, and predecessor/successor realization association;
+  diagnostics, predecessor/successor realization association, non-first Package
+  resolution across one selected context, retained defining-Library ambiguity,
+  and a detached selected-context envelope;
 - `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
   member-signature rendering without the eligible legacy source resolver,
   escaped definition-identity preservation, and nonfatal constraint-warning
@@ -1544,7 +1573,7 @@ share a model:
 
 - `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
   decompiler and Research overlays).
-- `ILOffsetQuery` (the `library --il-offset` command adapter) — parses command input and
+- `ILOffsetQuery` (the `library coordinate` command adapter) — parses command input and
   forwards an `ILOffsetProjectionRequest` to Research.
 
 These want the same shape as the assembly seam, one level down: a query in, a finished result
