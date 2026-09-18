@@ -312,8 +312,8 @@ actually have Package ancestry:
 
 ```text
 Workspace
-|- .NET
-|  |- System.Text.Json (.NET Library)
+|- .NET Runtime
+|  |- System.Text.Json (.NET Runtime Library)
 |  |  |- System.Text.Json.JsonSerializer
 |  |- System.Text.Json 10.0.0 (Package)
 |  |  |- System.Text.Json (Library)
@@ -326,19 +326,19 @@ Workspace
 |- one directly admitted Library
 ```
 
-The target `.NET` Ecosystem authors the .NET runtime platform contribution and
-the `System.` Package Prefix contribution. The source-native
+The target `.NET Runtime` Ecosystem authors the .NET runtime platform
+contribution and the `System.` Package Prefix contribution. The source-native
 `System.Text.Json` Library and both admitted Package occurrences therefore
 have exact routes beneath that Ecosystem. The prefix provides population and
 route evidence; it did not admit either Package, grant source authorization,
 or make the Ecosystem their exclusive provenance owner.
 
 That Ecosystem composition is an adjacent Ecosystems-catalog target, not
-current implementation or a Navigation-owned policy. The current product pack
-projects the .NET runtime platform population without the `System.` Package
-Prefix. Its focused adoption must add that prefix and the `.NET` presentation
-identity before this complete demo is supported. Prefix matching semantics
-remain owned by `PackagePrefixDeclaration`.
+Navigation-owned policy. The current product pack declares both the .NET
+runtime platform population and the `System.` Package Prefix. Focused
+Navigation adoption must preserve those exact contributions and the
+`.NET Runtime` presentation identity before this complete demo is supported.
+Prefix matching semantics remain owned by `PackagePrefixDeclaration`.
 
 The three visible `System.Text.Json` observations remain distinct:
 
@@ -348,13 +348,13 @@ The three visible `System.Text.Json` observations remain distinct:
 - `System.Text.Json@10.0.1` is another exact Package occurrence with its own
   admitted Library.
 
-The `.NET` Ecosystem may share either Package or Library with another
+The `.NET Runtime` Ecosystem may share either Package or Library with another
 Ecosystem because route membership is many-to-many. `ASP.NET Core` is another
 Ecosystem with its source-native
 `Microsoft.AspNetCore.Http.Abstractions` Library.
-`Newtonsoft.Json@13.0.4` is the neighboring Package without a `.NET` Ecosystem
-route. A directly admitted Library may be activated from Workspace without
-passing through either Ecosystem or Package.
+`Newtonsoft.Json@13.0.4` is the neighboring Package without a `.NET Runtime`
+Ecosystem route. A directly admitted Library may be activated from Workspace
+without passing through either Ecosystem or Package.
 
 The real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll`,
@@ -372,9 +372,10 @@ Workspace -> System.Text.Json -> JsonSerializer
 ```
 
 That direct route and
-`Workspace -> .NET -> System.Text.Json -> JsonSerializer` retain the same exact
-Library and Type subject identities when they bind the same owner-issued
-Workspace occurrences. The route differs; the inspected subject does not.
+`Workspace -> .NET Runtime -> System.Text.Json -> JsonSerializer` retain the
+same exact Library and Type subject identities when they bind the same
+owner-issued Workspace occurrences. The route differs; the inspected subject
+does not.
 Conversely, the `System.Text.Json` framework Library and a package-origin
 Library with the same visible assembly name remain distinct exact subjects
 because their owner-issued source occurrences differ. The two package
@@ -686,11 +687,11 @@ registrations from one definition/scope observation. Its selection receipt may
 resolve a reported row to the owner-issued Package occurrence or registration
 arm before the responsible activation owner runs. Navigation never treats the
 document-local row key as subject identity, changes that inventory's canonical
-order, or deduplicates the `.NET` Ecosystem registration and two admitted
-`System.Text.Json` Package occurrences merely because its route graph groups
-their exact subjects beneath `.NET`. The platform and `System.` prefix remain
-ordered populations inside the Ecosystem entry rather than being flattened
-into independent registrations.
+order, or deduplicates the `.NET Runtime` Ecosystem registration and two
+admitted `System.Text.Json` Package occurrences merely because its route graph
+groups their exact subjects beneath `.NET Runtime`. The platform and `System.`
+prefix remain ordered populations inside the Ecosystem entry rather than being
+flattened into independent registrations.
 
 [Inspect Web saved Workspaces](inspect-web-saved-workspaces.md) owns the plural
 saved-definition collection and its Save, Open, and Forget behavior.
@@ -2148,9 +2149,9 @@ overall tracker. The current plan has sixteen focused stages:
 
 1. Lock this Navigation-owned subject, identity, route, policy, and evidence
    contract.
-2. Have the Ecosystems catalog define the `.NET` Ecosystem contribution as the
-   .NET runtime platform population plus the `System.` Package Prefix, with
-   `.NET` as its user-facing identity.
+2. Have the Ecosystems catalog define the `.NET Runtime` Ecosystem contribution
+   as the .NET runtime platform population plus the `System.` Package Prefix,
+   with `.NET Runtime` as its user-facing identity.
 3. Have the Workspace registration and ecosystem-handoff owners issue exact
    Workspace-bound Ecosystem occurrences and contribution-relation witnesses.
 4. Have the responsible admission owner issue exact Workspace-bound Library
@@ -2541,8 +2542,8 @@ must preserve the same typed outcomes and fresh destination content.
 | Compare requested on a direct package-origin Library | Applicability uses the exact Package association in subject identity, not whether Package appears in the active route |
 | Two Ecosystems contribute the same exact Package | One Package subject with two exact available routes; Ecosystem labels do not duplicate Package identity |
 | Framework and package Libraries share an assembly simple name | Distinct subjects because their owner-issued source occurrences differ |
-| `.NET` contains runtime and two `System.Text.Json` Package versions | Three distinct observations and routes: one source-native Library plus two exact Package occurrences with their own Libraries |
-| Workspace inventory reports the same `.NET` inputs | One Ecosystem entry retains its platform and `System.` populations while both Package occurrences remain separate top-level entries; Navigation grouping changes neither identity nor duplicate policy |
+| `.NET Runtime` contains runtime and two `System.Text.Json` Package versions | Three distinct observations and routes: one source-native Library plus two exact Package occurrences with their own Libraries |
+| Workspace inventory reports the same `.NET Runtime` inputs | One Ecosystem entry retains its platform and `System.` populations while both Package occurrences remain separate top-level entries; Navigation grouping changes neither identity nor duplicate policy |
 | Active Ecosystem registration is removed while its Library remains admitted | Retain the Library only through a current owner-issued replacement route; otherwise fall back to the last valid exact ancestor |
 | Saved definition appears in Workspaces | No structural subject or Navigation action until Open constructs a fresh singular Workspace |
 | Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package, Library, Type, and Member context remain available |

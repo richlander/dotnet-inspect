@@ -78,21 +78,23 @@ It does not own:
 
 These hold for every inventory independent of how a consumer uses it.
 
-### Explicit Platform presence is the switch
+### Explicit .NET Runtime Ecosystem presence is the switch
 
 Pruning is eligible exactly when the operation's exact Workspace revision
-contains the selected `ecosystem.platform` registration, and off when that
+contains the selected `ecosystem.runtime` registration, and off when that
 registration is absent. There is no second control. An ASP.NET Core ecosystem
 registration may contribute the `AspNetCore` platform family, but it does not
-substitute for the exact Platform registration that activates pruning.
+substitute for the exact .NET Runtime Ecosystem registration that activates
+pruning.
 
 The Workspace API constructs empty and therefore starts with pruning off. The
-Ecosystems-owned curated Workspace initially includes Platform and therefore
-makes pruning eligible for operations that select that contribution. A raw
-caller may add Platform explicitly; a command gesture such as `--platform` may
-perform that addition under its command owner. The
-[no-platform workspace](#a-workspace-may-have-no-platform-at-all) remains a
-coherent off state rather than a broken one.
+Ecosystems-owned curated Workspace initially includes `.NET Runtime` and
+therefore makes pruning eligible for operations that select that contribution.
+A raw caller may add `ecosystem.runtime` explicitly; a command gesture such as
+`--platform` may arrange that registration under its command owner without
+exposing a Platform Ecosystem. The
+[Workspace without .NET Runtime](#a-workspace-may-have-no-net-runtime-ecosystem)
+remains a coherent off state rather than a broken one.
 
 The target-independent registration is not itself a prune inventory. Runtime
 comparison begins only after the selected population is associated with one
@@ -151,12 +153,12 @@ platform can satisfy it. Whether a later traversal can compose that package
 with the workspace platform is owned by platform compatibility and resolution,
 not by this comparison.
 
-### A workspace may have no platform at all
+### A workspace may have no .NET Runtime Ecosystem
 
-Removing the platform is a coherent workspace configuration, not a broken
-inventory. This owner represents it with an empty inventory: no package
-identity has a subsumption entry and every version comparison answers
-`NotSubsumed`.
+Removing the `.NET Runtime` Ecosystem registration is a coherent Workspace
+configuration, not a broken inventory. This owner represents it with an empty
+inventory: no package identity has a subsumption entry and every version
+comparison answers `NotSubsumed`.
 
 The scenario makes absence concrete without turning it into package policy.
 The empty inventory does not assert that packages exist, choose which edges a
@@ -667,8 +669,8 @@ The first implementation slice is #6239. Its gates live in
 | An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | implemented — #6239 |
 | The browser catalog projects exact pack-owned supply rows | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` in `DotnetInspect.Web.Tests`, plus `platform-index.test.ts` | implemented — Inspect Web adoption |
 | A demo migrates only when exact policy delegation and explicit implementation-library correspondence both hold | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` | implemented — Runtime and ASP.NET Core demo adoption |
-| Only an exact selected `ecosystem.platform` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
-| The selected Platform registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
+| Only an exact selected `ecosystem.runtime` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
+| The selected .NET Runtime Ecosystem registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
 | Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
 | A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
