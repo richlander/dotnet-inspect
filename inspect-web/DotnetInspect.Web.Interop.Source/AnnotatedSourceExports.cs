@@ -217,6 +217,13 @@ public static partial class SourceExports
                         evidence.InstanceKey.Value,
                         FullyQualifiedMemberName(evidence.Member),
                         target,
+                        EvidenceState(evidence.State),
+                        [
+                            .. evidence.AggregateInputs.Select(input =>
+                                new BrowserCostCalleeEvidenceInput(
+                                    AggregateInputKind(input.Kind),
+                                    input.Value)),
+                        ],
                         [
                             .. evidence.Coordinates.Select(coordinate =>
                                 new BrowserAnnotatedSourceFindingEvidenceCoordinate(
@@ -262,9 +269,41 @@ public static partial class SourceExports
                 type => type.ToQualifiedDisplayString()))})";
     }
 
+    static BrowserCalleeEvidenceState EvidenceState(
+    ResearchFindingEvidenceState state) =>
+    state switch
+    {
+        ResearchFindingEvidenceState.Instruction =>
+            BrowserCalleeEvidenceState.Instruction,
+        ResearchFindingEvidenceState.Method =>
+            BrowserCalleeEvidenceState.Method,
+        ResearchFindingEvidenceState.InstructionUnavailable =>
+            BrowserCalleeEvidenceState.InstructionUnavailable,
+        _ => throw new ArgumentOutOfRangeException(nameof(state)),
+    };
+
+    static BrowserCostCalleeEvidenceInputKind AggregateInputKind(
+    CallSiteCostEvidenceInputKind kind) =>
+    kind switch
+    {
+        CallSiteCostEvidenceInputKind.AllocationInLoop =>
+            BrowserCostCalleeEvidenceInputKind.AllocationInLoop,
+        CallSiteCostEvidenceInputKind.Reflection =>
+            BrowserCostCalleeEvidenceInputKind.Reflection,
+        CallSiteCostEvidenceInputKind.CallInLoop =>
+            BrowserCostCalleeEvidenceInputKind.CallInLoop,
+        CallSiteCostEvidenceInputKind.RootReach =>
+            BrowserCostCalleeEvidenceInputKind.RootReach,
+        CallSiteCostEvidenceInputKind.DirectCallers =>
+            BrowserCostCalleeEvidenceInputKind.DirectCallers,
+        CallSiteCostEvidenceInputKind.LoopCalls =>
+            BrowserCostCalleeEvidenceInputKind.LoopCalls,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
     static BrowserCalleeEvidenceKind EvidenceKind(
-        CallSiteEvidenceKind kind) =>
-        kind switch
+    CallSiteEvidenceKind kind) =>
+    kind switch
         {
             CallSiteEvidenceKind.ExceptionConstruction =>
                 BrowserCalleeEvidenceKind.ExceptionConstruction,
