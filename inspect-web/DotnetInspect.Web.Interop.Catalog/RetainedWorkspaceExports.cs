@@ -434,7 +434,9 @@ internal static class BrowserRetainedWorkspaceActivationService
             installation.RetainedDefinitionId,
             installation.Label,
             installation.CanonicalLocation,
-            installation.CanonicalPacket,
+            installation.CanonicalPacket
+                ?? throw new InvalidOperationException(
+                    "The packet activation export cannot project a non-packet retained definition."),
             installation.RealizationId,
             installation.PublicationOrdinal,
             Definition(installation.Definition),

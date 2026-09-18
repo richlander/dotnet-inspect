@@ -504,6 +504,7 @@ import {
   withTerm,
   withoutTerm,
   withEditorDraft,
+  withLibraryLiteralDraft,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
@@ -622,6 +623,7 @@ let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
@@ -632,6 +634,8 @@ let resolveDependencyVersion:
   EngineClient["package"]["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
+let inspectRunPackageAssemblySemanticQuery:
+  EngineClient["package"]["runPackageAssemblySemanticQuery"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
@@ -768,11 +772,14 @@ async function loadEngineModule() {
       queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPackage: inspectPackage,
+      queryPackageRoot: inspectPackageRoot,
       queryPackageDependencies: inspectPackageDependencies,
       queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
+      runPackageAssemblySemanticQuery:
+        inspectRunPackageAssemblySemanticQuery,
       runPackageQuery: inspectRunPackageQuery,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
@@ -2429,6 +2436,24 @@ const packageQueryController = createPackageQueryController(
       termsJson,
       maximumCandidates,
       maximumMatches,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink),
+    runAssemblySemantic: (
+      operationId,
+      packageInput,
+      operand,
+      targetFramework,
+      maximumCandidates,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageAssemblySemanticQuery(
+      operationId,
+      packageInput,
+      operand,
+      targetFramework,
+      maximumCandidates,
       includePrerelease,
       initialMatchCredit,
       eventSink),
@@ -13578,6 +13603,23 @@ const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onPresetToggle: togglePackageQueryPreset,
+  onLibraryLiteralInput: (operand, targetFramework) => {
+    const current = state.packageQueryState.request
+      ?? createQueryRequest(state.packageQueryPrefix);
+    const configured = withLibraryLiteralDraft(
+      current,
+      operand,
+      targetFramework);
+    if (configured.libraryLiteral.operand === current.libraryLiteral.operand
+      && configured.libraryLiteral.targetFramework
+        === current.libraryLiteral.targetFramework
+      && state.packageQueryState.outcome.completion.kind === "idle") return;
+    if (current.terms.length > 0 && configured.terms.length === 0) {
+      state.packageQueryState.termEdits = [];
+    }
+    state.packageQueryNavigationError = "";
+    packageQueryController.configure(configured);
+  },
   onTermAdd: addPackageQueryTerm,
   onTermApply: applyPackageQueryTerm,
   onTermEdit: editPackageQueryTerm,
@@ -16472,6 +16514,7 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
+  queryPackageRoot: rootRequest => inspectPackageRoot(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (

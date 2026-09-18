@@ -436,6 +436,29 @@ internal sealed class BrowserWorkspaceRealizationHost : IAsyncDisposable
             CancellationToken cancellationToken = default) =>
         _coordinator.EnterOperationAsync(cancellationToken);
 
+    internal async ValueTask<WorkspaceRealizationOperationAdmission>
+        EnterOperationAsync(
+            InspectionWorkspaceIdentity expectedRealization,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(expectedRealization);
+        WorkspaceRealizationOperationAdmission admission =
+            await _coordinator.EnterOperationAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted
+            || ReferenceEquals(
+                admitted.Lease.Realization,
+                expectedRealization))
+        {
+            return admission;
+        }
+
+        admitted.Lease.Dispose();
+        return new WorkspaceRealizationOperationAdmission.Unavailable(
+            WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);
+    }
+
     internal Task<BrowserWorkspaceRealizationHostCloseReport> CloseAsync()
     {
         TaskCompletionSource<BrowserWorkspaceRealizationHostCloseReport>
