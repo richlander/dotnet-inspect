@@ -8,6 +8,12 @@
   `--lines` remains an explicit unit override, and numeric `-t` on
   `implements` and `extensions` is treated as type-filter input rather than a
   legacy count or migration diagnostic (#4677).
+- **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
+  `@Integrations` categories, category-first alphabetical discovery, and
+  alphabetical multi-section output. Replace the former unprefixed
+  `-S Integrations` alias with `-S @Integrations`; exact
+  `-S "Known Integrations"` remains available. Computed `@All`, `@Default`,
+  and `@Hidden` selectors remain unsupported (#7453).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection and `library coordinate --file <path>` for sparse IL
   coordinate populations, with named `--library`, `--package`, and `--platform`
@@ -24,8 +30,9 @@
   during the transition (#7307).
 - **Breaking:** Replaces the separate `Integration: <concept>` library sections
   with one homogeneous `Integrations` section. Narrow it with
-  `--where "integration=integration.<concept>"`; use the orthogonal
-  `ecosystem` facet for configured ecosystem bindings. Renames
+  `--where "integration=integration.<concept>"`; use the composable `ecosystem`
+  facet to enable an ecosystem's registered Integration set. The current Aspire
+  registration enables the complete configured Integration catalog. Renames
   `Integration: Opportunities` to `Integration Opportunities`, while
   `@Integrations` continues to select both current sections.
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
