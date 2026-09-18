@@ -154,9 +154,8 @@ The revised placement path has **5 steps**:
 Subject-section adoptions remain independently scoped and may use separate
 issues and PRs. No section advertises Graph before its relationship, scope,
 completeness, failure, and cost contracts are executable. Direct evidence
-sections remain distinct from operation-backed Graph sections under the
-[relationship-section naming](https://github.com/richlander/dotnet-inspect/issues/7628)
-contract.
+sections remain distinct from operation-backed Graph sections under
+[Relationship Section Naming](relationship-section-naming.md).
 
 The required pathological cases are a local subject whose selected
 relationship has no edges, a Workspace packet containing disconnected
