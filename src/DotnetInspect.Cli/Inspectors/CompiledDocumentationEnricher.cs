@@ -24,7 +24,7 @@ internal static class CompiledDocumentationEnricher
             maxMembers: 1_000_000,
             maxInspectionFailures: 1_024,
             maxTypeForwarders: 100_000,
-            maxMetadataRows: 250_000,
+            maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 32_000_000);
 
     private static readonly DocumentationHouseLimits s_documentationLimits =
@@ -84,12 +84,20 @@ internal static class CompiledDocumentationEnricher
             }
             else
             {
-                ResolvedAssemblyReference assembly =
-                    loaded.TryGetSourceAssembly(group.First())
-                    ?? ResolvedAssemblyReference.CreateFromPath(
+                ResolvedAssemblyReference? assembly =
+                    loaded.TryGetSourceAssembly(group.First());
+                if (assembly is null
+                    && !ResolvedAssemblyReference.TryCreateFromPath(
                         group.Key,
                         AssemblyResolutionProvenance.Local(
-                            "compiled documentation"));
+                            "compiled documentation"),
+                        out assembly))
+                {
+                    source.Context.Logger.Log(
+                        "Compiled documentation requires an assembly "
+                            + $"descriptor; skipping '{group.Key}'.");
+                    continue;
+                }
                 outcomes = await QueryDirectLibraryAsync(
                         group.Key,
                         assembly.Identity,
