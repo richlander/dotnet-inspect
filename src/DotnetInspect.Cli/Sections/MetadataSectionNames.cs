@@ -33,19 +33,20 @@ public static class MetadataSectionNames
     public const string Image = Prefix + "Image";
 
     /// <summary>
-    /// The coordinate-scoped section: the single heap value <c>--heap</c> names.
+    /// The coordinate-scoped section: the single heap value named by
+    /// <c>library coordinate "&lt;heap&gt;:&lt;address&gt;"</c>.
     ///
     /// Like the IL-offset sections, this one exists only when its coordinate does. Without
-    /// <c>--heap</c> there is no value to show, so the section is inapplicable and <c>-D</c> does
-    /// not list it; a section listed with nothing to render would advertise a view the command
-    /// cannot produce.
+    /// a heap coordinate there is no value to show, so the section is inapplicable and
+    /// <c>-D</c> does not list it; a section listed with nothing to render would advertise a
+    /// view the command cannot produce.
     /// </summary>
     public const string Heap = Prefix + "Heap";
 
     /// <summary>
     /// One section name per heap, spelled with the ECMA-335 stream name
     /// (<c>Metadata: #Strings</c>), so the section a user selects and the coordinate they pass to
-    /// <c>--heap</c> name the heap the same way.
+    /// <c>library coordinate</c> name the heap the same way.
     /// </summary>
     public static ImmutableArray<string> Heaps { get; } =
         [.. MetadataHeapCoordinate.Heaps.Select(static heap => Prefix + MetadataHeapCoordinate.StreamName(heap))];
@@ -129,8 +130,8 @@ public static class MetadataSectionNames
     /// <see cref="Tables"/> and the catalog are untouched: the hex form is an input alias, not a
     /// second catalog entry.
     ///
-    /// Hex is required to carry its <c>0x</c>, matching the <c>--heap</c> address rule: a bare
-    /// <c>02</c> is not a table index here, because a suffix without the prefix is a table
+    /// Hex is required to carry its <c>0x</c>, matching the heap-coordinate address rule: a
+    /// bare <c>02</c> is not a table index here, because a suffix without the prefix is a table
     /// <em>name</em> and inferring a radix would let one spelling mean two things.
     /// </summary>
     public static bool TryResolveTableAlias(string section, out string canonical, out string? error)

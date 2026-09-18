@@ -120,7 +120,11 @@ internal static class MetadataLensRenderer
             output.WriteLine($"## {MetadataSectionNames.ForHeap(entries.Heap)}");
             output.WriteLine();
             MetadataProjectionRenderer.RenderHeapEntries(entries, output, columns);
-            WriteCaveats(output, MetadataProjectionRenderer.Caveats(entries));
+            WriteCaveats(
+                output,
+                MetadataProjectionRenderer.Caveats(
+                    entries,
+                    "library coordinate"));
         }
 
         foreach (var table in ProjectSelected(inspection, selected, caveats, columns))
@@ -209,7 +213,9 @@ internal static class MetadataLensRenderer
         foreach (var entries in ListSelectedHeaps(inspection, selected, caveats))
         {
             MetadataProjectionRenderer.RenderHeapEntries(entries, output, columns, format);
-            foreach (string caveat in MetadataProjectionRenderer.Caveats(entries))
+            foreach (string caveat in MetadataProjectionRenderer.Caveats(
+                entries,
+                "library coordinate"))
                 caveats.WriteLine(caveat);
         }
 
