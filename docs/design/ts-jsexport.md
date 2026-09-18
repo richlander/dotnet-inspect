@@ -223,12 +223,23 @@ has the raw TypeScript view:
 The .NET interop layer knows only that the result is a string. It does not know
 whether the string contains JSON.
 
+The same distinction applies to inputs. A managed `string candidatesJson`
+parameter remains `string` in the private raw export signature even when the
+method body deserializes it. Raw marshalling does not by itself establish the
+JSON value type or which string parameter carries it.
+
 ### Wire view
 
 When `ILInspector.JsExportSurface` authenticates the method body's serializer
 flow and exact source-generated `JsonTypeInfo<T>`, the returned string has a
 known JSON wire shape. That evidence may establish `BrowserPackage` as the
 parsed result type.
+
+For deserialization, owner-issued parameter bindings additionally associate an
+authenticated JSON root with one exact declared parameter position. Only those
+bindings establish typed facade inputs. Unpositioned roots, conflicted roots,
+transformed arguments, and neighboring string parameters remain raw strings;
+the emitter does not infer attribution from a name, type, or relative position.
 
 Wire DTOs are producer-owned snapshots. Their properties are readonly, arrays
 use `ReadonlyArray<T>`, and string-keyed dictionaries use
@@ -454,8 +465,43 @@ It is not inferred from `QueryPackage`, its public TypeScript spelling, or the
 illustrative numeric value.
 
 The raw signature, parsed wire type, and public signature must remain explicit
-in the generator model. Display text or a public return annotation must never
-be used to reconstruct one of the other views.
+in the generator model. For an authenticated JSON input, the model likewise
+retains the raw managed parameter type, the public wire parameter type, and the
+required serialization step as separate facts. Display text or a public
+annotation must never be used to reconstruct one of the other views.
+
+For example, a raw managed operation with
+`string candidatesJson` and an authenticated
+`BrowserDependencyCoordinateCandidate[]` binding becomes:
+
+```ts
+export function matchPackageDependencyCoordinate(
+  packageId: string,
+  declaredRange: string | null,
+  candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>,
+): BrowserDependencyCoordinateMatch {
+  const json = serializeJsonInput(
+    candidatesJson,
+    "PackageExports.MatchPackageDependencyCoordinate.123456789",
+    "candidatesJson",
+  );
+  const result = requireManagedExports()
+    .PackageExports
+    ["MatchPackageDependencyCoordinate.123456789"](
+      packageId,
+      declaredRange,
+      json,
+    );
+  const parsed: unknown = JSON.parse(result);
+  return parsed as BrowserDependencyCoordinateMatch;
+}
+```
+
+The generated helper calls `JSON.stringify()` exactly once per bound parameter
+and requires a string result before dispatch. A thrown serialization error
+propagates unchanged; an `undefined` result throws a `TypeError`. The wrapper
+never substitutes fallback JSON or dispatches after either failure. Multiple
+bound parameters serialize independently in declared order.
 
 ## Trust boundaries in generated TypeScript
 
@@ -475,6 +521,12 @@ cross-assembly dispatch through a shared prototype.
 `unknown`; only an authenticated wire contract permits the generated wrapper
 to assert a more specific result type. A string return without that evidence
 remains a string.
+
+`JSON.stringify()` is the corresponding authenticated input boundary. The
+public parameter accepts the mapped wire value, while the private export still
+requires its raw string envelope. Only an exact owner-issued parameter binding
+permits the wrapper to serialize that value. Serialization exceptions and
+non-string results fail visibly before managed dispatch.
 
 The export-inventory check validates only the exact callable paths required for
 dispatch. It does not validate JSON payloads. The TypeScript assertions state
@@ -594,11 +646,12 @@ separately and is not presented as a managed operation. The generator does not
 invent operations, combine several exports into one workflow, or expose a
 managed member that has no JavaScript export thunk.
 
-The correspondence preserves the declaring-type path, parameter order and
-types, exact owner-issued runtime dispatch identity, synchronous or
+The correspondence preserves the declaring-type path, parameter order, raw
+parameter types, exact owner-issued runtime dispatch identity, synchronous or
 asynchronous invocation, and raw marshalled result. TypeScript naming,
-`Promise<T>` projection, and an authenticated JSON-envelope parse are defined
-facade transformations; they do not create another managed operation.
+`Promise<T>` projection, an authenticated JSON-envelope parse, and
+authenticated parameter serialization are defined facade transformations;
+they do not create another managed operation.
 
 The runtime dispatch identity is opaque input, distinct from both the managed
 method name and the public TypeScript binding. The generated implementation
@@ -1167,6 +1220,16 @@ issue references below.
   types;
 - compiler tests reject mutations to public wrapper parameter and return
   types;
+- compiled parameter-binding fixtures prove that only exact owner-issued JSON
+  input associations replace a public raw string with its readonly wire type;
+  non-first and multiple independent bindings preserve declared order, while
+  transformed, conflicted, unpositioned, duplicate, and out-of-range
+  associations fail or remain raw without guessed attribution;
+- compiler and runtime tests prove each typed JSON input is serialized inside
+  the generated wrapper, the private managed-export signature remains string
+  valued, managed dispatch receives the exact JSON text, independent inputs
+  serialize in order, and thrown or `undefined` serialization results fail
+  before dispatch without fallback JSON;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
 - exact `InertText.InertString` wire members emit an opaque string brand, the

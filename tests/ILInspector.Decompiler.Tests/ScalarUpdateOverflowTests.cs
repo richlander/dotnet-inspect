@@ -11,7 +11,7 @@ public sealed class ScalarUpdateOverflowTests
 
     [Theory]
     [InlineData("CheckedRhs", "checked { value += unchecked(amount + 1); }")]
-    [InlineData("CheckedRhsNegation", "checked { value -= (unchecked(-amount)); }")]
+    [InlineData("CheckedRhsNegation", "checked { value -= unchecked(-amount); }")]
     [InlineData("CheckedRhsConversion", "checked { value *= unchecked((short)amount); }")]
     [InlineData("CheckedRhsNested", "checked { value += unchecked(amount + checked(step * 2)); }")]
     [InlineData("CheckedRhsAllChecked", "checked { value += (amount + 1); }")]
