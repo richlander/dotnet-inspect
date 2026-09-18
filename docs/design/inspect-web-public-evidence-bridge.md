@@ -99,9 +99,12 @@ provider identity rather than the implementation-only same-origin hop.
 
 ## Response and failure contract
 
-Only an HTTP 200 JSON response becomes a successful bridge result. The Function
-checks the declared length and actual decoded body size before publishing
-success:
+Only an HTTP 200 JSON response becomes a successful bridge result. NuGet
+Catalog pages on the fixed admitted `.json` routes are known to omit
+`Content-Type`; absence is accepted for NuGet only, while an explicit
+non-JSON media type remains a failure. GitHub advisory responses still require
+`application/json`. The Function checks the declared length and actual decoded
+body size before publishing success:
 
 | Provider response | Maximum decoded body |
 | --- | ---: |
@@ -121,9 +124,9 @@ freshness claim.
 Provider non-success status remains a non-success status. A declared or
 observed oversized response becomes `413`; a transport failure becomes `502`;
 and an upstream timeout becomes `504`. Caller cancellation publishes no
-replacement result. Wrong media, an unexpected successful status, and an
-invalid continuation-header shape become visible bridge failures rather than
-empty JSON.
+replacement result. Explicitly wrong media, a missing GitHub advisory media
+type, an unexpected successful status, and an invalid continuation-header
+shape become visible bridge failures rather than empty JSON.
 
 ## Composition and non-claims
 
@@ -151,8 +154,9 @@ Release gates must establish:
 - admitted requests construct only the two compile-time provider origins;
 - redirects are not followed and incoming credentials or arbitrary headers
   are not forwarded;
-- JSON success, advisory continuation, provider status, timeout, transport
-  failure, wrong media, and declared or observed oversize remain distinct;
+- JSON success, NuGet's missing-media response, advisory continuation,
+  provider status, timeout, transport failure, wrong media, and declared or
+  observed oversize remain distinct;
 - every handled Function outcome carries the managed-API security and
   no-store headers;
 - the Browser handler rewrites only canonical provider requests to the

@@ -75,6 +75,58 @@ public sealed class PackageChangeProxyClientTests
             handler.LastRequest?.RequestUri?.AbsoluteUri);
     }
 
+    [Fact]
+    public async Task NuGetCatalogPageWithoutContentType_ReturnsJson()
+    {
+        var handler = new RecordingHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(
+                    Encoding.UTF8.GetBytes(
+                        """{"@id":"https://api.nuget.org/v3/catalog0/page22909.json"}""")),
+            });
+        using var client = new HttpClient(handler);
+
+        IActionResult result =
+            await PackageChangeProxyClient.GetNuGetJsonAsync(
+                client,
+                new Uri(
+                    "https://api.nuget.org/v3/catalog0/page22909.json"),
+                TestContext.Current.CancellationToken);
+
+        var content = Assert.IsType<FileContentResult>(result);
+        Assert.Equal(
+            """{"@id":"https://api.nuget.org/v3/catalog0/page22909.json"}""",
+            Encoding.UTF8.GetString(content.FileContents));
+        Assert.Equal("application/json", content.ContentType);
+    }
+
+    [Fact]
+    public async Task AdvisoryResponseWithoutContentType_IsBadGateway()
+    {
+        var handler = new RecordingHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent("[]"u8.ToArray()),
+            });
+        using var client = new HttpClient(handler);
+
+        IActionResult result =
+            await PackageChangeProxyClient.GetAdvisoryJsonAsync(
+                client,
+                new Uri(
+                    "https://api.github.com/advisories"
+                    + "?ecosystem=nuget&type=reviewed"
+                    + "&is_withdrawn=false&per_page=100&affects=Example"),
+                new DefaultHttpContext().Response,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            StatusCodes.Status502BadGateway,
+            Assert.IsAssignableFrom<IStatusCodeActionResult>(result)
+                .StatusCode);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, StatusCodes.Status404NotFound)]
     [InlineData(
