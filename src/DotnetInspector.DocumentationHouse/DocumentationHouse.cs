@@ -321,6 +321,19 @@ public static class DocumentationHouse
                 snapshotWork);
         }
 
+        if (read.RetainedTextLimitExceeded.Contains(
+                subject.CompiledXmlIdentity.Value))
+        {
+            return new CompletedOutcome(
+                new DocumentationCompiledXmlAttempt.Failed(
+                    selected,
+                    new(
+                        DocumentationCompiledXmlFailureKind
+                            .MalformedOrUnreadableDocument),
+                    contributions),
+                snapshotWork);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         var parsedWork = new DocumentationHouseWorkCharge(
             contributionCount,
@@ -389,7 +402,8 @@ public static class DocumentationHouse
             return new(
                 CompiledXmlReadStatus.ContentAccessFailed,
                 Length: 0,
-                EmptyEntries);
+                EmptyEntries,
+                EmptyIdentities);
         }
 
         if (snapshot.Bytes is null)
@@ -397,7 +411,8 @@ public static class DocumentationHouse
             return new(
                 CompiledXmlReadStatus.ByteLimit,
                 snapshot.Length,
-                EmptyEntries);
+                EmptyEntries,
+                EmptyIdentities);
         }
 
         try
@@ -405,7 +420,7 @@ public static class DocumentationHouse
             using var stream = new MemoryStream(
                 snapshot.Bytes,
                 writable: false);
-            IReadOnlyDictionary<string, XmlDocumentationEntry> entries =
+            XmlDocumentationReadManyResult result =
                 XmlDocumentationReader.ReadMembers(
                     stream,
                     identities,
@@ -413,7 +428,8 @@ public static class DocumentationHouse
             return new(
                 CompiledXmlReadStatus.Completed,
                 snapshot.Length,
-                entries);
+                result.Entries,
+                result.RetainedTextLimitExceeded);
         }
         catch (Exception failure) when (
             failure is XmlException or IOException)
@@ -421,7 +437,8 @@ public static class DocumentationHouse
             return new(
                 CompiledXmlReadStatus.Malformed,
                 snapshot.Length,
-                EmptyEntries);
+                EmptyEntries,
+                EmptyIdentities);
         }
     }
 
@@ -536,6 +553,9 @@ public static class DocumentationHouse
         EmptyEntries { get; } =
         new Dictionary<string, XmlDocumentationEntry>();
 
+    private static IReadOnlySet<string> EmptyIdentities { get; } =
+        new HashSet<string>(StringComparer.Ordinal);
+
     private enum CompiledXmlReadStatus
     {
         Completed,
@@ -547,7 +567,8 @@ public static class DocumentationHouse
     private sealed record CompiledXmlRead(
         CompiledXmlReadStatus Status,
         int Length,
-        IReadOnlyDictionary<string, XmlDocumentationEntry> Entries);
+        IReadOnlyDictionary<string, XmlDocumentationEntry> Entries,
+        IReadOnlySet<string> RetainedTextLimitExceeded);
 
     private sealed record CompiledXmlBatchRead(
         CompiledXmlRead Read,

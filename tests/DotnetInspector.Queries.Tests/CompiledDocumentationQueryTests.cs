@@ -358,6 +358,106 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        ExecuteMany_SamePolicyRetainedTextBudgetsMatchStandaloneOutcomes()
+    {
+        const string typeIdentity =
+            "T:System.Text.Json.JsonSerializer";
+        const string typeSummary = "Type documentation.";
+        const string memberSummary = "Member documentation.";
+        byte[] xml = Encoding.UTF8.GetBytes($"""
+            <doc>
+              <members>
+                <member name="{typeIdentity}">
+                  <summary>{typeSummary}</summary>
+                </member>
+                <member name="{DeserializeIdentity}">
+                  <summary>{memberSummary}</summary>
+                </member>
+              </members>
+            </doc>
+            """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        ApiType type = Assert.Single(
+            library.ApiSurfaceCorrespondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.JsonSerializer");
+        DocumentationSubjectReference typeSubject =
+            DocumentationSubjectReference.ForType(
+                library.ApiSurfaceCorrespondence,
+                type);
+        DocumentationSubjectReference memberSubject =
+            Subject(library);
+        var limits = XmlDocumentationReadLimits.Default with
+        {
+            MaxRetainedTextCharacters = Math.Max(
+                typeIdentity.Length + typeSummary.Length,
+                DeserializeIdentity.Length + memberSummary.Length),
+        };
+        Assert.True(
+            limits.MaxRetainedTextCharacters
+                < typeIdentity.Length
+                    + typeSummary.Length
+                    + DeserializeIdentity.Length
+                    + memberSummary.Length);
+        DocumentationHouseRequest typeRequest = Request(
+            typeSubject,
+            DirectLibraryDocumentationHouseAdapter
+                .CreateCompiledXmlContributions(
+                    library.Reference,
+                    typeSubject),
+            xmlReadLimits: limits);
+        DocumentationHouseRequest memberRequest = Request(
+            memberSubject,
+            DirectLibraryDocumentationHouseAdapter
+                .CreateCompiledXmlContributions(
+                    library.Reference,
+                    memberSubject),
+            xmlReadLimits: limits);
+
+        CompiledDocumentationQueryResult typeAlone =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                typeRequest,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        CompiledDocumentationQueryResult memberAlone =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                memberRequest,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        IReadOnlyList<CompiledDocumentationQueryResult> together =
+            await CompiledDocumentationQuery.ExecuteManyAsync(
+                [typeRequest, memberRequest],
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        var expectedType =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                typeAlone.Content);
+        var expectedMember =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                memberAlone.Content);
+        Assert.Equal(
+            expectedType.Documentation,
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                together[0].Content).Documentation);
+        Assert.Equal(
+            expectedMember.Documentation,
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                together[1].Content).Documentation);
+        Assert.Equal(
+            1,
+            together.Count(
+                result => result.Outcome.Work.ParsedCompiledXml));
+        Assert.Single(
+            together,
+            result =>
+                result.Outcome.Work.CompiledXmlBytesObserved > 0);
+    }
+
+    [Fact]
+    public async Task
         ExecuteMany_HeterogeneousReadPoliciesRetainOnlyTheirOwnSubjects()
     {
         byte[] xml = Encoding.UTF8.GetBytes($"""
