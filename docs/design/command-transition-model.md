@@ -101,9 +101,9 @@ dotnet-inspect package System.Text.Json
 the source option use the same domain word but play different roles.
 
 An IL offset is a point selector into method-body facts, not a standalone
-command today. It is reachable from more than one structural scope:
+subject. It is reachable from more than one structural scope:
 
-- `library --il-offset <MethodDef>+<offset>` supplies a composite coordinate
+- `library coordinate <MethodDef>+<offset>` supplies a composite coordinate
   that is complete within the library and discovers its containing member;
 - member-focused body views already have the member identity and expose the
   peer offset-scoped facts within that narrower scope.

@@ -62,7 +62,8 @@ not a new rung in this ladder or an already available output option.
 ### Implementation status
 
 Baseline transport is adopted by positional `depends <type>`, ordinary
-Library API Diff with exactly one Library per endpoint, and Package Activity.
+Library API Diff with exactly one Library per endpoint, Package Activity,
+ordinary Package Query, and Package Query assembly-semantic evaluation.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -108,6 +109,14 @@ selection, and semantic result limit remain service inputs. Projection, Count,
 row selection, discovery, section selection, and competing output formats are
 rejected with `--envelope`. Typed incomplete or failed Documents remain
 visible before the command returns a nonzero exit.
+
+Ordinary Package Query registers `package-query`, while `--library-literal`
+registers `package-assembly-semantic-query`, both at schema version `1`.
+Unprojected `--json` and `--envelope.content` share each owner's complete
+Document serializer. Query planning inputs remain admitted, while row
+selection, projection, section selection, Count, discovery, and competing
+output formats are rejected with `--envelope`. Typed incomplete or failed
+Documents remain visible before the command returns a nonzero exit.
 
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
@@ -308,6 +317,8 @@ The registered adopter identities are:
 | `library-api-diff` | `LibraryApiDiffOutcome` |
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
+| `package-query` | `PackageQueryDocument` |
+| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
 
 The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
@@ -631,14 +642,13 @@ eligibility against the resulting Scalar or one count Table as defined below.
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
 exist to be selected. The family has two currencies: the IL coordinate, and the
-heap coordinate `--heap` carries (see
+heap coordinate accepted by `library coordinate` (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not syntax elements, because one currency
 can have more than one spelling. `library coordinate` accepts either one exact
-IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
-and `--il-offsets` parent options carry the same currency. Exact and file modes
-are mutually exclusive, so they are one member of this family rather than two.
+IL coordinate or `--file` for batch reporting. Exact and file modes are
+mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -652,7 +662,7 @@ Carriers behave consistently:
   so `-D` reflects the carrier (see the IL-offset case study below).
 - Absent the carrier, requesting a coordinate-scoped section is an error that
   names the missing carrier, for example
-  `IL coordinate sections require --il-offset`.
+  `IL coordinate sections require library coordinate <token>+<offset>`.
 - Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
   `--columns`, `--count`, and the rest of the ladder like any other.
 
@@ -1249,10 +1259,9 @@ resolved by discarding one.
 
 A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library coordinate --file`, transitional `library --il-offsets`, and the
-`-D`/`--discover` listing. Each renders a payload it computes itself and
-returns before the section pipeline, so the section-selection vocabulary does
-not describe what the caller is looking at.
+`library coordinate --file` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1442,7 +1451,7 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Metho
 
 ### Case study: IL offset as a shape catalogue
 
-`library --il-offset` is a compact example of the shape ladder because one
+`library coordinate` is a compact example of the shape ladder because one
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
@@ -1455,7 +1464,7 @@ The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll
 ```
 
 ```md
@@ -1544,7 +1553,7 @@ dotnet-inspect library My.dll -D
 # Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
 # Context: Callsite, and Context: Return Address are omitted.
 
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll -D
 # Context: Source Location
 # Context: Member
 # Context: Instruction
@@ -1557,27 +1566,27 @@ The source-location section then projects cleanly:
 
 ```bash
 # Scalar
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the visually encoded resolved source line
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --print --bare
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --count
 # 1
 ```
@@ -1622,11 +1631,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
-  `--heap`, supplies coordinate input that has no other expression and gates
-  the sections it makes meaningful. Coordinate input does not narrow a shape,
-  and syntax qualifies for this family only if its input is a new currency.
-  Exact and file IL coordinates spell the same currency, so
-  they are one member; `--heap` is the second.
+- `library coordinate` supplies coordinate input that has no other expression
+  and gates the sections it makes meaningful. Coordinate input does not narrow
+  a shape, and syntax qualifies for this family only if its input is a new
+  currency. Exact and file IL coordinates spell the same currency, so they are
+  one member; metadata heap coordinates are the second.
 
 New flags should fit one of those buckets rather than blending concepts.

@@ -12,6 +12,7 @@ import type {
 } from "./document-model.ts";
 import type {
   BrowserAnnotatedSource,
+  BrowserAnnotatedSourceCallRelationship,
   BrowserAnnotatedSourceCapabilityAvailability,
   BrowserAnnotatedSourceFindingEvidence,
   BrowserAnnotatedSourceFindingEvidenceDocument,
@@ -96,6 +97,7 @@ export interface AnnotatedSourceViewerModel {
   invocationLikeNodeKinds: ReadonlySet<string>;
   invocationDestinations:
     readonly BrowserAnnotatedSourceInvocationDestination[];
+  callRelationships: readonly BrowserAnnotatedSourceCallRelationship[];
   findingEvidence: readonly AnnotatedSourceFindingEvidence[];
   findingEvidenceByFactId:
     ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
@@ -160,6 +162,8 @@ export function createAnnotatedSourceViewerModel(
   );
   const invocationDestinations =
     validateInvocationDestinations(result.document, result.viewerCatalog);
+  const callRelationships =
+    validateCallRelationships(result.document, result);
   const findingEvidence =
     validateFindingEvidence(
       result.document,
@@ -178,6 +182,7 @@ export function createAnnotatedSourceViewerModel(
     invocationLikeNodeKinds:
       new Set(result.viewerCatalog.invocationLikeNodeKinds),
     invocationDestinations,
+    callRelationships,
     findingEvidence,
     findingEvidenceByFactId:
       new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
@@ -663,6 +668,78 @@ function validateInvocationDestinations(
   });
 }
 
+function validateCallRelationships(
+  document: AnnotatedSourceDocument,
+  result: AnnotatedSourceResult,
+): readonly BrowserAnnotatedSourceCallRelationship[] {
+  const rows = result.callRelationships;
+  if (!result.viewerCatalog.callRelationships.available && rows.length > 0) {
+    throw new TypeError(
+      "Unavailable Annotated Source call relationships cannot carry rows.");
+  }
+
+  const factIds = new Set<number>();
+  const physicalKeys = new Set<string>();
+  const validated = rows.map((relationship, index) => {
+    const fact = document.facts[relationship.factId];
+    if (!Number.isSafeInteger(relationship.edgeRow)
+      || relationship.edgeRow < 1
+      || !Number.isSafeInteger(relationship.factId)
+      || factIds.has(relationship.factId)
+      || !fact
+      || fact.origin !== "Body"
+      || fact.descriptor !== "call.edge"
+      || fact.source_offset !== relationship.ilOffset
+      || nodeIdsForFact(document, relationship.factId).length === 0) {
+      throw new TypeError(
+        `Annotated Source call relationship ${index} does not name one targeted call.edge fact.`);
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+        .test(relationship.moduleVersionId)
+      || !Number.isSafeInteger(relationship.callerToken)
+      || (relationship.callerToken & 0xFF000000) !== 0x06000000
+      || !Number.isSafeInteger(relationship.ilOffset)
+      || relationship.ilOffset < 0
+      || !Number.isSafeInteger(relationship.operandToken)
+      || relationship.operandToken <= 0
+      || !isCallKind(relationship.kind)
+      || typeof relationship.inLoop !== "boolean") {
+      throw new TypeError(
+        `Annotated Source call relationship ${index} has invalid physical evidence.`);
+    }
+    const physicalKey = [
+      relationship.moduleVersionId,
+      relationship.callerToken,
+      relationship.ilOffset,
+      relationship.operandToken,
+    ].join("|");
+    if (physicalKeys.has(physicalKey)) {
+      throw new TypeError(
+        `Annotated Source call relationship ${index} duplicates one physical occurrence.`);
+    }
+    validateCallGraphTarget(
+      relationship.target,
+      `call relationship ${index}`);
+    factIds.add(relationship.factId);
+    physicalKeys.add(physicalKey);
+    return relationship;
+  });
+
+  if (result.viewerCatalog.callRelationships.available) {
+    const relationshipFactIds = document.facts
+      .filter(fact =>
+        fact.origin === "Body"
+        && fact.descriptor === "call.edge")
+      .map(fact => fact.id);
+    if (relationshipFactIds.length !== factIds.size
+      || relationshipFactIds.some(factId => !factIds.has(factId))) {
+      throw new TypeError(
+        "Annotated Source call relationships do not cover every call.edge Finding.");
+    }
+  }
+  return validated;
+}
+
 function validateFindingEvidence(
   callerDocument: AnnotatedSourceDocument,
   evidenceDocuments:
@@ -675,6 +752,7 @@ function validateFindingEvidence(
     throw new TypeError(
       "Unavailable Annotated Source Finding evidence cannot carry rows.");
   }
+
   const documentsById = new Map<number, AnnotatedSourceDocument>();
   for (const [index, entry] of evidenceDocuments.entries()) {
     if (!Number.isSafeInteger(entry.id)
@@ -953,6 +1031,15 @@ function evidenceNodeKind(
     default:
       throw new TypeError(`Unknown callee evidence kind '${String(kind)}'.`);
   }
+}
+
+function isCallKind(value: unknown): boolean {
+  return value === "Call"
+    || value === "CallVirtual"
+    || value === "NewObject"
+    || value === "LoadFunction"
+    || value === "LoadVirtualFunction"
+    || value === "CallIndirect";
 }
 
 function nonEmptyString(value: unknown): value is string {

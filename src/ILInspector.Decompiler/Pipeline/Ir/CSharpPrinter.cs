@@ -2720,7 +2720,7 @@ public sealed partial class CSharpPrinter
         {
             string initializer = forLoop.Initializer is PointerCompoundAssignment update
                 ? PointerUpdateText(update, statement: false)
-                : Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+                : Statement(forLoop.Initializer, forHeader: true)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad);
             int headerStart = sb.Length;
@@ -3942,7 +3942,7 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    string? Statement(IrNode node) => node switch
+    string? Statement(IrNode node, bool forHeader = false) => node switch
     {
         LabelAnchor => ";",
         ExpressionStatement
@@ -3979,7 +3979,7 @@ public sealed partial class CSharpPrinter
             : $"{LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(s.Type, s.Value))};"
-            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, s.UpdateKind, s.Type),
+            : AssignmentText(s, s.Value, s.UpdateKind, s.Type, forHeader: forHeader),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {UnsafeExpressionText(d.Source, Expression(d.Source))};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {UnsafeExpressionText(c.Value, CoerceText(c.Value, c.InnermostTargetType))};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.LocalType))};",
@@ -3987,10 +3987,9 @@ public sealed partial class CSharpPrinter
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.PropertyType))};",
         StoreArgument s => AssignmentText(
             s,
-            CSharpNaming.ContainedIdentifier(s.Name),
             s.Value,
             s.UpdateKind,
-            s.Type),
+            s.Type, forHeader: forHeader),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
@@ -3998,18 +3997,17 @@ public sealed partial class CSharpPrinter
             : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
-            : AssignmentText(s, StackSlotName(s), s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s)),
+            : AssignmentText(s, s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s), forHeader: forHeader),
         StoreField s => AssignmentText(
             s,
-            FieldTarget(s.Field, s.Instance), s.Value,
-            s.UpdateKind,
-            s.Field.Type),
-        StoreProperty s => AssignmentText(
-            s,
-            PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
             s.UpdateKind,
-            StorePropertyTargetType(s)),
+            s.Field.Type, forHeader: forHeader),
+        StoreProperty s => AssignmentText(
+            s,
+            s.Value,
+            s.UpdateKind,
+            StorePropertyTargetType(s), forHeader: forHeader),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
@@ -4017,11 +4015,11 @@ public sealed partial class CSharpPrinter
         PointerCompoundAssignment s => PointerUpdateText(s, statement: true),
         StoreIndirect s => AssignmentText(
             s,
-            IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             s.UpdateKind,
             IndirectStoreType(s.Address, s.Type),
-            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
+            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address),
+            forHeader: forHeader),
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -4071,7 +4069,7 @@ public sealed partial class CSharpPrinter
             return PointerUpdateText(update, statement: false);
         return node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
             ? Expression(increment)
-            : Statement(node)?.TrimEnd(';') ?? "";
+            : Statement(node, forHeader: true)?.TrimEnd(';') ?? "";
     }
 
     string PointerUpdateText(PointerCompoundAssignment update, bool statement)
@@ -5995,36 +5993,59 @@ public sealed partial class CSharpPrinter
 
     string AssignmentText(
         IrNode owner,
-        string target,
         IrExpression value,
         ScalarUpdateKind? updateKind,
         TypeRef? targetType = null,
-        bool parenthesizeIncrementTarget = false)
+        bool parenthesizeIncrementTarget = false,
+        bool forHeader = false)
     {
-        if (updateKind is { } kind)
+        bool checkedUpdate = updateKind is not null && value is Binary { IsChecked: true };
+        bool enclosingChecked = _checkedContext;
+        if (checkedUpdate && !forHeader)
+            _checkedContext = true;
+        try
         {
-            var binary = (Binary)value;
-            string statement = CompoundStatement(
-                target,
-                binary,
-                targetType,
-                kind,
-                parenthesizeIncrementTarget);
-            _printedRangeMetadata?.SetNodeKind(
-                owner,
-                binary.IsChecked
-                    ? "CheckedStatement"
-                    : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
-                        ? "IncrementOrDecrementExpression"
-                        : "AssignmentStatement");
-            // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
-            // statement-level `checked(x += v)` (CS0201), so the overflow context
-            // is restored with a single-statement checked block. Only the
-            // overflow-honoring operators ever carry IsChecked here.
-            return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
+            string target = AssignmentTargetText(owner);
+            if (updateKind is { } kind && !(checkedUpdate && forHeader))
+            {
+                var binary = (Binary)value;
+                string statement = CompoundStatement(
+                    target,
+                    binary,
+                    targetType,
+                    kind,
+                    parenthesizeIncrementTarget);
+                _printedRangeMetadata?.SetNodeKind(
+                    owner,
+                    binary.IsChecked
+                        ? "CheckedStatement"
+                        : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
+                            ? "IncrementOrDecrementExpression"
+                            : "AssignmentStatement");
+                // A checked expression is not a statement expression. Render the
+                // whole compound in its block context, including the target.
+                return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
+            }
+            // A for header cannot contain a checked block; the retained binary
+            // carries its own context inside an ordinary assignment.
+            return $"{target} = {UnsafeExpressionText(value, InitializerText(value, targetType))};";
         }
-        return $"{target} = {UnsafeExpressionText(value, InitializerText(value, targetType))};";
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
     }
+
+    string AssignmentTargetText(IrNode owner) => owner switch
+    {
+        StoreLocal s => LocalName(s.Index),
+        StoreArgument s => CSharpNaming.ContainedIdentifier(s.Name),
+        StoreStackSlot s => StackSlotName(s),
+        StoreField s => FieldTarget(s.Field, s.Instance),
+        StoreProperty s => PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
+        StoreIndirect s => IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
+        _ => throw new InvalidOperationException($"Unsupported assignment target: {owner.GetType().Name}"),
+    };
 
     /// <summary>
     /// Spells a compound assignment whose value reads the target: <c>x++</c>/
@@ -6793,7 +6814,8 @@ public sealed partial class CSharpPrinter
         => constant.Value is int or long
             && _function.EnumMembers.TryGetValue(NamedDefinition(constant.Type), out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
-            ? $"{TypeQualifierText(constant.Type)}.{name}"
+            && CSharpNaming.IsEscapableIdentifier(name)
+            ? $"{TypeQualifierText(constant.Type)}.{CSharpNaming.ContainedIdentifier(name)}"
             : null;
 
     /// <summary>

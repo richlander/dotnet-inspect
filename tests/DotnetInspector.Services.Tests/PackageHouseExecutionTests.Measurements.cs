@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 
@@ -7,6 +9,105 @@ namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageHouseExecutionTests
 {
+    [Fact]
+    public async Task PackageInfoEnvelopeRetainsMeasuredSelectionCorrespondence()
+    {
+        byte[] archive = TestPackageArchive.CreateWithContent(
+            ($"lib/net10.0/{MaterializedPackageId}.dll", new byte[13]),
+            ("lib/net8.0/Legacy.dll", new byte[17]));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.Project(settlement);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.Measured,
+            measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(13, measurements.SelectedLibraryPayloadBytes);
+        Assert.Equal(1, measurements.SelectedLibraryCount);
+        Assert.Same(
+            settlement.Payload.Content.GenerationIdentity,
+            measurements.Generation);
+        Assert.Same(
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                settlement.Result.Evidence.Realization).Receipt,
+            measurements.SelectionReceipt);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+        string json = JsonSerializer.Serialize(
+            envelope,
+            PackageInfoMeasurementJsonContext.Default
+                .InspectionEnvelopePackageInfoMeasurements);
+        InspectionEnvelope<PackageInfoMeasurements> roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                PackageInfoMeasurementJsonContext.Default
+                    .InspectionEnvelopePackageInfoMeasurements)!;
+        Assert.Equal(measurements.Status, roundTripped.Content.Status);
+        Assert.Equal(
+            measurements.SelectedLibraryPayloadBytes,
+            roundTripped.Content.SelectedLibraryPayloadBytes);
+        Assert.Null(roundTripped.Content.Evidence);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task PackageInfoEnvelopeKeepsNoCompileSlicesTyped()
+    {
+        byte[] archive = TestPackageArchive.Create("package/readme.txt");
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.Project(settlement);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.NoCompileSlices,
+            measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal(0, measurements.AvailableTargetFrameworkCount);
+        Assert.Null(measurements.SelectedTargetFramework);
+        Assert.Null(measurements.SelectedLibraryPayloadBytes);
+        Assert.Null(measurements.SelectedLibraryCount);
+        Assert.NotNull(measurements.Detail);
+        InspectionDiagnostic diagnostic = Assert.Single(envelope.Diagnostics);
+        Assert.Equal(
+            "package-info-measurements.no-compile-slices",
+            diagnostic.Code);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Warning,
+            diagnostic.Severity);
+        await environment.AssertRootSettledAsync();
+    }
+
     [Fact]
     public async Task CompileSliceMeasurementsUseOneSelectedPayloadPerLibrary()
     {

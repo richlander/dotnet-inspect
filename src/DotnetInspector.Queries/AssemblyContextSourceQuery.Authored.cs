@@ -78,7 +78,7 @@ public static partial class AssemblyContextSourceQuery
             "type", request.Type.ToMetadataFullName());
         AuthoredPdbInspection authored = await InspectAuthoredPdbAsync(
             group, participant, context, retained, version,
-            new SourceHouseTarget.TypeTarget(request.Type),
+            new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
             retainSymbols).ConfigureAwait(false);
         PdbTypeSourceInspection inspection = authored switch
@@ -544,7 +544,15 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseAuthoredMapping.Type? mapping) =>
         inspection with
         {
-            Scope = mapping is null ? null : PdbTypeSourceUnitScope.PrimaryTypeDocument,
+            Scope = mapping?.Scope switch
+            {
+                SourceHouseSourceUnitScope.PrimaryTypeDocument =>
+                    PdbTypeSourceUnitScope.PrimaryTypeDocument,
+                SourceHouseSourceUnitScope.AdditionalTypeDocument =>
+                    PdbTypeSourceUnitScope.AdditionalTypeDocument,
+                null => null,
+                _ => throw new InvalidOperationException("Unknown type source unit scope."),
+            },
             Strength = mapping?.Strength switch
             {
                 SourceHouseMappingStrength.CorrelatedTypeDocument =>

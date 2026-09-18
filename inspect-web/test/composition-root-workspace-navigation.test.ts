@@ -1112,7 +1112,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);[\s\S]*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
+    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
   const streamPatch =
     appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
@@ -1122,7 +1122,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
   assert.doesNotMatch(streamPatch, /app\.innerHTML/);
   assert.match(
     appSource,
-    /function schedulePackageQueryStreamRender\(\) \{\s*if \(packageQueryStreamRenderFrame !== null\) return;\s*packageQueryStreamRenderFrame = requestAnimationFrame\(/);
+    /const packageQueryRender =\s*createPackageQueryRenderScheduler\(\{[\s\S]*requestFrame: callback => requestAnimationFrame\(callback\),[\s\S]*compositionActive: \(\) =>\s*packageQueryEditorCompositionActive\(document\),[\s\S]*renderStream: patchPackageQueryPage,[\s\S]*renderFull: replacePackageQueryPage,[\s\S]*function schedulePackageQueryStreamRender\(\) \{\s*packageQueryRender\.scheduleStream\(\);/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";

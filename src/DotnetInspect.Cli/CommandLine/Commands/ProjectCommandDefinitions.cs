@@ -1,6 +1,10 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -48,7 +52,10 @@ public static class ProjectCommandDefinitions
         projectCommand.Options.Add(opts.Markdown);
         projectCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(projectCommand);
-        opts.AddOutputOptionsTo(projectCommand);
+        opts.AddOutputOptionsTo(
+            projectCommand,
+            validateLegacyRowWindow: result =>
+                !IsProjectDocumentRowSelection(result, opts));
         opts.AddSectionOptionsTo(projectCommand);
         opts.AddCountOptionTo(projectCommand);
         opts.AddPrintOptionTo(projectCommand);
@@ -56,6 +63,23 @@ public static class ProjectCommandDefinitions
 
         projectCommand.SetAction(async (parseResult, ct) =>
         {
+            bool selectsProjectDocumentRows =
+                IsProjectDocumentRowSelection(
+                    parseResult.CommandResult,
+                    opts);
+            RowSelectionIntent<string>? rowSelection = null;
+            if (selectsProjectDocumentRows
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Project document",
+                        out rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             var frontmatterRequested = parseResult.GetValue(frontmatterOption);
             var bodyRequested = parseResult.GetValue(bodyOption);
             var contentScope = frontmatterRequested
@@ -89,13 +113,70 @@ public static class ProjectCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
-                Rows = opts.ParseRows(parseResult),
+                Rows = selectsProjectDocumentRows
+                    ? null
+                    : opts.ParseRows(parseResult),
+                RowSelection = rowSelection,
                 Verbose = parseResult.GetValue(opts.Verbose)
             };
 
             return await ProjectCommand.ExecuteAsync(options);
         });
 
+        CliRowSelectionCommandRegistry.Register(
+            projectCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => IsProjectDocumentRowSelection(result, opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return projectCommand;
+    }
+
+    internal static bool IsProjectDocumentRowSelection(
+        ParseResult result,
+        SharedOptions opts)
+        => IsProjectDocumentRowSelection(result.CommandResult, opts);
+
+    internal static bool IsProjectDocumentRowSelection(
+        CommandResult result,
+        SharedOptions opts)
+    {
+        if (result.GetResult(opts.Discover) is { Implicit: false })
+            return false;
+
+        string? selectValue = result.GetValue(opts.Select);
+        bool selectDefault =
+            result.GetResult(opts.Select) is { Implicit: false }
+            && string.IsNullOrWhiteSpace(selectValue);
+        string[]? selectors = string.IsNullOrWhiteSpace(selectValue)
+            ? null
+            : selectValue.Split(
+                [',', ';'],
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries);
+        SectionCatalog<ProjectDiscoveryModel> catalog =
+            ProjectSections.Catalog;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            selectors,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            selectDefault);
+        return !selection.HasError
+            && selection.Sections is { Count: 1 };
     }
 }

@@ -111,9 +111,9 @@ internal abstract record BrowserPackageAcquisitionResult
 /// gates response ownership when Browser capacity policy rejects a transfer.
 /// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout</c>
 /// and
-/// <c>BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout</c>
-/// gate the timeout margin that lets the source-owned registration timeout remain
-/// visible before the Browser operation ceiling.
+/// <c>BrowserEngineBoundaryTests.VersionPickerMapsHouseOperationTimeoutToBrowserDeadline</c>
+/// gate the timeout margin that lets PackageHouse settle its source operation
+/// before the Browser operation ceiling.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -517,6 +517,39 @@ internal static class BrowserPackageWorkspace
                 request,
                 new PackageHouse(authorization),
                 sourceOperation).ConfigureAwait(false);
+    }
+
+    static async Task<InspectionEnvelope<PackageVersionListingOutcome>>
+        SettleVersionListingAsync(
+        string packageId,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline,
+        CancellationToken cancellationToken)
+    {
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "The package listing requested another configured source."));
+        TimeSpan operationTimeout =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        using PackageSourceOperationLease sourceOperation =
+            sourceLease.IssueOperationLease(
+                cancellationToken,
+                requestTimeout: operationTimeout,
+                operationTimeout: operationTimeout);
+        return await PackageVersionListingInspection.ExecuteAsync(
+                packageId,
+                new PackageHouse(authorization),
+                sourceOperation,
+                includePrerelease: true,
+                includeUnlisted: true).ConfigureAwait(false);
     }
 
     static async Task<PackageSourceCoordinate> ResolveExactCoordinateAsync(
@@ -1900,22 +1933,73 @@ internal static class BrowserPackageWorkspace
     internal static Task<BrowserPackageVersionInventory> GetVersionInventoryAsync(
         string packageId,
         string currentVersion) =>
-        RunPackageOperationAsync(
-            async deadline =>
-            {
-                if (PackageCoordinateResolver.Validate(
-                        new PackageCoordinate(packageId, currentVersion)) is { } invalid)
-                {
-                    throw new InvalidOperationException(invalid.Message);
-                }
-
-                PackageVersionResult result = await GetVersionResultAsync(
-                    Gallery,
-                    packageId,
-                    deadline.Token).ConfigureAwait(false);
-                return BrowserPackageVersionInventory.Create(result, currentVersion);
-            },
+        GetVersionInventoryAsync(
+            packageId,
+            currentVersion,
+            Gallery,
             PackageOperationTimeout);
+
+    internal static Task<BrowserPackageVersionInventory> GetVersionInventoryAsync(
+        string packageId,
+        string currentVersion,
+        IPackageSourceClient source,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => GetVersionInventoryCoreAsync(
+                packageId,
+                currentVersion,
+                source,
+                deadline),
+            timeout,
+            cancellationToken);
+
+    static async Task<BrowserPackageVersionInventory>
+        GetVersionInventoryCoreAsync(
+        string packageId,
+        string currentVersion,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (PackageCoordinateResolver.Validate(
+                new PackageCoordinate(packageId, currentVersion)) is { } invalid)
+        {
+            throw new InvalidOperationException(invalid.Message);
+        }
+
+        InspectionEnvelope<PackageVersionListingOutcome> listing =
+            await SettleVersionListingAsync(
+                packageId,
+                source,
+                deadline,
+                deadline.Token).ConfigureAwait(false);
+        return listing.Content switch
+        {
+            PackageVersionListingOutcome.Listed listed =>
+                BrowserPackageVersionInventory.Create(
+                    listed.Document,
+                    currentVersion),
+            PackageVersionListingOutcome.NotAvailable notAvailable
+                when notAvailable.Failure.OperationTimedOut =>
+                    throw deadline.Timeout(
+                        new TimeoutException(
+                            DescribeVersionListingFailure(
+                                notAvailable.Failure))),
+            PackageVersionListingOutcome.NotAvailable notAvailable =>
+                throw new InvalidOperationException(
+                    DescribeVersionListingFailure(
+                        notAvailable.Failure)),
+            _ => throw new InvalidOperationException(
+                "Package version listing returned an unknown outcome."),
+        };
+    }
+
+    static string DescribeVersionListingFailure(
+        PackageVersionListingFailure failure) =>
+        failure.AuthorityFailures is [var authority]
+            ? authority.Message.ToString()
+            : failure.Reason.ToString();
 
     internal static Task<string[]> GetVersionsAsync(
         string packageId,

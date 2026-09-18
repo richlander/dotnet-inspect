@@ -1275,12 +1275,11 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task VersionPickerPreservesGalleryRegistrationTimeout()
+    public async Task VersionPickerMapsHouseOperationTimeoutToBrowserDeadline()
     {
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
-                PackageSourceAssociation.Create(),
+            BrowserPackageWorkspace.CreateGallerySource(
                 handler,
                 new NuGetFetchOptions
                 {
@@ -1288,17 +1287,21 @@ public sealed partial class BrowserEngineBoundaryTests
                     OperationTimeout = TimeSpan.FromSeconds(5),
                 });
 
-        InvalidOperationException failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => BrowserPackageWorkspace.GetVersionsAsync(
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(
+                () => BrowserPackageWorkspace.GetVersionInventoryAsync(
                     "contoso",
+                    "2.0.0",
                     source,
                     TimeSpan.FromSeconds(10),
                     TestContext.Current.CancellationToken));
 
-        Assert.Equal(
-            "The package source operation exceeded its configured deadline.",
+        Assert.Contains(
+            "Browser package operation exceeded its 10-second deadline",
             failure.Message);
+        Assert.Contains(
+            "authorized package source was not settled",
+            failure.InnerException?.Message);
         Assert.Equal(1, handler.FlatContainerRequests);
         Assert.True(handler.RegistrationRequests >= 1);
     }

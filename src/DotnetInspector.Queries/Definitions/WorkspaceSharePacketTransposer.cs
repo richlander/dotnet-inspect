@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -187,7 +188,26 @@ public static class WorkspaceSharePacketTransposer
 
     public static CommittedScenarioDefinitionSet ToCommittedDefinitions(
         WorkspaceSharePacket packet,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ToCommittedDefinitionsCore(
+            packet,
+            queryDescriptors: null,
+            cancellationToken);
+
+    public static CommittedScenarioDefinitionSet ToCommittedDefinitions(
+        WorkspaceSharePacket packet,
+        IEnumerable<PortableQueryDefinitionDescriptor> queryDescriptors,
+        CancellationToken cancellationToken = default) =>
+        ToCommittedDefinitionsCore(
+            packet,
+            queryDescriptors
+                ?? throw new ArgumentNullException(nameof(queryDescriptors)),
+            cancellationToken);
+
+    private static CommittedScenarioDefinitionSet ToCommittedDefinitionsCore(
+        WorkspaceSharePacket packet,
+        IEnumerable<PortableQueryDefinitionDescriptor>? queryDescriptors,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(packet);
         cancellationToken.ThrowIfCancellationRequested();
@@ -227,6 +247,17 @@ public static class WorkspaceSharePacketTransposer
                 ? $"t{focused}"
                 : null);
 
+        var queries =
+            new CommittedQueryDefinition[canonical.Queries.Count];
+        for (int index = 0; index < canonical.Queries.Count; index++)
+        {
+            PortableQueryIdentity identity = canonical.Queries[index];
+            queries[index] = new CommittedQueryDefinition(
+                schemaVersion,
+                $"q{index}",
+                identity);
+        }
+
         var states =
             new CommittedViewStateDefinition[canonical.ViewStates.Count];
         for (int index = 0; index < canonical.ViewStates.Count; index++)
@@ -236,7 +267,13 @@ public static class WorkspaceSharePacketTransposer
                 state.TabIndex is int tabIndex ? $"t{tabIndex}" : null,
                 state.Subject,
                 state.Context,
-                state.Facet);
+                state.Facet,
+                [
+                    .. state.QueryIndexes
+                        .Select(queryIndex => $"q{queryIndex}")
+                        .Order(StringComparer.Ordinal)
+                ],
+                state.Libraries);
         }
 
         var view = new CommittedViewDefinition(
@@ -254,12 +291,33 @@ public static class WorkspaceSharePacketTransposer
             navigation: NavigationId);
 
         var registry = new InspectionDefinitionRegistry();
+        foreach (PortableQueryDefinitionDescriptor descriptor in
+            queryDescriptors ?? [])
+        {
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+            {
+                if (!ReferenceEquals(
+                        descriptor,
+                        PackageQuery.DefinitionDescriptor))
+                {
+                    throw new InspectionDefinitionException(
+                        $"Portable query descriptor '{descriptor.QueryId}' conflicts "
+                            + "with the built-in descriptor.");
+                }
+                continue;
+            }
+            registry.AddQueryDescriptor(descriptor);
+        }
         registry.Add(workspace);
         registry.Add(navigation);
+        foreach (CommittedQueryDefinition query in queries)
+            registry.Add(query);
         registry.Add(view);
         registry.Add(scenario);
         return AssertCommitted(
-            registry.PreparePacketScenario(ScenarioId),
+            registry.PreparePacketScenarioWithCancellation(
+                ScenarioId,
+                cancellationToken),
             schemaVersion);
     }
 
@@ -963,16 +1021,33 @@ public static class WorkspaceSharePacketTransposer
                 $"Packet format {format} cannot preserve scenario presentation text.");
         }
 
-        foreach ((CommittedViewStateDefinition state, int index) in
-            view.States.Select((state, index) => (state, index)))
+        PortableQueryIdentity[] packetQueries =
+        [
+            .. definitions.Queries
+                .Select(query => query.Identity)
+                .Distinct()
+                .OrderBy(
+                    identity => identity.Vocabulary,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    identity => identity.Payload,
+                    PortableQueryModel.ScalarOrder)
+        ];
+        if (packetQueries.Length > WorkspaceSharePacketCodec.MaxQueries)
         {
-            if (state.Queries.Count != 0 || state.Libraries.Count != 0)
-            {
-                return NonProjectable(
-                    $"view.states[{index}]",
-                    $"Query-bearing format-{format} projection requires #6971.");
-            }
+            return NonProjectable(
+                "queries",
+                $"Packet format {format} supports at most "
+                    + $"{WorkspaceSharePacketCodec.MaxQueries} distinct queries.");
         }
+        var packetQueryIndexes = packetQueries
+            .Select((identity, index) => (identity, index))
+            .ToDictionary(item => item.identity, item => item.index);
+        Dictionary<string, int> queryIndexesById =
+            definitions.Queries.ToDictionary(
+                query => query.Id,
+                query => packetQueryIndexes[query.Identity],
+                StringComparer.Ordinal);
 
         int? focusedTabIndex = null;
         if (navigation.Focus is not null)
@@ -1002,7 +1077,14 @@ public static class WorkspaceSharePacketTransposer
                 index == 0 ? null : index - 1,
                 state.Subject,
                 state.Context,
-                state.Facet);
+                state.Facet,
+                [
+                    .. state.Queries
+                        .Select(queryId => queryIndexesById[queryId])
+                        .Distinct()
+                        .Order()
+                ],
+                [.. state.Libraries]);
         }
 
         WorkspaceSharePacket packet = schemaVersion switch
@@ -1014,7 +1096,8 @@ public static class WorkspaceSharePacketTransposer
                     [.. workspace.Registrations],
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
-                    packetStates),
+                    packetStates,
+                    packetQueries),
             InspectionDefinitionSchema.Version3 =>
                 new WorkspaceSharePacket(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1022,7 +1105,8 @@ public static class WorkspaceSharePacketTransposer
                     [.. workspace.Registrations],
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
-                    packetStates),
+                    packetStates,
+                    packetQueries),
             _ =>
                 new WorkspaceSharePacket(
                     [.. basis!.Tabs],
@@ -1030,7 +1114,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis.SelectedContextIndex
                         ?? throw new UnreachableException(),
-                    packetStates),
+                    packetStates,
+                    packetQueries),
         };
         try
         {
@@ -1111,37 +1196,29 @@ public static class WorkspaceSharePacketTransposer
                 return groupFailure;
         }
 
-        CommittedViewDefinition? view = definitions.View;
-        if (view is not null)
-        {
-            view = new CommittedViewDefinition(
-                view.SchemaVersion,
-                view.Id,
-                view.States
-                    .Select(state => new CommittedViewStateDefinition(
-                        state.Navigation,
-                        state.Subject,
-                        state.Context,
-                        state.Facet))
-                    .ToArray());
-        }
-        var queryFreeDefinitions = new CommittedScenarioDefinitionSet(
-            definitions.Scenario,
-            definitions.Workspace,
-            definitions.Navigation,
-            view,
-            definitions.Catalogs,
-            definitions.NavigationTargetMatchMode);
         var registry = new InspectionDefinitionRegistry();
+        foreach (PortableQueryDefinitionDescriptor descriptor in
+            definitions.QueryBindings
+                .Select(binding => binding.Descriptor)
+                .DistinctBy(descriptor => descriptor.QueryId))
+        {
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+                continue;
+            registry.AddQueryDescriptor(descriptor);
+        }
         try
         {
             foreach (InspectionDefinitionRecord record in
-                queryFreeDefinitions.Records)
+                definitions.Records)
                 registry.Add(record);
             _ = definitions.NavigationTargetMatchMode
                 is NavigationTargetMatchMode.Exact
-                    ? registry.PreparePacketScenario(definitions.Scenario.Id)
-                    : registry.PrepareScenario(definitions.Scenario.Id);
+                    ? registry.PreparePacketScenarioWithCancellation(
+                        definitions.Scenario.Id,
+                        cancellationToken)
+                    : registry.PrepareScenarioWithCancellation(
+                        definitions.Scenario.Id,
+                        cancellationToken);
         }
         catch (InspectionDefinitionException ex)
         {

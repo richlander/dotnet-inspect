@@ -531,6 +531,10 @@ import {
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
+  createPackageQueryRenderScheduler,
+  packageQueryEditorCompositionActive,
+} from "./package-query-editor-lifecycle.ts";
+import {
   capturePackageQueryViewport,
   restorePackageQueryViewport,
   type PackageQueryViewportSnapshot,
@@ -13626,6 +13630,7 @@ const packageQueryActions: PackageQueryBindingActions = {
   onTermDraftCancel: cancelPackageQueryTermDraft,
   onTermRemove: removePackageQueryTerm,
   onSourceChange: changePackageQuerySource,
+  onEditorCompositionEnd: resumePackageQueryRender,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
     const current = state.packageQueryState.request
@@ -13652,23 +13657,30 @@ const packageChangesActions = {
   onRun: runPackageChanges,
 };
 
-let packageQueryStreamRenderFrame: number | null = null;
 let packageActivityStreamRenderFrame: number | null = null;
 let packageQueryViewport: PackageQueryViewportSnapshot | null = null;
 let packageChangesViewport: PackageChangesViewportSnapshot | null = null;
 
-function cancelPackageQueryStreamRender() {
-  if (packageQueryStreamRenderFrame === null) return;
-  cancelAnimationFrame(packageQueryStreamRenderFrame);
-  packageQueryStreamRenderFrame = null;
+const packageQueryRender =
+  createPackageQueryRenderScheduler({
+    requestFrame: callback => requestAnimationFrame(callback),
+    cancelFrame: frame => cancelAnimationFrame(frame),
+    shouldRender: () => state.packageQueryOpen
+      && state.engineReady
+      && !state.loading
+      && !state.error,
+    compositionActive: () =>
+      packageQueryEditorCompositionActive(document),
+    renderStream: patchPackageQueryPage,
+    renderFull: replacePackageQueryPage,
+  });
+
+function resumePackageQueryRender() {
+  packageQueryRender.resume();
 }
 
 function schedulePackageQueryStreamRender() {
-  if (packageQueryStreamRenderFrame !== null) return;
-  packageQueryStreamRenderFrame = requestAnimationFrame(() => {
-    packageQueryStreamRenderFrame = null;
-    if (state.packageQueryOpen) patchPackageQueryPage();
-  });
+  packageQueryRender.scheduleStream();
 }
 
 function cancelPackageActivityStreamRender() {
@@ -13727,7 +13739,10 @@ function patchPackageActivityPage() {
 }
 
 function renderPackageQueryPage() {
-  cancelPackageQueryStreamRender();
+  packageQueryRender.renderFull();
+}
+
+function replacePackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const viewport =
     capturePackageQueryViewport(document) ?? packageQueryViewport;

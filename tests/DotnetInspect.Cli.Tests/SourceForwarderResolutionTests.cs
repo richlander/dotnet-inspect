@@ -2999,10 +2999,13 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    // PR-fast: embedded symbols and a bounded, substituted source transport.
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task TypeSourceAcquisition_SourceFilesUsesSelectedOpener(bool isForwarded)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task TypeSourceAcquisition_SourceFilesUsesSelectedOpener(bool isForwarded, bool print)
     {
         int opens = 0;
         string original = typeof(EmbeddedSourceFixture).Assembly.Location;
@@ -3020,6 +3023,8 @@ public class SourceForwarderResolutionTests
         {
             var handler = new RecordingNotFoundHandler();
             using var client = new HttpClient(handler);
+            NuGetCache.Initialize("dotnet-inspect", basePath: Path.Combine(fixture.Directory, "cache"));
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
             {
                 TypeName = fixture.Type.FullName,
@@ -3035,18 +3040,34 @@ public class SourceForwarderResolutionTests
                         Select = [SectionNames.SourceFiles],
                         DocsExplicitlySet = true,
                         ShowDocs = false,
+                        Print = print,
+                        PrintRow = print ? RowSelector.First : null,
+                        Bare = print,
                     },
                     source,
                     fixture.Loaded));
 
-            Assert.Equal(0, exit);
-            Assert.DoesNotContain("Error:", error);
-            Assert.Contains("EmbeddedSourceFixture.cs", output);
-            Assert.Equal(1, opens);
-            Assert.Empty(handler.RequestUris);
+            if (print)
+            {
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains("failed to fetch verified source for row 1", error);
+                Assert.EndsWith("EmbeddedSourceFixture.cs", Assert.Single(handler.RequestUris).AbsolutePath);
+                Assert.True(opens > 1);
+            }
+            else
+            {
+                Assert.Equal(0, exit);
+                Assert.DoesNotContain("Error:", error);
+                Assert.Contains("EmbeddedSourceFixture.cs", output);
+                Assert.Equal(1, opens);
+                Assert.Empty(handler.RequestUris);
+            }
         }
         finally
         {
+            DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
             Directory.Delete(fixture.Directory, recursive: true);
         }
     }

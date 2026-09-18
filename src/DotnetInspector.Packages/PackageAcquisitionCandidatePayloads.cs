@@ -17,7 +17,8 @@ public sealed class ConfiguredPackagePayloadResult
         IReadOnlyList<PackageAuthorityFailure> failures,
         IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null,
         IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
-        bool selectionUsesOriginalSources = false)
+        bool selectionUsesOriginalSources = false,
+        PackageHouseSettlement? houseSettlement = null)
     {
         if ((authority is null) != (source is null)
             || (authority is null) != (payload is null))
@@ -34,7 +35,8 @@ public sealed class ConfiguredPackagePayloadResult
                 "The configured payload source must belong to its authority.",
                 nameof(source));
         }
-        if (payload is not null)
+        if (payload is not null
+            && payload.LegacyProducerKey is null)
         {
             payload = payload.WithLegacyProducerKey(
                 NuGetCache.GetSourceKey(authority!.Source.Url));
@@ -49,6 +51,14 @@ public sealed class ConfiguredPackagePayloadResult
                 "The configured payload and source identify different producers.",
                 nameof(payload));
         }
+        if (houseSettlement is not null
+            && (houseSettlement is not PackageHouseSettlement.Acquired acquired
+                || !ReferenceEquals(acquired.Payload, payload)))
+        {
+            throw new ArgumentException(
+                "A configured payload House settlement must retain the exact acquired payload.",
+                nameof(houseSettlement));
+        }
 
         Authority = authority;
         Source = source;
@@ -61,6 +71,7 @@ public sealed class ConfiguredPackagePayloadResult
             : new ReadOnlyCollection<ConfiguredPackageAuthority>(
                 [.. reportingAuthorities]);
         SelectionUsesOriginalSources = selectionUsesOriginalSources;
+        HouseSettlement = houseSettlement;
     }
 
     public ConfiguredPackageAuthority? Authority { get; }
@@ -71,6 +82,7 @@ public sealed class ConfiguredPackagePayloadResult
     internal IReadOnlyList<ConfiguredPackageAuthority>? ReportingAuthorities
         { get; }
     internal bool SelectionUsesOriginalSources { get; }
+    internal PackageHouseSettlement? HouseSettlement { get; }
 }
 
 /// <summary>
