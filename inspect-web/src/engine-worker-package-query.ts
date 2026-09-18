@@ -1103,13 +1103,16 @@ function parseInspection(
   ], "Package Query inspection");
   const document = dataRecord(
     inspection.content,
-    ["results", "failures", "completion"],
+    ["results", "failures", "completion", "hasPackages"],
     "Package Query Document");
   const documentBudget = {
     remainingCharacters: maximumEventCharacters,
     remainingItems: maximumInspectionItems,
   };
   const content: EngineWorkerPackageQueryDocument = {
+    hasPackages: booleanValue(
+      document.hasPackages,
+      "Package Query Document hasPackages"),
     results: arrayItems(
       document.results,
       "Package Query Document results",
@@ -1133,7 +1136,8 @@ function parseInspection(
       documentBudget),
   };
   if (content.completion.matches !== content.results.length
-      || content.completion.failures !== content.failures.length) {
+      || content.completion.failures !== content.failures.length
+      || content.hasPackages !== (content.results.length > 0)) {
     throw new PackageQueryPayloadError(
       "Package Query Document does not match its terminal accounting.");
   }
