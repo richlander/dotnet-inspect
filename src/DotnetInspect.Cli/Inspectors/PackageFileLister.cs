@@ -185,9 +185,15 @@ public static class PackageFileLister
     }
 
     private static string? NormalizePackagePath(string? path)
-        => string.IsNullOrWhiteSpace(path)
-            ? null
-            : path.Replace('\\', '/').Trim().TrimStart('/');
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        string normalized = path.Replace('\\', '/').Trim().TrimStart('/');
+        while (normalized.StartsWith("./", StringComparison.Ordinal))
+            normalized = normalized[2..];
+        return normalized;
+    }
 
     // The .nuspec is deliberately absent: it is authored content (the package
     // manifest), not packaging plumbing, so it belongs in the file listings and

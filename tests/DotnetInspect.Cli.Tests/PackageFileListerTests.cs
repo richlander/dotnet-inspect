@@ -305,6 +305,26 @@ public class PackageFileListerTests
         }
     }
 
+    [Theory]
+    [InlineData("./legal/TERMS.bin")]
+    [InlineData(@".\legal\TERMS.bin")]
+    public void ListAll_DeclaredLicenseNormalizesLeadingCurrentDirectorySegment(
+        string declaredLicense)
+    {
+        var root = CreateExtractDir("legal/TERMS.bin");
+        try
+        {
+            PackageFile file = Assert.Single(
+                PackageFileLister.ListAll(root, declaredLicense: declaredLicense));
+
+            Assert.True(file.IsLicense);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Filter_AtLicense_ReturnsLicenseDocuments()
     {
