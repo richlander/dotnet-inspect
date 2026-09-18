@@ -363,6 +363,33 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsNonPrivateExplicitInterfaceImplementationBeforeSampling()
+    {
+        string assemblyPath = CreateExplicitInterfaceAccessibilityFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(
+                selected,
+                target =>
+                    target.Type == "ValidExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MalformedExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsMalformedExplicitFinalizerBeforeSampling()
     {
         string assemblyPath = CreateExplicitFinalizerFixture();
@@ -3649,6 +3676,151 @@ public class FidelityCheckGeneratedFilterTests
 
         fixtureType.CreateType();
         assembly.Save(path);
+        return path;
+    }
+
+    static string CreateExplicitInterfaceAccessibilityFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "ExplicitInterfaceAccessibility.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "ExplicitInterfaceAccessibility.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ExplicitInterfaceAccessibility"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle coreLib =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x20, 0x00, 0x01 });
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle contractType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IContract"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle validType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("ValidExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle malformedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("MalformedExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddInterfaceImplementation(validType, contractType);
+        metadata.AddInterfaceImplementation(malformedType, contractType);
+
+        MethodDefinitionHandle declaration =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+
+        var methodBodies = new BlobBuilder();
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(encoder, maxStack: 0);
+        const MethodAttributes explicitImplementationAttributes =
+            MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig;
+        MethodDefinitionHandle validBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle malformedBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            validType,
+            validBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            malformedType,
+            malformedBody,
+            declaration);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
         return path;
     }
 

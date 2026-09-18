@@ -1266,7 +1266,11 @@ public static partial class ApiSurfaceExtractor
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
                     AccessibilityIsRepresentable =
-                        IsRepresentableMethodAccessibility(methodAccess),
+                        isExplicitInterfaceImplementation
+                            && !isOperator
+                            && !isFinalizer
+                            ? methodAccess == MethodAttributes.Private
+                            : IsRepresentableMethodAccessibility(methodAccess),
                     Accessibility =
                         isExplicitInterfaceImplementation
                             && !isOperator
