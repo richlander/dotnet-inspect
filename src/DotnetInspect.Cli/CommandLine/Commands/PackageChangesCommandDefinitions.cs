@@ -45,7 +45,7 @@ public static class PackageChangesCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Output minified JSON (use with --json)",
+            Description = "Output minified JSON (use with --json or --envelope)",
         };
 
         command.Options.Add(ecosystemOption);
@@ -77,6 +77,18 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(opts.Tips);
         command.Options.Add(opts.Info);
         command.Options.Add(opts.Verbosity);
+        opts.AddEnvelopeOptionTo(
+            command,
+            opts.Discover,
+            opts.Select,
+            opts.Schema,
+            opts.Count,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Verbosity);
 
         command.Validators.Add(result =>
         {
@@ -134,10 +146,11 @@ public static class PackageChangesCommandDefinitions
                     + "for package activity.");
             }
             if (IsExplicit(result, compactOption)
-                && !result.GetValue(opts.Json))
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires package activity --json.");
+                    "--compact requires package activity --json or --envelope.");
             }
 
             foreach (Option option in new Option[]
@@ -174,6 +187,7 @@ public static class PackageChangesCommandDefinitions
 
             var acceptedParentOptions = new HashSet<Option>
             {
+                opts.Envelope,
                 opts.Json,
                 opts.Markdown,
                 opts.PlainText,
@@ -216,6 +230,7 @@ public static class PackageChangesCommandDefinitions
                     out DateTimeOffset parsedThrough)
                     ? parsedThrough
                     : null;
+            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
             var options = new PackageChangesOptions
             {
                 Ecosystem = parseResult.GetValue(ecosystemOption)!,
@@ -227,7 +242,11 @@ public static class PackageChangesCommandDefinitions
                         ? EcosystemChangeReportRequest.DefaultMaximumRows
                         : parseResult.GetValue(opts.Limit)
                             ?? EcosystemChangeReportRequest.DefaultMaximumRows,
-                Format = opts.ResolveFormat(parseResult),
+                Format =
+                    envelopeOutput
+                        ? OutputFormat.Json
+                        : opts.ResolveFormat(parseResult),
+                EnvelopeOutput = envelopeOutput,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
             };
