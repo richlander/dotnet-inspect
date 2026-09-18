@@ -11,8 +11,8 @@ Focused and end-to-end CLI adoption is tracked by
 The initial adoption is complete: `library coordinate` is the executable
 surface for exact IL points, exact metadata-heap points, and bounded sparse
 IL-coordinate files. The former `library --il-offset`,
-`library --il-offsets`, and `library --heap` options are removed; rejected
-invocations receive replacement guidance and never execute the old behavior.
+`library --il-offsets`, and `library --heap` options are removed completely.
+They have no compatibility aliases, forwarding, or specialized diagnostics.
 
 This document owns command placement and request-shape boundaries. It does not
 redefine Library identity or acquisition, metadata roots, IL-coordinate
@@ -186,12 +186,9 @@ dump, or trace format parsers.
 ## Completed cutover and gates
 
 The intentionally breaking placement change is complete. Ordinary `library`
-help and parsing no longer expose the three parent options, and the
-rejection-only guard reports the corresponding `library coordinate`
-replacement for separated, `=`, and `:` spellings. The guard follows parser
-ownership: a retired option name consumed as another option's required value is
-that value, not a retired request. It does not forward, bind, or execute the
-retired request.
+help and parsing no longer expose the three parent options. Their former
+spellings are outside the command contract: no alias, forwarding, specialized
+diagnostic, or retired-input behavior is preserved or tested.
 
 Release CLI gates cover:
 
@@ -208,11 +205,8 @@ Release CLI gates cover:
   `LibraryCoordinateCommand_FileWindowsSourceRecordOrder`, and
   `LibraryCoordinateCommand_FileLimitFailsBeforeLibraryAcquisition` for
   ordering, row windows, and the 1,024-record admission bound; and
-- `LibraryCommand_RemovedCoordinateOptionsGiveReplacementGuidance`,
-  `LibraryCommand_RemovedInlineCoordinateOptionsGiveReplacementGuidance`,
-  `LibraryCoordinateCommand_FileValueMayMatchRetiredOptionName`, and
-  `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for retirement,
-  parser ownership, help, and replacement guidance; and
+- `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for complete
+  retirement from parent help and the current child surface; and
 - `LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput` and
   `LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary` for
   input-free structural discovery; and

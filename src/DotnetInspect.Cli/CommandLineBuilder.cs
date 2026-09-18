@@ -70,18 +70,8 @@ public static class CommandLineBuilder
     public static bool TryGetRemovedCommandError(
         string[] args,
         out string? error) =>
-        TryGetRemovedCommandError(
-            args,
-            CreateRootCommand(),
-            out error);
-
-    public static bool TryGetRemovedCommandError(
-        string[] args,
-        Command rootCommand,
-        out string? error) =>
         ArgumentPreprocessor.TryGetRemovedCommandError(
             args,
-            rootCommand,
             out error);
 
     /// <summary>

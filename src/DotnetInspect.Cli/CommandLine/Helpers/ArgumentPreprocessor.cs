@@ -143,7 +143,6 @@ public static class ArgumentPreprocessor
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
-        Command rootCommand,
         out string? error)
     {
         int command = FindFirstPositionalArgument(
@@ -169,76 +168,10 @@ public static class ArgumentPreprocessor
                 + "'package activity' with the same options.";
             return true;
         }
-        if (command >= 0
-            && args[command].Equals(
-                "library",
-                StringComparison.OrdinalIgnoreCase)
-            && TryGetRemovedLibraryCoordinateOptionError(
-                args,
-                rootCommand.Parse(args),
-                out error))
-        {
-            return true;
-        }
 
         error = null;
         return false;
     }
-
-    private static bool TryGetRemovedLibraryCoordinateOptionError(
-        string[] args,
-        ParseResult parseResult,
-        out string? error)
-    {
-        int end = Array.IndexOf(args, "--");
-        if (end < 0)
-            end = args.Length;
-
-        for (var i = 0; i < end; i++)
-        {
-            if (IsClaimedByRequiredOption(parseResult, args, i))
-                continue;
-
-            string option = args[i];
-            if (MatchesRemovedOption(option, "--il-offset"))
-            {
-                error = "'library --il-offset' has been removed. Use "
-                    + "'library coordinate <token>+<offset>' with named Library "
-                    + "context, such as '--library <library>'.";
-                return true;
-            }
-
-            if (MatchesRemovedOption(option, "--il-offsets"))
-            {
-                error = "'library --il-offsets' has been removed. Use "
-                    + "'library coordinate --file <path>' with named Library "
-                    + "context, such as '--library <library>'.";
-                return true;
-            }
-
-            if (MatchesRemovedOption(option, "--heap"))
-            {
-                error = "'library --heap' has been removed. Use "
-                    + "'library coordinate \"<heap>:<address>\"' with named Library "
-                    + "context, such as '--library <library>'.";
-                return true;
-            }
-        }
-
-        error = null;
-        return false;
-    }
-
-    private static bool MatchesRemovedOption(
-        string token,
-        string option) =>
-        token.Equals(option, StringComparison.OrdinalIgnoreCase)
-        || token.StartsWith(
-            option + "=",
-            StringComparison.OrdinalIgnoreCase)
-        || token.StartsWith(
-            option + ":",
-            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCommandTokenAfterBareTips(
         string optionName,
