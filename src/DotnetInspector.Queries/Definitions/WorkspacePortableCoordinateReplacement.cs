@@ -879,10 +879,18 @@ public static class WorkspacePortableCoordinateReplacement
                 "The selected navigation row has no committed view state.");
         }
 
+        PortableSubjectRequest subject = ToPortableSubject(destination);
+        PortableRetainedSubjectContext? context =
+            ToPortableContext(destination.RetainedContext);
+        if (subject is PortableSubjectRequest.Workspace
+            && context is PortableRetainedSubjectContext.Package)
+        {
+            context = null;
+        }
         states[stateIndex] = new CommittedViewStateDefinition(
             mutation.NavigationId,
-            ToPortableSubject(destination),
-            ToPortableContext(destination.RetainedContext),
+            subject,
+            context,
             destination.LensOutcome.Basis
                 is NavigationLensEvaluationBasis.ExactRequest exact
                     ? exact.Request.Facet.Value

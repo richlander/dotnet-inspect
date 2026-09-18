@@ -347,6 +347,75 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Null(result.NavigationResult);
     }
 
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData(InspectionDefinitionSchema.Version2)]
+    [InlineData(InspectionDefinitionSchema.Version3)]
+    [InlineData(InspectionDefinitionSchema.Version4)]
+    public async Task WorkspaceActive_PackageOnlyContextIsOmittedAndRestorable(
+        int schemaVersion)
+    {
+        InMemoryPackageStore store = await StoreAsync(
+            ("Avalonia", "11.3.14"), ("Avalonia", "12.1.2"));
+        CompleteRestorationExecutionOptions options = Options(store);
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Avalonia", "11.3.14", "net8.0");
+        var input = Definitions(
+            schemaVersion,
+            [new WorkspaceContextDefinition("context", "net8.0", members: [package])],
+            [new NavigationTabDefinition("avalonia", coordinate: package)],
+            [
+                new(null, new PortableSubjectRequest.Workspace()),
+                new("avalonia", new PortableSubjectRequest.Workspace(),
+                    facet: "workspace.overview"),
+            ],
+            "avalonia");
+
+        var result = await WorkspacePortableCoordinateReplacement.ExecuteAsync(
+            input, new("avalonia", version: "12.1.2"), options,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Succeeded, result.Failure?.Detail);
+        Assert.IsType<WorkspaceScopeOperationResult.Committed>(result.ScopeResult);
+        Assert.Equal(schemaVersion, result.Definitions!.Scenario.SchemaVersion);
+        var state = result.Definitions.View!.States[1];
+        Assert.IsType<PortableSubjectRequest.Workspace>(state.Subject);
+        Assert.Null(state.Context);
+        Assert.Equal("workspace.overview", state.Facet);
+        Assert.Equal("avalonia", result.Definitions.Navigation!.Focus);
+        var portable = WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+            WorkspaceSharePacketCodec.Decode(
+                Encode(result.Definitions), TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        TestHost host = await RestoreAsync(portable, options);
+        Assert.True((await host.Workspace!.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task WorkspaceActive_DeeperRetainedContextIsPreserved()
+    {
+        InMemoryPackageStore store = await StoreAsync(
+            ("Avalonia", "11.3.14"), ("Avalonia", "12.1.2"));
+        CompleteRestorationExecutionOptions options = Options(store);
+        var input = AvaloniaDefinitions(
+            new PortableSubjectRequest.Workspace(), "workspace.overview");
+
+        var result = await WorkspacePortableCoordinateReplacement.ExecuteAsync(
+            input, new("avalonia", version: "12.1.2"), options,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Succeeded, result.Failure?.Detail);
+        var state = result.Definitions!.View!.States[1];
+        Assert.IsType<PortableSubjectRequest.Workspace>(state.Subject);
+        var retained = Assert.IsType<PortableRetainedSubjectContext.Member>(state.Context);
+        Assert.Equal("Avalonia.Base", retained.LibraryIdentity.Name);
+        Assert.NotNull(retained.MemberAnchor);
+        Assert.Equal("workspace.overview", state.Facet);
+        TestHost host = await RestoreAsync(result.Definitions, options);
+        Assert.True((await host.Workspace!.CloseAsync()).Succeeded);
+    }
+
     private static CommittedScenarioDefinitionSet AvaloniaDefinitions(
         PortableSubjectRequest subject,
         string facet,

@@ -275,7 +275,9 @@ dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
 The shared gate covers derived Type/constructor restoration, missing-Member
 fallback, active-Library truncation, unavailable exact inspector, unchanged
 coordinates, formats 2/3, unrelated intent and inactive-row focus, target/RID
-preservation, early refusals and acquisition failure. Its envelope cases cover
+preservation, Workspace-active rows with omitted Package-only context or
+preserved deeper context, early refusals and acquisition failure. Its envelope
+cases cover
 typed retention, canonical Share, fallback diagnostics and source-generated
 serialization. The CLI gate adds option admission, packet/URL output, complete
 JSON envelope and restoration of the returned packet. Real-Avalonia cases

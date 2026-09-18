@@ -126,6 +126,44 @@ public sealed partial class WorkspaceCommandTests
         Assert.True(handler.Requests > 0);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Replacement_WorkspaceActiveRowEmitsRestorablePacket()
+    {
+        InMemoryPackageStore store = await ReplacementStoreAsync();
+        using var handler = new ReplacementHandler();
+        using var client = new HttpClient(handler);
+        string input = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":4,"t":[["Avalonia","11.3.14","net8.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"workspace"}}]}
+                """, TestContext.Current.CancellationToken));
+        var result = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            {
+                Packet = input, ReplacePackage = 1,
+                ReplacementVersion = "12.1.2", ShareFormat = WorkspaceShareFormat.Packet,
+            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string derived = result.Output.Trim();
+        using JsonDocument portable = JsonDocument.Parse(
+            WorkspaceSharePacketCodec.SerializeJson(WorkspaceSharePacketCodec.Decode(
+                derived, TestContext.Current.CancellationToken)));
+        Assert.Equal("12.1.2", portable.RootElement.GetProperty("t")[0][1].GetString());
+        JsonElement state = portable.RootElement.GetProperty("v")[1];
+        Assert.Equal("workspace", state.GetProperty("u").GetProperty("k").GetString());
+        Assert.False(state.TryGetProperty("r", out _));
+        var restored = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
+            {
+                Packet = derived, Format = OutputFormat.Json,
+            }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
+        Assert.Equal(0, restored.ExitCode);
+        Assert.Equal(0, handler.Requests);
+    }
+
     [Theory]
     [InlineData("--replace-package 0 --to-version 12.1.2 --share packet", "positive")]
     [InlineData("--replace-package 2 --to-version 12.1.2 --share packet", "range")]
