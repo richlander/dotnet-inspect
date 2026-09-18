@@ -28,8 +28,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
+    public bool SelectDefault { get; init; }
     public bool Tree { get; init; }
-    public bool SelectExplicitlySet { get; init; }
 
     internal bool IsContentJson =>
         JsonOutput
@@ -38,7 +39,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         && Columns is null
         && Fields is null
         && !Tree
-        && !SelectExplicitlySet;
+        && IncludeSections is null
+        && !SelectDefault;
 
     private static ImmutableArray<PackageQueryTermDescriptor> CliTerms { get; } =
     [
