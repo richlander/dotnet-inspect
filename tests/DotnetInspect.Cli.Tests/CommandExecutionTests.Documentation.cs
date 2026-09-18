@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
@@ -23,6 +25,31 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "Methods that extend documentation fixture types.",
             output);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DirectLibrary_UsesDeclarationDocsForProjectedExtension()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "InspectWeb.DocumentationFixtures.Widget",
+            "Measure",
+            "--library",
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+            "-S",
+            "Extension Methods",
+            "--columns",
+            "Signature;Description",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Contains(
             "Measures a widget through its declaring extension member.",
             output);
@@ -85,6 +112,24 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "A receiver for projected extension methods.",
                 output);
+
+            (exit, output, error) = await RunAppAsync(
+                "type",
+                "InspectWeb.DocumentationFixtures.Widget",
+                "--library",
+                assemblyPath,
+                "-v:d",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument json = JsonDocument.Parse(output);
+            Assert.False(
+                json.RootElement.TryGetProperty(
+                    "source_resolution",
+                    out _));
         }
         finally
         {

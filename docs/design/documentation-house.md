@@ -1023,6 +1023,13 @@ closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
 immutable-array, and Queries-owned values.
 
+The CLI documentation command gates require a projected extension method on
+its receiver type to receive the exact declaration-owned compiled
+documentation, and require a direct Library without a companion to omit both
+documentation and `XmlDoc` source-resolution provenance. The neighboring
+declaring extension type, explicit `--all` non-public member, malformed
+companion, and configured-package paths retain their established outcomes.
+
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0
 package and requires the Queries-owned `available` case and expected member

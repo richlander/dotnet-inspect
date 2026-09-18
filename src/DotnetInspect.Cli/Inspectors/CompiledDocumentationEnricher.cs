@@ -114,8 +114,20 @@ internal static class CompiledDocumentationEnricher
                 targets,
                 outcomes,
                 source.Context.Logger);
-            foreach (ApiType type in group)
-                type.SourceResolution = "XmlDoc";
+            if (outcomes.Values.Any(
+                    static outcome =>
+                        outcome is CompiledDocumentationOutcome.Available
+                        || outcome
+                            is CompiledDocumentationOutcome.Absent absent
+                            && absent.Sources.Any(
+                                static source =>
+                                    source.Kind
+                                        == CompiledDocumentationSourceEvidenceKind
+                                            .Candidate)))
+            {
+                foreach (ApiType type in group)
+                    type.SourceResolution = "XmlDoc";
+            }
         }
     }
 
@@ -620,8 +632,7 @@ internal static class CompiledDocumentationEnricher
 
                 foreach (ApiMember member in type.Members)
                 {
-                    if (member.DeclaringTypeDefinitionName is not null
-                        || !ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                    if (!ApiMemberIdentity.TryGetXmlDocMemberIdentity(
                             type,
                             member,
                             out XmlDocMemberIdentity memberIdentity))
