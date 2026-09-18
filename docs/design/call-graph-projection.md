@@ -572,7 +572,10 @@ infer a path from labels. Completeness remains independent through
 `TraversalBoundary`, `AnalysisFailure`, `IncompleteCorrespondence`,
 `WitnessBudget`, and `PathBudget`. Positive direct and mutual recursion
 witnesses remain valid under any limit; only an empty complete census supports
-absence within the projected same-assembly focus graph.
+absence within the projected same-assembly focus graph. A logical cycle whose
+first edge exists only in an attributed generated body has no declared-body
+source fact to anchor; the source projection omits that witness and reports
+`IncompleteCorrespondence` instead of failing the enclosing Finding census.
 
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
@@ -580,6 +583,7 @@ single operation shape, and
 Browser/Wasm transport alongside existing callee evidence.
 `MemberProjection_ProjectsRepeatedDirectRecursionAsOneCycle`,
 `MemberProjection_ProjectsMutualRecursionAsAnOrderedCycle`, and
+`MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus`, and
 `MemberFindingCensus_ProjectsExactMutualCycleWitness` gate the cycle identity,
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
 This adoption does not yet transport ownership witnesses, add a relationship

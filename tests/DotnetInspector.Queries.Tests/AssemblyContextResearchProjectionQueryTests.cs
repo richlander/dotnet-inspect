@@ -665,6 +665,40 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public async Task MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                CycleRequest(
+                    image,
+                    "Target",
+                    "InstanceRecursionApi",
+                    "RecurseAsync")));
+
+        AssemblyMemberCallCycleInspection cycles =
+            Assert.IsType<AssemblyMemberCallCycleInspection>(
+                projection.CallCycles);
+        Assert.Empty(cycles.Findings);
+        Assert.False(cycles.IsComplete);
+        Assert.True(cycles.Limits.HasFlag(
+            AnnotatedCallGraphCycleLimit
+                .IncompleteCorrespondence));
+        Assert.NotNull(projection.Projection.SourceDocument);
+        Assert.NotNull(projection.CallRelationships);
+    }
+
+    [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
         ImmutableArray<byte> image = BuildVersionedInvocationImage();

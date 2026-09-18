@@ -928,13 +928,12 @@ public static class AssemblyContextMemberProjectionQuery
         Dictionary<int, CallGraphRow> graphRows =
             relationships.Graph.Rows.ToDictionary(
                 static row => row.Number);
-        var findings =
-            new AssemblyMemberCallCycle[cycles.Findings.Length];
-        for (int index = 0; index < findings.Length; index++)
+        var findings = new List<AssemblyMemberCallCycle>(
+            cycles.Findings.Length);
+        AnnotatedCallGraphCycleLimit limits = cycles.Limits;
+        foreach (Finding<CallGraphCycleWitness> finding in cycles.Findings)
         {
-            Finding<CallGraphCycleWitness> finding =
-                cycles.Findings[index];
-            int ordinal = finding.Ordinal
+            _ = finding.Ordinal
                 ?? throw new InvalidOperationException(
                     "A call cycle Finding carries no ordinal.");
             int firstEdgeRow =
@@ -950,8 +949,10 @@ public static class AssemblyContextMemberProjectionQuery
             ];
             if (factIds.Length == 0)
             {
-                throw new InvalidOperationException(
-                    "A focus cycle does not begin at one source-targeted call relationship.");
+                limits |=
+                    AnnotatedCallGraphCycleLimit
+                        .IncompleteCorrespondence;
+                continue;
             }
             CallGraphNode[] targets =
             [
@@ -968,14 +969,14 @@ public static class AssemblyContextMemberProjectionQuery
                         row.Edge.To];
                 }),
             ];
-            findings[index] = new AssemblyMemberCallCycle(
+            findings.Add(new AssemblyMemberCallCycle(
                 finding.Key,
-                ordinal,
+                findings.Count,
                 finding.Payload.EdgeRows,
                 factIds,
-                targets);
+                targets));
         }
-        return new(findings, cycles.Limits);
+        return new(findings, limits);
     }
 
     static CallGraphNode? FindCallee(
