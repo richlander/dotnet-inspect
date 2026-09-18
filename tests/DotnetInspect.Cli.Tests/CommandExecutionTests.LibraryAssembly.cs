@@ -2848,6 +2848,138 @@ public partial class CommandExecutionTests
         Assert.Contains(missingCoordinates, error);
     }
 
+    [Theory]
+    [InlineData("0x06000001+0x0", "Context: Member")]
+    [InlineData("#Strings:0x1", "@Context")]
+    public async Task LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary(
+        string coordinate,
+        string discovery)
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            coordinate,
+            "--library",
+            missingLibrary,
+            "-D",
+            discovery,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+        Assert.DoesNotContain(missingLibrary, output);
+    }
+
+    [Theory]
+    [InlineData("Context: Member", "Member")]
+    [InlineData("@Context", "Context: Member")]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery(
+        string discovery,
+        string expected)
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            "0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                discovery,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(expected, output);
+            Assert.DoesNotContain("## IL Coordinates", output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                "0x06000001+0x0",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) =
+                await RunAppAsync(
+                    "library",
+                    "coordinate",
+                    "--file",
+                    coordinatePath,
+                    "--platform",
+                    "System.Text.Json",
+                    "-D",
+                    "@Context",
+                    "--effective",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain(
+                "Context: Callsite",
+                singleOutput,
+                StringComparison.Ordinal);
+
+            await File.WriteAllLinesAsync(
+                coordinatePath,
+                ["0x06000001+0x0", "0x06000001+0x1"],
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) =
+                await RunAppAsync(
+                    "library",
+                    "coordinate",
+                    "--file",
+                    coordinatePath,
+                    "--platform",
+                    "System.Text.Json",
+                    "-D",
+                    "@Context",
+                    "--effective",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains(
+                "Context: Callsite",
+                unionOutput,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
     [Fact]
     public async Task LibraryCoordinateCommand_FileRendersCoordinateSummary()
     {

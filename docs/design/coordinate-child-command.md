@@ -169,6 +169,10 @@ the retired batch option, which grouped malformed rows before valid coordinate
 rows. A mixed valid/malformed Release fixture proves full order and head/tail
 selection.
 
+Effective discovery materializes the admitted population and reports the union
+of coordinate-scoped evidence available across its resolved records. It still
+returns discovery shape rather than the coordinate-result rows.
+
 Exact and file modes are mutually exclusive. File bounds, accepted coordinate
 families, normalization, ordering, failures, and output schema remain with
 [IL coordinate workflows](il-coordinate-workflows.md) and its adopting query.
@@ -208,8 +212,13 @@ Release CLI gates cover:
   `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for retirement,
   parser ownership, help, and replacement guidance; and
 - `LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput` and
-  `LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput` for
-  the input-free structural and materializing effective-discovery boundary.
+  `LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary` for
+  input-free structural discovery; and
+- `LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput` and
+  `LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery` for the
+  materializing effective-discovery boundary and discovery-shaped result; and
+- `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
+  for population-wide evidence availability.
 
 ## Other candidate surfaces
 

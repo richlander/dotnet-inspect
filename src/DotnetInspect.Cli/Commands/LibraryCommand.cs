@@ -230,10 +230,7 @@ public class LibraryCommand
             bool requiresInspection = hasInputSource
                 && !options.Schema
                 && (options.Effective
-                    || options.Discover.Length == 0
-                    || options.CoordinateRequest
-                        is LibraryCoordinateRequest.IlPoint
-                            or LibraryCoordinateRequest.HeapPoint);
+                    || options.Discover.Length == 0);
             if (requiresInspection)
             {
                 // Handled after data collection below.
@@ -793,7 +790,8 @@ public class LibraryCommand
                         version,
                         "library --platform");
                 if (options.CoordinateRequest
-                    is LibraryCoordinateRequest.FilePopulation)
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -942,7 +940,8 @@ public class LibraryCommand
                 packageVersion = resolvedPackageVersion;
 
                 if (options.CoordinateRequest
-                    is LibraryCoordinateRequest.FilePopulation)
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -1191,7 +1190,8 @@ public class LibraryCommand
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Local("library path");
                 if (options.CoordinateRequest
-                    is LibraryCoordinateRequest.FilePopulation)
+                        is LibraryCoordinateRequest.FilePopulation
+                    && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
                         SelectInspectionSubjectOrReportFailure(
@@ -1562,28 +1562,14 @@ public class LibraryCommand
 
             var coordinate =
                 (ILCoordinatePopulationRecord.Coordinate)record;
-            var queryOptions = options with
-            {
-                CoordinateRequest =
-                    new LibraryCoordinateRequest.IlPoint(
-                        coordinate.Value,
-                        coordinate.MethodToken,
-                        coordinate.ILOffset),
-                IncludeSections = sections,
-                Select = [.. sections],
-                Discover = null,
-                Print = false,
-                Count = false,
-                Value = false,
-                Urls = false,
-                Paths = false
-            };
-            var resolved = await ILOffsetQuery.ResolveBatchAsync(
+            var resolved = await ResolveILCoordinateAsync(
                 service,
+                coordinate,
+                sections,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
-                queryOptions,
+                options,
                 httpClient,
                 logger);
             rows.Add(resolved.Result is { } result
@@ -1637,6 +1623,46 @@ public class LibraryCommand
         SectionNames.SafetyContext,
         SectionNames.CostContext
     ];
+
+    private static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        string? Error)> ResolveILCoordinateAsync(
+        SourceLinkService service,
+        ILCoordinatePopulationRecord.Coordinate coordinate,
+        HashSet<string> sections,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        var queryOptions = options with
+        {
+            CoordinateRequest =
+                new LibraryCoordinateRequest.IlPoint(
+                    coordinate.Value,
+                    coordinate.MethodToken,
+                    coordinate.ILOffset),
+            IncludeSections = sections,
+            Select = [.. sections],
+            Discover = null,
+            Print = false,
+            Count = false,
+            Value = false,
+            Urls = false,
+            Paths = false
+        };
+        return ILOffsetQuery.ResolveBatchAsync(
+            service,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            queryOptions,
+            httpClient,
+            logger);
+    }
 
     private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
         ILCoordinatePopulationRecord.Coordinate input,
@@ -1808,8 +1834,7 @@ public class LibraryCommand
         var removedBodyShapesSection = false;
 
         if (sections.Overlaps(ILCoordinateSections)
-            && options.CoordinateRequest
-                is not LibraryCoordinateRequest.IlPoint)
+            && !HasILCoordinateRequest(options))
         {
             if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
             {
@@ -2186,6 +2211,21 @@ public class LibraryCommand
         VerboseLogger logger)
     {
         if (options.CoordinateRequest
+                is LibraryCoordinateRequest.FilePopulation
+            && options.Discover is not null)
+        {
+            return await PopulateILCoordinatePopulationForDiscoveryAsync(
+                inspection,
+                subject,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                options,
+                httpClient,
+                logger);
+        }
+
+        if (options.CoordinateRequest
                 is not LibraryCoordinateRequest.IlPoint
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
@@ -2199,6 +2239,148 @@ public class LibraryCommand
 
         inspection.ILOffset = resolved.Result;
         return 0;
+    }
+
+    private static async Task<int> PopulateILCoordinatePopulationForDiscoveryAsync(
+        LibraryInspection inspection,
+        LibraryInspectionSubject subject,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.FilePopulation
+            {
+                Population: { } population,
+            })
+        {
+            throw new UnreachableException(
+                "Coordinate discovery requires an admitted population.");
+        }
+
+        HashSet<string> sections = options.IncludeSections is { Count: > 0 }
+            ? [.. options.IncludeSections]
+            : [];
+        var projections = new List<ILOffsetProjection>();
+        var failed = false;
+        using var service = subject.OpenSourceLink(logger.Log);
+        foreach (ILCoordinatePopulationRecord record in population.Records)
+        {
+            if (record is ILCoordinatePopulationRecord.Malformed malformed)
+            {
+                CommandError.Write(malformed.Error);
+                failed = true;
+                continue;
+            }
+
+            var coordinate =
+                (ILCoordinatePopulationRecord.Coordinate)record;
+            var resolved = await ResolveILCoordinateAsync(
+                service,
+                coordinate,
+                sections,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                options,
+                httpClient,
+                logger);
+            if (resolved.Result is { } result)
+            {
+                projections.Add(result);
+            }
+            else
+            {
+                CommandError.Write(
+                    $"Could not resolve coordinate '{coordinate.Value}': "
+                    + $"{resolved.Error ?? "unknown failure"}.");
+                failed = true;
+            }
+        }
+
+        if (failed)
+            return 1;
+        if (projections.Count == 0)
+        {
+            CommandError.Write(
+                "Coordinate file contains no resolvable records for effective discovery.");
+            return 1;
+        }
+
+        inspection.ILOffset =
+            MergeILCoordinateProjectionsForDiscovery(projections);
+        return 0;
+    }
+
+    private static ILOffsetProjection MergeILCoordinateProjectionsForDiscovery(
+        List<ILOffsetProjection> projections)
+    {
+        ILOffsetProjection first = projections[0];
+        List<ILOffsetExceptionContext> exceptions =
+            projections
+                .SelectMany(projection =>
+                    projection.ExceptionContext ?? [])
+                .ToList();
+        List<ILOffsetAllocationContext> allocations =
+            projections
+                .SelectMany(projection =>
+                    projection.AllocationContext ?? [])
+                .ToList();
+        List<ILOffsetSafetyContext> safety =
+            projections
+                .SelectMany(projection =>
+                    projection.SafetyContext ?? [])
+                .ToList();
+        List<ILOffsetCostContext> costs =
+            projections
+                .SelectMany(projection =>
+                    projection.CostContext ?? [])
+                .ToList();
+
+        // Effective discovery asks which evidence exists anywhere in the admitted population.
+        // The aggregate is never rendered as one coordinate; it only drives section applicability
+        // and field filtering before DiscoverOutput lowers the discovery document.
+        return new ILOffsetProjection
+        {
+            Method = first.Method,
+            Token = first.Token,
+            ILOffset = first.ILOffset,
+            MatchedOffset = first.MatchedOffset,
+            File = projections
+                .Select(projection => projection.File)
+                .FirstOrDefault(value => value is not null),
+            Line = projections
+                .Select(projection => projection.Line)
+                .FirstOrDefault(value => value is not null),
+            Url = projections
+                .Select(projection => projection.Url)
+                .FirstOrDefault(value => value is not null),
+            SourceChecksum = projections
+                .Select(projection => projection.SourceChecksum)
+                .FirstOrDefault(value => value is not null),
+            SourceChecksumAlgorithm = projections
+                .Select(projection => projection.SourceChecksumAlgorithm)
+                .FirstOrDefault(value => value is not null),
+            MemberContext = projections
+                .Select(projection => projection.MemberContext)
+                .FirstOrDefault(value => value is not null),
+            InstructionContext = projections
+                .Select(projection => projection.InstructionContext)
+                .FirstOrDefault(value => value is not null),
+            ExceptionContext = exceptions.Count == 0 ? null : exceptions,
+            CallsiteContext = projections
+                .Select(projection => projection.CallsiteContext)
+                .FirstOrDefault(value => value is not null),
+            ReturnAddressContext = projections
+                .Select(projection => projection.ReturnAddressContext)
+                .FirstOrDefault(value => value is not null),
+            AllocationContext = allocations.Count == 0 ? null : allocations,
+            SafetyContext = safety.Count == 0 ? null : safety,
+            CostContext = costs.Count == 0 ? null : costs,
+        };
     }
 
     private static bool ValidateLibraryPrintSelection(HashSet<string>? sections)
@@ -3055,8 +3237,7 @@ public class LibraryCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.IlPoint)
+        if (!HasILCoordinateRequest(options))
         {
             sections = sections
                 .Where(section => !ILCoordinateSections.Contains(
@@ -3075,6 +3256,11 @@ public class LibraryCommand
         }
         return sections;
     }
+
+    private static bool HasILCoordinateRequest(LibraryOptions options) =>
+        options.CoordinateRequest
+            is LibraryCoordinateRequest.IlPoint
+                or LibraryCoordinateRequest.FilePopulation;
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
