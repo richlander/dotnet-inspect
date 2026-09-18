@@ -22,14 +22,21 @@ no Finding.
 
 The **member census** profile is `ResearchFactRegistry.Default`. It supplies the
 body and member-header Findings used by the Facts and Annotated Source
-projection, including the Inspect Web combined Finding-census operation.
+projection.
 
 The **call relationship** profile is
 `ResearchFactRegistry.CallRelationships`. It receives physical call sites from
 the already-acquired graph session and supplies `call.edge` to
-`AnnotatedMemberDocumentQuery`. Invocation destinations in the Inspect Web
-member-census operation are a separate typed capability, not `call.edge`
-Findings.
+`AnnotatedMemberDocumentQuery`.
+
+The Inspect Web combined Finding-census operation uses
+`ResearchFactRegistry.MemberCensusWithCallRelationships`, the exact union of
+those two profiles. Its `call.edge` Findings share the member census receipt
+and source document but remain outside the default annotation set. A parallel
+typed relationship sidecar retains each Finding's caller MVID and MethodDef
+token, IL offset, operand token, call kind, loop state, stable edge row, and
+typed graph target. Invocation destinations are a separate typed capability
+derived from the same retained physical calls and depth-one graph projection.
 
 Custom registries used by tests or other callers are outside this inventory.
 Adding a descriptor to either production profile requires classifying it here
@@ -112,10 +119,11 @@ those producer-owned declarations. Lifetime descriptors come directly from
 Decompiler-owned set.
 
 `DescriptorMatrix_EqualsProductionAnnotatedSourceProfiles` embeds this document
-and compares the matrix descriptor column with the union of the member-census
-and call-relationship profile declarations. It rejects an empty inventory,
-wildcard declaration, duplicate matrix row, missing descriptor, or stale
-descriptor. The gate runs in the Release `ILInspector.Research.Tests` suite.
+and compares the matrix descriptor column with both the union of the
+member-census and call-relationship profile declarations and the composed
+Inspect Web profile. It rejects an empty inventory, wildcard declaration,
+duplicate matrix row, missing descriptor, or stale descriptor. The gate runs
+in the Release `ILInspector.Research.Tests` suite.
 
 ## Non-claims
 
@@ -124,7 +132,7 @@ This inventory does not claim that:
 - every descriptor is emitted for every member;
 - every body Finding has both C# and IL correspondence;
 - every caller-side callee Finding has available callee source;
-- call relationships are part of the Inspect Web Finding census;
+- call relationships belong to the default annotation set;
 - display text, descriptor text, or collection order establishes identity; or
 - the matrix defines producer thresholds, graph acquisition, source
   correspondence, transport bounds, or renderer behavior.

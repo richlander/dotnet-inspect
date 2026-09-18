@@ -207,7 +207,9 @@ catalog-selected subset of that document-relative universe. Initially:
 
 Allocation, Unsafety, Cost, Semantics, and Lifetime are current default
 Finding families. The browser consumes that catalog; it does not classify
-Findings from source text.
+Findings from source text. Direct call relationships use the Relationship
+family and remain opt-in: **All** reveals their exact call-site annotations,
+while **Default** preserves the focused Finding-first reader.
 
 The modal exposes:
 

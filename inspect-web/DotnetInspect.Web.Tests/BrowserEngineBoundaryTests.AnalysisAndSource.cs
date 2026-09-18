@@ -19,6 +19,7 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
+using ILInspector.Research;
 using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -636,6 +637,67 @@ public sealed partial class BrowserEngineBoundaryTests
             annotatedSource.GetProperty("findingEvidence").EnumerateArray());
         int factId = evidence.GetProperty("factId").GetInt32();
         int instanceKey = evidence.GetProperty("instanceKey").GetInt32();
+        JsonElement relationshipFact = Assert.Single(
+            root.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == ResearchFactRegistry.CallRelationshipDescriptorId);
+        int relationshipInstanceKey =
+            relationshipFact.GetProperty("instanceKey").GetInt32();
+        Assert.Contains(
+            nameof(PerformanceStackAllocProbe),
+            relationshipFact.GetProperty("detail").GetString(),
+            StringComparison.Ordinal);
+        JsonElement relationshipIdentity = Assert.Single(
+            root.GetProperty("sourceFactInstances").EnumerateArray(),
+            identity =>
+                identity.GetProperty("instanceKey").GetInt32()
+                    == relationshipInstanceKey);
+        int relationshipFactId =
+            relationshipIdentity.GetProperty("factId").GetInt32();
+        JsonElement relationshipDocumentFact = Assert.Single(
+            annotatedSource
+                .GetProperty("document")
+                .GetProperty("facts")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetInt32()
+                    == relationshipFactId);
+        Assert.Equal(
+            ResearchFactRegistry.CallRelationshipDescriptorId,
+            relationshipDocumentFact.GetProperty("descriptor").GetString());
+        Assert.DoesNotContain(
+            relationshipFactId,
+            annotatedSource
+                .GetProperty("viewerCatalog")
+                .GetProperty("defaultFindingIds")
+                .EnumerateArray()
+                .Select(value => value.GetInt32()));
+        Assert.True(
+            annotatedSource
+                .GetProperty("viewerCatalog")
+                .GetProperty("callRelationships")
+                .GetProperty("available")
+                .GetBoolean());
+        JsonElement relationship = Assert.Single(
+            annotatedSource
+                .GetProperty("callRelationships")
+                .EnumerateArray());
+        Assert.Equal(
+            relationshipFactId,
+            relationship.GetProperty("factId").GetInt32());
+        Assert.True(relationship.GetProperty("edgeRow").GetInt32() > 0);
+        Assert.Equal(
+            nameof(PerformanceStackAllocProbe),
+            relationship.GetProperty("target")
+                .GetProperty("memberName")
+                .GetString());
+        Assert.Equal(
+            member.GetProperty("metadataToken").GetInt32(),
+            relationship.GetProperty("callerToken").GetInt32());
+        Assert.Equal(
+            relationshipDocumentFact.GetProperty("source_offset").GetInt32(),
+            relationship.GetProperty("ilOffset").GetInt32());
         JsonElement sourceIdentity = Assert.Single(
             root.GetProperty("sourceFactInstances").EnumerateArray(),
             identity => identity.GetProperty("factId").GetInt32() == factId);
