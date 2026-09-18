@@ -6,6 +6,7 @@ import {
   createNuGetPackageModel,
   createPackageAcquisition,
   createRuntimePackageModel,
+  createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
   PackageVersionSettlementError,
@@ -18,6 +19,7 @@ import {
 import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
+  BrowserPackageInfoMeasurementInspection,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
   BrowserTypeSurface,
@@ -145,6 +147,33 @@ function packageSurface(
   };
 }
 
+function packageInfo(): BrowserPackageInfoMeasurementInspection {
+  return {
+    content: {
+      status: "Measured",
+      packageId: "Example.Package",
+      packageVersion: "1.2.3",
+      compressedPackageBytes: 4096,
+      selectedTargetFramework: "net10.0",
+      availableTargetFrameworkCount: 2,
+      selectedTargetFrameworkFolders: ["lib", "runtimes"],
+      selectedLibraryPayloadBytes: 2048,
+      selectedLibraryCount: 1,
+      detail: null,
+      unavailableReason: null,
+      hasSelectedSlice: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-info-measurements/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  };
+}
+
 function generatedPackageSurfaceRejectsMutation(
   surface: BrowserPackageSurface,
 ): void {
@@ -246,9 +275,114 @@ test("NuGet package models retain the complete version settlement baseline", () 
 
   const model = createNuGetPackageModel(
     packageSurface(),
-    versionSettlement);
+    versionSettlement,
+    packageInfo());
 
   assert.deepEqual(model.versionSettlement, versionSettlement);
+});
+
+test("NuGet package models retain the shared Package Info envelope", () => {
+  const measurements = packageInfo();
+  const model = createNuGetPackageModel(
+    packageSurface(),
+    {
+      content: {
+        kind: "Settled",
+        result: {
+          request: { packageId: "example.package", version: "1.2.3" },
+          coordinate: { packageId: "example.package", version: "1.2.3" },
+          includePrerelease: false,
+          freshness: null,
+          listings: [],
+          sourceListings: [],
+        },
+        failure: null,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    measurements);
+
+  assert.equal(model.packageInfo, measurements);
+});
+
+test("Workspace occurrence activation preserves matching inspection envelopes", () => {
+  const measurements = packageInfo();
+  const versionSettlement = {
+    content: {
+      kind: "Settled",
+      result: {
+        request: { packageId: "example.package", version: "1.2.3" },
+        coordinate: { packageId: "example.package", version: "1.2.3" },
+        includePrerelease: false,
+        freshness: null,
+        listings: [],
+        sourceListings: [],
+      },
+      failure: null,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "package-version-settlement/share",
+      reason: "No canonical Workspace share projection.",
+    },
+    diagnostics: [],
+  } satisfies BrowserPackageVersionSettlementInspection;
+  const retained = createNuGetPackageModel(
+    packageSurface(),
+    versionSettlement,
+    measurements);
+  const activated = createWorkspaceOccurrencePackageModel(
+    packageSurface({ totalMembers: 12 }),
+    retained,
+    [retained]);
+
+  assert.equal(activated.totalMembers, 12);
+  assert.equal(activated.versionSettlement, versionSettlement);
+  assert.equal(activated.packageInfo, measurements);
+});
+
+test("Workspace occurrence activation does not copy envelopes across TFMs", () => {
+  const retained = createNuGetPackageModel(
+    packageSurface(),
+    {
+      content: {
+        kind: "Settled",
+        result: {
+          request: { packageId: "example.package", version: "1.2.3" },
+          coordinate: { packageId: "example.package", version: "1.2.3" },
+          includePrerelease: false,
+          freshness: null,
+          listings: [],
+          sourceListings: [],
+        },
+        failure: null,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-version-settlement/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    packageInfo());
+  const activated = createWorkspaceOccurrencePackageModel(
+    packageSurface({ activeFramework: "net9.0" }),
+    retained,
+    [retained]);
+
+  assert.equal(activated.versionSettlement, undefined);
+  assert.equal(activated.packageInfo, undefined);
 });
 
 test("graph-only implementation bodies select, switch, and clear", () => {
@@ -394,6 +528,7 @@ function acquisitionDependencies(
         },
         diagnostics: [],
       },
+      packageInfo: packageInfo(),
       surface: packageSurface(),
     }),
     loadRuntimePack: async () => JSON.stringify(
@@ -507,6 +642,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackage: async () => ({
       versionSettlement,
+      packageInfo: null,
       surface: null,
     }),
   }));

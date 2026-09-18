@@ -94,29 +94,32 @@ public static partial class PackageExports
         string version,
         string targetFramework)
     {
-        BrowserPackageAcquisitionResult result =
-            await BrowserPackageWorkspace.AcquireWithSettlementAsync(
+        BrowserPackageRealizationResult result =
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                 packageId,
-                version);
-        if (result is BrowserPackageAcquisitionResult.NotSettled notSettled)
+                version,
+                targetFramework);
+        if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
                 BrowserPackageWireProjection.Project(
                     notSettled.VersionSettlement),
+                PackageInfo: null,
                 Surface: null);
         }
 
-        BrowserPackageAcquisition acquisition =
-            ((BrowserPackageAcquisitionResult.Acquired)result).Acquisition;
+        BrowserPackageRealization realization =
+            ((BrowserPackageRealizationResult.Realized)result).Realization;
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
-                acquisition.Package,
-                targetFramework,
+                realization,
                 CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
         return new(
             BrowserPackageWireProjection.Project(
-                acquisition.VersionSettlement),
+                realization.VersionSettlement),
+            BrowserPackageWireProjection.Project(
+                realization.PackageInfo),
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,

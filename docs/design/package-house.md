@@ -628,6 +628,24 @@ PackageHouse realization and must not manufacture one; it may report the
 archive size already established by that input path, but it does not report
 House-selected slice fields.
 
+Inspect Web's ordinary package load requests one PackageHouse compile
+realization after version settlement. It projects the same
+`InspectionEnvelope<PackageInfoMeasurements>` and adapts that exact settlement
+through `PackageHouseRootContributionAdapter` into the package Root used by the
+Browser workspace. The Browser therefore neither downloads the archive again
+nor repeats compile selection for its API surface. Its facade preserves
+Content, Share, and diagnostics in a Browser-local wire contract; TypeScript
+retains that envelope and renders Package Info without reconstructing
+measurements from paths or choosing a representative assembly.
+
+The first ordinary request constructs its workspace from that exact contributed
+Root. A repeated ordinary request for the same source-scoped package generation
+and selection request may join the retained workspace even when its new
+PackageHouse realization carries a separately issued selection receipt. This
+logical join is specific to ordinary request admission; a caller that directly
+supplies a bound Root continues to join only the workspace retaining that exact
+binding identity.
+
 An operation that wants multiple framework slices issues separately associated
 package-local selections and reports them as separate projections. It does not
 merge incompatible slices into one selected universe. The coordinator for that

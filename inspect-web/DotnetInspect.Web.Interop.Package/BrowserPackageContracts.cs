@@ -66,7 +66,27 @@ public sealed record BrowserPackageSurface(
 
 public sealed record BrowserPackageLoadResult(
     BrowserPackageVersionSettlementInspection VersionSettlement,
+    BrowserPackageInfoMeasurementInspection? PackageInfo,
     BrowserPackageSurface? Surface);
+
+public sealed record BrowserPackageInfoMeasurementInspection(
+    BrowserPackageInfoMeasurements Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserPackageInfoMeasurements(
+    string Status,
+    string PackageId,
+    string PackageVersion,
+    long? CompressedPackageBytes,
+    string? SelectedTargetFramework,
+    int? AvailableTargetFrameworkCount,
+    string[]? SelectedTargetFrameworkFolders,
+    long? SelectedLibraryPayloadBytes,
+    int? SelectedLibraryCount,
+    string? Detail,
+    string? UnavailableReason,
+    bool HasSelectedSlice);
 
 public sealed record BrowserPackageVersionSettlementInspection(
     BrowserPackageVersionSettlementOutcome Content,
