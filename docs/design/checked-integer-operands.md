@@ -41,6 +41,13 @@ renderer owns spelling and lexical overflow context, as it does at other typed
 boundaries. For a wide unary operand it consumes the existing unary rendered-type
 recovery: an unsigned storage type does not mean a negation renders unsigned.
 
+Operand expressions must also retain their original integer width before the
+checked operator binds. In particular, C# negation of `uint` promotes to `long`,
+whereas an IL I4 `neg` wraps at 32 bits. Its signed I4 interpretation must be
+retained even when the checked result is widened or boxed; narrowing a promoted
+C# negation afterward does not recover the original opcode contract. This
+applies within the admitted checked operands, not as a general unary rewrite.
+
 Binding precedes ordinary sink coercion and scalar self-update decisions.
 Therefore destination coercion sees the decided result type. This does not
 change scalar place identity, accessor dispatch, evaluation order, or loop
@@ -71,7 +78,8 @@ evaluation order falsifies the replacement.
 
 `CheckedIntegerOperandTests` supplies Release compiler-fixture and typed-IR
 gates for statements, headers, opposite-sign destinations, nested overflow
-contexts, lambdas, unary operands, and native integers.
+contexts, lambdas, unary operands, and native integers. I4-negation cases cover
+scalar stores, direct/wide/boxed returns, nested operators, and explicit widening.
 `CompilerProducedBindingsRecompileExactlyWithoutTheFloor` is the native
 product-artifact fidelity gate in both memory-safety modes. Its batch is
 `Speed=Slow` and runs as a focused pre-merge gate and in daily Deep Inspect;

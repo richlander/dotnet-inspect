@@ -151,17 +151,48 @@ public sealed class CheckedIntegerOperandTests
     }
 
     [Theory]
+    [InlineData("Unsigned32NegationUpdate")]
+    [InlineData("Unsigned32NegationExpression")]
+    [InlineData("Unsigned32NegationWideReturn")]
+    [InlineData("Unsigned32NegationBoxed")]
+    [InlineData("Signed32Negation")]
+    [InlineData("Unsigned32NegationNested")]
+    [InlineData("Unsigned32NegationWidened")]
+    public void UInt32NegationRetainsItsOriginalWidth(string method)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            using var source = MetadataSource.Open(FixturePath(updated));
+            var function = Raise(source, method);
+            var negate = Assert.Single(function.Descendants.OfType<Unary>(), unary => unary.Kind == UnaryKind.Negate);
+            Assert.Equal("Int32", Assert.IsType<Coerce>(negate.Operand).Target.Name);
+            Assert.Equal("Int32", negate.ResultType?.Name);
+            var binary = Assert.Single(function.Descendants.OfType<Binary>(), operation => operation.IsChecked);
+            Assert.Equal(binary.Left.ResultType, binary.Right.ResultType);
+            Assert.Contains("(int)amount", CSharpPrinter.Print(function).Output);
+            string before = IrPrinter.Dump(function);
+            new CheckedIntegerOperandPass().Run(function, PassContext.None);
+            Assert.Equal(before, IrPrinter.Dump(function));
+        }
+    }
+
+    [Theory]
     [InlineData(BinaryKind.Add, false, "Int64", "UInt64")]
+    [InlineData(BinaryKind.Add, false, "UInt32", "UInt32")]
     [InlineData(BinaryKind.Divide, false, "Int64", "UInt64")]
     [InlineData(BinaryKind.Add, true, "Int64", "Int32")]
+    [InlineData(BinaryKind.Add, true, "Int64", "UInt32")]
     [InlineData(BinaryKind.Add, true, "UIntPtr", "Int32")]
     [InlineData(BinaryKind.Add, true, "Byte", "Byte")]
     public void OtherOperatorDomainsAreUnchanged(BinaryKind kind, bool check, string left, string right)
     {
         var leftType = TypeRef.CoreLib("System", left);
         var rightType = TypeRef.CoreLib("System", right);
+        IrExpression rightOperand = new LoadArgument(1, "right", rightType);
+        if (right == "UInt32")
+            rightOperand = new Unary(UnaryKind.Negate, rightOperand);
         var binary = new Binary(kind, check, false,
-            new LoadArgument(0, "left", leftType), new LoadArgument(1, "right", rightType));
+            new LoadArgument(0, "left", leftType), rightOperand);
         var block = new Block(0);
         block.Add(new Return(binary));
         var body = new BlockContainer();
@@ -208,6 +239,8 @@ public sealed class CheckedIntegerOperandTests
             "SignedOperationUnsignedDestination", "UnsignedOperationSignedDestination", "NestedDomains",
             "UnsignedSubtract", "SignedMultiply", "NativeReference", "NativePointer", "UnsignedArray",
             "FieldsAndProperty", "UnitStep", "NegateUInt32", "Lambda", "UnsignedNegation",
+            "Unsigned32NegationUpdate", "Unsigned32NegationExpression", "Unsigned32NegationWideReturn",
+            "Unsigned32NegationBoxed", "Signed32Negation", "Unsigned32NegationNested", "Unsigned32NegationWidened",
         ];
         var targets = methods.Select(method => new ReturnToSender.RequestedTarget(FixtureType, method, 0)).ToArray();
         var results = await ReturnToSender.CompileBackTargets(

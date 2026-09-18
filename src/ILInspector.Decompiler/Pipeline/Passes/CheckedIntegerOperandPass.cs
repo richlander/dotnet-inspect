@@ -13,6 +13,16 @@ public sealed class CheckedIntegerOperandPass : IIrPass
             if (OperandType(binary) is not { } target)
                 continue;
 
+            // C# negates uint at long width; IL neg must retain its I4 bits.
+            foreach (var unary in binary.DescendantsAndSelfOutsideNestedFunctions.OfType<Unary>().Reverse().ToList())
+            {
+                if (unary is { Kind: UnaryKind.Negate, Operand.ResultType: {
+                    Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" } })
+                {
+                    Bind(unary.Operand, TypeRef.CoreLib("System", "Int32"), context);
+                }
+            }
+
             Bind(binary.Left, target, context);
             Bind(binary.Right, target, context);
         }

@@ -145,6 +145,30 @@ internal static class CheckedIntegerOperandSamples
     public static Func<ulong, long, ulong> Lambda()
         => static (value, amount) => checked(value + unchecked((ulong)amount));
 
+    public static uint Unsigned32NegationUpdate(uint value, uint amount)
+    {
+        checked { value += unchecked((uint)-(int)amount); }
+        return value;
+    }
+
+    public static uint Unsigned32NegationExpression(uint value, uint amount)
+        => checked(value + unchecked((uint)-(int)amount));
+
+    public static long Unsigned32NegationWideReturn(uint value, uint amount)
+        => checked(value + unchecked((uint)-(int)amount));
+
+    public static object Unsigned32NegationBoxed(uint value, uint amount)
+        => checked(value + unchecked((uint)-(int)amount));
+
+    public static int Signed32Negation(int value, uint amount)
+        => checked(value + unchecked(-(int)amount));
+
+    public static uint Unsigned32NegationNested(uint value, uint amount)
+        => checked(value + unchecked((uint)~-(int)amount));
+
+    public static ulong Unsigned32NegationWidened(ulong value, uint amount)
+        => checked(value + unchecked((uint)-(int)amount));
+
     public sealed class Counter
     {
         public ulong Count;
