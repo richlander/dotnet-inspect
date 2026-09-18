@@ -78,7 +78,8 @@ Related docs:
 
 - [Package Query inspection evidence](package-query-inspection-evidence.md)
   owns typed inspection counts and bounded previews, separate from query-wide
-  context. CLI and Browser consume the same compact product-authored evidence.
+  context. CLI and Browser consume the same semantic answers and structured
+  evidence facts.
 - [Package Query input selection](package-query-input-selection.md) owns the
   shared choice between exact-ID and explicit terminal-star prefix candidate
   inputs. `package query` consumes that spelling directly.
@@ -633,20 +634,18 @@ evaluation](package-query-assembly-evaluation.md).
 ## Row declaration: coercing a wide per-package fact set into a Table
 
 A term-matched package is not naturally one flat row: it may match zero or
-more terms, each with its own evidence, and evaluating a capability-bearing
+more terms, each with its own answer and evidence, and evaluating a capability-bearing
 term may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
 document proposes:
 
-- **Default grain: one row per package.** Multiple matched terms collapse
-  into a single `Evidence` column, reusing the existing "evidence over
-  checkmark" convention already established for Performance Triage and
-  `package-opportunities.ts`, and already mirrored by the just-landed browser
-  scaffold's `QueryResultRow.evidence` (a non-empty list, never a bare
-  pass/fail). The CLI and the browser experience should render the *same*
-  evidence strings for the same match — one fact, one wording, two renderers
-  — not two independently authored explanations of why a package matched.
+- **Default grain: one row per package.** Multiple matched terms produce an
+  ordered semantic `Answer` vector and separate structured `Evidence`. The
+  query layer retrieves values, facts, and counts; it never authors
+  explanatory text. CLI and Browser consume the same typed values and each host
+  may render presentation suited to its surface without re-deriving semantic
+  identity.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
@@ -775,7 +774,8 @@ the product's named terms as canonical for both hosts.
 3. **Product-owned query contract — implemented in the current sources.**
    `PackageQuery` composes package acquisition, publishes stable ordered term
    descriptors, resolves complete Portable Query Intents, and streams matched
-   package rows with product-authored evidence and honest completion.
+   package rows with semantic answers, structured evidence, and honest
+   completion.
    Search-metadata terms skip manifests, nuspec terms need no package payload,
    and package-content terms require an explicit host provider and at most 20
    candidates. `PackageQueryTests` and

@@ -422,9 +422,12 @@ function renderRow(
   rowCount: number,
   escapeHtml: (value: unknown) => string,
 ): string {
+  const answers = row.answers
+    .map(item => `<span class="query-answer">${escapeHtml(item.value)}</span>`)
+    .join("");
   const evidence = row.evidence
     .filter(item => item.scope === "package")
-    .map(item => `<li>${escapeHtml(item.text)}</li>`)
+    .map(item => `<li>${escapeHtml(formatEvidence(item))}</li>`)
     .join("");
   const openAction =
     `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>`;
@@ -444,6 +447,7 @@ function renderRow(
       ${row.description?.trim()
         ? `<p class="query-row-description">${escapeHtml(row.description)}</p>`
         : ""}
+      ${answers ? `<p class="query-answers">${answers}</p>` : ""}
       ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
         <span>${row.totalDownloads === null
@@ -463,11 +467,93 @@ function renderQueryContext(
 ): string {
   const evidence = rows[0]?.evidence
     .filter(item => item.scope === "query")
-    .map(item => `<li>${escapeHtml(item.text)}</li>`)
+    .map(item => `<li>${escapeHtml(formatEvidence(item))}</li>`)
     .join("") ?? "";
   return evidence
     ? `<section class="query-context" aria-label="Query context"><h2>Query context</h2><ul class="query-evidence">${evidence}</ul></section>`
     : "";
+}
+
+function formatEvidence(
+  evidence: QueryResultRow["evidence"][number],
+): string {
+  const property = (name: string): string | null =>
+    evidence.properties.find(item => item.name === name)?.value ?? null;
+  switch (evidence.id) {
+    case "package.query.scope.prefix":
+      return `Prefix: ${property("prefix") ?? ""}`;
+    case "package.query.scope.exact-package":
+      return `Package: ${property("package") ?? ""}`;
+    case "dependencies":
+      return formatEvidenceSummary(
+        evidence.summary,
+        "dependency",
+        "dependencies");
+    case "dependency-target": {
+      const target = property("target");
+      if (target !== null)
+        return `Dependency target: ${target}`;
+      const requested = property("requested-target") ?? "";
+      const status = property("selection-status") ?? "";
+      const selected = property("selected-group");
+      return selected === null
+        ? `Dependency target: ${requested} (${status})`
+        : `Dependency target: ${requested} -> ${selected} (${status})`;
+    }
+    case "depends":
+      return formatEvidenceSummary(
+        evidence.summary,
+        "dependency declaration",
+        "dependency declarations");
+    case "downloads":
+      return `Downloads: ${evidence.number?.toLocaleString() ?? ""}`;
+    case "license":
+      return `Nuspec license ${property("declaration-kind") ?? ""}: `
+        + (property("declaration-value") ?? "");
+    case "readme":
+      return `README: ${property("path") ?? ""}`;
+    case "tool":
+      return `Package type: ${property("package-type") ?? ""}`;
+    case "tool-format":
+      return `.NET tool settings version: ${property("settings-version") ?? ""}`;
+    case "skill":
+      return formatEvidenceSummary(
+        evidence.summary,
+        "skill document",
+        "skill documents");
+    case "selected-assembly":
+      return `${property("path") ?? ""}: `
+        + `${property("literal-use-count") ?? "0"} literal uses; `
+        + `${property("unevaluated-sibling-count") ?? "0"} sibling assemblies not evaluated.`;
+    case "literal-use":
+      return `Method ${property("method-token") ?? ""}, `
+        + `${property("il-offset") ?? ""}: ${property("excerpt") ?? ""}`;
+    default: {
+      const rawValue = property("value");
+      if (rawValue !== null && evidence.properties.length === 1)
+        return rawValue;
+      const values = evidence.properties
+        .map(item => `${item.name}: ${item.value}`)
+        .join(", ");
+      return values || evidence.id;
+    }
+  }
+}
+
+function formatEvidenceSummary(
+  summary: QueryResultRow["evidence"][number]["summary"],
+  singular: string,
+  plural: string,
+): string {
+  if (summary === null)
+    return "";
+  const heading = `${summary.count} ${summary.count === 1 ? singular : plural}`;
+  if (summary.preview.length === 0)
+    return heading;
+  const remaining = summary.count - summary.preview.length;
+  return remaining > 0
+    ? `${heading}: ${summary.preview.join(", ")} (+${remaining} more)`
+    : `${heading}: ${summary.preview.join(", ")}`;
 }
 
 function renderPreset(

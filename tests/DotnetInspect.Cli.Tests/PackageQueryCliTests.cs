@@ -25,7 +25,18 @@ public class PackageQueryCliTests
         return new(
             new PackageQueryPackage(text, text, [], null, null, source.Source),
             PackageQueryAcquisitionTier.Nuspec,
-            [new(PackageQuery.DependsTermKey, new InertString(TextPolicy.Field, text))]);
+            [new(PackageQuery.DependsTermKey, new InertString(TextPolicy.Field, text))],
+            [
+                new(PackageQuery.DependsTermKey)
+                {
+                    Properties =
+                    [
+                        new(
+                            "value",
+                            new InertString(TextPolicy.Field, text)),
+                    ],
+                },
+            ]);
     }
 
     [Fact]
@@ -617,11 +628,38 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains(
-            "License OSMF is identified by nuspec file: OSMFEULA.txt.",
+            "\tOSMF\t",
+            result.Output);
+        Assert.Contains(
+            "Nuspec license File: OSMFEULA.txt",
             result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
+
+        using var jsonSource = Source(out var jsonFixture);
+        var jsonResult = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                options! with
+                {
+                    JsonOutput = true,
+                    Tabular = false,
+                    Tsv = false,
+                },
+                jsonSource,
+                null));
+
+        Assert.Equal(0, jsonResult.ExitCode);
+        using var json = JsonDocument.Parse(jsonResult.Output);
+        JsonElement row = Assert.Single(
+            json.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.Equal("OSMF", row.GetProperty("answer").GetString());
+        Assert.Contains(
+            "OSMFEULA.txt",
+            row.GetProperty("evidence").GetString());
+        Assert.Equal(3, jsonFixture.ManifestRequests);
+        Assert.Equal(0, jsonFixture.PackageRequests);
+        Assert.Empty(jsonResult.Error);
     }
 
     [Fact]

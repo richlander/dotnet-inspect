@@ -120,18 +120,21 @@ function row(packageId: string): QueryResultRow {
     packageId,
     version: "1.0.0",
     tier: "nuspec",
+    answers: [],
     evidence: [
       {
         id: "test.framework.net45",
-        text: "net45",
         scope: "package",
         summary: null,
+        properties: [{ name: "value", value: "net45" }],
+        number: null,
       },
       {
         id: "test.framework.net461",
-        text: "net461",
         scope: "package",
         summary: null,
+        properties: [{ name: "value", value: "net461" }],
+        number: null,
       },
     ],
     totalDownloads: 4200,
@@ -311,9 +314,13 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
             totalDownloads,
             evidence: [{
               id: "producer.source-selection",
-              text: "Source selection and order from the producer",
               scope: "query",
               summary: null,
+              properties: [{
+                name: "value",
+                value: "Source selection and order from the producer",
+              }],
+              number: null,
             }],
           },
           {
@@ -322,9 +329,13 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
             totalDownloads,
             evidence: [{
               id: "producer.source-selection",
-              text: "Source selection and order from the producer",
               scope: "query",
               summary: null,
+              properties: [{
+                name: "value",
+                value: "Source selection and order from the producer",
+              }],
+              number: null,
             }],
           },
         ]),
@@ -385,9 +396,10 @@ test("a large outcome mounts only the scrolled row window while retaining total 
 test("query context renders once while package summaries remain on their cards", () => {
   const queryEvidence = {
     id: "producer.source-selection",
-    text: "Selected by producer ranking.",
     scope: "query" as const,
     summary: null,
+    properties: [{ name: "value", value: "Selected by producer ranking." }],
+    number: null,
   };
   const first = {
     ...row("Contoso.First"),
@@ -395,12 +407,13 @@ test("query context renders once while package summaries remain on their cards",
       queryEvidence,
       {
         id: "depends",
-        text: "4 dependencies: A, B, C (+1 more).",
         scope: "package" as const,
         summary: {
           count: 4,
           preview: ["A", "B", "C"],
         },
+        properties: [],
+        number: null,
       },
     ] as const,
   };
@@ -410,12 +423,13 @@ test("query context renders once while package summaries remain on their cards",
       queryEvidence,
       {
         id: "skill",
-        text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
         scope: "package" as const,
         summary: {
           count: 2,
           preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
         },
+        properties: [],
+        number: null,
       },
     ] as const,
   };
@@ -433,7 +447,7 @@ test("query context renders once while package summaries remain on their cards",
   assert.match(
     html,
     /<section class="query-context"[\s\S]*Selected by producer ranking\.[\s\S]*<div class="query-list"/);
-  assert.equal((html.match(/4 dependencies: A, B, C \(\+1 more\)\./g)
+  assert.equal((html.match(/4 dependency declarations: A, B, C \(\+1 more\)/g)
     ?? []).length, 1);
   assert.equal((html.match(/2 skill documents:/g) ?? []).length, 1);
   assert.doesNotMatch(

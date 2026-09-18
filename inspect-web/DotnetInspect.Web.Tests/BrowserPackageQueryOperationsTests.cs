@@ -331,6 +331,7 @@ public sealed class BrowserPackageQueryOperationsTests
                     new PackageQueryMatch(
                         profile,
                         PackageQueryAcquisitionTier.Nuspec,
+                        [],
                         [])));
         string expectedProducer =
             source.Source.Producer.Display.ToString();
@@ -434,11 +435,12 @@ public sealed class BrowserPackageQueryOperationsTests
             package,
             PackageQueryAcquisitionTier.PackageContent,
             [
-                new PackageQueryEvidence(
+                new PackageQueryAnswer(
                     PackageQuery.SkillTermKey,
-                    new InertString(
-                        TextPolicy.Prose,
-                        "2 skill documents: skills/SKILL.md, skills/build/SKILL.md."))
+                    new InertString(TextPolicy.Field, "true")),
+            ],
+            [
+                new PackageQueryEvidence(PackageQuery.SkillTermKey)
                 {
                     Scope = PackageQueryEvidenceScope.Package,
                     Summary = new PackageQueryEvidenceSummary(
@@ -450,13 +452,15 @@ public sealed class BrowserPackageQueryOperationsTests
                                 "skills/build/SKILL.md"),
                         ]),
                 },
-                new PackageQueryEvidence(
-                    "package.query.source-selection",
-                    new InertString(
-                        TextPolicy.Prose,
-                        "Selected by producer ranking."))
+                new PackageQueryEvidence("package.query.source-selection")
                 {
                     Scope = PackageQueryEvidenceScope.Query,
+                    Properties =
+                    [
+                        new(
+                            "producer",
+                            new InertString(TextPolicy.Field, "nuget.org")),
+                    ],
                 },
             ]);
         var failure = new PackageQueryFailure(
@@ -476,6 +480,9 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.PackageContent,
             projectedMatch.Row!.Tier);
+        Assert.Equal(
+            "true",
+            Assert.Single(projectedMatch.Row.Answers).Value);
         Assert.Collection(
             projectedMatch.Row.Evidence,
             evidence =>
@@ -522,13 +529,26 @@ public sealed class BrowserPackageQueryOperationsTests
             package,
             PackageQueryAcquisitionTier.Nuspec,
             [
-                new PackageQueryEvidence(
+                new PackageQueryAnswer(
                     "depends",
                     new InertString(
-                        TextPolicy.Prose,
-                        "Direct dependency Microsoft.Extensions.Hosting [10.0.0, )."))
+                        TextPolicy.Field,
+                        "Microsoft.Extensions.Hosting"))
                 {
                     Term = term,
+                },
+            ],
+            [
+                new PackageQueryEvidence("depends")
+                {
+                    Term = term,
+                    Summary = new PackageQueryEvidenceSummary(
+                        1,
+                        [
+                            new InertString(
+                                TextPolicy.Field,
+                                "any: Microsoft.Extensions.Hosting [10.0.0, )"),
+                        ]),
                 },
             ]);
 
@@ -587,6 +607,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 "Contoso.Unicode",
                 "1.0.0",
                 BrowserPackageQueryAcquisitionTier.Nuspec,
+                Answers: [],
                 Evidence: [],
                 TotalDownloads: null,
                 Verified: null,
@@ -1184,10 +1205,12 @@ public sealed class BrowserPackageQueryOperationsTests
             Row: new BrowserPackageQueryRow(
                 "Contoso.Match", "1.0.0",
                 BrowserPackageQueryAcquisitionTier.Assembly,
+                [],
                 [new BrowserPackageQueryEvidence(
                     "il-string-literal-contains",
-                    "Matched.",
                     BrowserPackageQueryEvidenceScope.Package,
+                    null,
+                    [new("value", "Matched.")],
                     null)],
                 TotalDownloads: null,
                 Verified: null,
@@ -1439,10 +1462,20 @@ public sealed class BrowserPackageQueryOperationsTests
             new PackageQueryMatch(
                 package,
                 PackageQueryAcquisitionTier.Nuspec,
+                [],
                 [
                     new PackageQueryEvidence(
-                        "package.query.source-verified",
-                        new InertString(TextPolicy.Prose, "Matched.")),
+                        "package.query.source-verified")
+                    {
+                        Properties =
+                        [
+                            new(
+                                "value",
+                                new InertString(
+                                    TextPolicy.Field,
+                                    "Matched")),
+                        ],
+                    },
                 ]));
     }
 

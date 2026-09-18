@@ -365,11 +365,21 @@ public sealed record BrowserPackageQueryEvidenceSummary(
     int Count,
     string[] Preview);
 
+public sealed record BrowserPackageQueryAnswer(
+    string Id,
+    string Value,
+    BrowserPackageQueryTerm? Term = null);
+
+public sealed record BrowserPackageQueryEvidenceProperty(
+    string Name,
+    string Value);
+
 public sealed record BrowserPackageQueryEvidence(
     string Id,
-    string Text,
     BrowserPackageQueryEvidenceScope Scope,
     BrowserPackageQueryEvidenceSummary? Summary,
+    BrowserPackageQueryEvidenceProperty[] Properties,
+    long? Number,
     BrowserPackageQueryTerm? Term = null);
 
 public sealed record BrowserPackageQueryDeclaredDependency(
@@ -411,6 +421,7 @@ public sealed record BrowserPackageQueryRow(
     string PackageId,
     string Version,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryAnswer[] Answers,
     BrowserPackageQueryEvidence[] Evidence,
     long? TotalDownloads,
     bool? Verified,

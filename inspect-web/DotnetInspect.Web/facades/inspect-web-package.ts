@@ -634,10 +634,22 @@ export interface BrowserPackageQueryEvent {
 
 export interface BrowserPackageQueryEvidence {
   readonly id: string;
-  readonly text: string;
   readonly scope: BrowserPackageQueryEvidenceScope;
   readonly summary: BrowserPackageQueryEvidenceSummary | null;
+  readonly properties: ReadonlyArray<BrowserPackageQueryEvidenceProperty>;
+  readonly number: number | null;
   readonly term: BrowserPackageQueryTerm | null;
+}
+
+export interface BrowserPackageQueryAnswer {
+  readonly id: string;
+  readonly value: string;
+  readonly term: BrowserPackageQueryTerm | null;
+}
+
+export interface BrowserPackageQueryEvidenceProperty {
+  readonly name: string;
+  readonly value: string;
 }
 
 export interface BrowserPackageQueryEvidenceSummary {
@@ -721,6 +733,7 @@ export interface BrowserPackageQueryRow {
   readonly packageId: string;
   readonly version: string;
   readonly tier: BrowserPackageQueryAcquisitionTier;
+  readonly answers: ReadonlyArray<BrowserPackageQueryAnswer>;
   readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
   readonly totalDownloads: number | null;
   readonly verified: boolean | null;
@@ -1509,4 +1522,3 @@ export function searchTypes(query: string, candidatesJson: string): ReadonlyArra
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
-

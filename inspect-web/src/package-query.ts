@@ -247,9 +247,13 @@ interface QueryEvidenceSummary {
 
 interface QueryEvidence {
   id: string;
-  text: string;
   scope: QueryEvidenceScope;
   summary: QueryEvidenceSummary | null;
+  properties: readonly {
+    name: string;
+    value: string;
+  }[];
+  number: number | null;
   term?: {
     key: string;
     operator: string;
@@ -257,15 +261,25 @@ interface QueryEvidence {
   } | null;
 }
 
-/** One package's projection plus product-authored evidence. Query-scoped
- * evidence supplies shared selection context; package-scoped evidence
- * describes inspected facts for this row. The non-empty tuple preserves
- * meaningful context even for metadata-only rows. */
+interface QueryAnswer {
+  id: string;
+  value: string;
+  term?: {
+    key: string;
+    operator: string;
+    value: string;
+  } | null;
+}
+
+/** One package's projection plus semantic answers and structured evidence.
+ * Query-scoped evidence supplies shared selection context; package-scoped
+ * evidence describes inspected facts for this row. */
 export interface QueryResultRow {
   packageId: string;
   version: string;
   tier: "search-metadata" | "nuspec" | "package-content" | "assembly";
-  evidence: readonly [QueryEvidence, ...QueryEvidence[]];
+  answers: readonly QueryAnswer[];
+  evidence: readonly QueryEvidence[];
   totalDownloads: number | null;
   description?: string | null;
   producer?: string;

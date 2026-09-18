@@ -115,11 +115,25 @@ function packageEvidence(
   text: string,
   summary: { count: number; preview: string[] } | null = null,
 ) {
-  return { id, text, scope: "Package" as const, summary, term: null };
+  return {
+    id,
+    scope: "Package" as const,
+    summary,
+    properties: [{ name: "value", value: text }],
+    number: null,
+    term: null,
+  };
 }
 
 function queryEvidence(id: string, text: string) {
-  return { id, text, scope: "Query" as const, summary: null, term: null };
+  return {
+    id,
+    scope: "Query" as const,
+    summary: null,
+    properties: [{ name: "value", value: text }],
+    number: null,
+    term: null,
+  };
 }
 
 async function runCompletion(
@@ -366,11 +380,16 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
         totalDownloads,
         description: null,
         producer: "nuget.org",
+        answers: [],
         evidence: [{
           id: "package.query.scope.prefix",
-          text: "Package ID matches prefix \"Contoso.\".",
           scope: "query",
           summary: null,
+          properties: [{
+            name: "value",
+            value: "Package ID matches prefix \"Contoso.\".",
+          }],
+          number: null,
         }],
       }]);
     }
@@ -413,9 +432,13 @@ test("V3 rows preserve structured product term attribution", async () => {
 
   assert.deepEqual(rows[0]?.evidence, [{
     id: "depends",
-    text: "Direct dependency matches Microsoft.Extensions.Hosting.",
     scope: "package",
     summary: null,
+    properties: [{
+      name: "value",
+      value: "Direct dependency matches Microsoft.Extensions.Hosting.",
+    }],
+    number: null,
     term: {
       key: "depends",
       operator: "eq",
@@ -491,7 +514,7 @@ test("exact package completion remains distinct for zero or one source candidate
   }
 });
 
-test("streamed metadata admission rejects unknown tiers, malformed metadata, and empty evidence", async () => {
+test("streamed metadata admission rejects unknown tiers and malformed typed data", async () => {
   const invalidRows = [
     { ...toolMatchEvent.row!, tier: "UnknownTier" },
     { ...toolMatchEvent.row!, totalDownloads: "unavailable" },
@@ -500,14 +523,9 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     { ...toolMatchEvent.row!, verified: undefined },
     { ...toolMatchEvent.row!, description: undefined },
     { ...toolMatchEvent.row!, description: 123 },
+    { ...toolMatchEvent.row!, answers: "not an array" },
     { ...toolMatchEvent.row!, owners: "Contoso" },
     { ...toolMatchEvent.row!, manifest: {} },
-    { ...toolMatchEvent.row!, tier: "SearchMetadata", evidence: [] },
-    {
-      ...toolMatchEvent.row!,
-      tier: "SearchMetadata",
-      evidence: [queryEvidence("producer.source", " ")],
-    },
     {
       ...toolMatchEvent.row!,
       evidence: [{
@@ -529,6 +547,20 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
         summary: { count: 1, preview: "not an array" },
       }],
     },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        properties: "not an array",
+      }],
+    },
+    {
+      ...toolMatchEvent.row!,
+      evidence: [{
+        ...packageEvidence("package.summary", "Matched."),
+        number: "not a number",
+      }],
+    },
   ];
   for (const row of invalidRows) {
     const engine: BrowserPackageQueryEngine = {
@@ -543,7 +575,7 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
       createBrowserPackageQueryDataSource(engine).run(
         createQueryRequest("Contoso.*"),
         () => {}, () => {}, () => {}, new AbortController().signal),
-      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|no evidence|Unknown package-query evidence scope|evidence preview was not an array|owners were not an array|manifest package types were not an array/);
+      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|Unknown package-query evidence scope|evidence preview was not an array|answers were not an array|evidence properties were not an array|owners were not an array|manifest package types were not an array/);
   }
 });
 
@@ -557,6 +589,7 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
     packageId: "Contoso.Tool",
     version: "2.0.0",
     tier: "PackageContent",
+    answers: [],
     evidence: [packageEvidence(
       "tool-format",
       "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
@@ -777,12 +810,16 @@ test("Browser data source maps package-content rows and visible failures", async
   assert.equal(rows[0]?.tier, "package-content");
   assert.deepEqual(rows[0]?.evidence, [{
     id: "tool-format",
-    text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
     scope: "package",
     summary: {
       count: 2,
       preview: ["skills/SKILL.md", "skills/build/SKILL.md"],
     },
+    properties: [{
+      name: "value",
+      value: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
+    }],
+    number: null,
   }]);
   assert.deepEqual(
     failures,
@@ -813,6 +850,7 @@ test("Browser data source streams matches and failures before terminal completio
       packageId: "Microsoft.Extensions.Hosting",
       version: "10.0.0",
       tier: "Nuspec",
+      answers: [],
       evidence: [packageEvidence(
         "readme",
         "Embedded README")],

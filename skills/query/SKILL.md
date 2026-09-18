@@ -209,7 +209,9 @@ the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 formats are ORed. `license=any|MIT|OSMF` is nuspec-only: `any` tests declaration
 presence, `MIT` matches the exact SPDX expression, and `OSMF` matches the
 declared `OSMFEULA.*` basename without reading the file. Query rows represent
-individual packages with exact versions and typed facts. Dependency predicates
+individual packages with exact versions, semantic answers, and structured
+evidence. Queries retrieve values and counts; hosts render any explanatory
+text. Dependency predicates
 inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope

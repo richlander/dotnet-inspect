@@ -168,7 +168,6 @@ public sealed class PackageQueryPlan
     internal PackageQueryPlan(
         PortableQueryIntent intent,
         InertString prefix,
-        InertString prefixEvidence,
         ImmutableArray<BoundPackageQueryTerm> terms,
         PackageQueryDependencyTarget dependencyTarget,
         int maximumCandidates,
@@ -179,7 +178,6 @@ public sealed class PackageQueryPlan
     {
         Intent = intent;
         Prefix = prefix;
-        PrefixEvidence = prefixEvidence;
         BoundTerms = terms;
         Terms = [.. terms.Select(term => term.Term)];
         DependencyTarget = dependencyTarget;
@@ -209,7 +207,6 @@ public sealed class PackageQueryPlan
             term.Descriptor.Tier is PackageQueryAcquisitionTier.Nuspec
                 or PackageQueryAcquisitionTier.PackageContent);
 
-    internal InertString PrefixEvidence { get; }
     internal ImmutableArray<BoundPackageQueryTerm> BoundTerms { get; }
     internal bool HasDependencyPredicate =>
         BoundTerms.Any(term =>
@@ -234,28 +231,47 @@ public sealed record PackageQueryEvidenceSummary(
     int Count,
     ImmutableArray<InertString> Preview);
 
-/// <summary>One product-authored explanation for a package-query match.</summary>
-public sealed record PackageQueryEvidence(
+/// <summary>One semantic answer produced by a matched package-query term.</summary>
+public sealed record PackageQueryAnswer(
     string Id,
-    InertString Text)
+    InertString ValueText)
+{
+    public PortableQueryTerm? Term { get; init; }
+    public string Value => ValueText.ToString();
+}
+
+/// <summary>One named structured fact supporting a package-query answer.</summary>
+public sealed record PackageQueryEvidenceProperty(
+    string Name,
+    InertString ValueText)
+{
+    public string Value => ValueText.ToString();
+}
+
+/// <summary>Structured supporting data for a package-query match.</summary>
+public sealed record PackageQueryEvidence(
+    string Id)
 {
     public PackageQueryEvidenceScope Scope { get; init; }
     public PackageQueryEvidenceSummary? Summary { get; init; }
+    public ImmutableArray<PackageQueryEvidenceProperty> Properties { get; init; } = [];
+    public long? Number { get; init; }
     public PortableQueryTerm? Term { get; init; }
-    public string Value => Text.ToString();
 }
 
 /// <summary>One package that satisfied every selected package-query term.</summary>
 public sealed record PackageQueryMatch(
     PackageQueryPackage Package,
     PackageQueryAcquisitionTier Tier,
+    ImmutableArray<PackageQueryAnswer> Answers,
     ImmutableArray<PackageQueryEvidence> Evidence)
 {
     public PackageQueryMatch(
         PackageProfileMatch Package,
         PackageQueryAcquisitionTier Tier,
+        ImmutableArray<PackageQueryAnswer> Answers,
         ImmutableArray<PackageQueryEvidence> Evidence)
-        : this(new PackageQueryPackage(Package), Tier, Evidence)
+        : this(new PackageQueryPackage(Package), Tier, Answers, Evidence)
     {
     }
 }
@@ -381,9 +397,9 @@ internal sealed record BoundPackageQueryTerm(
     PortableQueryTerm Term,
     PackageQueryPredicate Predicate);
 
-internal sealed record PackageQueryTermEvidence(
-    InertString Text,
-    PackageQueryEvidenceSummary? Summary = null);
+internal sealed record PackageQueryTermResult(
+    PackageQueryAnswer Answer,
+    PackageQueryEvidence Evidence);
 
 internal sealed record PackageQueryDependencySelection(
     PackageQueryDependencyTarget Target,
@@ -1070,6 +1086,8 @@ public static partial class PackageQuery
                     if (!TryMatchManifest(
                         plan,
                         match.Value,
+                        out ImmutableArray<PackageQueryAnswer>.Builder
+                            answers,
                         out ImmutableArray<PackageQueryEvidence>.Builder
                             evidence))
                         continue;
@@ -1157,6 +1175,7 @@ public static partial class PackageQuery
                             plan,
                             match.Value,
                             facts,
+                            answers,
                             evidence))
                         {
                             continue;
@@ -1172,6 +1191,7 @@ public static partial class PackageQuery
                                 : match.Value.Manifest is not null
                                     ? PackageQueryAcquisitionTier.Nuspec
                                     : PackageQueryAcquisitionTier.SearchMetadata,
+                            answers.ToImmutable(),
                             evidence.ToImmutable()));
                     cancellationToken.ThrowIfCancellationRequested();
                     if (plan.MaximumMatches is int maximumMatches
@@ -1236,8 +1256,11 @@ public static partial class PackageQuery
     static bool TryMatchManifest(
         PackageQueryPlan plan,
         PackageQueryPackage match,
+        out ImmutableArray<PackageQueryAnswer>.Builder answers,
         out ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
+        answers = ImmutableArray.CreateBuilder<PackageQueryAnswer>(
+            plan.BoundTerms.Length);
         evidence = ImmutableArray.CreateBuilder<PackageQueryEvidence>(
             plan.BoundTerms.Length + 1);
         AddScopeEvidence(plan, evidence);
@@ -1285,6 +1308,7 @@ public static partial class PackageQuery
                     match,
                     content: null,
                     dependencySelection,
+                    answers,
                     evidence);
             }
         }
@@ -1296,6 +1320,7 @@ public static partial class PackageQuery
         PackageQueryPlan plan,
         PackageQueryPackage match,
         PackageContentFacts content,
+        ImmutableArray<PackageQueryAnswer>.Builder answers,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
@@ -1337,6 +1362,7 @@ public static partial class PackageQuery
                     match,
                     content,
                     dependencySelection: null,
+                    answers,
                     evidence);
             }
         }
@@ -1624,61 +1650,6 @@ public static partial class PackageQuery
             : selection.SelectedGroup is { } selected
                 ? [selected]
                 : [];
-    static PackageQueryTermEvidence DescribeDependencies(
-        PackageQueryDependencySelection selection) =>
-        DescribeItems(
-            SummarizeItems(
-                SelectedDependencyGroups(selection)
-                    .SelectMany(group => group.Dependencies)
-                    .Select(dependency => dependency.Id),
-                StringComparer.OrdinalIgnoreCase),
-            "dependency",
-            "dependencies");
-
-    static PackageQueryTermEvidence DescribeDependencyTarget(
-        PackageQueryDependencySelection selection)
-    {
-        if (selection.Target.Kind == PackageQueryDependencyTargetKind.All)
-        {
-            return Describe(
-                "Dependency predicates include all package manifest groups.");
-        }
-
-        string requested =
-            selection.Target.RequestedTargetFramework
-            ?? throw new InvalidOperationException(
-                "A target-framework dependency scope requires its requested framework.");
-        InertString requestedText = new(TextPolicy.Field, requested);
-        return selection.SelectionStatus switch
-        {
-            PackageDependencyGroupSelectionStatus.Selected =>
-                new PackageQueryTermEvidence(
-                    InertString.Format(
-                        TextPolicy.Prose,
-                        $"Dependency target {requestedText} selected manifest group {DependencyGroupText(selection.SelectedGroup!)}.")),
-            PackageDependencyGroupSelectionStatus.NoDependencyGroups =>
-                new PackageQueryTermEvidence(
-                    InertString.Format(
-                        TextPolicy.Prose,
-                        $"Dependency target {requestedText} found no declared dependency groups.")),
-            PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework =>
-                new PackageQueryTermEvidence(
-                    InertString.Format(
-                        TextPolicy.Prose,
-                        $"Dependency target {requestedText} matched no declared dependency group.")),
-            _ => throw new InvalidOperationException(
-                "Unknown dependency-group selection status."),
-        };
-    }
-
-    static InertString DependencyGroupText(
-        DeclaredPackageDependencyGroup group) =>
-        new(
-            TextPolicy.Field,
-            string.IsNullOrWhiteSpace(group.TargetFramework)
-                ? "any"
-                : group.TargetFramework,
-            MaximumEvidencePreviewCharacters);
 
     static string DescribeDependencyMatch(
         PackageQueryDependencyMatch match)
@@ -1690,18 +1661,6 @@ public static partial class PackageQuery
         return $"{group}: {match.Dependency.Id} "
             + match.Dependency.VersionRange;
     }
-
-    static PackageQueryTermEvidence DescribeToolFormat(
-        string? settingsVersion) =>
-        settingsVersion switch
-        {
-            "1" => Describe(
-                "DotnetToolSettings.xml declares the portable .NET tool CLI v1 format."),
-            "2" => Describe(
-                "DotnetToolSettings.xml declares the RID-specific .NET tool CLI v2 format."),
-            _ => Describe(
-                "The package manifest declares a .NET tool, but its settings do not identify CLI v1 or CLI v2."),
-        };
 
     static PackageQueryEvidenceSummary SummarizeItems(
         IEnumerable<string> items,
@@ -1717,48 +1676,70 @@ public static partial class PackageQuery
             ]);
     }
 
-    static PackageQueryTermEvidence DescribeItems(
-        PackageQueryEvidenceSummary summary,
-        string singular,
-        string plural)
-    {
-        string heading = $"{summary.Count.ToString(CultureInfo.InvariantCulture)} "
-            + Pluralize(summary.Count, singular, plural);
-        if (summary.Preview.IsEmpty)
-            return new PackageQueryTermEvidence(Evidence(heading + "."), summary);
-
-        InertString preview = InertString.Join(", ", TextPolicy.Prose, [.. summary.Preview]);
-        int remaining = summary.Count - summary.Preview.Length;
-        InertString text = remaining > 0
-            ? InertString.Format(TextPolicy.Prose,
-                $"{heading}: {preview} (+{remaining.ToString(CultureInfo.InvariantCulture)} more).")
-            : InertString.Format(TextPolicy.Prose, $"{heading}: {preview}.");
-        return new PackageQueryTermEvidence(text, summary);
-    }
-
-    static PackageQueryTermEvidence Describe(string text) => new(Evidence(text));
-
-    static PackageQueryEvidence CreateTermEvidence(
+    static PackageQueryTermResult CreateTermResult(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
         PackageContentFacts? content,
         PackageQueryDependencySelection? dependencySelection)
     {
-        PackageQueryTermEvidence description = term.Predicate.Kind switch
+        var answer = new PackageQueryAnswer(
+            term.Descriptor.Key,
+            new InertString(
+                TextPolicy.Field,
+                term.Predicate.Kind switch
+                {
+                    PackageQueryPredicateKind.NoDependencies => "none",
+                    PackageQueryPredicateKind.DependencyTarget =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Dependency-target answers require a bound target."),
+                    PackageQueryPredicateKind.Depends =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Dependency answers require a bound package ID."),
+                    PackageQueryPredicateKind.Downloads => term.Term.Value,
+                    PackageQueryPredicateKind.License =>
+                        term.Predicate.Text switch
+                        {
+                            "any" => "true",
+                            { } identity => identity,
+                            null => throw new InvalidOperationException(
+                                "License answers require a bound identity."),
+                        },
+                    PackageQueryPredicateKind.Readme => "true",
+                    PackageQueryPredicateKind.Tool => "true",
+                    PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.Skill => "true",
+                    _ => throw new InvalidOperationException(
+                        "A structural Package Query term reached answer production."),
+                }))
+        {
+            Term = term.Term,
+        };
+        PackageQueryEvidence evidence = term.Predicate.Kind switch
         {
             PackageQueryPredicateKind.NoDependencies =>
-                DescribeDependencies(
-                    dependencySelection
-                    ?? throw new InvalidOperationException(
-                        "Dependency evidence requires one dependency selection.")),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeItems(
+                        SelectedDependencyGroups(
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))
+                            .SelectMany(group => group.Dependencies)
+                            .Select(dependency => dependency.Id),
+                        StringComparer.OrdinalIgnoreCase),
+                },
             PackageQueryPredicateKind.DependencyTarget =>
-                DescribeDependencyTarget(
+                DependencyTargetEvidence(
+                    term.Descriptor.Key,
                     dependencySelection
                     ?? throw new InvalidOperationException(
                         "Dependency-target evidence requires one dependency selection.")),
             PackageQueryPredicateKind.Depends =>
-                DescribeItems(
-                    SummarizeItems(
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeItems(
                         MatchingDependencies(
                             term,
                             dependencySelection
@@ -1766,41 +1747,60 @@ public static partial class PackageQuery
                                 "Dependency evidence requires one dependency selection."))
                             .Select(DescribeDependencyMatch),
                         StringComparer.Ordinal),
-                    "dependency declaration",
-                    "dependency declarations"),
+                },
             PackageQueryPredicateKind.Downloads =>
-                Describe(
-                    $"The package source reports {package.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads."),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Number = package.TotalDownloads
+                        ?? throw new InvalidOperationException(
+                            "Download evidence requires a source count."),
+                },
             PackageQueryPredicateKind.License =>
-                DescribeLicense(
+                LicenseEvidence(
+                    term.Descriptor.Key,
                     package.RequiredManifest.LicenseDeclaration
                     ?? throw new InvalidOperationException(
-                        "License evidence requires a nuspec declaration."),
-                    term.Predicate.Text
-                    ?? throw new InvalidOperationException(
-                        "License evidence requires a bound identity.")),
+                        "License evidence requires a nuspec declaration.")),
             PackageQueryPredicateKind.Readme =>
-                Describe(
-                    "The package manifest declares an embedded README file."),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Properties =
+                    [
+                        Property(
+                            "path",
+                            package.RequiredManifest.ReadmeFile
+                            ?? throw new InvalidOperationException(
+                                "README evidence requires a declared path.")),
+                    ],
+                },
             PackageQueryPredicateKind.Tool =>
-                Describe(
-                    "The package manifest declares the .NET tool package type."),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Properties = [Property("package-type", "DotnetTool")],
+                },
             PackageQueryPredicateKind.ToolFormat =>
-                DescribeToolFormat(
-                    content?.ToolSettingsVersion
-                    ?? throw new InvalidOperationException(
-                        ".NET tool format evidence requires package-content facts.")),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Properties =
+                    [
+                        Property(
+                            "settings-version",
+                            content?.ToolSettingsVersion
+                            ?? throw new InvalidOperationException(
+                                ".NET tool format evidence requires package-content facts.")),
+                    ],
+                },
             PackageQueryPredicateKind.Skill =>
-                DescribeItems(
-                    content?.SkillDocuments
-                    ?? throw new InvalidOperationException(
-                        "Skill-document evidence requires package-content facts."),
-                    "skill document",
-                    "skill documents"),
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = content?.SkillDocuments
+                        ?? throw new InvalidOperationException(
+                            "Skill-document evidence requires package-content facts."),
+                },
             _ => throw new InvalidOperationException(
                 "A structural Package Query term reached evidence production."),
         };
-        return new PackageQueryEvidence(term.Descriptor.Key, description.Text)
+        evidence = evidence with
         {
             Scope = term.Predicate.Kind
                     == PackageQueryPredicateKind.DependencyTarget
@@ -1808,60 +1808,97 @@ public static partial class PackageQuery
                     == PackageQueryDependencyTargetKind.All
                     ? PackageQueryEvidenceScope.Query
                     : PackageQueryEvidenceScope.Package,
-            Summary = description.Summary,
             Term = term.Term,
+        };
+        return new PackageQueryTermResult(answer, evidence);
+    }
+
+    static PackageQueryEvidence DependencyTargetEvidence(
+        string id,
+        PackageQueryDependencySelection selection)
+    {
+        var properties =
+            ImmutableArray.CreateBuilder<PackageQueryEvidenceProperty>();
+        if (selection.Target.Kind == PackageQueryDependencyTargetKind.All)
+        {
+            properties.Add(Property("target", "all"));
+            return new PackageQueryEvidence(id)
+            {
+                Properties = properties.ToImmutable(),
+            };
+        }
+
+        properties.Add(Property(
+            "requested-target",
+            selection.Target.RequestedTargetFramework
+            ?? throw new InvalidOperationException(
+                "A target-framework dependency scope requires its requested framework.")));
+        properties.Add(Property(
+            "selection-status",
+            selection.SelectionStatus?.ToString()
+            ?? throw new InvalidOperationException(
+                "A target-framework dependency scope requires a selection status.")));
+        if (selection.SelectedGroup is { } selected)
+        {
+            properties.Add(Property(
+                "selected-group",
+                string.IsNullOrWhiteSpace(selected.TargetFramework)
+                    ? "any"
+                    : selected.TargetFramework));
+        }
+        return new PackageQueryEvidence(id)
+        {
+            Properties = properties.ToImmutable(),
         };
     }
 
-    static PackageQueryTermEvidence DescribeLicense(
-        PackageLicenseDeclaration declaration,
-        string requested)
-    {
-        string kind = declaration.Kind switch
+    static PackageQueryEvidence LicenseEvidence(
+        string id,
+        PackageLicenseDeclaration declaration) =>
+        new(id)
         {
-            PackageLicenseDeclarationKind.Expression => "expression",
-            PackageLicenseDeclarationKind.File => "file",
-            PackageLicenseDeclarationKind.Url => "URL",
-            _ => throw new InvalidOperationException(
-                "Unknown package license declaration kind."),
+            Properties =
+            [
+                Property(
+                    "declaration-kind",
+                    declaration.Kind.ToString()),
+                Property("declaration-value", declaration.Value),
+            ],
         };
-        return requested == "any"
-            ? Describe($"The package manifest declares license {kind}: {declaration.Value}.")
-            : Describe(
-                $"License {requested} is identified by nuspec {kind}: {declaration.Value}.");
-    }
 
     static void AddTermEvidence(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
         PackageContentFacts? content,
         PackageQueryDependencySelection? dependencySelection,
+        ImmutableArray<PackageQueryAnswer>.Builder answers,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
-        int insertionIndex = 1;
-        while (insertionIndex < evidence.Count
+        PackageQueryTermResult result = CreateTermResult(
+            term,
+            package,
+            content,
+            dependencySelection);
+        int answerInsertionIndex = 0;
+        while (answerInsertionIndex < answers.Count
+            && TermsByKey[answers[answerInsertionIndex].Id].Weight
+                < term.Descriptor.Weight)
+        {
+            answerInsertionIndex++;
+        }
+        answers.Insert(answerInsertionIndex, result.Answer);
+
+        int evidenceInsertionIndex = 1;
+        while (evidenceInsertionIndex < evidence.Count
             && TermsByKey.TryGetValue(
-                evidence[insertionIndex].Id,
+                evidence[evidenceInsertionIndex].Id,
                 out PackageQueryTermDescriptor? existing)
             && existing.Weight < term.Descriptor.Weight)
         {
-            insertionIndex++;
+            evidenceInsertionIndex++;
         }
-
-        evidence.Insert(
-            insertionIndex,
-            CreateTermEvidence(
-                term,
-                package,
-                content,
-                dependencySelection));
+        evidence.Insert(evidenceInsertionIndex, result.Evidence);
     }
-
-    static string Pluralize(int count, string singular, string plural) =>
-        count == 1 ? singular : plural;
-
-    static InertString Evidence(string value) =>
-        new(TextPolicy.Prose, value);
 
     static PackageQueryEvent.Progress Progress(
         PackageQueryProgressPhase phase,

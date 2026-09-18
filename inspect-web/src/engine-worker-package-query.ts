@@ -534,17 +534,39 @@ function parseEvidence(
 ): EngineWorkerPackageQueryEvidence {
   const evidence = dataRecord(
     value,
-    ["id", "text", "scope", "summary", "term"],
+    ["id", "scope", "summary", "properties", "number", "term"],
     "Package Query evidence",
   );
   return {
     id: text(evidence.id, "Package Query evidence ID", budget),
-    text: text(evidence.text, "Package Query evidence", budget),
     scope: literal(
       evidence.scope,
       ["Package", "Query"] as const,
       "Package Query evidence scope"),
     summary: parseEvidenceSummary(evidence.summary, budget),
+    properties: arrayItems(
+      evidence.properties,
+      "Package Query evidence properties",
+      budget)
+      .map(propertyValue => {
+        const property = dataRecord(
+          propertyValue,
+          ["name", "value"],
+          "Package Query evidence property");
+        return {
+          name: text(
+            property.name,
+            "Package Query evidence property name",
+            budget),
+          value: text(
+            property.value,
+            "Package Query evidence property value",
+            budget),
+        };
+      }),
+    number: evidence.number === null
+      ? null
+      : integer(evidence.number, "Package Query evidence number"),
     term: evidence.term === null
       ? null
       : (() => {
@@ -719,6 +741,7 @@ function parseRow(
     "packageId",
     "version",
     "tier",
+    "answers",
     "evidence",
     "totalDownloads",
     "verified",
@@ -738,6 +761,42 @@ function parseRow(
       row.tier,
       ["Nuspec", "PackageContent", "SearchMetadata", "Assembly"] as const,
       "Package Query preset tier"),
+    answers: arrayItems(
+      row.answers,
+      "Package Query answers",
+      budget)
+      .map(item => {
+        const answer = dataRecord(
+          item,
+          ["id", "value", "term"],
+          "Package Query answer");
+        return {
+          id: text(answer.id, "Package Query answer ID", budget),
+          value: text(answer.value, "Package Query answer value", budget),
+          term: answer.term === null
+            ? null
+            : (() => {
+                const term = dataRecord(
+                  answer.term,
+                  ["key", "operator", "value"],
+                  "Package Query answer term");
+                return {
+                  key: text(
+                    term.key,
+                    "Package Query answer term key",
+                    budget),
+                  operator: text(
+                    term.operator,
+                    "Package Query answer term operator",
+                    budget),
+                  value: text(
+                    term.value,
+                    "Package Query answer term value",
+                    budget),
+                };
+              })(),
+        };
+      }),
     evidence: arrayItems(
       row.evidence,
       "Package Query evidence",

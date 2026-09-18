@@ -94,14 +94,27 @@ const matchEvent: Extract<
     packageId: "Contoso.Library",
     version: "1.2.3",
     tier: "Nuspec",
+    answers: [{
+      id: "license",
+      value: "MIT",
+      term: {
+        key: "license",
+        operator: "eq",
+        value: "MIT",
+      },
+    }],
     evidence: [{
       id: "description",
-      text: "matched package description",
       scope: "Package",
       summary: {
         count: 2,
         preview: ["first", "second"],
       },
+      properties: [{
+        name: "value",
+        value: "matched package description",
+      }],
+      number: null,
       term: null,
     }],
     totalDownloads: 42,

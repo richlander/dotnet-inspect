@@ -250,6 +250,14 @@ dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
 dotnet-inspect package wix@7.0.0 --path @license --content --bare
 ```
 
+Package Query returns the semantic answer directly (`MIT`, `OSMF`, or `true`
+for license presence) and retains nuspec declaration kind and value as separate
+structured evidence.
+The query layer does not generate explanatory sentences. `--count` needs no
+`--bare` because it already emits a scalar. `--print --bare` intentionally
+removes package and section framing so stdout contains only the selected
+license document body.
+
 The exact nuspec `<license type="file">` path is authoritative even when its
 name, language, location, or extension is unusual. Conservative convention
 matching also recognizes extensionless, text, and Markdown license documents
