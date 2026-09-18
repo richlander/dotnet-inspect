@@ -786,16 +786,19 @@ public sealed class LeakTriageAnalyzerTests
         LibraryBodyAnalysisRequest request =
             LibraryBodyAnalysisRequest.Create(
                 LibraryBodyAnalysisFeatures.All);
+        var resolver = new NullAssemblyReferenceResolver();
 
         LibraryBodyIndex shared =
             LibraryBodyAnalysisService.AnalyzeImage(
-                "caller-owned-image.dll",
+                "caller\0owned-image.dll",
                 image,
-                request);
+                request,
+                resolver);
         LibraryBodyIndex owned =
             LibraryBodyAnalysisService.AnalyzePath(
                 path,
-                request);
+                request,
+                resolver);
 
         Assert.True(owned.DirectCalls.SequenceEqual(shared.DirectCalls));
         Assert.True(
@@ -1877,6 +1880,15 @@ public sealed class LeakTriageAnalyzerTests
     {
         var finding = Assert.Single(ForMethod(findings, methodName));
         Assert.Equal(shape, finding.Shape);
+    }
+
+    sealed class NullAssemblyReferenceResolver :
+        IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            null;
     }
 }
 

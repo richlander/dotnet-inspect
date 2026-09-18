@@ -158,8 +158,9 @@ directly; Workspace queries own service execution and project its evidence.
 The initial Release gates are:
 
 - `LibraryBodyAnalysisService_ConsumesImageWithoutReopeningSourceName` for
-  equivalent path and immutable-image evidence, including allocation fanout,
-  without consuming the caller's image or treating its source name as a path;
+  equivalent path and immutable-image evidence, including resolver-backed root
+  snapshot construction and allocation fanout, without consuming the caller's
+  image or treating its source name as a path;
 - `LibraryBodyAnalysisService_ImageRequestHonorsBodyScope` for explicit
   request scope and unchanged prerequisite normalization;
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical

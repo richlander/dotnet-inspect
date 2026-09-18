@@ -208,9 +208,9 @@ public static class LibraryBodyAnalysisService
         byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
         var assembly = ResolvedAssemblyReference.Create(
             AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-            Path.GetFullPath(sourceName),
-            () => new MemoryStream(bytes, writable: false),
-            AssemblyResolutionProvenance.Local(
+            path: null,
+            openRead: () => new MemoryStream(bytes, writable: false),
+            provenance: AssemblyResolutionProvenance.Local(
                 "LibraryBodyIndex"));
         AssemblyImageSnapshotResult result =
             AssemblyImageSnapshot.FromRetainedContent(
