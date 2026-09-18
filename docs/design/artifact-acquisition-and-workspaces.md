@@ -2190,9 +2190,12 @@ That Root preserves both selected targets while retaining false authorization
 and false observed use. The compile selector issues the selected
 implementation-universe target and compatible-use outcome as typed selection
 facts, including compatible ambiguity where no unique implementation target
-exists. Root binding consumes those facts directly rather than deriving
-identity from implementation asset paths or display text. PackageHouse compile
-receipts map `ExplicitTarget` to compatible authorization and
+exists. Root binding additionally preserves whether that target identifies one
+selected implementation universe; the selection input may remain populated
+when the outcome is absent or ambiguous. Root binding consumes those facts
+directly rather than deriving identity from implementation asset paths or
+display text. PackageHouse compile receipts map `ExplicitTarget` to compatible
+authorization and
 `HighestAvailable` or `ExactTarget` to no such authorization; the binding
 freezes the receipt's existing selection without invoking the selector again.
 Public typed acquisition asks the runtime source identity to match its legacy
@@ -2227,7 +2230,8 @@ their portable token is the representation.
 The producer-identity migration did not change the then-current `pkgroot3`
 field layout: the producer field's `nfp-1` namespace versioned that value.
 The later authorization/outcome split adds a field and therefore uses the
-`pkgroot4` prefix.
+`pkgroot4` prefix. Preserving whether implementation selection produced one
+universe adds another field and therefore uses the `pkgroot5` prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -3185,7 +3189,7 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves six facts separately:
+The request preserves seven facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
@@ -3193,6 +3197,7 @@ The request preserves six facts separately:
   empty groups; and
 - the normalized implementation-selection target and runtime identifier that
   froze the binding's implementation universe; and
+- whether implementation selection produced one selected universe; and
 - whether the caller or owner-issued selection policy authorized compatible
   target selection; and
 - whether implementation selection used a compatible universe relative to a
@@ -3204,12 +3209,13 @@ with a real compile target. Compatible implementation selection may instead
 pair a requested compile target with an older implementation target.
 Owner-default selection may also pair independently selected compile and
 implementation targets while authorizing and observing no compatible
-selection. Collapsing either pair, inferring compatibility merely from
-different targets, omitting authorization when an exact compile slice wins, or
-omitting the observed compatible outcome when no unique universe exists would
-fail with `MissingAcquisitionTarget`, misstate the selection policy, prevent a
-later consumer from applying the authorized policy, or silently select a
-different compile or implementation outcome.
+selection. Its implementation-selection input may equal its compile target
+while no implementation universe exists. Collapsing either pair, inferring
+presence or compatibility merely from target text, omitting authorization when
+an exact compile slice wins, or omitting the observed compatible outcome when
+no unique universe exists would fail with `MissingAcquisitionTarget`, misstate
+the selection policy, prevent a later consumer from applying the authorized
+policy, or silently select a different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3302,13 +3308,16 @@ single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
 encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot4` tokens carry separate compatible authorization and observed
-implementation-use fields. Previous `pkgroot3` tokens carry only the observed
-field, so decoding conservatively grants compatible authorization exactly when
-that field is true. Earlier `pkgroot2` tokens infer both facts when their two
-targets differ. Legacy `pkgroot1` tokens decode only with their one target
-applied to both roles and neither compatible fact. Older tokens re-encode in
-the current format.
+`pkgroot5` tokens carry selected-implementation presence separately from the
+selection input, compatible authorization, and observed implementation use.
+Previous `pkgroot4` tokens carry the two compatible facts but cannot represent
+an absent implementation universe independently, so decoding conservatively
+treats a present selection target as selected. Earlier `pkgroot3` tokens carry
+only the observed field, so decoding additionally grants compatible
+authorization exactly when that field is true. Older `pkgroot2` tokens infer
+both compatible facts when their two targets differ. Legacy `pkgroot1` tokens
+decode only with their one target applied to both roles and neither compatible
+fact. Older tokens re-encode in the current format.
 No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
@@ -3353,12 +3362,13 @@ In `PackageRootAcquisitionTests`:
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
 
-`Token_RoundTripsExactRequest` additionally gates independent `pkgroot4`
-compatible-selection authorization and observed-use fields plus `pkgroot1`,
-`pkgroot2`, and `pkgroot3` migration. `Token_RejectsMalformedOrNonCanonicalInput`
-rejects an observed compatible-use claim without its authorization and rejects
-compatible authorization without compile and selection targets, plus blank or
-padded target fields, through the decoder's total `false` result.
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot5`
+implementation-presence, compatible-selection authorization, and observed-use
+fields plus `pkgroot1` through `pkgroot4` migration.
+`Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
+claim without its authorization, invalid implementation-presence values,
+compatible authorization without compile and selection targets, and blank or
+padded target fields through the decoder's total `false` result.
 
 In `ArtifactRootCorrespondenceTests`,
 `PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility` gates
@@ -3374,6 +3384,9 @@ gates an exact `ref/net10.0` compile slice paired with its selected
 `PackageRootBinding_OwnerDefaultPreservesImplementationUniverseTarget` gates
 the same split under owner-default selection while both compatibility facts
 remain false;
+`OwnerDefaultAbsentImplementationRequest_RejectsReplacementImplementation`
+gates the owner-default absent-implementation outcome through token transport
+and rejects replacement content that adds `lib/net8.0`;
 `OwnerDefaultImplementationRequest_RejectsReplacementImplementationTarget`
 gates rejection when owner-default replacement content changes the frozen
 implementation universe from `lib/net8.0` to `lib/net7.0`;
@@ -3410,6 +3423,8 @@ production adapter when an exact `ref/net10.0` compile slice uses a
 `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` gates the
 production adapter's owner-default `ref/net10.0` and `lib/net8.0` split with
 neither compatible authorization nor observed compatible use.
+`OwnerDefaultCompileRealizePreservesAbsentImplementationUniverse` gates the
+production adapter when `ref/net10.0` has no implementation universe.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

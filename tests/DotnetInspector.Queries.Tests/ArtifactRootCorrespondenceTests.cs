@@ -155,7 +155,10 @@ public sealed class ArtifactRootCorrespondenceTests
                     runtimeIdentifier: null),
                 compileTargetFramework: " ",
                 selectionTargetFramework: " ",
-                selectionRuntimeIdentifier: null);
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
         PackageArtifactRootRequest extendedRequest =
             PackageArtifactRootRequest.Create(
                 new RealizedMemberCoordinate.Package(
@@ -166,7 +169,10 @@ public sealed class ArtifactRootCorrespondenceTests
                     runtimeIdentifier: null),
                 ExtendedFramework.ToUpperInvariant(),
                 ExtendedFramework.ToUpperInvariant(),
-                selectionRuntimeIdentifier: null);
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
                 Archive(
@@ -217,7 +223,7 @@ public sealed class ArtifactRootCorrespondenceTests
     [Fact]
     public void PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility()
     {
-        PackageArtifactRootRequest request =
+        PackageArtifactRootRequest selected =
             PackageArtifactRootRequest.Create(
                 new RealizedMemberCoordinate.Package(
                     "owner.default",
@@ -227,12 +233,27 @@ public sealed class ArtifactRootCorrespondenceTests
                     runtimeIdentifier: null),
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net8.0",
-                selectionRuntimeIdentifier: null);
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
+        PackageArtifactRootRequest absent =
+            PackageArtifactRootRequest.Create(
+                selected.Coordinate,
+                compileTargetFramework: "net10.0",
+                selectionTargetFramework: "net8.0",
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: false,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
 
-        Assert.Equal("net10.0", request.CompileTargetFramework);
-        Assert.Equal("net8.0", request.SelectionTargetFramework);
-        Assert.False(request.AllowsCompatibleTargetSelection);
-        Assert.False(request.UsesCompatibleImplementationSelection);
+        Assert.Equal("net10.0", selected.CompileTargetFramework);
+        Assert.Equal("net8.0", selected.SelectionTargetFramework);
+        Assert.True(selected.HasSelectedImplementationUniverse);
+        Assert.False(selected.AllowsCompatibleTargetSelection);
+        Assert.False(selected.UsesCompatibleImplementationSelection);
+        Assert.False(absent.HasSelectedImplementationUniverse);
+        Assert.NotEqual(selected, absent);
     }
 
     [Fact]

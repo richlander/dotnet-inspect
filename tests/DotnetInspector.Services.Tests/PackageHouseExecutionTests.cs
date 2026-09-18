@@ -1212,6 +1212,61 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task
+        OwnerDefaultCompileRealizePreservesAbsentImplementationUniverse()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        $"ref/net10.0/{PackageId}.dll",
+                    ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                Assert.IsType<PackageHouseResult.Settled>(
+                    Assert.IsType<PackageHouseSettlement.Acquired>(
+                        settlement).Result).Evidence.Realization);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<
+                PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+
+        Assert.Equal("net10.0", realization.Selection.TargetFramework);
+        Assert.Null(
+            realization.Selection.ImplementationTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        Assert.Equal("net10.0", rootRequest.SelectionTargetFramework);
+        Assert.False(rootRequest.HasSelectedImplementationUniverse);
+        Assert.False(rootRequest.AllowsCompatibleTargetSelection);
+        Assert.False(rootRequest.UsesCompatibleImplementationSelection);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task ExactRuntimeRealizeAppliesExactRidOverlay()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(

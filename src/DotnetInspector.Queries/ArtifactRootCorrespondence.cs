@@ -47,6 +47,7 @@ internal readonly record struct PackageArtifactRootRequest(
     string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier,
+    bool HasSelectedImplementationUniverse,
     bool UsesCompatibleImplementationSelection,
     bool AllowsCompatibleTargetSelection)
 {
@@ -59,8 +60,12 @@ internal readonly record struct PackageArtifactRootRequest(
             binding.CompileTargetFramework,
             binding.Root.RequestedTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
-            binding.UsesCompatibleImplementationSelection,
-            binding.AllowsCompatibleTargetSelection);
+            usesCompatibleImplementationSelection:
+                binding.UsesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection:
+                binding.AllowsCompatibleTargetSelection,
+            hasSelectedImplementationUniverse:
+                binding.HasSelectedImplementationUniverse);
     }
 
     internal static PackageArtifactRootRequest Create(
@@ -68,8 +73,9 @@ internal readonly record struct PackageArtifactRootRequest(
         string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
-        bool usesCompatibleImplementationSelection = false,
-        bool allowsCompatibleTargetSelection = false)
+        bool hasSelectedImplementationUniverse,
+        bool usesCompatibleImplementationSelection,
+        bool allowsCompatibleTargetSelection)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         string? normalizedCompileTarget =
@@ -97,6 +103,7 @@ internal readonly record struct PackageArtifactRootRequest(
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
+            hasSelectedImplementationUniverse,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection
                 || usesCompatibleImplementationSelection);

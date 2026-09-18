@@ -75,6 +75,8 @@ public sealed class PackageRootBinding
         ContentGenerationIdentity = contentGenerationIdentity;
         SelectionIdentity = selectionIdentity;
         CompileTargetFramework = compileTargetFramework;
+        HasSelectedImplementationUniverse =
+            root.AssetSelection.ImplementationTargetFramework is not null;
         UsesCompatibleImplementationSelection =
             usesCompatibleImplementationSelection;
         AllowsCompatibleTargetSelection =
@@ -93,6 +95,8 @@ public sealed class PackageRootBinding
 
     internal string? CompileTargetFramework { get; }
 
+    internal bool HasSelectedImplementationUniverse { get; }
+
     internal bool UsesCompatibleImplementationSelection { get; }
 
     internal bool AllowsCompatibleTargetSelection { get; }
@@ -103,9 +107,10 @@ public sealed class PackageRootBinding
     /// </summary>
     /// <remarks>
     /// The issued value preserves the realized producer-pinned coordinate and
-    /// the normalized compile and implementation selection targets, compatible
-    /// target-selection authorization, and observed compatible implementation
-    /// outcome separately. It carries no content, generation identity,
+    /// the normalized compile and implementation selection targets, whether
+    /// one implementation universe was selected, compatible target-selection
+    /// authorization, and observed compatible implementation outcome
+    /// separately. It carries no content, generation identity,
     /// selection identity, workspace identity, lease, opener, or path
     /// authority. Gated by
     /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
@@ -874,11 +879,15 @@ public sealed class PackageRootBinding
             return false;
         }
 
+        string? effectiveTargetFramework =
+            string.IsNullOrWhiteSpace(targetFramework)
+                ? null
+                : targetFramework;
         var root = new PackageRootRealization(
             content,
             displayPackageId,
             packageVersion,
-            targetFramework,
+            effectiveTargetFramework,
             runtimeIdentifier,
             assetSelection);
         binding = new PackageRootBinding(
@@ -887,7 +896,7 @@ public sealed class PackageRootBinding
             sourceProducer,
             content.GenerationIdentity,
             new PackageRootSelectionIdentity(),
-            compileTargetFramework ?? targetFramework,
+            compileTargetFramework ?? effectiveTargetFramework,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection
                 || usesCompatibleImplementationSelection);

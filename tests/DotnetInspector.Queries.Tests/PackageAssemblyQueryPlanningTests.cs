@@ -231,7 +231,10 @@ public sealed class PackageAssemblyQueryPlanningTests
                     coordinate,
                     initial.CompileTargetFramework,
                     initial.Root.RequestedTargetFramework,
-                    initial.Root.RequestedRuntimeIdentifier));
+                    initial.Root.RequestedRuntimeIdentifier,
+                    initial.HasSelectedImplementationUniverse,
+                    initial.UsesCompatibleImplementationSelection,
+                    initial.AllowsCompatibleTargetSelection));
             Assert.True(
                 PackageRootReacquisitionRequest.TryDecode(
                     request.Encode(),

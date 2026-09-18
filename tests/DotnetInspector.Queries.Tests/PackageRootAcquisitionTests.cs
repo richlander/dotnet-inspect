@@ -463,6 +463,12 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     Framework,
                     null,
+                    hasSelectedImplementationUniverse: false),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
                     allowsCompatibleTargetSelection: true),
                 Request(
                     Framework,
@@ -509,12 +515,13 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(Framework, legacy.SelectionTargetFramework);
         Assert.False(legacy.AllowsCompatibleTargetSelection);
         Assert.False(legacy.UsesCompatibleImplementationSelection);
+        Assert.True(legacy.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             legacy.Encode(),
             StringComparison.Ordinal);
 
-        string earlierToken = VersionedToken(
+        string olderToken = VersionedToken(
             "pkgroot2",
             PackageId,
             Version,
@@ -526,16 +533,17 @@ public sealed class PackageRootAcquisitionTests
             null);
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
-                earlierToken,
-                out PackageRootReacquisitionRequest? earlier));
-        Assert.True(earlier.AllowsCompatibleTargetSelection);
-        Assert.True(earlier.UsesCompatibleImplementationSelection);
+                olderToken,
+                out PackageRootReacquisitionRequest? older));
+        Assert.True(older.AllowsCompatibleTargetSelection);
+        Assert.True(older.UsesCompatibleImplementationSelection);
+        Assert.True(older.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
-            earlier.Encode(),
+            older.Encode(),
             StringComparison.Ordinal);
 
-        string previousToken = VersionedToken(
+        string earlierToken = VersionedToken(
             "pkgroot3",
             PackageId,
             Version,
@@ -548,10 +556,35 @@ public sealed class PackageRootAcquisitionTests
             "compatible");
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
+                earlierToken,
+                out PackageRootReacquisitionRequest? earlier));
+        Assert.True(earlier.AllowsCompatibleTargetSelection);
+        Assert.True(earlier.UsesCompatibleImplementationSelection);
+        Assert.True(earlier.HasSelectedImplementationUniverse);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            earlier.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot4",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible",
+            "exact");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
                 previousToken,
                 out PackageRootReacquisitionRequest? previous));
         Assert.True(previous.AllowsCompatibleTargetSelection);
-        Assert.True(previous.UsesCompatibleImplementationSelection);
+        Assert.False(previous.UsesCompatibleImplementationSelection);
+        Assert.True(previous.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             previous.Encode(),
@@ -742,6 +775,18 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     "exact",
                     "compatible"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "exact",
+                    "other"),
             })
         {
             Assert.False(
@@ -855,7 +900,8 @@ public sealed class PackageRootAcquisitionTests
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
-        bool allowsCompatibleTargetSelection = false)
+        bool allowsCompatibleTargetSelection = false,
+        bool? hasSelectedImplementationUniverse = null)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -864,7 +910,8 @@ public sealed class PackageRootAcquisitionTests
             selectionRuntimeIdentifier,
             compileTargetFramework,
             usesCompatibleImplementationSelection,
-            allowsCompatibleTargetSelection);
+            allowsCompatibleTargetSelection,
+            hasSelectedImplementationUniverse);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -874,7 +921,8 @@ public sealed class PackageRootAcquisitionTests
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
-        bool allowsCompatibleTargetSelection = false)
+        bool allowsCompatibleTargetSelection = false,
+        bool? hasSelectedImplementationUniverse = null)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -892,6 +940,8 @@ public sealed class PackageRootAcquisitionTests
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier,
+                hasSelectedImplementationUniverse
+                    ?? selectionTargetFramework is not null,
                 usesCompatibleImplementationSelection,
                 allowsCompatibleTargetSelection));
     }
@@ -900,6 +950,8 @@ public sealed class PackageRootAcquisitionTests
     {
         if (fields.Length == 9)
             fields = [.. fields, fields[8]];
+        if (fields.Length == 10)
+            fields = [.. fields, "selected"];
 
         return VersionedToken(
             PackageRootReacquisitionRequest.TokenPrefix,
