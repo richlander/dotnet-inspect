@@ -169,6 +169,10 @@ public static class CSharpMemberArtifactEligibility
             || type.IsStatic
             || member.Accessibility is not null
             || !member.IsStatic
+            || member.IsAbstract
+            || member.IsVirtual
+            || member.IsOverride
+            || member.IsSealed
             || member.GenericArity != 0
             || signature.TypeParameters.Count != 0
             || signature.ReturnTypeShape is null

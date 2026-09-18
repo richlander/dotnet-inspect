@@ -306,7 +306,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void SelectReturnToSenderTargets_RejectsForeignLookalikeOperatorOperand()
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableOperatorsBeforeSampling()
     {
         string assemblyPath = CreateForeignOperatorOperandFixture();
         try
@@ -3503,7 +3503,7 @@ public class FidelityCheckGeneratedFilterTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
+        TypeDefinitionHandle widget = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Class,
             metadata.GetOrAddString("Ns"),
             metadata.GetOrAddString("Widget"),
@@ -3541,6 +3541,25 @@ public class FidelityCheckGeneratedFilterTests
             MethodImplAttributes.IL,
             metadata.GetOrAddString("op_UnaryPlus"),
             metadata.GetOrAddBlob(operatorSignature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var contradictoryOperatorSignature = new BlobBuilder();
+        contradictoryOperatorSignature.WriteByte(0x00);
+        contradictoryOperatorSignature.WriteCompressedInteger(1);
+        contradictoryOperatorSignature.WriteByte(0x08);
+        contradictoryOperatorSignature.WriteByte(0x12);
+        contradictoryOperatorSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(widget) << 2);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.Virtual
+                | MethodAttributes.Abstract
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_UnaryNegation"),
+            metadata.GetOrAddBlob(contradictoryOperatorSignature),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
 
