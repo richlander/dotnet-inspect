@@ -40,4 +40,17 @@ public sealed class PdbLocalScopeFidelityTests
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Method}: {result.Status}: {result.Detail}");
     }
+
+    [Fact]
+    public void DisjointOutVariableNames_CompileBackExactly()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(PdbScopeFixtures).Assembly.Location,
+            type => type == typeof(PdbScopeFixtures).FullName,
+            method => method.Method == nameof(PdbScopeFixtures.SequentialOutVariables)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
 }

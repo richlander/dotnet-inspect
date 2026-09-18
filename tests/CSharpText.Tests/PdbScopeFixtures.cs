@@ -61,6 +61,20 @@ public static class PdbScopeFixtures
         return 0;
     }
 
+    public static int SequentialOutVariables(string first, string second)
+    {
+        int total = 0;
+        {
+            if (TryRead(first, out int value))
+                total += value;
+        }
+        {
+            if (TryRead(second, out int value))
+                total += value;
+        }
+        return total;
+    }
+
     public static void SequentialValueTypeScopeLocals()
     {
         {
@@ -130,4 +144,6 @@ public static class PdbScopeFixtures
     static void KeepGuidAlive(ref System.Guid value) => System.GC.KeepAlive(value);
 
     static int PatternValue(string value) => value.Length;
+
+    static bool TryRead(string text, out int value) => int.TryParse(text, out value);
 }
