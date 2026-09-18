@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -142,12 +143,33 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
         opts.AddTableOptionsTo(command);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: result =>
+                !IsTopLevelInventory(
+                    result,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Workspace inventory",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
@@ -217,7 +239,10 @@ public static class WorkspaceCommandDefinitions
                         parseResult.GetValue(prereleaseOption),
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
-                    Rows = opts.ParseRows(parseResult),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =
@@ -231,8 +256,54 @@ public static class WorkspaceCommandDefinitions
                 cancellationToken);
         });
 
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                IsTopLevelInventory(
+                    result.CommandResult,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return command;
     }
+
+    static bool IsTopLevelInventory(
+        CommandResult commandResult,
+        Option<int?> activePackageOption,
+        Option<string?> libraryOption,
+        Option<bool> allLibrariesOption,
+        Option<string?> typeOption,
+        Option<string?> memberOption,
+        Option<string?> lensOption,
+        Option<string?> shareOption) =>
+        commandResult.GetValue(activePackageOption) is null
+        && commandResult.GetValue(libraryOption) is null
+        && !commandResult.GetValue(allLibrariesOption)
+        && commandResult.GetValue(typeOption) is null
+        && commandResult.GetValue(memberOption) is null
+        && commandResult.GetValue(lensOption) is null
+        && commandResult.GetResult(shareOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,
