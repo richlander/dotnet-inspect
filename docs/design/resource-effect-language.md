@@ -1288,19 +1288,26 @@ IL, and control-flow evidence.
 Declaration source remains attached for diagnostics but cannot select a flow
 algorithm.
 
-The implementation sequence deliberately generalizes the current ArrayPool
-path:
+The implementation sequence deliberately builds the generic path alongside the
+current ArrayPool path:
 
 - #6729 replaces hard-coded operation recognition with resolved effects;
-- #6730 generalizes method-local ownership evidence while retaining existing
-  decoding, control-flow, reaching-definition, and call evidence;
-- #6731 migrates lifecycle and leak analysis while preserving the fixture and
-  pinned corpus oracle; and
-- #6732 migrates the separate Research ownership-path consumer.
+- #6730 publishes additive root-bound `ResourceOccurrenceAnalysisResult`
+  evidence through `LibraryBodyAnalysisService` without modifying the
+  ArrayPool ownership analyzers;
+- #6731 publishes separate generic lifecycle evidence and migrates Resource
+  Triage while retaining the ArrayPool lifecycle path as its oracle; and
+- #6732 publishes the compact generic summary required by the separate
+  Research ownership-path consumer while retaining its ArrayPool path.
+
+After the lifecycle and Research consumers exist, separately reviewed focused
+cutovers compare each generic path with its unchanged ArrayPool oracle and
+retire the legacy semantic path only after fidelity is established.
 
 Those issues own their evidence shapes, supported flow boundaries, Findings,
-and compatibility adapters. This language requires only that no declaration
-source or resource kind choose a separate top-level lifecycle algorithm.
+and final fidelity evidence. This language requires only that no declaration
+source or resource kind choose a separate top-level generic lifecycle
+algorithm.
 
 By operator choice on #6631, the repository-composition claim that no hidden
 ArrayPool-specific semantic branch remains has **no dedicated absence gate**.
@@ -1462,17 +1469,22 @@ focused slices:
 3. #6728 designs concrete metadata resolution and occurrence-local effect
    composition;
 4. #6729 implements that resolver and the shipped typed C# ArrayPool mapping;
-5. #6730 generalizes the existing ArrayPool method-ownership flow and proves
-   the declared-owner/ArrayPool composition witness;
-6. #6731 migrates lifecycle and leak analysis and preserves the pinned corpus
-   oracle;
-7. #6732 migrates Research ownership paths;
+5. #6730 adds root-bound Resource Occurrence Analysis and its bespoke result
+   without changing existing ArrayPool semantics;
+6. #6731 adds generic lifecycle Analysis and migrates Resource Triage while
+   retaining the ArrayPool lifecycle oracle;
+7. #6732 adds the compact generic Research summary and migrates ownership
+   paths while retaining the ArrayPool Research oracle;
 8. a focused `Inspector.Resources` adoption expresses the first repository
    owner through compiled effect attributes;
 9. a focused runtime slice implements the host-neutral snapshot callback and
    its conformance evidence;
 10. a CLI slice exposes generalized Resource Triage; and
 11. an Inspect Web Browser/Wasm slice exposes the same typed contract;
+
+After steps 6 and 7, focused lifecycle and Research cutovers compare their
+generic results with the unchanged ArrayPool oracles and retire the legacy
+semantic paths only after fidelity is established.
 12. #6778 extends this language to non-terminal exclusive mutable ownership;
 13. #6780 resolves those effects to concrete metadata occurrences; and
 14. #6779 adopts that resolved contract in Analysis.

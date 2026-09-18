@@ -78,6 +78,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
         BrowserAnnotatedSourceCapabilityAvailability Destinations,
         BrowserAnnotatedSourceCapabilityAvailability CallRelationships,
+        BrowserAnnotatedSourceCallCycleInspection CallCycles,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -86,6 +87,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(FindingEvidence);
         ArgumentNullException.ThrowIfNull(Destinations);
         ArgumentNullException.ThrowIfNull(CallRelationships);
+        ArgumentNullException.ThrowIfNull(CallCycles);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -101,6 +103,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.FindingEvidence = FindingEvidence;
         this.Destinations = Destinations;
         this.CallRelationships = CallRelationships;
+        this.CallCycles = CallCycles;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -111,6 +114,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     public BrowserAnnotatedSourceCapabilityAvailability FindingEvidence { get; }
     public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
     public BrowserAnnotatedSourceCapabilityAvailability CallRelationships { get; }
+    public BrowserAnnotatedSourceCallCycleInspection CallCycles { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -142,6 +146,100 @@ public sealed record BrowserAnnotatedSourceCallRelationship(
     BrowserAnnotatedSourceCallKind Kind,
     bool InLoop,
     BrowserCallGraphTarget Target);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceCallCycleLimit>))]
+public enum BrowserAnnotatedSourceCallCycleLimit
+{
+    TraversalBoundary,
+    IncompleteCorrespondence,
+    WitnessBudget,
+    PathBudget,
+    AnalysisFailure,
+}
+
+/// <summary>
+/// One observed focus cycle. The first edge is anchored to every physical
+/// <c>call.edge</c> Finding for that logical relationship.
+/// </summary>
+public sealed record BrowserAnnotatedSourceCallCycle
+{
+    private readonly int[] _edgeRows;
+    private readonly int[] _factIds;
+    private readonly BrowserCallGraphTarget[] _targets;
+
+    public BrowserAnnotatedSourceCallCycle(
+        string FindingKey,
+        int Ordinal,
+        int[] EdgeRows,
+        int[] FactIds,
+        BrowserCallGraphTarget[] Targets)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(FindingKey);
+        ArgumentNullException.ThrowIfNull(EdgeRows);
+        ArgumentNullException.ThrowIfNull(FactIds);
+        ArgumentNullException.ThrowIfNull(Targets);
+        this.FindingKey = FindingKey;
+        this.Ordinal = Ordinal;
+        _edgeRows = [.. EdgeRows];
+        _factIds = [.. FactIds];
+        _targets = [.. Targets];
+    }
+
+    public string FindingKey { get; }
+    public int Ordinal { get; }
+    public int[] EdgeRows => [.. _edgeRows];
+    public int[] FactIds => [.. _factIds];
+    public BrowserCallGraphTarget[] Targets => [.. _targets];
+}
+
+/// <summary>
+/// Observed focus cycles and the independent completeness state of the bounded
+/// operation that produced them.
+/// </summary>
+public sealed record BrowserAnnotatedSourceCallCycleInspection
+{
+    private readonly BrowserAnnotatedSourceCallCycleLimit[] _limits;
+    private readonly BrowserAnnotatedSourceCallCycle[] _findings;
+
+    public BrowserAnnotatedSourceCallCycleInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        bool IsComplete,
+        BrowserAnnotatedSourceCallCycleLimit[] Limits,
+        BrowserAnnotatedSourceCallCycle[] Findings)
+    {
+        ArgumentNullException.ThrowIfNull(Limits);
+        ArgumentNullException.ThrowIfNull(Findings);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Cycle availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available
+            && (IsComplete || Limits.Length > 0 || Findings.Length > 0))
+        {
+            throw new ArgumentException(
+                "Unavailable call cycles cannot carry findings or completeness state.");
+        }
+        if (Available != (IsComplete == (Limits.Length == 0)))
+        {
+            throw new ArgumentException(
+                "Available call-cycle completeness must match its limit set.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        this.IsComplete = IsComplete;
+        _limits = [.. Limits];
+        _findings = [.. Findings];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+    public bool IsComplete { get; }
+    public BrowserAnnotatedSourceCallCycleLimit[] Limits => [.. _limits];
+    public BrowserAnnotatedSourceCallCycle[] Findings => [.. _findings];
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
@@ -258,6 +356,10 @@ public sealed record BrowserMemberFindingCensus
             callRelationships = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callRelationshipsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callCyclesUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -379,7 +481,9 @@ public sealed record BrowserMemberFindingCensus
                 findingEvidence,
                 findingEvidenceUnavailableReason,
                 callRelationships,
-                callRelationshipsUnavailableReason),
+                callRelationshipsUnavailableReason,
+                callCycles,
+                callCyclesUnavailableReason),
             projectedIdentities);
     }
 
@@ -804,6 +908,10 @@ public sealed record BrowserAnnotatedSource
             callRelationships = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callRelationshipsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callCyclesUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -821,7 +929,9 @@ public sealed record BrowserAnnotatedSource
                 findingEvidence,
                 findingEvidenceUnavailableReason,
                 callRelationships,
-                callRelationshipsUnavailableReason),
+                callRelationshipsUnavailableReason,
+                callCycles,
+                callCyclesUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],

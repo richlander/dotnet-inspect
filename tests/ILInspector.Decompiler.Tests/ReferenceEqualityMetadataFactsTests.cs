@@ -1108,6 +1108,7 @@ public class ReferenceEqualityMetadataFactsTests
         {
             [externalEnum] = new Dictionary<long, string> { [0] = "Zero" },
         };
+        body.FlagsEnumTypes = ImmutableHashSet.Create(externalEnum);
         body.InterfaceTypes = ImmutableHashSet.Create(externalEnum);
 
         host.MergeTypeFactsFrom(body);
@@ -1115,6 +1116,7 @@ public class ReferenceEqualityMetadataFactsTests
         Assert.Contains(externalEnum, host.AmbiguousTypeFacts);
         Assert.Equal(TypeShape.Unknown, host.TypeShapes[externalEnum]);
         Assert.DoesNotContain(externalEnum, host.EnumMembers.Keys);
+        Assert.DoesNotContain(externalEnum, host.FlagsEnumTypes);
         Assert.DoesNotContain(externalEnum, host.InterfaceTypes);
     }
 

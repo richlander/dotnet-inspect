@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.EcosystemLoading;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -19,7 +20,8 @@ internal sealed record EcosystemPackRegistration(
     int Order,
     PackageSetId? PackageSet,
     IReadOnlyList<EcosystemDemoRegistration> Demos,
-    EcosystemIntegrationScannerBinding? Scanner = null)
+    EcosystemIntegrationScannerBinding? Scanner = null,
+    EcosystemPopulationLoaderBinding? PopulationLoader = null)
 {
     public IReadOnlyList<string> NamespaceRoots { get; init; } = [];
 
@@ -35,6 +37,7 @@ internal sealed class EcosystemPackRegistry
     private sealed record PackEntry(
         EcosystemPackDescriptor Descriptor,
         EcosystemIntegrationScannerBinding? Scanner,
+        EcosystemPopulationLoaderBinding? PopulationLoader,
         WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration);
 
     private sealed record DemoEntry(
@@ -61,6 +64,7 @@ internal sealed class EcosystemPackRegistry
         _packsById = new Dictionary<EcosystemPackId, PackEntry>();
         _demosById = new Dictionary<string, DemoEntry>(StringComparer.Ordinal);
         var demoOrders = new HashSet<int>();
+        var populationLoaderIds = new HashSet<EcosystemPopulationLoaderId>();
         int previousPackOrder = default;
         bool hasPreviousPackOrder = false;
 
@@ -116,8 +120,18 @@ internal sealed class EcosystemPackRegistry
                     nameof(registrations));
             }
 
+            if (registration.PopulationLoader is { } populationLoader
+                && !populationLoaderIds.Add(populationLoader.Id))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem population loader '{populationLoader.Id}' is registered more than once.",
+                    nameof(registrations));
+            }
+
             if (registration.PackageSet is null && demos.Length == 0
-                && registration.Scanner is null && registration.WorkspaceRegistration is null)
+                && registration.Scanner is null
+                && registration.PopulationLoader is null
+                && registration.WorkspaceRegistration is null)
             {
                 throw new ArgumentException(
                     $"Ecosystem pack '{registration.Id}' must expose at least one capability.",
@@ -185,13 +199,18 @@ internal sealed class EcosystemPackRegistry
                 registration.PackageSet,
                 descriptors.MoveToImmutable(),
                 registration.Scanner is not null,
+                registration.PopulationLoader is not null,
                 namespaceRoots,
                 corePackages,
                 toolPackages,
                 registration.WorkspaceRegistration is not null);
             _packsById.Add(
                 packDescriptor.Id,
-                new PackEntry(packDescriptor, registration.Scanner, registration.WorkspaceRegistration));
+                new PackEntry(
+                    packDescriptor,
+                    registration.Scanner,
+                    registration.PopulationLoader,
+                    registration.WorkspaceRegistration));
             packDescriptors.Add(packDescriptor);
             previousPackOrder = registration.Order;
             hasPreviousPackOrder = true;
@@ -227,6 +246,18 @@ internal sealed class EcosystemPackRegistry
         return entry.Scanner is { } binding
             ? new EcosystemScannerSelectionResult.Known(binding)
             : new EcosystemScannerSelectionResult.Unavailable(id);
+    }
+
+    internal EcosystemPopulationLoaderSelectionResult SelectPopulationLoader(
+        EcosystemPackId id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        if (!_packsById.TryGetValue(id, out PackEntry? entry))
+            return new EcosystemPopulationLoaderSelectionResult.Unknown(id);
+
+        return entry.PopulationLoader is { } binding
+            ? new EcosystemPopulationLoaderSelectionResult.Known(binding)
+            : new EcosystemPopulationLoaderSelectionResult.Unavailable(id);
     }
 
     internal EcosystemWorkspaceRegistrationSelectionResult SelectWorkspaceRegistration(EcosystemPackId id)
@@ -373,6 +404,10 @@ public static partial class EcosystemPackCatalog
 
     public static EcosystemScannerSelectionResult SelectScanner(EcosystemPackId id) =>
         ProductEcosystemPacks.Registry.SelectScanner(id);
+
+    public static EcosystemPopulationLoaderSelectionResult SelectPopulationLoader(
+        EcosystemPackId id) =>
+        ProductEcosystemPacks.Registry.SelectPopulationLoader(id);
 
     public static EcosystemDemoSelectionResult SelectDemo(string scenarioId) =>
         ProductEcosystemPacks.Registry.SelectDemo(scenarioId);
