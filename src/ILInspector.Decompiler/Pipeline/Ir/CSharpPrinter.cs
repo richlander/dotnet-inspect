@@ -263,6 +263,102 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    static IrNode? DeclarationScope(IrNode declaration)
+    {
+        for (IrNode? current = declaration.Parent;
+            current is not null and not IrFunction;
+            current = current.Parent)
+        {
+            if (current is Block block)
+                return block.Parent is BlockContainer container ? container : block;
+        }
+        return null;
+    }
+
+    static IrNode? OutVariableDeclarationScope(IrNode declaration)
+    {
+        for (IrNode? current = declaration.Parent;
+            current is not null and not IrFunction;
+            current = current.Parent)
+        {
+            // Declaration expressions in these headers are scoped to the
+            // statement or catch clause rather than the containing block.
+            if (current is WhileLoop or DoWhileLoop or ForLoop
+                or UsingStatement or ForeachStatement or Fixed or CatchClause
+                or SwitchExpressionArm or UnionSwitchExpressionArm
+                or SynthesizedSwitchExpressionArm or TupleSwitchExpressionArm
+                or PatternSwitchExpressionArm)
+            {
+                return current;
+            }
+            if (current is Block block)
+                return block.Parent is BlockContainer container ? container : block;
+        }
+        return null;
+    }
+
+    static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
+        VerifiedOutLocalDeclarations(
+        IrFunction function)
+    {
+        var retained = ExactLocalNameAllocation.RetainedLocalSlots(
+            function,
+            function.Locals.Length,
+            function.EliminatedLocalSlots);
+        var repeatedNames = retained
+            .Where(index => index < function.LocalNames.Length)
+            .Select(index => function.LocalNames[index])
+            .Where(name => name is not null)
+            .GroupBy(name => name!, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        {
+            MethodRef? callee;
+            IReadOnlyList<IrExpression>? arguments;
+            int parameterStart;
+            switch (node)
+            {
+                case Call call:
+                    callee = call.Callee;
+                    arguments = call.Arguments;
+                    parameterStart = callee.HasThis ? 1 : 0;
+                    break;
+                case NewObject creation:
+                    callee = creation.Constructor;
+                    arguments = creation.Arguments;
+                    parameterStart = 0;
+                    break;
+                default:
+                    continue;
+            }
+            if (OutVariableDeclarationScope(node) is not { } owner)
+                continue;
+            for (int argumentIndex = parameterStart;
+                argumentIndex < arguments.Count;
+                argumentIndex++)
+            {
+                int parameterIndex = argumentIndex - parameterStart;
+                if (callee.TryGetVerifiedOutLocal(
+                        parameterIndex, arguments[argumentIndex], out int local)
+                    && arguments[argumentIndex] is LoadLocalAddress address
+                    && function.IsLocalDeclaredInNestedScope(local)
+                    && local < function.LocalNames.Length
+                    && function.LocalNames[local] is { } name
+                    && repeatedNames.Contains(name)
+                    && ReferenceEquals(
+                        IrFunction.LocalSlotReferencesInScope(function.Body, local).FirstOrDefault(),
+                        arguments[argumentIndex])
+                    && IrFunction.LocalSlotReferencesInScope(function.Body, local)
+                        .All(reference => ExactLocalNameAllocation.Contains(owner, reference)))
+                {
+                    yield return (local, owner, address);
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Runs the <see cref="IrPasses.Lowered"/> pipeline (the default minus the
     /// cosmetic statement-sugar passes), then prints — the lowered-C# view
@@ -629,6 +725,10 @@ public sealed partial class CSharpPrinter
     /// <summary>Pattern variable slots bound by pattern expressions: declared by the pattern, not up front.</summary>
     readonly HashSet<int> _isPatternLocals = [];
 
+    /// <summary>Verified first out arguments that declare repeated exact-name locals.</summary>
+    readonly HashSet<LoadLocalAddress> _outVariableDeclarations = [];
+    readonly HashSet<int> _outArgumentLocals = [];
+
     /// <summary>Local slots declared by a tuple deconstruction header.</summary>
     readonly HashSet<int> _deconstructionLocals = [];
 
@@ -733,6 +833,7 @@ public sealed partial class CSharpPrinter
             foreach (var target in deconstruction.Targets)
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
                     _deconstructionLocals.Add(target.LocalIndex);
+        CollectOutArgumentDeclarations(function);
         CollectDeclaringStores(function);
         CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
@@ -989,7 +1090,7 @@ public sealed partial class CSharpPrinter
             // locals, not the up-front declaration block.
             if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _foreachLocals.Contains(index)
                 || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index)
-                || _inlineReceiverTempLocals.Contains(index))
+                || _inlineReceiverTempLocals.Contains(index) || _outArgumentLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -1009,13 +1110,7 @@ public sealed partial class CSharpPrinter
                 // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
                 // Fully qualified so the per-member view compiles without a
                 // using; the whole-type hoister shortens it and adds the using.
-                var type = function.Locals[index];
-                string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
-                yield return type.Kind == TypeRefKind.ByRef
-                    ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
-                    : _readBeforeAssign.Contains(index)
-                        ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
-                        : $"{scoped}{TypeText(type)} {LocalName(index)};";
+                yield return LocalDeclaration(function, index);
             }
         }
         foreach (var ((_, _), (name, type)) in _stackSlotDeclarations)
@@ -1029,6 +1124,26 @@ public sealed partial class CSharpPrinter
             yield return type is { Kind: TypeRefKind.ByRef }
                 ? $"{TypeText(type)} {name} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
                 : $"{(type is null ? "var" : TypeText(type))} {name};";
+        }
+    }
+
+    string LocalDeclaration(IrFunction function, int index)
+    {
+        var type = function.Locals[index];
+        string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
+        return type.Kind == TypeRefKind.ByRef
+            ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
+            : _readBeforeAssign.Contains(index)
+                ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
+                : $"{scoped}{TypeText(type)} {LocalName(index)};";
+    }
+
+    void CollectOutArgumentDeclarations(IrFunction function)
+    {
+        foreach (var (local, _, address) in VerifiedOutLocalDeclarations(function))
+        {
+            _outArgumentLocals.Add(local);
+            _outVariableDeclarations.Add(address);
         }
     }
 
@@ -1706,11 +1821,11 @@ public sealed partial class CSharpPrinter
             switch (node)
             {
                 case IsPattern pattern
-                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    when DeclarationScope(pattern) is { } patternScope:
                     AddOwned(pattern.LocalIndex, patternScope);
                     break;
                 case RecursivePropertyDeclarationPattern pattern
-                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    when DeclarationScope(pattern) is { } patternScope:
                     AddOwned(pattern.LocalIndex, patternScope);
                     break;
                 case PatternSwitchExpressionArm arm:
@@ -1734,19 +1849,9 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
+        foreach (var (local, owner, _) in VerifiedOutLocalDeclarations(function))
+            scopes[local] = owner;
         return scopes;
-
-        static IrNode? PatternDeclarationScope(IrNode pattern)
-        {
-            for (IrNode? current = pattern.Parent;
-                current is not null and not IrFunction;
-                current = current.Parent)
-            {
-                if (current is Block block)
-                    return block.Parent is BlockContainer container ? container : block;
-            }
-            return null;
-        }
 
         void AddOwned(int? index, IrNode owner)
         {
@@ -2720,7 +2825,7 @@ public sealed partial class CSharpPrinter
         {
             string initializer = forLoop.Initializer is PointerCompoundAssignment update
                 ? PointerUpdateText(update, statement: false)
-                : Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+                : Statement(forLoop.Initializer, forHeader: true)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad);
             int headerStart = sb.Length;
@@ -3942,7 +4047,7 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    string? Statement(IrNode node) => node switch
+    string? Statement(IrNode node, bool forHeader = false) => node switch
     {
         LabelAnchor => ";",
         ExpressionStatement
@@ -3979,7 +4084,7 @@ public sealed partial class CSharpPrinter
             : $"{LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(s.Type, s.Value))};"
-            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, s.UpdateKind, s.Type),
+            : AssignmentText(s, s.Value, s.UpdateKind, s.Type, forHeader: forHeader),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {UnsafeExpressionText(d.Source, Expression(d.Source))};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {UnsafeExpressionText(c.Value, CoerceText(c.Value, c.InnermostTargetType))};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.LocalType))};",
@@ -3987,10 +4092,9 @@ public sealed partial class CSharpPrinter
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.PropertyType))};",
         StoreArgument s => AssignmentText(
             s,
-            CSharpNaming.ContainedIdentifier(s.Name),
             s.Value,
             s.UpdateKind,
-            s.Type),
+            s.Type, forHeader: forHeader),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
@@ -3998,18 +4102,17 @@ public sealed partial class CSharpPrinter
             : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
-            : AssignmentText(s, StackSlotName(s), s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s)),
+            : AssignmentText(s, s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s), forHeader: forHeader),
         StoreField s => AssignmentText(
             s,
-            FieldTarget(s.Field, s.Instance), s.Value,
-            s.UpdateKind,
-            s.Field.Type),
-        StoreProperty s => AssignmentText(
-            s,
-            PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
             s.UpdateKind,
-            StorePropertyTargetType(s)),
+            s.Field.Type, forHeader: forHeader),
+        StoreProperty s => AssignmentText(
+            s,
+            s.Value,
+            s.UpdateKind,
+            StorePropertyTargetType(s), forHeader: forHeader),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
@@ -4017,11 +4120,11 @@ public sealed partial class CSharpPrinter
         PointerCompoundAssignment s => PointerUpdateText(s, statement: true),
         StoreIndirect s => AssignmentText(
             s,
-            IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             s.UpdateKind,
             IndirectStoreType(s.Address, s.Type),
-            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
+            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address),
+            forHeader: forHeader),
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -4071,7 +4174,7 @@ public sealed partial class CSharpPrinter
             return PointerUpdateText(update, statement: false);
         return node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
             ? Expression(increment)
-            : Statement(node)?.TrimEnd(';') ?? "";
+            : Statement(node, forHeader: true)?.TrimEnd(';') ?? "";
     }
 
     string PointerUpdateText(PointerCompoundAssignment update, bool statement)
@@ -5995,36 +6098,59 @@ public sealed partial class CSharpPrinter
 
     string AssignmentText(
         IrNode owner,
-        string target,
         IrExpression value,
         ScalarUpdateKind? updateKind,
         TypeRef? targetType = null,
-        bool parenthesizeIncrementTarget = false)
+        bool parenthesizeIncrementTarget = false,
+        bool forHeader = false)
     {
-        if (updateKind is { } kind)
+        bool checkedUpdate = updateKind is not null && value is Binary { IsChecked: true };
+        bool enclosingChecked = _checkedContext;
+        if (checkedUpdate && !forHeader)
+            _checkedContext = true;
+        try
         {
-            var binary = (Binary)value;
-            string statement = CompoundStatement(
-                target,
-                binary,
-                targetType,
-                kind,
-                parenthesizeIncrementTarget);
-            _printedRangeMetadata?.SetNodeKind(
-                owner,
-                binary.IsChecked
-                    ? "CheckedStatement"
-                    : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
-                        ? "IncrementOrDecrementExpression"
-                        : "AssignmentStatement");
-            // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
-            // statement-level `checked(x += v)` (CS0201), so the overflow context
-            // is restored with a single-statement checked block. Only the
-            // overflow-honoring operators ever carry IsChecked here.
-            return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
+            string target = AssignmentTargetText(owner);
+            if (updateKind is { } kind && !(checkedUpdate && forHeader))
+            {
+                var binary = (Binary)value;
+                string statement = CompoundStatement(
+                    target,
+                    binary,
+                    targetType,
+                    kind,
+                    parenthesizeIncrementTarget);
+                _printedRangeMetadata?.SetNodeKind(
+                    owner,
+                    binary.IsChecked
+                        ? "CheckedStatement"
+                        : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
+                            ? "IncrementOrDecrementExpression"
+                            : "AssignmentStatement");
+                // A checked expression is not a statement expression. Render the
+                // whole compound in its block context, including the target.
+                return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
+            }
+            // A for header cannot contain a checked block; the retained binary
+            // carries its own context inside an ordinary assignment.
+            return $"{target} = {UnsafeExpressionText(value, InitializerText(value, targetType))};";
         }
-        return $"{target} = {UnsafeExpressionText(value, InitializerText(value, targetType))};";
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
     }
+
+    string AssignmentTargetText(IrNode owner) => owner switch
+    {
+        StoreLocal s => LocalName(s.Index),
+        StoreArgument s => CSharpNaming.ContainedIdentifier(s.Name),
+        StoreStackSlot s => StackSlotName(s),
+        StoreField s => FieldTarget(s.Field, s.Instance),
+        StoreProperty s => PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
+        StoreIndirect s => IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
+        _ => throw new InvalidOperationException($"Unsupported assignment target: {owner.GetType().Name}"),
+    };
 
     /// <summary>
     /// Spells a compound assignment whose value reads the target: <c>x++</c>/

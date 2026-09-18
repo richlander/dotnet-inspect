@@ -130,6 +130,8 @@
              Link="FidelityResidualPortfolio.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.TypeSkeleton.cs"
+             Link="FidelityCheck.TypeSkeleton.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\MetadataInstructionProducer.cs"
              Link="MetadataInstructionProducer.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ClosureDiagnosticEvidence.cs"

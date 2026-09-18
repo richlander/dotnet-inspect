@@ -54,8 +54,10 @@ The coordinate selector includes the active version even when the inventory
 omits it, at its native release-order position. That display-only option does
 not add an available exact Diff candidate. The inventory carries the native
 insertion position separately, including when listing authority is unknown.
-The first adopter uses the existing built-in Gallery acquisition path. Other
-origins must not borrow Gallery's inventory for a same-named package.
+The first adopter uses the built-in Gallery authorization and bounded source
+operation to settle a detached listing through PackageHouse. The inventory
+consumes that owner-issued listing Document rather than a live Gallery result.
+Other origins must not borrow Gallery's inventory for a same-named package.
 
 An explicit choice can select any returned exact version, including an
 unlisted version or the current version. Returning to the automatic choice
@@ -118,10 +120,11 @@ interaction, and it does not change CLI coordinate selection.
 
 ## Evidence
 
-`BrowserPackageVersionInventoryTests` exercises the real Gallery source owner
-with fixture responses and gates native release ordering, stable/preview
-selection, normalized build metadata, missing predecessors, unlisted choices,
-unknown listing authority, and the current version's insertion position.
+`BrowserPackageVersionInventoryTests` exercises the real Browser PackageHouse
+listing path over Gallery fixture responses and gates native release ordering,
+stable/preview selection, normalized build metadata, missing predecessors,
+unlisted choices, unknown listing authority, no payload acquisition, typed
+package absence, and the current version's insertion position.
 
 `catalog-requests.test.ts` gates retained-model request publication, explicit
 retry, replacement, and rollback of completed inventory. The companion
