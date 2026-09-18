@@ -461,6 +461,7 @@ public static class IrPasses
         new UnsafeAwaitBoundaryPass(),
         new PdbLocalScopePass(),
         new CoercionInsertionPass(),
+        new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
         // missing-name fallbacks only after every raise has exposed the final
         // lexical binder tree, so exact nested names reserve before synthesis.
@@ -506,7 +507,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass))];
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

@@ -248,12 +248,6 @@ public sealed record BrowserExceptionSurface(
     string Type,
     string Description);
 
-public sealed record BrowserMemberDocumentation(
-    string? Summary,
-    string? Returns,
-    IReadOnlyDictionary<string, string> Parameters,
-    BrowserExceptionSurface[] Exceptions);
-
 public sealed record BrowserTypeCandidate(
     string Key,
     string Name,
@@ -1152,7 +1146,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
-[JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryCatalog))]

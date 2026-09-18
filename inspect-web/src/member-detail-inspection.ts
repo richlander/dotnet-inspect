@@ -1,4 +1,4 @@
-import { sourceRequestNeedsLoad } from "./data.ts";
+import { assertNever, sourceRequestNeedsLoad } from "./data.ts";
 import {
   createAnnotatedSourceViewerModel,
   createEmbeddedSession,
@@ -8,7 +8,7 @@ import type {
   AnnotatedSourceSession,
 } from "./annotated-source-session.ts";
 import type {
-  BrowserMemberDocumentation,
+  CompiledDocumentationOutcome,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
@@ -121,7 +121,7 @@ export interface MemberDetailInspectionDependencies {
   queryDocumentation(
     request: MemberDocumentationRequest,
     documentationId: string,
-  ): Promise<BrowserMemberDocumentation>;
+  ): Promise<CompiledDocumentationOutcome>;
   queryDeclaration(
     request: MemberDeclarationRequest,
   ): Promise<BrowserMemberDeclaration>;
@@ -252,18 +252,63 @@ export function createMemberDetailInspectionCoordinator(
       const requestId = ++memberDocumentationRequestId;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
-        const documentation =
+        const outcome =
           await dependencies.queryDocumentation(request, documentationId);
         if (!request.isCurrent()
           || memberDocumentationRequestId !== requestId) return;
-        overload.summary = documentation.summary;
-        overload.returns = documentation.returns;
-        overload.exceptions = [...(documentation.exceptions ?? [])];
-        overload.parameters = (overload.parameters ?? []).map(parameter => ({
-          ...parameter,
-          description: documentation.parameters?.[parameter.name] ?? null,
-        }));
-        overload.documentationLoaded = true;
+        switch (outcome.kind) {
+          case "available": {
+            const { documentation } = outcome;
+            const parameters = new Map(
+              documentation.parameters.map(
+                parameter => [parameter.name, parameter.description]));
+            overload.summary = documentation.summary ?? null;
+            overload.returns = documentation.returns ?? null;
+            overload.exceptions = documentation.exceptions.map(exception => ({
+              type: documentationExceptionType(exception.reference),
+              description: exception.description ?? "",
+            }));
+            overload.parameters = overload.parameters.map(parameter => ({
+              ...parameter,
+              description: parameters.get(parameter.name) ?? null,
+            }));
+            overload.documentationLoaded = true;
+            break;
+          }
+          case "absent":
+            overload.documentationLoaded = true;
+            break;
+          case "unavailable":
+            state.memberDocumentationError =
+              "Package documentation is unavailable.";
+            break;
+          case "ambiguous":
+            state.memberDocumentationError =
+              "The package documentation source is ambiguous.";
+            break;
+          case "contributionsRejected":
+            state.memberDocumentationError =
+              "Package documentation sources were rejected.";
+            break;
+          case "malformedOrUnreadableDocument":
+            state.memberDocumentationError =
+              "The package documentation could not be read.";
+            break;
+          case "incomplete":
+            state.memberDocumentationError =
+              "The package documentation query did not complete.";
+            break;
+          case "requestRejected":
+            state.memberDocumentationError =
+              "The package documentation request was rejected.";
+            break;
+          case "contentAccessFailed":
+            state.memberDocumentationError =
+              "The package documentation content could not be read.";
+            break;
+          default:
+            assertNever(outcome, "compiled documentation outcome");
+        }
       } catch (error) {
         if (request.isCurrent()
           && memberDocumentationRequestId === requestId) {
@@ -377,4 +422,14 @@ export function createMemberDetailInspectionCoordinator(
       }
     },
   };
+}
+
+function documentationExceptionType(
+  reference: string | null | undefined,
+): string {
+  if (!reference?.trim()) return "";
+  const value = reference.length > 2 && reference[1] === ":"
+    ? reference.slice(2)
+    : reference;
+  return value.replace(/#/g, ".");
 }
