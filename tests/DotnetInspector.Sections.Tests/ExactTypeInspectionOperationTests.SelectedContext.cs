@@ -2,7 +2,9 @@ using System.Reflection;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections.Tests;
@@ -186,6 +188,142 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.All(
             envelope.Content.DefiningSources,
             source => Assert.Equal(0, source.Observation.MemberOrder));
+    }
+
+    [Fact]
+    public async Task
+        SelectedContext_ForwardedDeclarationAmbiguityNamesTerminalLibrary()
+    {
+        const string typeNamespace = "Exact";
+        const string typeName = "Collision";
+        var target = new AssemblyReferenceIdentity(
+            "Target",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var other = new AssemblyReferenceIdentity(
+            "Other",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        ResolvedAssemblyReference facade = Assembly(
+            "Facade",
+            BuildMetadataAssembly(
+                "Facade",
+                Guid.NewGuid(),
+                definesType: false,
+                typeNamespace,
+                typeName,
+                target));
+        ResolvedAssemblyReference ambiguousTarget = Assembly(
+            "Target",
+            BuildMetadataAssembly(
+                "Target",
+                Guid.NewGuid(),
+                definesType: true,
+                typeNamespace,
+                typeName,
+                other));
+        ResolvedAssemblyReference otherTarget = Assembly(
+            "Other",
+            BuildMetadataAssembly(
+                "Other",
+                Guid.NewGuid(),
+                definesType: true,
+                typeNamespace,
+                typeName));
+        ResolvedAssemblyReference[] assemblies =
+            [facade, ambiguousTarget, otherTarget];
+        IAcquisitionFreeAssemblyBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                assemblies.Select(assembly => (
+                    assembly,
+                    (IAcquisitionFreeAssemblyBindingPolicy)
+                        NoResolverAssemblyBindingPolicy.Instance)));
+        WorkspaceContextInput input =
+            SelectedContextInput(LoggingPackageId);
+        WorkspaceMemberCoordinate declared = Assert.Single(input.Members);
+        var realized = new RealizedMemberCoordinate.Package(
+            LoggingPackageId.ToLowerInvariant(),
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            Framework,
+            runtimeIdentifier: null);
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    new WorkspacePlan([], [input]),
+                    TestContext.Current.CancellationToken))
+            .Candidate;
+        WorkspaceDeclarationContext context;
+        using (WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction())
+        {
+            AssemblyContextParticipant[] participants =
+            [
+                .. assemblies.Select(assembly =>
+                    new AssemblyContextParticipant(assembly, policy)),
+            ];
+            AssemblyContextGroup group =
+                construction.Workspace.CreateAssemblyContextGroup(
+                    participants);
+            var loaded = new WorkspaceContextLoadOutcome.Loaded(
+                construction.Workspace.Identity,
+                group,
+                [
+                    .. participants.Select(participant =>
+                        new WorkspaceContextMember(
+                            declared,
+                            realized,
+                            participant)),
+                ],
+                [],
+                Framework,
+                runtimeIdentifier: null);
+            context = construction.Workspace.CompleteDeclarationContext(
+                construction.Workspace.BeginDeclarationContext(),
+                input,
+                loaded);
+        }
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.Execute(
+                authority,
+                context,
+                new SelectedContextExactTypeInspectionRequest(
+                    $"{typeNamespace}.{typeName}"));
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Ambiguous,
+            envelope.Content.Inspection.Outcome);
+        Assert.Equal(
+            ["Target", "Other"],
+            envelope.Content.DefiningSources.Select(source =>
+                Assert.IsType<
+                    TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
+                        source.Library)
+                    .LibraryIdentity.Name));
+        Assert.Equal(
+            [1, 2],
+            envelope.Content.DefiningSources.Select(
+                source => source.Observation.MemberOrder));
+
+        static ResolvedAssemblyReference Assembly(
+            string name,
+            byte[] image) =>
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    name,
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(name));
     }
 
     [Fact]

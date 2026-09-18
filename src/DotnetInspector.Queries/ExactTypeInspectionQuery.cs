@@ -724,13 +724,21 @@ internal static class ExactTypeInspectionQuery
                     Outcome: TypeResolutionOutcome.Ambiguous
                     {
                         Ambiguity:
-                            TypeResolutionAmbiguity.TypeDeclaration,
+                            TypeResolutionAmbiguity.TypeDeclaration ambiguity,
                     },
                 }:
                     declarationAmbiguous = true;
-                    AddDefiningSource(
-                        candidate.Participant,
-                        candidate.Definition);
+                    Projection? ambiguousSupplier =
+                        projections.FirstOrDefault(projection =>
+                            ReferenceEquals(
+                                projection.Participant.Assembly.Registration,
+                                ambiguity.Assembly.Assembly.Registration));
+                    if (ambiguousSupplier is not null)
+                    {
+                        AddDefiningSource(
+                            ambiguousSupplier.Participant,
+                            ambiguity.Type);
+                    }
                     break;
                 case AssemblyContextTypeResolutionResult.Available
                 {
