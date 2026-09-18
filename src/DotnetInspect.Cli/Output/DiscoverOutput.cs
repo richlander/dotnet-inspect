@@ -32,8 +32,7 @@ public static class DiscoverOutput
         IReadOnlySet<string>? listedCategoryDoors = null,
         RowSelectionIntent<string>? semanticRowSelection = null,
         string semanticSelectionName = "Discovery",
-        IReadOnlySet<string>? exactOnlySections = null,
-        bool expandCategoryAliases = true)
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -50,8 +49,7 @@ public static class DiscoverOutput
                 sectionCategories,
                 catalogHiddenSections,
                 listedCategoryDoors,
-                exactOnlySections,
-                expandCategoryAliases);
+                exactOnlySections);
             if (projectedRows == null)
                 return 1;
             if (!TryApplyRowSelection(
@@ -93,8 +91,7 @@ public static class DiscoverOutput
                 projectedColumns,
                 semanticRowSelection,
                 semanticSelectionName,
-                exactOnlySections,
-                expandCategoryAliases);
+                exactOnlySections);
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -103,18 +100,12 @@ public static class DiscoverOutput
             && request.AllowsAutomaticTreePromotion
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
-                value,
-                sectionCategories,
-                schema.SectionNames,
-                out _,
-                out _,
-                expandCategoryAliases))
+                value, sectionCategories, schema.SectionNames, out _, out _))
             && ResolvedSectionCount(
                 discover,
                 schema,
                 sectionCategories,
-                exactOnlySections,
-                expandCategoryAliases) > 1)
+                exactOnlySections) > 1)
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
@@ -139,8 +130,7 @@ public static class DiscoverOutput
                 semanticRowSelection,
                 semanticSelectionName,
                 output,
-                exactOnlySections,
-                expandCategoryAliases);
+                exactOnlySections);
             if (exitCode != 0)
                 return exitCode;
 
@@ -155,8 +145,7 @@ public static class DiscoverOutput
             sectionCategories,
             catalogHiddenSections,
             listedCategoryDoors,
-            exactOnlySections,
-            expandCategoryAliases);
+            exactOnlySections);
         if (rows == null)
             return 1;
         if (!TryApplyRowSelection(
@@ -244,8 +233,7 @@ public static class DiscoverOutput
         IReadOnlyList<string> columns,
         RowSelectionIntent<string>? semanticRowSelection,
         string semanticSelectionName,
-        IReadOnlySet<string>? exactOnlySections,
-        bool expandCategoryAliases = true)
+        IReadOnlySet<string>? exactOnlySections)
     {
         var rows = GetDiscoveryRows(
             discover,
@@ -254,8 +242,7 @@ public static class DiscoverOutput
             sectionCategories,
             catalogHiddenSections,
             listedCategoryDoors,
-            exactOnlySections,
-            expandCategoryAliases);
+            exactOnlySections);
         if (rows == null)
             return 1;
 
@@ -682,8 +669,7 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IReadOnlySet<string>? exactOnlySections = null,
-        bool expandCategoryAliases = true)
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         // Bare -D. Curated pipelines (listedCategoryDoors provided) lead with the topical category
         // doors, then a single alpha group of effective sections, with no cost annotations. Legacy
@@ -741,8 +727,7 @@ public static class DiscoverOutput
                     sectionCategories,
                     schema.SectionNames,
                     out _,
-                    out var categorySections,
-                    expandCategoryAliases))
+                    out var categorySections))
             {
                 foreach (var sectionName in categorySections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
                     rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
@@ -799,8 +784,7 @@ public static class DiscoverOutput
         string[] discover,
         DocumentSchema schema,
         IReadOnlyDictionary<string, string[]>? sectionCategories,
-        IReadOnlySet<string>? exactOnlySections,
-        bool expandCategoryAliases)
+        IReadOnlySet<string>? exactOnlySections)
     {
         int count = 0;
         foreach (var name in discover)
@@ -810,8 +794,7 @@ public static class DiscoverOutput
                     sectionCategories,
                     schema.SectionNames,
                     out _,
-                    out var categorySections,
-                    expandCategoryAliases))
+                    out var categorySections))
             {
                 count += categorySections.Length;
                 continue;
@@ -964,8 +947,7 @@ public static class DiscoverOutput
         RowSelectionIntent<string>? semanticRowSelection = null,
         string semanticSelectionName = "Discovery",
         TextWriter? output = null,
-        IReadOnlySet<string>? exactOnlySections = null,
-        bool expandCategoryAliases = true)
+        IReadOnlySet<string>? exactOnlySections = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -979,8 +961,7 @@ public static class DiscoverOutput
                         sectionCategories,
                         schema.SectionNames,
                         out var categoryName,
-                        out var categorySections,
-                        expandCategoryAliases))
+                        out var categorySections))
                 {
                     nodes.Add(new TreeNode(categoryName)
                     {

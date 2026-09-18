@@ -163,7 +163,7 @@ public partial class PackageCommand
                 [.. discovery.Failures.Select(failure => failure.Message)]);
         }
 
-        return WriteVersionQueryRows(listings, discovery.SourceListings, latest, options);
+        return WriteVersionQueryRows(listings, discovery.SourceListings, options);
     }
 
     private static int WriteVersionPopulationSettlement(
@@ -238,7 +238,6 @@ public partial class PackageCommand
             return WriteVersionQueryRows(
                 listings,
                 available.Document.SourceListings,
-                latest: false,
                 options);
         }
 
@@ -284,7 +283,6 @@ public partial class PackageCommand
     private static int WriteVersionQueryRows(
         IReadOnlyList<PackageVersionInfo> listings,
         IReadOnlyList<PackageVersionSourceInfo> sourceListings,
-        bool latest,
         InspectionOptions options)
     {
         if (options.ListVersionsWithFeed)
@@ -317,13 +315,20 @@ public partial class PackageCommand
                     options,
                     out IReadOnlyList<string> rows))
                 return 1;
-            if (LensProjection.TryProject(options, latest ? "--latest-version" : "--versions",
+            if (LensProjection.TryProject(options, GetVersionQueryLens(options),
                     rows.Count, out var exit, ["Version"]))
                 return exit;
             WriteVersions(rows, options);
         }
         return 0;
     }
+
+    private static string GetVersionQueryLens(InspectionOptions options) =>
+        options.SingleVersionQuery
+            ? "--version"
+            : options.ListVersionsWithFeed
+                ? "--versions-with-feed"
+                : "--versions";
 
     private static int WriteVersionSettlement(
         InspectionEnvelope<PackageVersionSettlementOutcome> envelope,
@@ -336,7 +341,7 @@ public partial class PackageCommand
         if (envelope.Content is PackageVersionSettlementOutcome.Settled settled)
         {
             return WriteVersionQueryRows(
-                settled.Result.Listings, settled.Result.SourceListings, latest: true, options);
+                settled.Result.Listings, settled.Result.SourceListings, options);
         }
 
         if (envelope.Content is not PackageVersionSettlementOutcome.NotSettled notSettled)
