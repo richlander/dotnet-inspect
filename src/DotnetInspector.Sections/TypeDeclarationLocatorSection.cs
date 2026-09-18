@@ -818,7 +818,7 @@ public static class TypeDeclarationLocatorSection
         }
     }
 
-    private static TypeDeclarationLocatorObservation ProjectObservation(
+    internal static TypeDeclarationLocatorObservation ProjectObservation(
         WorkspaceDeclarationMember member,
         TypeDeclarationLocatorReferenceProjection references) =>
         new(

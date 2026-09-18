@@ -874,16 +874,19 @@ public sealed class IrFunction : IrNode
         = ImmutableHashSet<TypeRef>.Empty;
 
     /// <summary>
-    /// Named members (value → name) of the same-assembly enum types this
-    /// function references, materialized at import. Lets the printer render an
-    /// enum constant as <c>EnumType.Member</c> instead of its raw integer.
+    /// Named members (value → name) of enum types this function references,
+    /// materialized at import. External definitions are included only when the
+    /// defining assembly resolves through the provenance-aware metadata context.
+    /// Lets the printer render an enum constant as <c>EnumType.Member</c>
+    /// instead of its raw integer.
     /// </summary>
     public IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers { get; set; }
         = ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty;
 
     /// <summary>
-    /// Underlying primitive type of the same-assembly enum types this function
-    /// references, materialized while metadata is live. Lets the printer preserve
+    /// Underlying primitive type of enum types this function references,
+    /// materialized while metadata is live. External definitions are included
+    /// only when the defining assembly resolves exactly. Lets the printer preserve
     /// enum-to-underlying casts that IL does not encode when widths match.
     /// </summary>
     public IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes { get; set; }

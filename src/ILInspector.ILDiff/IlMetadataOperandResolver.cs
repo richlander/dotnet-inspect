@@ -13,14 +13,6 @@ public static partial class IlBodyDiff
         IlBodyDiffNormalization normalization,
         CompilerGeneratedOrdinalCorrespondence correspondence)
     {
-        // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
-        // so the type-name climbs below would recurse until an uncatchable
-        // StackOverflowException (which TryResolve's catch cannot intercept). Cap the climb
-        // ([ThreadStatic] for thread safety) and degrade to the leaf name past the cap.
-        [ThreadStatic]
-        static int s_climbDepth;
-        const int MaxClimbDepth = 256;
-
         public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
         {
             try
@@ -260,46 +252,89 @@ public static partial class IlBodyDiff
         }
 
         string FormatTypeDefinition(TypeDefinitionHandle handle)
+            => FormatTypeDefinition(handle, normalizeName: true);
+
+        public string FormatSignatureTypeDefinition(TypeDefinitionHandle handle)
+            => FormatTypeDefinition(handle, normalizeName: false);
+
+        string FormatTypeDefinition(TypeDefinitionHandle handle, bool normalizeName)
         {
-            var type = reader.GetTypeDefinition(handle);
-            string name = correspondence.TryGetTypeName(handle, out var elided)
-                ? elided
-                : reader.GetString(type.Name);
-            var declaring = type.GetDeclaringType();
-            string fullName;
-            if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
+            var traversal = MetadataRelationshipTraversal
+                .WalkTypeDefinitionDeclaringChain(reader, handle);
+            if (traversal is
+                RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Rejected rejected)
             {
-                s_climbDepth++;
-                try { fullName = $"{FormatTypeDefinition(declaring)}+{name}"; }
-                finally { s_climbDepth--; }
+                throw RelationshipRejected(rejected.Rejection);
             }
-            else
+
+            var completed =
+                (RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)
+                traversal;
+            var handles = completed.Value.Handles;
+            var root = reader.GetTypeDefinition(handles[0]);
+            string[] names = new string[handles.Length];
+            for (int i = 0; i < handles.Length; i++)
             {
-                fullName = Dotted(reader.GetString(type.Namespace), name);
+                var current = reader.GetTypeDefinition(handles[i]);
+                names[i] = normalizeName
+                    && correspondence.TryGetTypeName(handles[i], out var elided)
+                        ? elided
+                        : reader.GetString(current.Name);
             }
+
+            string fullName = Dotted(
+                reader.GetString(root.Namespace),
+                string.Join("+", names));
             return $"[{CurrentAssemblyName()}]{fullName}";
         }
 
         string FormatTypeReference(TypeReferenceHandle handle)
+            => FormatTypeReference(handle, qualifyCurrentAssembly: true);
+
+        public string FormatSignatureTypeReference(TypeReferenceHandle handle)
+            => FormatTypeReference(handle, qualifyCurrentAssembly: false);
+
+        string FormatTypeReference(
+            TypeReferenceHandle handle,
+            bool qualifyCurrentAssembly)
         {
-            var type = reader.GetTypeReference(handle);
-            string name = reader.GetString(type.Name);
-            string fullName = Dotted(reader.GetString(type.Namespace), name);
-            if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
+            var traversal = MetadataRelationshipTraversal
+                .WalkTypeReferenceResolutionScope(reader, handle);
+            if (traversal is
+                RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Rejected rejected)
+            {
+                throw RelationshipRejected(rejected.Rejection);
+            }
+
+            var completed =
+                (RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Completed)
+                traversal;
+            string[] names = new string[completed.Value.Handles.Length];
+            for (int i = 0; i < completed.Value.Handles.Length; i++)
+            {
+                var current = reader.GetTypeReference(completed.Value.Handles[i]);
+                names[i] = Dotted(
+                    reader.GetString(current.Namespace),
+                    reader.GetString(current.Name));
+            }
+
+            string fullName = string.Join("+", names);
+            if (completed.Value.Terminal.Kind == HandleKind.AssemblyReference)
             {
                 string assembly = AssemblyReferenceIdentity(
                     reader,
-                    (AssemblyReferenceHandle)type.ResolutionScope);
+                    (AssemblyReferenceHandle)completed.Value.Terminal);
                 return $"[{NormalizeAssemblyIdentity(assembly)}]{fullName}";
             }
-            if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
-            {
-                s_climbDepth++;
-                try { return $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}"; }
-                finally { s_climbDepth--; }
-            }
-            return $"[{CurrentAssemblyName()}]{fullName}";
+
+            return qualifyCurrentAssembly
+                ? $"[{CurrentAssemblyName()}]{fullName}"
+                : fullName;
         }
+
+        static BadImageFormatException RelationshipRejected(
+            RelationshipTraversalRejection rejection)
+            => new($"{rejection.Kind}: {rejection.Detail}");
 
         string MethodName(MethodDefinitionHandle handle, MethodDefinition method)
         {
@@ -379,14 +414,6 @@ public static partial class IlBodyDiff
             _resolver = resolver;
         }
 
-        // Malformed metadata can make a declaring type or resolution-scope chain cyclic, so
-        // the TypeName climbs below would recurse until an uncatchable StackOverflowException.
-        // Cap the climb ([ThreadStatic] so concurrent decodes stay independent) and degrade
-        // to the leaf name past the cap.
-        [ThreadStatic]
-        static int s_climbDepth;
-        const int MaxClimbDepth = 256;
-
         public string GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode switch
             {
@@ -412,10 +439,10 @@ public static partial class IlBodyDiff
             };
 
         public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeName(reader, handle);
+            => _resolver.FormatSignatureTypeDefinition(handle);
 
         public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeName(reader, handle);
+            => _resolver.FormatSignatureTypeReference(handle);
 
         public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
         {
@@ -454,43 +481,6 @@ public static partial class IlBodyDiff
             return $"method {instance}{convention}{signature.ReturnType} *({FormatParameterList(signature)})";
         }
 
-        string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
-        {
-            var type = reader.GetTypeDefinition(handle);
-            string name = reader.GetString(type.Name);
-            var declaring = type.GetDeclaringType();
-            if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
-            {
-                s_climbDepth++;
-                try { return $"{TypeName(reader, declaring)}+{name}"; }
-                finally { s_climbDepth--; }
-            }
-            string ns = reader.GetString(type.Namespace);
-            string assembly = _resolver.CurrentAssemblyName();
-            return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
-        }
-
-        string TypeName(MetadataReader reader, TypeReferenceHandle handle)
-        {
-            var type = reader.GetTypeReference(handle);
-            string name = reader.GetString(type.Name);
-            string ns = reader.GetString(type.Namespace);
-            string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
-            if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
-            {
-                string assembly = AssemblyReferenceIdentity(
-                    reader,
-                    (AssemblyReferenceHandle)type.ResolutionScope);
-                return $"[{_resolver.NormalizeAssemblyIdentity(assembly)}]{fullName}";
-            }
-            if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
-            {
-                s_climbDepth++;
-                try { return $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}"; }
-                finally { s_climbDepth--; }
-            }
-            return fullName;
-        }
     }
 
     static string FormatParameterList(MethodSignature<string> signature)

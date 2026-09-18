@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Annotations;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -426,6 +427,130 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public async Task MemberProjection_ComposesCallRelationshipsWithTheFindingCensus()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.InvokeRepeated))
+                    with
+                    {
+                        FactRows = true,
+                        CallRelationships = true,
+                    }));
+
+        ResearchViews.FactRow[] relationshipRows =
+        [
+            .. Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+                    projection.Projection.Facts)
+                .Where(row =>
+                    row.Id
+                        == ResearchFactRegistry
+                            .CallRelationshipDescriptorId),
+        ];
+        Assert.Equal(2, relationshipRows.Length);
+        Assert.All(
+            relationshipRows,
+            row =>
+            {
+                Assert.Equal(nameof(AnnotationCategory.Relationship), row.Category);
+                Assert.Contains(nameof(Math.Abs), row.Detail);
+                Assert.NotNull(row.InstanceKey);
+            });
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        int[] relationshipFactIds =
+        [
+            .. document.Facts
+                .Where(fact =>
+                    fact.Descriptor
+                        == ResearchFactRegistry
+                            .CallRelationshipDescriptorId)
+                .Select(fact => fact.Id),
+        ];
+        Assert.Equal(2, relationshipFactIds.Length);
+        int[] invocationNodeIds =
+        [
+            .. document.Targets
+                .Where(target =>
+                    relationshipFactIds.Contains(target.FactId)
+                    && document.Nodes[target.NodeId].Medium
+                        == SourceLineKind.CSharp
+                    && document.Nodes[target.NodeId].Kind
+                        == "InvocationExpression")
+                .Select(target => target.NodeId)
+                .Distinct(),
+        ];
+        Assert.Equal(2, invocationNodeIds.Length);
+        Assert.Equal(2, projection.InvocationDestinations.Count);
+        AssemblyMemberCallRelationshipOverlay overlay =
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                projection.CallRelationships);
+        Assert.Equal(2, overlay.Relationships.Count);
+        Assert.Single(
+            overlay.Relationships
+                .Select(relationship => relationship.Occurrence.EdgeRow)
+                .Distinct());
+        Assert.Equal(
+            relationshipFactIds.Order(),
+            overlay.Relationships
+                .Select(relationship => relationship.Occurrence.FactId)
+                .Order());
+        Assert.All(
+            overlay.Relationships,
+            relationship => Assert.Equal(
+                nameof(Math.Abs),
+                relationship.Target.Member.Name));
+
+        int[] sourceFactIds =
+        [
+            .. Assert.IsAssignableFrom<
+                    IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                    projection.Projection.SourceDocumentFactIdentities)
+                .Select(identity => identity.FactId),
+        ];
+        Assert.All(
+            relationshipFactIds,
+            factId => Assert.Contains(factId, sourceFactIds));
+    }
+
+    [Fact]
+    public async Task MemberProjection_ReportsAnAvailableEmptyCallRelationshipOverlay()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.BoxInt))
+                    with
+                    {
+                        FactRows = true,
+                        CallRelationships = true,
+                    }));
+
+        AssemblyMemberCallRelationshipOverlay overlay =
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                projection.CallRelationships);
+        Assert.Empty(overlay.Relationships);
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        Assert.DoesNotContain(
+            document.Facts,
+            fact => fact.Descriptor
+                == ResearchFactRegistry.CallRelationshipDescriptorId);
+    }
+
+    [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
         ImmutableArray<byte> image = BuildVersionedInvocationImage();
@@ -493,6 +618,39 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 }));
 
         Assert.Contains("source document", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberProjection_RequiresExactSourceForCallRelationships()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        ArgumentException missingSource = Assert.Throws<ArgumentException>(() =>
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeLocal)) with
+                {
+                    SourceDocument = false,
+                    CallRelationships = true,
+                }));
+        Assert.Contains(
+            "source document and an exact MethodDef token",
+            missingSource.Message,
+            StringComparison.Ordinal);
+
+        ArgumentException missingToken = Assert.Throws<ArgumentException>(() =>
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeLocal)) with
+                {
+                    CallRelationships = true,
+                }));
+        Assert.Contains(
+            "source document and an exact MethodDef token",
+            missingToken.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
