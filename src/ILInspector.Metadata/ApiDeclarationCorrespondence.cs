@@ -923,6 +923,15 @@ public static class ApiDeclarationCorrespondence
                     endpoint,
                     name,
                     ambiguous.Candidates)),
+            TypeDeclarationResult.BudgetExceeded => new(
+                default,
+                Failure(
+                    ApiDeclarationCorrespondenceStatus.Failed,
+                    ApiDeclarationCorrespondenceReason.WorkLimitExceeded,
+                    stage,
+                    "The exact Type declaration lookup exceeded its "
+                        + "finite work limit."),
+                []),
             TypeDeclarationResult.Rejected => new(
                 default,
                 Failure(

@@ -116,6 +116,7 @@ public sealed class HiddenTypeJsonIncludeDto
 }
 
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(InertWidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
@@ -164,6 +165,18 @@ public static partial class TypeScriptFixtureExports
 
     [JSExport]
     public static string Echo(string value) => value;
+
+    [JSExport]
+    public static bool MatchWidgetCandidates(
+        string requestedName,
+        string candidatesJson)
+    {
+        WidgetDto[] candidates = JsonSerializer.Deserialize(
+            candidatesJson,
+            FixtureJsonContext.Default.WidgetDtoArray)!;
+        return candidates.Any(candidate =>
+            candidate.Name == requestedName);
+    }
 
     [JSExport]
     public static string Undefined(string value) => value;
