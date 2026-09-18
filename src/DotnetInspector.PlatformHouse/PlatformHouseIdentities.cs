@@ -172,19 +172,6 @@ public sealed class PlatformReferenceCandidateIdentity
     public override string ToString() => Name;
 }
 
-/// <summary>Resource-free identity for one documentation subject.</summary>
-public sealed class PlatformDocumentationSubjectIdentity
-{
-    private PlatformDocumentationSubjectIdentity(string name) => Name = name;
-
-    public string Name { get; }
-
-    internal static PlatformDocumentationSubjectIdentity Issue(string name) =>
-        new(PlatformHouseIdentityName.Validate(name));
-
-    public override string ToString() => Name;
-}
-
 /// <summary>Resource-free identity for settled reference evidence.</summary>
 public sealed class PlatformReferenceEvidenceIdentity
 {

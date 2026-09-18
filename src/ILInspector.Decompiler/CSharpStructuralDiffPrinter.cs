@@ -33,6 +33,19 @@ public sealed record CSharpStructuralDiffDisplayRow(
     string AfterSpans,
     string Fidelity);
 
+/// <summary>Presentation-ready ambiguous-group cardinality delta.</summary>
+/// <param name="Structure">Stable node kind shared by the group.</param>
+/// <param name="IlOrigins">Exact product-owned IL-origin set.</param>
+/// <param name="Occurrences">Before-to-after group count transition.</param>
+/// <param name="Location">
+/// Always unresolved because group evidence does not identify an occurrence.
+/// </param>
+public sealed record CSharpStructuralMultiplicityDisplayRow(
+    string Structure,
+    string IlOrigins,
+    string Occurrences,
+    string Location);
+
 /// <summary>
 /// Producer-owned display projection for structural C# body comparison.
 /// </summary>
@@ -55,6 +68,25 @@ public static class CSharpStructuralDiffPrinter
                 FormatSpans(row.BeforeSpans),
                 FormatSpans(row.AfterSpans),
                 FormatFidelity(comparison.Fidelity)))
+        ];
+    }
+
+    /// <summary>
+    /// Projects typed ambiguous-group count changes without inventing node
+    /// correspondence or source locations.
+    /// </summary>
+    public static ImmutableArray<CSharpStructuralMultiplicityDisplayRow> ToMultiplicityDisplayRows(
+        CSharpStructuralComparison comparison)
+    {
+        ArgumentNullException.ThrowIfNull(comparison);
+        return
+        [
+            .. comparison.MultiplicityDeltas.Select(delta =>
+                new CSharpStructuralMultiplicityDisplayRow(
+                    Contain(delta.NodeKind)!,
+                    $"{{{string.Join(", ", delta.Evidence.IlOffsets)}}}",
+                    $"{delta.BeforeCount} -> {delta.AfterCount}",
+                    "Unresolved"))
         ];
     }
 

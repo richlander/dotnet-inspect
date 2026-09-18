@@ -85,6 +85,15 @@ when document acquisition fails, the documents predate provenance support, or
 they describe different method bodies. Retain the standalone Before and After
 bodies.
 
+An ambiguous duplicate group may still report a group-level multiplicity delta
+when both revisions contain nodes with the same exact product-owned IL-origin
+set and stable node kind. The result records only the before and after counts;
+every occurrence remains ambiguous, the location remains unresolved, and the
+review stays `Partial`. Equal counts emit no delta. Unsupported nodes, groups
+without product-owned provenance on both revisions, and nodes of different
+stable kinds do not combine into a multiplicity claim. The replayable
+structural-diff document stores and revalidates the derived outcome.
+
 The structural review explains *what changed*; it is not a correctness oracle.
 Keep the independent validity, correctness, compile-back fidelity, and exact
 revision verdicts beside it. An unsupported correspondence result does not change an otherwise supported

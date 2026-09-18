@@ -8,7 +8,6 @@ public enum PlatformHouseOperationKind
     Realize,
     ResolveAssemblyReference,
     ResolveTypeDefinition,
-    ResolveDocumentationEvidence,
 }
 
 [Flags]
@@ -83,31 +82,6 @@ public abstract class PlatformHouseOperationSnapshot
         public PlatformMetadataRequestIdentity Request { get; }
         public PlatformReferenceCandidateIdentity StartingReference { get; }
         public PlatformViewDemand RequiredView { get; }
-    }
-
-    public sealed class ResolveDocumentationEvidence :
-        PlatformHouseOperationSnapshot
-    {
-        internal ResolveDocumentationEvidence(
-            PlatformDocumentationSubjectIdentity subject,
-            PlatformReferenceEvidenceIdentity reference,
-            PlatformDocumentationDemand demand,
-            PlatformViewCorrespondenceIdentity? implementationCorrespondence)
-            : base(PlatformHouseOperationKind.ResolveDocumentationEvidence)
-        {
-            Subject = subject;
-            Reference = reference;
-            Demand = demand;
-            ImplementationCorrespondence = implementationCorrespondence;
-        }
-
-        public PlatformDocumentationSubjectIdentity Subject { get; }
-        public PlatformReferenceEvidenceIdentity Reference { get; }
-        public PlatformDocumentationDemand Demand { get; }
-        public PlatformViewCorrespondenceIdentity? ImplementationCorrespondence
-        {
-            get;
-        }
     }
 }
 
@@ -287,149 +261,6 @@ public abstract class PlatformHouseOperation
             }
 
             public TStartingReference StartingReference { get; }
-        }
-    }
-
-    public abstract class ResolveDocumentationEvidence : PlatformHouseOperation
-    {
-        private protected ResolveDocumentationEvidence(
-            PlatformDocumentationSubjectIdentity subject,
-            PlatformReferenceEvidenceIdentity reference,
-            PlatformDocumentationDemand demand,
-            PlatformViewCorrespondenceIdentity? correspondence)
-            : base(CreateSnapshot(
-                subject,
-                reference,
-                demand,
-                correspondence))
-        {
-            Demand = demand;
-        }
-
-        public PlatformDocumentationDemand Demand { get; }
-
-        static PlatformHouseOperationSnapshot CreateSnapshot(
-            PlatformDocumentationSubjectIdentity subject,
-            PlatformReferenceEvidenceIdentity reference,
-            PlatformDocumentationDemand demand,
-            PlatformViewCorrespondenceIdentity? correspondence)
-        {
-            ArgumentNullException.ThrowIfNull(subject);
-            ArgumentNullException.ThrowIfNull(reference);
-            if (!Enum.IsDefined(demand))
-                throw new ArgumentOutOfRangeException(nameof(demand));
-            if (demand is PlatformDocumentationDemand.SourceDerived
-                    or PlatformDocumentationDemand.CompiledXmlAndSourceDerived
-                && correspondence is null)
-            {
-                throw new ArgumentNullException(
-                    nameof(correspondence));
-            }
-
-            return new PlatformHouseOperationSnapshot
-                .ResolveDocumentationEvidence(
-                    subject,
-                    reference,
-                    demand,
-                    correspondence);
-        }
-
-        public sealed class CompiledXml<TSubject, TReference> :
-            ResolveDocumentationEvidence
-            where TSubject : notnull
-            where TReference : notnull
-        {
-            public CompiledXml(
-                PlatformDocumentationSubjectEvidence<TSubject> subject,
-                PlatformReferenceEvidence<TReference> reference)
-                : base(
-                    (subject
-                        ?? throw new ArgumentNullException(
-                            nameof(subject))).Identity,
-                    (reference
-                        ?? throw new ArgumentNullException(
-                            nameof(reference))).Identity,
-                    PlatformDocumentationDemand.CompiledXml,
-                    correspondence: null)
-            {
-                Subject = subject.Value;
-                Reference = reference.Value;
-            }
-
-            public TSubject Subject { get; }
-            public TReference Reference { get; }
-        }
-
-        public sealed class SourceDerived<
-            TSubject,
-            TReference,
-            TCorrespondence> : ResolveDocumentationEvidence
-            where TSubject : notnull
-            where TReference : notnull
-            where TCorrespondence : notnull
-        {
-            public SourceDerived(
-                PlatformDocumentationSubjectEvidence<TSubject> subject,
-                PlatformReferenceEvidence<TReference> reference,
-                PlatformViewCorrespondenceEvidence<TCorrespondence>
-                    implementationCorrespondence)
-                : base(
-                    (subject
-                        ?? throw new ArgumentNullException(
-                            nameof(subject))).Identity,
-                    (reference
-                        ?? throw new ArgumentNullException(
-                            nameof(reference))).Identity,
-                    PlatformDocumentationDemand.SourceDerived,
-                    (implementationCorrespondence
-                        ?? throw new ArgumentNullException(
-                            nameof(implementationCorrespondence))).Identity)
-            {
-                Subject = subject.Value;
-                Reference = reference.Value;
-                ImplementationCorrespondence =
-                    implementationCorrespondence.Value;
-            }
-
-            public TSubject Subject { get; }
-            public TReference Reference { get; }
-            public TCorrespondence ImplementationCorrespondence { get; }
-        }
-
-        public sealed class CompiledXmlAndSourceDerived<
-            TSubject,
-            TReference,
-            TCorrespondence> : ResolveDocumentationEvidence
-            where TSubject : notnull
-            where TReference : notnull
-            where TCorrespondence : notnull
-        {
-            public CompiledXmlAndSourceDerived(
-                PlatformDocumentationSubjectEvidence<TSubject> subject,
-                PlatformReferenceEvidence<TReference> reference,
-                PlatformViewCorrespondenceEvidence<TCorrespondence>
-                    implementationCorrespondence)
-                : base(
-                    (subject
-                        ?? throw new ArgumentNullException(
-                            nameof(subject))).Identity,
-                    (reference
-                        ?? throw new ArgumentNullException(
-                            nameof(reference))).Identity,
-                    PlatformDocumentationDemand.CompiledXmlAndSourceDerived,
-                    (implementationCorrespondence
-                        ?? throw new ArgumentNullException(
-                            nameof(implementationCorrespondence))).Identity)
-            {
-                Subject = subject.Value;
-                Reference = reference.Value;
-                ImplementationCorrespondence =
-                    implementationCorrespondence.Value;
-            }
-
-            public TSubject Subject { get; }
-            public TReference Reference { get; }
-            public TCorrespondence ImplementationCorrespondence { get; }
         }
     }
 }
