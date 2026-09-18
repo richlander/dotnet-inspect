@@ -23,10 +23,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// #3241 failure mode instead of removing it: a new host — another harness, a
 /// sweep tool, a benchmark — would exercise the pipeline broadly while
 /// validating nothing, and look healthy doing it. With the default inverted,
-/// declining validation has exactly one form — <see cref="Enabled"/>'s setter
-/// is private, so the compiler rejects any other spelling — and that one form
-/// is pinned to a single call site by
-/// <c>IrInvariantsHostContractTests</c>.
+/// every host inherits validation unless it explicitly calls
+/// <see cref="DisableForShippedTool"/> or an operator supplies an environment
+/// override. <see cref="Enabled"/>'s private setter prevents independent
+/// process-wide mutation by callers.
 /// </para>
 /// </summary>
 public static class IrInvariants
@@ -55,8 +55,8 @@ public static class IrInvariants
     /// regardless of this flag.
     /// <para>
     /// The setter is private on purpose: turning validation off is a decision
-    /// with exactly one sanctioned form, so the compiler — not a convention or a
-    /// source census — is what stops a host from writing
+    /// through the explicit host method, so the compiler is what stops a host
+    /// from writing
     /// <c>Enabled = false</c> under a <c>using static</c> or a namespace alias.
     /// It also removes the temptation to flip the flag inside a test, which
     /// would race the parallel collections xUnit runs it under.
@@ -81,15 +81,12 @@ public static class IrInvariants
     /// moved <em>independently of</em> <see cref="Enabled"/>, the only setter
     /// involved is <see cref="Enabled"/>'s and it is private, so only this type
     /// can move either, and the one public mover is
-    /// <see cref="DisableForShippedTool"/> — held to a single call site in the
-    /// shipped CLI by <c>OnlyTheShippedToolEntryPointDeclinesValidation</c>,
-    /// the source census that scans the repository under every preprocessor
-    /// configuration. (Its sibling
-    /// <c>ThePublicSurfaceIsExactlyTheShippedToolOptOut</c> pins the
-    /// complementary half — which members exist at all — so a new mover cannot
-    /// appear unnoticed either.) So no test can race the
-    /// collections xUnit runs in parallel by toggling it, and no host can lower
-    /// semantics while leaving structural armed.
+    /// <see cref="DisableForShippedTool"/>. The shipped CLI uses that method to
+    /// avoid the decompile hot-path cost; other hosts inherit the default unless
+    /// they make the same explicit trusted-host choice. The public-surface test
+    /// pins which process-wide controls exist. No test can race the collections
+    /// xUnit runs in parallel by toggling the levels independently, and no host
+    /// can lower semantics while leaving structural validation armed.
     /// </para>
     /// <para>
     /// This level was opt-in on the grounds that arming it suite-wide would

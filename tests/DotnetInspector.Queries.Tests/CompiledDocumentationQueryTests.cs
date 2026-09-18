@@ -19,8 +19,8 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompiledDocumentationQueryTests
 {
-    private const int MaximumAvailablePayloadBytes = 1_100;
-    private const int MaximumBoundedNonAvailablePayloadBytes = 1_024;
+    private const int MaximumAvailableJsonCodeUnits = 1_100;
+    private const int MaximumBoundedNonAvailableJsonCodeUnits = 1_024;
     private const string DeserializeIdentity =
         "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)";
     private static readonly ApiSurfaceExtractionBounds s_apiSurfaceBounds =
@@ -210,20 +210,20 @@ public sealed class CompiledDocumentationQueryTests
         Assert.Null(
             CompiledDocumentationQueryJsonContext.Default.GetTypeInfo(
                 typeof(CompiledDocumentationQueryResult)));
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+        string json = JsonSerializer.Serialize(
             result.Content,
             CompiledDocumentationQueryJsonContext
                 .Default
                 .CompiledDocumentationOutcome);
         CompiledDocumentationOutcome copy =
             JsonSerializer.Deserialize(
-                payload,
+                json,
                 CompiledDocumentationQueryJsonContext
                     .Default
                     .CompiledDocumentationOutcome)!;
         Assert.Equal(
-            payload,
-            JsonSerializer.SerializeToUtf8Bytes(
+            json,
+            JsonSerializer.Serialize(
                 copy,
                 CompiledDocumentationQueryJsonContext
                     .Default
@@ -247,9 +247,9 @@ public sealed class CompiledDocumentationQueryTests
             available.Source.Name);
 
         Assert.True(
-            payload.Length <= MaximumAvailablePayloadBytes,
-            $"Available payload was {payload.Length} UTF-8 bytes.");
-        using JsonDocument document = JsonDocument.Parse(payload);
+            json.Length <= MaximumAvailableJsonCodeUnits,
+            $"Available JSON was {json.Length} UTF-16 code units.");
+        using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
         Assert.Equal("available", root.GetProperty("kind").GetString());
         AssertPropertyNames(
@@ -344,14 +344,14 @@ public sealed class CompiledDocumentationQueryTests
             incomplete.Sources[0].Kind);
 
         await library.RetireAsync();
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+        string json = JsonSerializer.Serialize(
             result.Content,
             CompiledDocumentationQueryJsonContext
                 .Default
                 .CompiledDocumentationOutcome);
         CompiledDocumentationOutcome copy =
             JsonSerializer.Deserialize(
-                payload,
+                json,
                 CompiledDocumentationQueryJsonContext
                     .Default
                     .CompiledDocumentationOutcome)!;
@@ -360,10 +360,10 @@ public sealed class CompiledDocumentationQueryTests
         Assert.Equal(8, copied.Sources.Length);
         Assert.True(copied.SourcesTruncated);
         Assert.True(
-            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
-            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
+            json.Length <= MaximumBoundedNonAvailableJsonCodeUnits,
+            $"Incomplete JSON was {json.Length} UTF-16 code units.");
 
-        using JsonDocument document = JsonDocument.Parse(payload);
+        using JsonDocument document = JsonDocument.Parse(json);
         AssertPropertyNames(
             document.RootElement,
             "kind",
@@ -454,11 +454,11 @@ public sealed class CompiledDocumentationQueryTests
         Assert.True(content.SourcesTruncated);
 
         await library.RetireAsync();
-        byte[] payload = Serialize(result.Content);
+        string json = Serialize(result.Content);
         Assert.True(
-            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
-            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
-        using JsonDocument document = JsonDocument.Parse(payload);
+            json.Length <= MaximumBoundedNonAvailableJsonCodeUnits,
+            $"Incomplete JSON was {json.Length} UTF-16 code units.");
+        using JsonDocument document = JsonDocument.Parse(json);
         AssertPropertyNames(
             document.RootElement,
             "kind",
@@ -544,11 +544,11 @@ public sealed class CompiledDocumentationQueryTests
         Assert.True(content.SourcesTruncated);
 
         await library.RetireAsync();
-        byte[] payload = Serialize(result.Content);
+        string json = Serialize(result.Content);
         Assert.True(
-            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
-            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
-        using JsonDocument document = JsonDocument.Parse(payload);
+            json.Length <= MaximumBoundedNonAvailableJsonCodeUnits,
+            $"Incomplete JSON was {json.Length} UTF-16 code units.");
+        using JsonDocument document = JsonDocument.Parse(json);
         AssertPropertyNames(
             document.RootElement,
             "kind",
@@ -759,9 +759,10 @@ public sealed class CompiledDocumentationQueryTests
         Assert.Equal(
             CompiledDocumentationSourceKind.DirectLibrary,
             portableFailure.Source.Kind);
-        byte[] contentAccessPayload = Serialize(contentAccessFailed.Content);
+        string contentAccessJsonText =
+            Serialize(contentAccessFailed.Content);
         using JsonDocument contentAccessJson =
-            JsonDocument.Parse(contentAccessPayload);
+            JsonDocument.Parse(contentAccessJsonText);
         AssertPropertyNames(
             contentAccessJson.RootElement,
             "kind",
@@ -775,16 +776,16 @@ public sealed class CompiledDocumentationQueryTests
         CompiledDocumentationOutcome.ContentAccessFailed contentAccessCopy =
             Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
                 JsonSerializer.Deserialize(
-                    contentAccessPayload,
+                    contentAccessJsonText,
                     CompiledDocumentationQueryJsonContext
                         .Default
                         .CompiledDocumentationOutcome));
         Assert.Equal(portableFailure.Source, contentAccessCopy.Source);
         Assert.True(
-            contentAccessPayload.Length
-                <= MaximumBoundedNonAvailablePayloadBytes,
-            $"Content-access failure payload was "
-                + $"{contentAccessPayload.Length} bytes.");
+            contentAccessJsonText.Length
+                <= MaximumBoundedNonAvailableJsonCodeUnits,
+            $"Content-access failure JSON was "
+                + $"{contentAccessJsonText.Length} UTF-16 code units.");
     }
 
     [Fact]
@@ -861,11 +862,11 @@ public sealed class CompiledDocumentationQueryTests
         Assert.True(content.SourcesTruncated);
 
         await library.RetireAsync();
-        byte[] payload = Serialize(result.Content);
+        string json = Serialize(result.Content);
         Assert.True(
-            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
-            $"Absent payload was {payload.Length} UTF-8 bytes.");
-        using JsonDocument document = JsonDocument.Parse(payload);
+            json.Length <= MaximumBoundedNonAvailableJsonCodeUnits,
+            $"Absent JSON was {json.Length} UTF-16 code units.");
+        using JsonDocument document = JsonDocument.Parse(json);
         AssertPropertyNames(
             document.RootElement,
             "kind",
@@ -917,8 +918,8 @@ public sealed class CompiledDocumentationQueryTests
             "reason");
     }
 
-    private static byte[] Serialize(CompiledDocumentationOutcome content) =>
-        JsonSerializer.SerializeToUtf8Bytes(
+    private static string Serialize(CompiledDocumentationOutcome content) =>
+        JsonSerializer.Serialize(
             content,
             CompiledDocumentationQueryJsonContext
                 .Default

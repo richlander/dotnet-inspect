@@ -15,7 +15,16 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
     static readonly AnnotationDescriptor Enumerator = new("alloc.enumerator", AnnotationCategory.Allocation, "allocates an enumerator");
 
     public string Name => "allocation-occurrences";
-    public IReadOnlyList<string> Produces { get; } = ["alloc.*"];
+    public IReadOnlyList<string> Produces { get; } =
+    [
+        Box.Id,
+        Array.Id,
+        NewObj.Id,
+        Closure.Id,
+        StateMachine.Id,
+        Delegate.Id,
+        Enumerator.Id,
+    ];
     public IReadOnlyList<string> DependsOn => [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForMember(
