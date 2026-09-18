@@ -252,10 +252,11 @@ dotnet-inspect package activity --ecosystem aspire \
 UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
 activity with positive current-advisory or exact security-release evidence.
 Unavailable evidence is not treated as a negative. Human output uses the shared
-report view; `--json` emits the lossless schema-versioned report, with
-`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
-on stderr. Single-table formats and catalog-only section projections are not
-available with `package activity`.
+report view; `--json` emits the lossless schema-versioned report, while
+`--envelope` emits the same report as Content with Share and diagnostics.
+`--compact` minifies either JSON boundary. Use `--verbose` for bounded
+acquisition progress on stderr. Single-table formats and catalog-only section
+projections are not available with `package activity`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -352,13 +353,14 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 `--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
 Use `-T q` to suppress tips in script-oriented commands.
 
-Positional `depends <type>`, ordinary single-Library API `diff`, and online
-package range-version population support the presence-only `--envelope`
-service-output selector. It implies JSON. For `depends` and API Diff,
-unprojected `--json` emits the same Content without the service frame. Package
-version `--json` remains an explicit row projection; `--envelope` instead
-exposes the complete directed population Document, Share, and diagnostics.
-Asset-mode `depends`, other Diff modes, and other commands have not adopted
+Positional `depends <type>`, ordinary single-Library API `diff`, `package
+activity`, and online package range-version population support the
+presence-only `--envelope` service-output selector. It implies JSON. For
+`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection; `--envelope` instead exposes the complete directed population
+Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
+Discover, Count outside package population, and other commands have not adopted
 this transport.
 
 | Goal | Flags |
@@ -378,12 +380,11 @@ this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
-`-n N` selects the command's declared items. That normally means semantic rows.
-For `skill` and focused skill-document commands, text lines are the only item
-domain, so bare `-n` selects rendered lines. Other commands without a
-semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
-lines or `--tail-lines` for the last N. Rendered-line clipping is not available
-with JSON document output.
+`-n N` selects the command's items. It selects semantic rows when the active
+command or lens declares them; otherwise it selects the first N rendered lines.
+Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
+on a semantic-row command, and `--tail-lines` selects rendered lines from the
+end. Rendered-line clipping is not available with JSON document output.
 
 Useful discovery and projection patterns:
 
@@ -487,9 +488,17 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected
-matching package rows only when completion or the semantic selection proves
-the count exact.
+counts selected matching package rows only when completion or the semantic
+selection proves the count exact.
+
+Package Query output adapts after execution. The default renders `Packages`
+when at least one package matched and `Query Summary` otherwise. The summary
+reports independent `Candidates`, `Matches`, and `Evaluation Failures` integer
+columns, so a missing package (`Candidates=0`) remains distinct from an
+existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
+stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
+`Packages` retains its empty table or array when no package matched. Bare `-S`
+also requests the non-adaptive `Packages` preset.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
@@ -973,6 +982,10 @@ sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
+Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
+Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
+Paths` remains an exact-name section because its required cluster coordinate
+does not compose with the pair-wide category.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains
