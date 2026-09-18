@@ -129,6 +129,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(LoadIndirect)] = "IndirectAccessExpression",
             [typeof(StoreIndirect)] = "AssignmentStatement",
             [typeof(PointerElementCompoundAssignment)] = "AssignmentStatement",
+            [typeof(PointerCompoundAssignment)] = "AssignmentStatement",
             [typeof(CopyBlock)] = "UnsupportedExpression",
             [typeof(InitObject)] = "ObjectInitializationStatement",
             [typeof(LoadElement)] = "ElementAccessExpression",
@@ -153,6 +154,8 @@ internal static class AnnotatedSourceNodeKindProjection
         => node switch
         {
             SynthesizedRenderedExpression rendered => rendered.Kind,
+            PointerCompoundAssignment { IsChecked: true } => "CheckedStatement",
+            PointerCompoundAssignment { Kind: PointerUpdateKind.Increment or PointerUpdateKind.Decrement } => "IncrementOrDecrementExpression",
             LoadProperty { IndexArguments.Count: > 0 } => "ElementAccessExpression",
             LoadToken { Kind: RuntimeTokenKind.Type, Type: not null } => "TypeOfExpression",
             _ => Kinds.GetValueOrDefault(node.GetType(), AnnotatedSourceNodeKinds.Unknown),

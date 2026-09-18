@@ -770,6 +770,10 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    consumes its exclusive address-only spills before materialization. Its
    ownership and evaluation-order gate is independent of this unchanged
    exact-storage admission; retained pointer carriers still follow this rule.
+   The [pointer-variable compound-update raise](pointer-variable-compound-updates.md)
+   separately decides same-pointer storage updates after materialization,
+   retiring the printer's pointer-compound branch without broadening storage
+   admission.
    The unchanged shared pipeline serves CLI and Browser/Wasm.
    Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy

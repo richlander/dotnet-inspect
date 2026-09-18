@@ -67,6 +67,9 @@ public readonly record struct ConsumedMemberEvidence(
             case StoreProperty store:
                 evidence.Add(new(Method: store.Accessor));
                 break;
+            case PointerCompoundAssignment { Setter: { } setter }:
+                evidence.Add(new(Method: setter));
+                break;
             case EventSubscription subscription:
                 evidence.Add(new(Method: subscription.Accessor));
                 break;
