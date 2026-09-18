@@ -130,9 +130,8 @@ source-relative CallGraph row and occurrences remain singular.
 
 Every unclassified boundary also receives a targeted
 `queries.call.external-boundary-classification-incomplete` limit. This
-preserves
-the CallGraph result's classification boundary in the shared document instead
-of dropping the edge or converting unknown membership into absence.
+preserves the CallGraph result's classification boundary in the shared document
+instead of dropping the edge or converting unknown membership into absence.
 
 Existing source facts remain independent:
 
