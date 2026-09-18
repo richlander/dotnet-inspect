@@ -121,10 +121,10 @@ import {
   WORKBENCH_KEYBINDING_PRIORITY,
 } from "./workbench-keybindings.ts";
 import {
-  createNuGetPackageModel,
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
+  createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
@@ -3844,7 +3844,10 @@ async function activateWorkspacePackageOccurrence(action: string) {
     return;
   }
 
-  const packageModel = createNuGetPackageModel(result.package);
+  const packageModel = createWorkspaceOccurrencePackageModel(
+    result.package,
+    state.package,
+    state.packages);
   retainPackageModel(packageModel);
   selectWorkspacePackage(packageModel);
 }

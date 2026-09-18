@@ -1,6 +1,7 @@
 import {
   graphMemberTargetWithSelectedBody,
   mergeInspectionErrorEntries,
+  packageIdentityKey,
   retainGraphOnlyBodyTarget,
   renderInspectionErrors,
 } from "./data.ts";
@@ -353,6 +354,32 @@ export function createNuGetPackageModel(
       : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+  };
+}
+
+export function createWorkspaceOccurrencePackageModel(
+  result: InspectedPackageSurface,
+  activePackage: AppPackage | null | undefined,
+  retainedPackages: readonly AppPackage[],
+): AppPackage {
+  const identity = packageIdentityKey({
+    id: result.package,
+    version: result.version,
+    activeFramework: result.activeFramework,
+  });
+  const retained = activePackage
+    && packageIdentityKey(activePackage) === identity
+    ? activePackage
+    : retainedPackages.find(
+        candidate => packageIdentityKey(candidate) === identity);
+  return {
+    ...createNuGetPackageModel(result),
+    ...(retained?.versionSettlement
+      ? { versionSettlement: retained.versionSettlement }
+      : {}),
+    ...(retained?.packageInfo
+      ? { packageInfo: retained.packageInfo }
+      : {}),
   };
 }
 
