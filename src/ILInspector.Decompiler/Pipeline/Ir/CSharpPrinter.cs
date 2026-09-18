@@ -284,7 +284,10 @@ public sealed partial class CSharpPrinter
             // Declaration expressions in these headers are scoped to the
             // statement or catch clause rather than the containing block.
             if (current is WhileLoop or DoWhileLoop or ForLoop
-                or UsingStatement or ForeachStatement or Fixed or CatchClause)
+                or UsingStatement or ForeachStatement or Fixed or CatchClause
+                or SwitchExpressionArm or UnionSwitchExpressionArm
+                or SynthesizedSwitchExpressionArm or TupleSwitchExpressionArm
+                or PatternSwitchExpressionArm)
             {
                 return current;
             }

@@ -177,6 +177,22 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.DoesNotContain(" V_", result.Output);
     }
 
+    [Fact]
+    public void SwitchExpressionOutVariableScopes_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SwitchExpressionOutVariables))!;
+
+        var result = CSharpPrinter.PrintRaised(function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "out int value", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(" V_", result.Output);
+    }
+
     [Theory]
     [InlineData(ArgumentRefKind.Ref, ParameterRefKindFacts.Known)]
     [InlineData(ArgumentRefKind.Out, ParameterRefKindFacts.Unknown)]

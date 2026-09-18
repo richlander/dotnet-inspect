@@ -75,6 +75,16 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static bool SwitchExpressionOutVariables(
+        int selector,
+        string first,
+        string second)
+        => selector switch
+        {
+            0 => TryRead(first, out int value) && value >= 0,
+            _ => TryRead(second, out int value) && value >= 0,
+        };
+
     public static void SequentialValueTypeScopeLocals()
     {
         {
