@@ -51,8 +51,13 @@ public sealed class PointerCompoundAssignmentTests
             Assert.Empty(CoercionInvariant.Check(function));
             function.CheckInvariant(includeSemantics: true);
             string output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
-            if (expected > 0 && updated)
+            if (method == "Indirect" && updated)
                 Assert.Contains("unsafe", output);
+            if (updated && method is "Bytes" or "Words" or "Steps" or "UnitAssignment" or "Local"
+                or "ByReference" or "Checked" or "CheckedBytes" or "CheckedIndex")
+            {
+                Assert.DoesNotContain("unsafe", output);
+            }
             if (method == "Indirect")
                 Assert.Contains("(*cursor)++;", output);
             if (method == "ByReference")
@@ -100,6 +105,22 @@ public sealed class PointerCompoundAssignmentTests
         Assert.Contains(evidence, item => ReferenceEquals(item.Method, target.Accessor));
         Assert.Equal("set_Item", update.Setter!.Name);
         Assert.Equal("get_Item", target.Accessor.Name);
+    }
+
+    [Fact]
+    public void UpdatedRulesKeepPointerArithmeticSafeAndDereferencesUnsafe()
+    {
+        using var source = MetadataSource.Open(FixturePath(true));
+        var function = Raise(source, "ILInspector.Decompiler.Fixtures.NewUnsafe.PointerArithmeticFixtures", "PointerIncrement");
+        Assert.Equal(2, function.Descendants.OfType<PointerCompoundAssignment>().Count());
+
+        string output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+        Assert.Contains("p++;", output);
+        Assert.Contains("p--;", output);
+        Assert.Contains("unsafe(*p)", output);
+        Assert.DoesNotContain("unsafe\n{", output.ReplaceLineEndings("\n"));
+        Assert.Empty(CoercionInvariant.Check(function));
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]

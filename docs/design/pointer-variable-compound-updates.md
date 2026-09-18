@@ -83,6 +83,10 @@ and before coercion insertion. CLI and Browser/Wasm adopt the same node and
 renderer without a flag. Lowered mode leaves explicit stores. Checked blocks,
 loop increment positions, unsafe operation classification, accessor evidence,
 and annotated-source kinds are part of adoption, not later follow-ups.
+The existing [operation-context contract](memory-safety-modes.md) remains
+authoritative: pointer-value arithmetic has a legacy lexical-unsafe
+requirement, but is not intrinsically unsafe under updated rules. Target
+dereferences and consumed member contracts retain their own requirements.
 
 The pointer branch in `CSharpPrinter.CompoundStatement` retires in this slice.
 Other scalar/enum compound families and general pointer-expression rendering

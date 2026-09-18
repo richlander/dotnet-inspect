@@ -64,7 +64,6 @@ internal static class OperationMemorySafetyContract
             LoadIndirect load => RendersAsPointerDereference(load.Address),
             StoreIndirect store => RendersAsPointerDereference(store.Address),
             PointerElementCompoundAssignment => true,
-            PointerCompoundAssignment => true,
             InitObject init => RendersAsPointerDereference(init.Address),
             LocalFunctionInvocation invocation =>
                 callerUsesUpdatedRules && invocation.RequiresUnsafe
@@ -141,6 +140,7 @@ internal static class OperationMemorySafetyContract
             || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer },
         IncrementDecrement increment =>
             increment.Target.ResultType is { Kind: TypeRefKind.Pointer },
+        PointerCompoundAssignment => true,
         _ => false,
     };
 
