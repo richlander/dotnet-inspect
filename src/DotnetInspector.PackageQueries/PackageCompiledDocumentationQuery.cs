@@ -26,6 +26,9 @@ public sealed record PackageCompiledDocumentationQueryLimits
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
 
+    public ApiSurfaceExtractionScope ApiSurfaceScope { get; init; } =
+        ApiSurfaceExtractionScope.PublicWithNonPublicTypes;
+
     public DocumentationHouseLimits Documentation { get; init; } =
         new(
             maximumCompiledXmlContributions: 1,
@@ -40,6 +43,8 @@ public sealed record PackageCompiledDocumentationQueryLimits
         ArgumentNullException.ThrowIfNull(Materialization);
         ArgumentNullException.ThrowIfNull(ApiSurface);
         ArgumentNullException.ThrowIfNull(Documentation);
+        if (!Enum.IsDefined(ApiSurfaceScope))
+            throw new ArgumentOutOfRangeException(nameof(ApiSurfaceScope));
         if (DocumentationTimeout <= TimeSpan.Zero
             || DocumentationTimeout == Timeout.InfiniteTimeSpan)
         {
@@ -68,6 +73,48 @@ public static class PackageCompiledDocumentationQuery
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(handoff);
         ArgumentException.ThrowIfNullOrWhiteSpace(documentationId);
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes =
+            await ExecuteManyAsync(
+                    settlement,
+                    handoff,
+                    [documentationId],
+                    limits,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return outcomes[documentationId];
+    }
+
+    /// <summary>
+    /// Queries several exact subjects from one materialized package Library.
+    /// </summary>
+    public static async ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        ExecuteManyAsync(
+            PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff,
+            IReadOnlyCollection<string> documentationIds,
+            PackageCompiledDocumentationQueryLimits? limits = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(handoff);
+        ArgumentNullException.ThrowIfNull(documentationIds);
+        if (documentationIds.Count == 0)
+            return new Dictionary<string, CompiledDocumentationOutcome>();
+        string[] requestedIds = [.. documentationIds];
+        if (requestedIds.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                "Documentation IDs cannot be empty.",
+                nameof(documentationIds));
+        }
+        if (requestedIds.Distinct(StringComparer.Ordinal).Count()
+            != requestedIds.Length)
+        {
+            throw new ArgumentException(
+                "Documentation IDs must be unique.",
+                nameof(documentationIds));
+        }
         limits ??= PackageCompiledDocumentationQueryLimits.Default;
         limits.Validate();
         cancellationToken.ThrowIfCancellationRequested();
@@ -93,44 +140,68 @@ public static class PackageCompiledDocumentationQuery
         await using var artifacts = completed.Artifacts;
         await using var owner = completed.Owner;
 
-        DocumentationSubjectReference subject = CreateSubject(
+        IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
+            CreateSubjects(
             completed,
-            documentationId,
+            requestedIds,
+            limits.ApiSurfaceScope,
             limits.ApiSurface,
             cancellationToken);
-        CompiledXmlContribution contribution =
-            PackageDocumentationHouseAdapter
-                .CreateCompiledXmlContribution(
-                    completed.Receipt,
-                    subject);
-        var plan = new DocumentationHouseOperationPlan(
-            DocumentationHouseOperationPlanIdentity.Create(
-                "package-compiled-documentation"),
-            DocumentationHousePolicyGeneration.Create(
-                "package-compiled-documentation-v1"),
-            limits.Documentation,
-            DateTimeOffset.UtcNow.Add(limits.DocumentationTimeout),
-            [contribution]);
-        var request = new DocumentationHouseRequest(
-            DocumentationHouseRequestIdentity.Create(
-                "package-compiled-documentation"),
-            subject,
-            DocumentationDemand.CompiledXml,
-            plan);
+        var outcomes =
+            new Dictionary<string, CompiledDocumentationOutcome>(
+                requestedIds.Length,
+                StringComparer.Ordinal);
+        var requests =
+            new List<DocumentationHouseRequest>(requestedIds.Length);
+        foreach (string documentationId in requestedIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DocumentationSubjectReference subject =
+                subjects[documentationId];
+            CompiledXmlContribution contribution =
+                PackageDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Receipt,
+                        subject);
+            var plan = new DocumentationHouseOperationPlan(
+                DocumentationHouseOperationPlanIdentity.Create(
+                    "package-compiled-documentation"),
+                DocumentationHousePolicyGeneration.Create(
+                    "package-compiled-documentation-v1"),
+                limits.Documentation,
+                DateTimeOffset.UtcNow.Add(limits.DocumentationTimeout),
+                [contribution]);
+            var request = new DocumentationHouseRequest(
+                DocumentationHouseRequestIdentity.Create(
+                    "package-compiled-documentation"),
+                subject,
+                DocumentationDemand.CompiledXml,
+                plan);
+            requests.Add(request);
+        }
         using LibraryOperationLease operation =
             IssueOperation(completed);
-        CompiledDocumentationQueryResult result =
-            await CompiledDocumentationQuery.ExecuteAsync(
-                    request,
+        IReadOnlyList<CompiledDocumentationQueryResult> results =
+            await CompiledDocumentationQuery.ExecuteManyAsync(
+                    requests,
                     operation,
                     cancellationToken)
                 .ConfigureAwait(false);
-        return result.Content;
+        for (int index = 0; index < requestedIds.Length; index++)
+        {
+            outcomes.Add(
+                requestedIds[index],
+                results[index].Content);
+        }
+        return outcomes;
     }
 
-    private static DocumentationSubjectReference CreateSubject(
+    private static IReadOnlyDictionary<
+        string,
+        DocumentationSubjectReference> CreateSubjects(
         PackageHouseLibraryMaterializationOutcome.Completed materialized,
-        string documentationId,
+        IReadOnlyCollection<string> documentationIds,
+        ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         CancellationToken cancellationToken)
     {
@@ -140,7 +211,7 @@ public static class PackageCompiledDocumentationQuery
             LibraryApiSurfaceInspection.Execute(
                 new(
                     materialized.Receipt.Library,
-                    ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+                    scope,
                     bounds),
                 operation,
                 cancellationToken);
@@ -151,33 +222,66 @@ public static class PackageCompiledDocumentationQuery
                 $"The selected package API surface could not be inspected ({inspection}).");
         }
 
-        (ApiType Type, ApiMember Member)[] matches =
-        [
-            .. completed.Correspondence.Surface.Types
-                .SelectMany(type => type.Members.Select(
-                    member => (Type: type, Member: member)))
-                .Where(candidate =>
-                    candidate.Member.DeclaringTypeDefinitionName is null
-                    && ApiMemberIdentity.TryGetXmlDocMemberIdentity(
-                        candidate.Type,
-                        candidate.Member,
-                        out XmlDocMemberIdentity identity)
-                    && identity.Value.Equals(
-                        documentationId,
-                        StringComparison.Ordinal)),
-        ];
-        if (matches.Length != 1)
+        var requested =
+            new HashSet<string>(documentationIds, StringComparer.Ordinal);
+        var subjects =
+            new Dictionary<string, DocumentationSubjectReference>(
+                requested.Count,
+                StringComparer.Ordinal);
+        foreach (ApiType type in completed.Correspondence.Surface.Types)
         {
-            throw new InvalidOperationException(
-                matches.Length == 0
-                    ? $"The selected package Library has no member '{documentationId}'."
-                    : $"The selected package Library has multiple members '{documentationId}'.");
+            if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                    type,
+                    out XmlDocMemberIdentity typeIdentity)
+                && requested.Contains(typeIdentity.Value))
+            {
+                AddSubject(
+                    typeIdentity.Value,
+                    DocumentationSubjectReference.ForType(
+                        completed.Correspondence,
+                        type));
+            }
+            foreach (ApiMember member in type.Members)
+            {
+                if (member.DeclaringTypeDefinitionName is not null
+                    || !ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        type,
+                        member,
+                        out XmlDocMemberIdentity memberIdentity)
+                    || !requested.Contains(memberIdentity.Value))
+                {
+                    continue;
+                }
+                AddSubject(
+                    memberIdentity.Value,
+                    DocumentationSubjectReference.ForMember(
+                        completed.Correspondence,
+                        type,
+                        member));
+            }
         }
 
-        return DocumentationSubjectReference.ForMember(
-            completed.Correspondence,
-            matches[0].Type,
-            matches[0].Member);
+        string[] missing =
+        [
+            .. requested.Where(id => !subjects.ContainsKey(id)),
+        ];
+        if (missing.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"The selected package Library has no subject '{missing[0]}'.");
+        }
+        return subjects;
+
+        void AddSubject(
+            string documentationId,
+            DocumentationSubjectReference subject)
+        {
+            if (!subjects.TryAdd(documentationId, subject))
+            {
+                throw new InvalidOperationException(
+                    $"The selected package Library has multiple subjects '{documentationId}'.");
+            }
+        }
     }
 
     private static LibraryOperationLease IssueOperation(
