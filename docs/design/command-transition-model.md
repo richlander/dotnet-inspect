@@ -62,8 +62,9 @@ Related docs:
 - [Coordinate child command](coordinate-child-command.md) defines when a
   required subordinate coordinate earns a child request surface under an
   already selected subject.
-- [Inspection graph modes](inspection-graph-modes.md) defines the target split
-  between subject-local Graph operations and top-level Graph questions.
+- [Inspection graph modes](inspection-graph-modes.md) defines subject-first
+  Graph sections and top-level Graph requests over single seeds, peer seeds,
+  induced sets, Workspace participants, and paths.
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
@@ -1197,10 +1198,17 @@ positional source does not transfer into the child grammar.
 
 ### Graph operation placement
 
-Graph uses the operation rule. `package graph`, `library graph`, `type graph`,
-and `member graph` are local single-seed operations over an already selected
-subject. Top-level `graph` hosts graph questions without one selected local
-subject.
+Graph uses the operation rule. Top-level `graph` accepts single-seed, peer-seed,
+induced-set, Workspace-backed, and path requests whether or not one local
+subject could also anchor the request. Package, Library, Type, and Member
+commands expose curated operation-backed Graph sections over their already
+resolved subject; they do not add `graph` child commands.
+
+The two entrances preserve one semantic operation. A subject section supplies
+the resolved subject and authored Graph preset, while top-level Graph receives
+the equivalent seed and scope explicitly. Both lower to the same typed Graph
+request and retain its relationships, occurrences, bounds, failures, and
+completeness.
 
 InspectionGraph-backed root modes construct or reopen the Workspace used for
 single-seed, peer-seed, induced-set, or path questions. Another root Graph mode
