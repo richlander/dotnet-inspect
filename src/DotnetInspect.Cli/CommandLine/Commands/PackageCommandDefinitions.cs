@@ -504,20 +504,29 @@ public static class PackageCommandDefinitions
             }
 
             string[]? select = opts.ParseSelect(parseResult);
+            HashSet<string>? includeSections = null;
             if (select is not null)
             {
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
-                    [PackageProfileSections.Packages],
+                    PackageQuerySections.Catalog.SelectableSectionNames,
                     categories: new Dictionary<string, string[]>());
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
-                if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+                includeSections = selection.Sections;
+                if (parseResult.GetValue(opts.Count)
+                    && (includeSections is not { Count: 1 }
+                        || !includeSections.Contains(PackageProfileSections.Packages)))
                 {
                     CommandError.Write(
-                        "Package Query data selection must include Packages.");
+                        "Package Query --count supports the Packages section only.");
                     return 1;
                 }
+                if (!parseResult.GetValue(opts.Count)
+                    && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                        opts.IsTableExplicitlySet(parseResult),
+                        includeSections))
+                    return 1;
             }
 
             if (!PackageQueryOptions.TryCreate(
@@ -548,7 +557,17 @@ public static class PackageCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                IncludeSections = includeSections,
+                SelectDefault = opts.ParseSelectDefault(parseResult),
             };
+            if (options.LibraryLiteralPlan is not null
+                && includeSections?.Contains(
+                    PackageQuerySections.QuerySummaryName) == true)
+            {
+                CommandError.Write(
+                    "Query Summary is not available with --library-literal.");
+                return 1;
+            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),
