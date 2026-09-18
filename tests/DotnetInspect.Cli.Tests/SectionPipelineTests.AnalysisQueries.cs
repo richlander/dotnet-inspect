@@ -246,18 +246,14 @@ public partial class SectionPipelineTests
             trace.RecordQueryExecution);
 
         Assert.Contains(trace.Resources, r => r.Resource == "metadata session");
+        Assert.DoesNotContain(trace.Resources, r => r.Resource == "body analysis");
         Assert.DoesNotContain(trace.Resources, r => r.Resource == "body index");
         Assert.DoesNotContain(trace.Resources, r => r.Resource == "drill map");
     }
 
     [Fact]
-    public void UnsafeEvidenceQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    public void UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex()
     {
-        // Paired positive. Without it the negative above is satisfied by a trace that never
-        // records a body index under any circumstances, which would pass while observing nothing.
-        // The index needs the prefetched image the command opens for exactly this reason; a plain
-        // PdbContext.Open cannot back it, and the scanner would swallow the failure and render an
-        // empty section. Opening it the way InspectAsync does is what makes this a real positive.
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
         using var service = SourceLinkService.OpenPrefetched(
@@ -281,13 +277,22 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<UnsafeEvidenceResult.Available>(
             results.Get(UnsafeEvidenceQuery.Definition));
         Assert.NotEmpty(available.Evidence);
-        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
-        Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+        var analysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.StartsWith("built in", analysis.Detail.ToString());
+        Assert.Contains("MethodEvidence", analysis.Detail.ToString());
+        Assert.DoesNotContain(
+            "ImplementationProfiles",
+            analysis.Detail.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
     }
 
     [Fact]
-    public void UnsafeEvidenceQuery_BodyIndexFailureRemainsTyped()
+    public void UnsafeEvidenceQuery_AnalysisFailureRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [UnsafeEvidenceQuery.Definition],
@@ -299,7 +304,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void UnsafeEvidenceQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void UnsafeEvidenceQuery_NoMetadata_DoesNotAcquireAnalysis()
     {
         bool acquired = false;
 
@@ -312,6 +317,116 @@ public partial class SectionPipelineTests
             });
 
         Assert.IsType<UnsafeEvidenceResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                | Analysis.LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [
+                UnsafeEvidenceQuery.Definition,
+                ImplementationProfilesQuery.Definition,
+            ],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<UnsafeEvidenceResult.Available>(
+            results.Get(UnsafeEvidenceQuery.Definition));
+        Assert.IsType<ImplementationProfilesResult.Available>(
+            results.Get(ImplementationProfilesQuery.Definition));
+        var analysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.Contains(
+            "ImplementationProfiles",
+            analysis.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+    }
+
+    [Fact]
+    public void ImplementationProfilesQuery_RunsOnlyItsFocusedProducers()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [ImplementationProfilesQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<ImplementationProfilesResult.Available>(
+            results.Get(ImplementationProfilesQuery.Definition));
+        var analysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.Contains(
+            "ImplementationProfiles",
+            analysis.Detail.ToString());
+        Assert.DoesNotContain(
+            "Allocations",
+            analysis.Detail.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "OptimizationOpportunities",
+            analysis.Detail.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+    }
+
+    [Fact]
+    public void ImplementationProfilesQuery_NoMetadata_DoesNotAcquireAnalysis()
+    {
+        bool acquired = false;
+
+        ImplementationProfilesResult result =
+            LibrarySections.ExecuteImplementationProfilesQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException(
+                        "must not acquire");
+                });
+
+        Assert.IsType<ImplementationProfilesResult.NoMetadata>(
+            result);
         Assert.False(acquired);
     }
 

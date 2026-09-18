@@ -192,6 +192,52 @@ public sealed record CSharpStructuralDiffRow(
     ImmutableArray<AnnotatedSourceSpan> AfterSpans);
 
 /// <summary>
+/// Group-level cardinality change for ambiguous nodes sharing exact
+/// product-owned IL-origin evidence and one stable node kind.
+/// </summary>
+/// <remarks>
+/// This is not node correspondence. It reports no occurrence identity or
+/// source location, and every participating node remains ambiguous.
+/// </remarks>
+public sealed record CSharpStructuralMultiplicityDelta
+{
+    /// <summary>Creates a validated ambiguous-group cardinality delta.</summary>
+    public CSharpStructuralMultiplicityDelta(
+        string NodeKind,
+        AnnotatedSourceNodeProvenance Evidence,
+        int BeforeCount,
+        int AfterCount)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(NodeKind);
+        ArgumentNullException.ThrowIfNull(Evidence);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(BeforeCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(AfterCount);
+        if (BeforeCount == AfterCount)
+        {
+            throw new ArgumentException(
+                "Structural multiplicity delta requires different before and after counts.");
+        }
+
+        this.NodeKind = NodeKind;
+        this.Evidence = Evidence;
+        this.BeforeCount = BeforeCount;
+        this.AfterCount = AfterCount;
+    }
+
+    /// <summary>Stable node kind shared by every group member.</summary>
+    public string NodeKind { get; }
+
+    /// <summary>Exact product-owned IL-origin set shared by every group member.</summary>
+    public AnnotatedSourceNodeProvenance Evidence { get; }
+
+    /// <summary>Number of ambiguous group members in the before revision.</summary>
+    public int BeforeCount { get; }
+
+    /// <summary>Number of ambiguous group members in the after revision.</summary>
+    public int AfterCount { get; }
+}
+
+/// <summary>
 /// One producer-owned comparison consumed by both full-body caret and rich-diff
 /// presentation.
 /// </summary>
@@ -208,8 +254,13 @@ public sealed record CSharpStructuralComparison(
     CSharpStructuralFidelityEvidence? Fidelity = null,
     CSharpNodeCorrespondenceResult? Correspondence = null)
 {
+    /// <summary>
+    /// Group-level count changes that retain ambiguous occurrence identity.
+    /// </summary>
+    public ImmutableArray<CSharpStructuralMultiplicityDelta> MultiplicityDeltas { get; init; } = [];
+
     /// <summary>Whether the selected structure is unchanged.</summary>
-    public bool IsExact => Rows.IsEmpty && IsCorrespondenceComplete;
+    public bool IsExact => Rows.IsEmpty && MultiplicityDeltas.IsEmpty && IsCorrespondenceComplete;
 
     /// <summary>Whether every C# node had enough unique evidence for a verdict.</summary>
     public bool IsCorrespondenceComplete => Correspondence is null
@@ -647,7 +698,70 @@ public static partial class CSharpBodyDiff
             afterNodeIds,
             matches,
             fidelity));
-        return comparison with { Correspondence = correspondence };
+        return comparison with
+        {
+            Correspondence = correspondence,
+            MultiplicityDeltas = CompareAmbiguousGroupMultiplicity(correspondence),
+        };
+    }
+
+    static ImmutableArray<CSharpStructuralMultiplicityDelta> CompareAmbiguousGroupMultiplicity(
+        CSharpNodeCorrespondenceResult correspondence)
+    {
+        var before = AmbiguousGroups(
+            correspondence.Before,
+            correspondence.UnmatchedBefore);
+        var after = AmbiguousGroups(
+            correspondence.After,
+            correspondence.UnmatchedAfter);
+        var deltas = ImmutableArray.CreateBuilder<CSharpStructuralMultiplicityDelta>();
+
+        foreach (var (key, beforeGroup) in before)
+        {
+            if (!after.TryGetValue(key, out var afterGroup)
+                || beforeGroup.Count == afterGroup.Count)
+            {
+                continue;
+            }
+
+            deltas.Add(new(
+                key.NodeKind,
+                beforeGroup.Evidence,
+                beforeGroup.Count,
+                afterGroup.Count));
+        }
+
+        return
+        [
+            .. deltas
+                .OrderBy(static delta => OriginSet.From(delta.Evidence).Offsets, StringComparer.Ordinal)
+                .ThenBy(static delta => delta.NodeKind, StringComparer.Ordinal)
+        ];
+    }
+
+    static Dictionary<AmbiguousGroupKey, AmbiguousGroup> AmbiguousGroups(
+        AnnotatedSourceDocument document,
+        ImmutableArray<CSharpUnmatchedNode> unmatched)
+    {
+        var nodes = document.Nodes.ToDictionary(static node => node.Id);
+        var groups = new Dictionary<AmbiguousGroupKey, AmbiguousGroup>();
+        foreach (var candidate in unmatched)
+        {
+            if (candidate.Reason != CSharpUnmatchedNodeReason.Ambiguous
+                || candidate.Evidence is not { } evidence)
+            {
+                continue;
+            }
+
+            var key = new AmbiguousGroupKey(
+                OriginSet.From(evidence),
+                nodes[candidate.Node.NodeId].Kind);
+            groups[key] = groups.TryGetValue(key, out var existing)
+                ? existing with { Count = existing.Count + 1 }
+                : new AmbiguousGroup(evidence, 1);
+        }
+
+        return groups;
     }
 
     /// <summary>
@@ -850,6 +964,14 @@ public static partial class CSharpBodyDiff
                 nameof(correspondence));
         }
     }
+
+    readonly record struct AmbiguousGroupKey(
+        OriginSet Origins,
+        string NodeKind);
+
+    readonly record struct AmbiguousGroup(
+        AnnotatedSourceNodeProvenance Evidence,
+        int Count);
 
     readonly record struct OriginSet(string Offsets)
     {
