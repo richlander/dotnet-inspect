@@ -29,8 +29,9 @@ CLI and Browser/Wasm, adopted under #7448. Shared
 [member acquisition](member-source-acquisition.md) now also supplies browser
 member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
 Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
-Source through `TypeSourceInspection` under #7522. Broader CLI enrichment and
-the full source-policy contract remain later adoption.
+Source through `TypeSourceInspection` under #7522, CLI type-document printing
+under #7546, and member Source Locations document printing under #7679.
+Broader CLI enrichment and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
