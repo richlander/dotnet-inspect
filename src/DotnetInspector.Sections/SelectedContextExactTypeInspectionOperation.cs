@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Sections;
 
@@ -74,7 +75,9 @@ public static class SelectedContextExactTypeInspectionOperation
             authority,
             context,
             request,
-            projectionLimits: null);
+            projectionLimits: null,
+            activation: null,
+            facet: null);
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         Execute(
@@ -88,7 +91,43 @@ public static class SelectedContextExactTypeInspectionOperation
             authority,
             context,
             request,
-            projectionLimits);
+            projectionLimits,
+            activation: null,
+            facet: null);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Execute(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet = null)
+    {
+        ArgumentNullException.ThrowIfNull(activation);
+        if (activation.SelectedContext is not { } context)
+        {
+            ExactTypeInspectionResult unavailable =
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request.Type,
+                    "The restored Workspace has no selected context.");
+            return new(
+                new SelectedContextExactTypeInspectionResult(
+                    unavailable,
+                    []),
+                new InspectionShare.NonProjectable(
+                    "scenario.context",
+                    "A derived Type scenario requires one selected "
+                        + "Workspace context."),
+                ExactTypeInspectionOperation.Diagnostics(unavailable));
+        }
+
+        return ExecuteCore(
+            authority,
+            context,
+            request,
+            projectionLimits: null,
+            activation,
+            facet);
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -96,7 +135,9 @@ public static class SelectedContextExactTypeInspectionOperation
             WorkspaceRealizationOperationLease authority,
             WorkspaceDeclarationContext context,
             SelectedContextExactTypeInspectionRequest request,
-            ApiSurfaceProjectionLimits? projectionLimits)
+            ApiSurfaceProjectionLimits? projectionLimits,
+            CompleteWorkspaceActivation? activation,
+            ViewFacetId? facet)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
@@ -153,12 +194,60 @@ public static class SelectedContextExactTypeInspectionOperation
         var content = new SelectedContextExactTypeInspectionResult(
             inspection,
             projectedSources);
-        return new(
-            content,
+        InspectionShare share =
             new InspectionShare.NonProjectable(
                 "selected-context-exact-type/share",
                 "A complete portable Workspace scenario is required to "
-                    + "project selected-context exact Type Share."),
+                    + "project selected-context exact Type Share.");
+        if (activation is not null
+            && inspection.IsAvailable
+            && !inspection.IsComplete)
+        {
+            share = new InspectionShare.NonProjectable(
+                "selected-context-exact-type/incomplete",
+                "A derived Type scenario requires complete trustworthy "
+                    + "selected-context Type evidence.");
+        }
+        else if (activation is not null
+            && inspection.IsAvailable
+            && definingSources.Length == 1)
+        {
+            WorkspaceSharePacketProjectionResult projection =
+                WorkspaceTypeScenarioProjection.Project(
+                    activation,
+                    context,
+                    definingSources[0].Member,
+                    definingSources[0].Type,
+                    facet);
+            share = projection.Succeeded
+                ? AvailableShare(
+                    projection.Packet
+                    ?? throw new InvalidOperationException(
+                        "A successful Type scenario projection requires "
+                            + "a packet."))
+                : NonProjectableShare(
+                    projection.Failure
+                    ?? throw new InvalidOperationException(
+                        "A failed Type scenario projection requires "
+                            + "a failure."));
+        }
+        return new(
+            content,
+            share,
             ExactTypeInspectionOperation.Diagnostics(inspection));
     }
+
+    static InspectionShare AvailableShare(WorkspaceSharePacket packet)
+    {
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        return new InspectionShare.Available(
+            "https://dotnet-inspect.net/?w=" + encoded,
+            encoded);
+    }
+
+    static InspectionShare NonProjectableShare(
+        WorkspaceSharePacketProjectionFailure failure) =>
+        new InspectionShare.NonProjectable(
+            failure.Path,
+            failure.Message);
 }

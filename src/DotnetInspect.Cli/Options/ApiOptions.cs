@@ -310,6 +310,8 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public string? WorkspacePacket { get; init; }
+    public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
@@ -432,8 +434,8 @@ public record MemberOptions : ApiOptions
     public IReadOnlyList<string> CallerScopeAssemblies { get; init; } = [];
 
     /// <summary>True when the user supplied any caller-scope flag.</summary>
-    public bool HasCallerScope => CallerScopeDirectories.Length > 0 
-        || CallerScopeProjects.Length > 0 
+    public bool HasCallerScope => CallerScopeDirectories.Length > 0
+        || CallerScopeProjects.Length > 0
         || CallerScopePackages.Length > 0;
 
     /// <inheritdoc/>

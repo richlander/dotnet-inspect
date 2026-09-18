@@ -804,6 +804,34 @@ dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
+Use a Workspace packet as reusable aggregate context when the Type may be
+defined by any Library in its selected context:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+
+# Given a schema-4 packet from a Type-capable producer:
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$schema4_packet" \
+  --share packet
+```
+
+`type --workspace` requires one exact Type and uses the packet's selected
+context, independently of its focused tab. The packet is the sole location
+source, while the receiving command still applies its own NuGet source,
+credential, cache, and offline policy. Optional `--share` keeps ordinary Type
+output on stdout and writes the derived schema-4 packet or URL as the final
+stderr line when the input is schema 4. The current `workspace --share`
+producer emits schema 3, which remains a valid inspection input but cannot
+encode the derived Type scenario; requesting Share from that input fails
+visibly without discarding the Type output.
+
 ### Compatibility and change tracking
 
 ```bash

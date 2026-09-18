@@ -559,9 +559,9 @@ the existing CLI Workspace Sharing refusal contract applies.
 
 #### Type packet-context adoption
 
-The first noun-command adoption is specified by
-[#7555](https://github.com/richlander/dotnet-inspect/issues/7555) and is not yet
-implemented. Its exact CLI shape is:
+The first noun-command adoption is implemented by
+[#7555](https://github.com/richlander/dotnet-inspect/issues/7555). Its exact
+CLI shape is:
 
 ```console
 dotnet-inspect type System.Text.Json.JsonSerializer \
