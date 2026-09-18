@@ -4,14 +4,13 @@ namespace DotnetInspector.EcosystemLoading;
 
 /// <summary>
 /// Application-issued exact correspondence between one lower registration and
-/// its typed static loader binding.
+/// one static loader binding.
 /// </summary>
-public sealed class EcosystemPopulationLoaderCorrespondence<TInputs>
-    where TInputs : class, IEcosystemPopulationLoadInputs
+public abstract class EcosystemPopulationLoaderCorrespondence
 {
-    public EcosystemPopulationLoaderCorrespondence(
+    private protected EcosystemPopulationLoaderCorrespondence(
         WorkspaceEcosystemRegistrationDeclaration registration,
-        EcosystemPopulationLoaderBinding<TInputs> binding)
+        EcosystemPopulationLoaderBinding binding)
     {
         ArgumentNullException.ThrowIfNull(registration);
         ArgumentNullException.ThrowIfNull(binding);
@@ -20,9 +19,32 @@ public sealed class EcosystemPopulationLoaderCorrespondence<TInputs>
     }
 
     public WorkspaceEcosystemRegistrationDeclaration Registration { get; }
-    public EcosystemPopulationLoaderBinding<TInputs> Binding { get; }
+    public EcosystemPopulationLoaderBinding Binding { get; }
 
-    public EcosystemPopulationLoaderSelection Select(
+    public abstract EcosystemPopulationLoaderSelection Select(
+        WorkspaceRegistrationRevision revision,
+        WorkspaceEcosystemRegistrationDeclaration retainedRegistration,
+        EcosystemPopulationDemand demand);
+}
+
+/// <summary>
+/// Typed application-issued correspondence used to form a bound request.
+/// </summary>
+public sealed class EcosystemPopulationLoaderCorrespondence<TInputs> :
+    EcosystemPopulationLoaderCorrespondence
+    where TInputs : class, IEcosystemPopulationLoadInputs
+{
+    readonly EcosystemPopulationLoaderBinding<TInputs> _binding;
+
+    public EcosystemPopulationLoaderCorrespondence(
+        WorkspaceEcosystemRegistrationDeclaration registration,
+        EcosystemPopulationLoaderBinding<TInputs> binding)
+        : base(registration, binding) =>
+        _binding = binding;
+
+    public new EcosystemPopulationLoaderBinding<TInputs> Binding => _binding;
+
+    public override EcosystemPopulationLoaderSelection Select(
         WorkspaceRegistrationRevision revision,
         WorkspaceEcosystemRegistrationDeclaration retainedRegistration,
         EcosystemPopulationDemand demand)
@@ -122,7 +144,23 @@ public abstract class EcosystemPopulationLoaderSelection
         IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics) =>
         new(revision, registration, demand, diagnostics);
 
-    public sealed class Known<TInputs> : EcosystemPopulationLoaderSelection
+    public abstract class Known : EcosystemPopulationLoaderSelection
+    {
+        private protected Known(
+            WorkspaceRegistrationRevision revision,
+            WorkspaceEcosystemRegistrationDeclaration registration,
+            EcosystemPopulationLoaderBinding binding,
+            EcosystemPopulationDemand demand)
+            : base(revision, registration, demand)
+        {
+            ArgumentNullException.ThrowIfNull(binding);
+            Binding = binding;
+        }
+
+        public EcosystemPopulationLoaderBinding Binding { get; }
+    }
+
+    public sealed class Known<TInputs> : Known
         where TInputs : class, IEcosystemPopulationLoadInputs
     {
         internal Known(
@@ -130,10 +168,13 @@ public abstract class EcosystemPopulationLoaderSelection
             WorkspaceEcosystemRegistrationDeclaration registration,
             EcosystemPopulationLoaderBinding<TInputs> binding,
             EcosystemPopulationDemand demand)
-            : base(revision, registration, demand) =>
-            Binding = binding;
+            : base(revision, registration, binding, demand) =>
+            _binding = binding;
 
-        public EcosystemPopulationLoaderBinding<TInputs> Binding { get; }
+        readonly EcosystemPopulationLoaderBinding<TInputs> _binding;
+
+        public new EcosystemPopulationLoaderBinding<TInputs> Binding =>
+            _binding;
 
         public EcosystemPopulationLoadRequest<TInputs> CreateRequest(
             TInputs inputs,

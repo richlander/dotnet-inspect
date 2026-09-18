@@ -106,11 +106,3 @@ public abstract class PlatformPopulationDemand
         }
     }
 }
-
-/// <summary>Which independent platform documentation channels are requested.</summary>
-public enum PlatformDocumentationDemand
-{
-    CompiledXml,
-    SourceDerived,
-    CompiledXmlAndSourceDerived,
-}

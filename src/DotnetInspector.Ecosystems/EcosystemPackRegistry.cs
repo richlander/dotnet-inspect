@@ -38,13 +38,17 @@ internal sealed class EcosystemPackRegistry
         EcosystemPackDescriptor Descriptor,
         EcosystemIntegrationScannerBinding? Scanner,
         EcosystemPopulationLoaderBinding? PopulationLoader,
-        WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration);
+        WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration,
+        EcosystemPopulationLoaderCorrespondence? PopulationLoaderCorrespondence);
 
     private sealed record DemoEntry(
         EcosystemDemoDescriptor Descriptor,
         ProductDemoSourceBinding Source);
 
     private readonly Dictionary<EcosystemPackId, PackEntry> _packsById;
+    private readonly Dictionary<
+        WorkspaceEcosystemRegistrationDeclaration,
+        PackEntry> _packsByWorkspaceRegistration;
     private readonly Dictionary<string, DemoEntry> _demosById;
 
     internal EcosystemPackRegistry(IEnumerable<EcosystemPackRegistration> registrations)
@@ -62,6 +66,8 @@ internal sealed class EcosystemPackRegistry
             ImmutableArray.CreateBuilder<EcosystemPackDescriptor>(manifest.Length);
         var demoEntries = new List<DemoEntry>();
         _packsById = new Dictionary<EcosystemPackId, PackEntry>();
+        _packsByWorkspaceRegistration =
+            new(ReferenceEqualityComparer.Instance);
         _demosById = new Dictionary<string, DemoEntry>(StringComparer.Ordinal);
         var demoOrders = new HashSet<int>();
         var populationLoaderIds = new HashSet<EcosystemPopulationLoaderId>();
@@ -204,13 +210,24 @@ internal sealed class EcosystemPackRegistry
                 corePackages,
                 toolPackages,
                 registration.WorkspaceRegistration is not null);
-            _packsById.Add(
-                packDescriptor.Id,
-                new PackEntry(
-                    packDescriptor,
-                    registration.Scanner,
-                    registration.PopulationLoader,
-                    registration.WorkspaceRegistration));
+            EcosystemPopulationLoaderCorrespondence? loaderCorrespondence =
+                registration.PopulationLoader is { } loader
+                && registration.WorkspaceRegistration is { } workspaceRegistration
+                    ? loader.CreateCorrespondence(workspaceRegistration)
+                    : null;
+            var packEntry = new PackEntry(
+                packDescriptor,
+                registration.Scanner,
+                registration.PopulationLoader,
+                registration.WorkspaceRegistration,
+                loaderCorrespondence);
+            _packsById.Add(packDescriptor.Id, packEntry);
+            if (registration.WorkspaceRegistration is { } retainedRegistration)
+            {
+                _packsByWorkspaceRegistration.Add(
+                    retainedRegistration,
+                    packEntry);
+            }
             packDescriptors.Add(packDescriptor);
             previousPackOrder = registration.Order;
             hasPreviousPackOrder = true;
@@ -258,6 +275,43 @@ internal sealed class EcosystemPackRegistry
         return entry.PopulationLoader is { } binding
             ? new EcosystemPopulationLoaderSelectionResult.Known(binding)
             : new EcosystemPopulationLoaderSelectionResult.Unavailable(id);
+    }
+
+    internal EcosystemPopulationLoaderSelection SelectPopulationLoader(
+        WorkspaceRegistrationRevision revision,
+        WorkspaceEcosystemRegistrationDeclaration registration,
+        EcosystemPopulationDemand demand)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(demand);
+
+        if (!_packsByWorkspaceRegistration.TryGetValue(
+                registration,
+                out PackEntry? entry))
+        {
+            return EcosystemPopulationLoaderSelection.RejectedFor(
+                revision,
+                registration,
+                demand,
+                [
+                    new(
+                        "ecosystem-loader.registration-mismatch",
+                        "The retained Ecosystem registration has no exact application loader correspondence."),
+                ]);
+        }
+
+        return entry.PopulationLoaderCorrespondence is { } correspondence
+            ? correspondence.Select(revision, registration, demand)
+            : EcosystemPopulationLoaderSelection.UnavailableFor(
+                revision,
+                registration,
+                demand,
+                [
+                    new(
+                        "ecosystem-loader.unavailable",
+                        $"Ecosystem pack '{entry.Descriptor.Id}' does not contribute a population loader."),
+                ]);
     }
 
     internal EcosystemWorkspaceRegistrationSelectionResult SelectWorkspaceRegistration(EcosystemPackId id)
@@ -408,6 +462,15 @@ public static partial class EcosystemPackCatalog
     public static EcosystemPopulationLoaderSelectionResult SelectPopulationLoader(
         EcosystemPackId id) =>
         ProductEcosystemPacks.Registry.SelectPopulationLoader(id);
+
+    public static EcosystemPopulationLoaderSelection SelectPopulationLoader(
+        WorkspaceRegistrationRevision revision,
+        WorkspaceEcosystemRegistrationDeclaration registration,
+        EcosystemPopulationDemand demand) =>
+        ProductEcosystemPacks.Registry.SelectPopulationLoader(
+            revision,
+            registration,
+            demand);
 
     public static EcosystemDemoSelectionResult SelectDemo(string scenarioId) =>
         ProductEcosystemPacks.Registry.SelectDemo(scenarioId);

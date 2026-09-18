@@ -96,6 +96,11 @@ export const sampleViewerCatalog = {
     limits: [],
     findings: [],
   },
+  synchronousCompletions: {
+    available: false,
+    unavailableReason: "NotProjected",
+    observations: [],
+  },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;
 
 export const csharpOnlyEmptyViewerCatalog = {
@@ -121,5 +126,10 @@ export const csharpOnlyEmptyViewerCatalog = {
     isComplete: false,
     limits: [],
     findings: [],
+  },
+  synchronousCompletions: {
+    available: false,
+    unavailableReason: "NotProjected",
+    observations: [],
   },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;

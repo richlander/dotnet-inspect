@@ -244,6 +244,80 @@ test("viewer model rejects call cycles without exact first-edge anchors", () => 
   );
 });
 
+test("viewer model retains synchronous completion by physical relationship fact", () => {
+  const relationshipFact = {
+    id: sampleDocument.facts.length,
+    descriptor: "call.edge",
+    category: "Relationship",
+    conditionality: "Always",
+    detail: "System.Threading.Tasks.Task<int>.get_Result()",
+    origin: "Body",
+    source_offset: 0,
+  } as const;
+  const relationshipDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [...sampleDocument.facts, relationshipFact],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: relationshipFact.id, node_id: 1 },
+    ],
+  };
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(relationshipDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+      synchronousCompletions: {
+        available: true,
+        unavailableReason: null,
+        observations: [{
+          factId: relationshipFact.id,
+          kind: "TaskResult",
+        }],
+      },
+    },
+    callRelationships: [{
+      edgeRow: 1,
+      factId: relationshipFact.id,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 0,
+      operandToken: 0x0A000001,
+      kind: "CallVirtual",
+      inLoop: false,
+      target: sampleInvocationTarget,
+    }],
+  });
+
+  assert.equal(
+    model.synchronousCompletionsByFactId
+      .get(relationshipFact.id)?.kind,
+    "TaskResult");
+});
+
+test("viewer model rejects synchronous completion without relationship evidence", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        synchronousCompletions: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 0,
+            kind: "TaskResult",
+          }],
+        },
+      },
+    }),
+    /require call relationships/,
+  );
+});
+
 test("viewer model rejects call relationships without exact occurrence evidence", () => {
   assert.throws(
     () => createAnnotatedSourceViewerModel({
