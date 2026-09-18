@@ -35,15 +35,18 @@ host-neutral portable query intent and canonical payload codec are implemented
 by [#7093](https://github.com/richlander/dotnet-inspect/pull/7093), and Package
 Query vocabulary resolution is implemented by
 [#7359](https://github.com/richlander/dotnet-inspect/pull/7359). Definitions
-query adoption, query-bearing packet projection, and complete view binding
-remain follow-up work.
+query records, typed binding, and query-bearing packet projection are
+implemented under
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971); production
+host adoption remains follow-up work.
 The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
-dormant non-Package inventory while leaving query-bearing packets visibly
-unsupported until #6971. Schema-version-3 registration records, packet format
-3, registration-only complete restoration, and the shared managed Browser
-boundary are implemented under
+dormant non-Package inventory. The #6971 slice extends that substrate with
+state-bound query and Library-scope projection in formats 2 through 4 and the
+exact format-3 coordinate-free query-only composition. Schema-version-3
+registration records, packet format 3, registration-only complete restoration,
+and the shared managed Browser boundary are implemented under
 [#7385](https://github.com/richlander/dotnet-inspect/issues/7385). Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 host-neutral complete-restoration coordinator that consumes #7047's typed
@@ -403,7 +406,7 @@ the same `coordinate` object above, one `family`, or one `prefix`.
 {
   "kind": "ecosystem",
   "declaration": {
-    "id": "ecosystem.platform",
+    "id": "ecosystem.runtime",
     "namespaceRoots": ["System"],
     "corePackages": [],
     "populations": [
@@ -728,7 +731,7 @@ $ dotnet-inspect workspace \
     --register-library \
       System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
     --register-package-prefix Microsoft.Extensions. \
-    --register-ecosystem platform \
+    --register-ecosystem runtime \
     --share packet
 ey...
 ```
@@ -799,11 +802,12 @@ Query-bearing sharing follows a separate five-step path under
    semantic model, canonical codec, and identity pair. Complete.
 2. **First production vocabulary.** Adopt `package-query/v1` in Package Query
    and lower both CLI and Browser requests through it. Complete.
-3. **Definitions contract.** Define the common schema-version-2/3 query record,
-   state-bound packet projection, and the format-3 query-only composition. This
-   design slice.
-4. **Definitions implementation.** Implement record parsing, public query
-   descriptors, composition binding, format-3 query-table
+3. **Definitions contract.** Define the common schema-version-2-through-4
+   query record, state-bound packet projection, and the format-3 query-only
+   composition. This design slice.
+4. **Definitions implementation.** This implementation slice adds record
+   parsing, public query
+   descriptors, composition binding, format-2-through-4 query-table
    encoding/transposition, and the fixed-vector gates below through one
    host-neutral Definitions API.
 5. **Production-host adoption.** Have the CLI emit and replay the query-only
@@ -1043,14 +1047,16 @@ Field semantics:
   `members`. Schema versions 1 and 2 require at least one context. Schema
   version 3 permits an empty context array when `registrations` is nonempty or
   when the record participates in the query-only peer composition below.
-- `registrations` — required on schema-version-3 Workspace records and unknown
-  on earlier versions. It is the ordered closed Exact Library, Package Prefix,
-  or Ecosystem union defined by
+  Schema version 4 permits an empty context array only when `registrations` is
+  nonempty.
+- `registrations` — required on schema-version-3-or-4 Workspace records and
+  unknown on earlier versions. It is the ordered closed Exact Library, Package
+  Prefix, or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
   A version-3 Workspace with neither context nor registration is valid only in
   the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Versions 2 and 3 use the common closed envelope
+  optional product query ID. Versions 2 through 4 use the common closed envelope
   `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
   `payload` is one closed JSON object parsed and canonically rewritten by
   `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
@@ -1644,6 +1650,13 @@ Version 3 adds two empty-context peer compositions:
 Neither composition requires a group catalog unless another referenced record
 uses one.
 
+Schema version 4 preserves version 3's same-version and registration
+composition rules, extends only the active structural-subject vocabulary, and
+inherits state-bound query and Library-scope composition. It requires at least
+one context or registration and therefore does not admit the version-3
+query-only composition. See
+[Portable active descendant views](portable-active-descendant-views.md).
+
 When the Workspace has contexts, all navigation, view, selected-context, query,
 and catalog validation retains version 2's semantics. A version-3 scenario
 references only version-3 peers, including any version-3 catalog entries.
@@ -1807,7 +1820,7 @@ section outside that allow list
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
-schema version 2 settles complete view composition. `ecosystem.platform` is
+schema version 2 settles complete view composition. `ecosystem.runtime` is
 application grouping,
 not workspace-coordinate inference. The three System.Text.Json demos now
 declare exact, assembly-scoped Runtime Platform coordinates after exact prune
@@ -3235,9 +3248,10 @@ Definition records and product demos (this slice):
   `CommittedViewDefinition` records implement the required nullable focus,
   leading Workspace row, ordered per-tab state, Workspace/Package subject
   requests, and independent retained Package/Library/Type/Member context.
-  Non-Package rows remain undecorated, nonempty query references fail until
-  #6971, and canonical packet-format-2 projection preserves the complete
-  query-free composition;
+  Non-Package rows remain undecorated. Canonical packet-format-2/3 projection
+  preserves state-bound query references and Library scope, while schema
+  version 3 additionally admits the exact coordinate-free query-only
+  composition;
 - `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
   its exact `WorkspaceScopeSnapshot`, and one
   `NavigationPackageEvaluation` per direct-Package row. It resolves portable
@@ -3498,10 +3512,16 @@ Definition records and product demos (this slice):
   `workspace-definitions-complete-restoration` TLA+ model checks exact
   request/plan/Workspace association, pre-construction rejection, evidence
   order, current-intent activation, and one-shot cleanup; and
+- Definitions accepts schema-version-2-through-4 portable query records, binds them
+  through owner-issued typed descriptors, preserves state-bound query and
+  multi-Library scope through packet formats 2 through 4, and admits the exact
+  format-3 coordinate-free Package Query composition. Codec and transposer
+  gates cover canonical query-table ordering, payload identity, references,
+  malformed and orphan state, query-only mixtures, typed Package Query
+  binding, and cancellation between query binds; and
 - **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, query-bearing packet projection, per-coordinate view/query
-  binding, Inspect Web adoption of complete restoration, CLI use of the
-  codec/transposer for executable `-W`
+  Registry, Inspect Web adoption of complete restoration and query-bearing
+  sharing, CLI use of the codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

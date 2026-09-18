@@ -49,7 +49,7 @@ columns, or rows.
 
 This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
-the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
+the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -217,14 +217,15 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, `package P@A..B --count --envelope` serializes the package
-version-population operation's complete envelope. Available Content contains
-the population Document and its requested typed Count component; it does not
-count envelope members, replace the Document with a scalar, or force a second
-inspection. Ordinary `--count`, including `--count --json`, projects that same
-component to the existing scalar output. A row window already bound into a
-semantic Count plan selects the counted population cohort; it is not an
-instruction to slice serialized JSON.
+For example, Count is a terminal semantic projection for package version
+populations rather than post-service output shaping. `package P@A..B
+--count --envelope` therefore serializes an `InspectionEnvelope<int>` whose
+Content is the owner-issued Count result. Ordinary `--count`, including
+`--count --json`, projects that same integer, so content-only JSON equals the
+envelope's Content subtree. Without Count, the population envelope retains the
+complete Document and no redundant Count property. A row window already bound
+into the semantic Count plan selects the counted population cohort; it is not
+an instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
@@ -261,7 +262,7 @@ Debug-only exception.
 The #6719 path has locked the CLI contract and adopted the common transport
 with type dependencies. Exercising Library API Diff as the second content kind
 remains. The wider CLI and Browser adoption remains in
-[the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
+[the operation/section production path](operation-command-and-subject-section-composition.md#production-adoption).
 
 The first production scenario is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`, target
@@ -477,7 +478,7 @@ Debug-only machine contract; its availability does not make it an ad-hoc dump.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
-Browser UI, History, or subject-owned command cutover. Those consumers reuse
+Browser UI, History, or Diff command/section cutover. Those consumers reuse
 this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff
@@ -642,14 +643,13 @@ eligibility against the resulting Scalar or one count Table as defined below.
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
 exist to be selected. The family has two currencies: the IL coordinate, and the
-heap coordinate `--heap` carries (see
+heap coordinate accepted by `library coordinate` (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not syntax elements, because one currency
 can have more than one spelling. `library coordinate` accepts either one exact
-IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
-and `--il-offsets` parent options carry the same currency. Exact and file modes
-are mutually exclusive, so they are one member of this family rather than two.
+IL coordinate or `--file` for batch reporting. Exact and file modes are
+mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -663,7 +663,7 @@ Carriers behave consistently:
   so `-D` reflects the carrier (see the IL-offset case study below).
 - Absent the carrier, requesting a coordinate-scoped section is an error that
   names the missing carrier, for example
-  `IL coordinate sections require --il-offset`.
+  `IL coordinate sections require library coordinate <token>+<offset>`.
 - Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
   `--columns`, `--count`, and the rest of the ladder like any other.
 
@@ -1260,10 +1260,9 @@ resolved by discarding one.
 
 A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library coordinate --file`, transitional `library --il-offsets`, and the
-`-D`/`--discover` listing. Each renders a payload it computes itself and
-returns before the section pipeline, so the section-selection vocabulary does
-not describe what the caller is looking at.
+`library coordinate --file` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1453,7 +1452,7 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Metho
 
 ### Case study: IL offset as a shape catalogue
 
-`library --il-offset` is a compact example of the shape ladder because one
+`library coordinate` is a compact example of the shape ladder because one
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
@@ -1466,7 +1465,7 @@ The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll
 ```
 
 ```md
@@ -1555,7 +1554,7 @@ dotnet-inspect library My.dll -D
 # Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
 # Context: Callsite, and Context: Return Address are omitted.
 
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll -D
 # Context: Source Location
 # Context: Member
 # Context: Instruction
@@ -1568,27 +1567,27 @@ The source-location section then projects cleanly:
 
 ```bash
 # Scalar
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the visually encoded resolved source line
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --print --bare
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
-dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
+dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --count
 # 1
 ```
@@ -1633,11 +1632,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
-  `--heap`, supplies coordinate input that has no other expression and gates
-  the sections it makes meaningful. Coordinate input does not narrow a shape,
-  and syntax qualifies for this family only if its input is a new currency.
-  Exact and file IL coordinates spell the same currency, so
-  they are one member; `--heap` is the second.
+- `library coordinate` supplies coordinate input that has no other expression
+  and gates the sections it makes meaningful. Coordinate input does not narrow
+  a shape, and syntax qualifies for this family only if its input is a new
+  currency. Exact and file IL coordinates spell the same currency, so they are
+  one member; metadata heap coordinates are the second.
 
 New flags should fit one of those buckets rather than blending concepts.

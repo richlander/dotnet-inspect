@@ -16,6 +16,7 @@ import type {
   BrowserPackageDependencies as PackageDependencies,
   BrowserPackageLoadResult as PackageLoadResult,
   BrowserPackageSurface as PackageSurface,
+  BrowserPackageVersions as PackageVersions,
   BrowserWorkspacePackageOccurrence as OccurrenceRow,
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView as OccurrenceView,
@@ -106,13 +107,14 @@ async function chooseInspector(
 // bound with successful eviction, awaitable Workspace occurrence activation, a
 // stale occurrence action after clear and after replacement, and a
 // valid-reference / malformed-implementation package producing a visible
-// selected rejection beside healthy evidence. It also proves the package
-// facade's assembly-reference result union (issue #6191): an available list of
-// real AssemblyRef rows, a manifest-only package's compile-library failure
-// message beside healthy manifest dependency groups, and the production page
-// rendering the available case. Package acquisition leaves the browser as
-// ordinary NuGet Gallery CDN fetches, which this spec intercepts to serve
-// deterministic local fixtures; a separate test exercises the immutable real
+// selected rejection beside healthy evidence. It also proves exact optional
+// predecessor inventory facts and the package facade's assembly-reference
+// result union (issue #6191): an available list of real AssemblyRef rows, a
+// manifest-only package's compile-library failure message beside healthy
+// manifest dependency groups, and the production page rendering the available
+// case. Package acquisition leaves the browser as ordinary NuGet Gallery CDN
+// fetches, which this spec intercepts to serve deterministic local fixtures; a
+// separate test exercises the immutable real
 // Microsoft.Extensions.Http@10.0.0/net10.0 and the formerly oversized
 // System.Text.Json@10.0.0/net10.0 coordinates over the network.
 
@@ -482,6 +484,10 @@ declare global {
         version: string,
         framework: string,
       ): Promise<PackageLoadResult>;
+      queryVersions(
+        packageId: string,
+        currentVersion: string,
+      ): Promise<PackageVersions>;
       cacheStats(): Promise<CacheStats>;
       queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
@@ -511,6 +517,7 @@ declare global {
       timer: number;
       observer: MutationObserver;
     };
+    __packageQueryComposingEditor?: HTMLInputElement;
   }
 }
 
@@ -551,6 +558,8 @@ async function boot(page: Page): Promise<void> {
     window.__adoption = {
       queryPackage: (packageId, pkgVersion, framework) =>
         client.package.queryPackage(packageId, pkgVersion, framework),
+      queryVersions: (packageId, currentVersion) =>
+        client.package.queryPackageVersions(packageId, currentVersion),
       cacheStats: () => client.package.packageCacheStats(),
       queryOccurrences: workspaceJson =>
         client.package.queryWorkspacePackageOccurrences(workspaceJson),
@@ -576,6 +585,7 @@ function driver(page: Page): {
   ): Promise<PackageLoadResult>;
   queryPackage(fixture: FixtureCoordinate, framework?: string): Promise<PackageSurface>;
   queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
+  queryVersions(packageId: string, currentVersion: string): Promise<PackageVersions>;
   cacheStats(): Promise<CacheStats>;
   queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
@@ -610,6 +620,12 @@ function driver(page: Page): {
           window.__adoption!.queryPackage(id, ver, tfm),
         { packageId, version: pkgVersion, framework },
       ).then(requireSurface),
+    queryVersions: (packageId, currentVersion) =>
+      page.evaluate(
+        ({ packageId: id, currentVersion: selectedVersion }) =>
+          window.__adoption!.queryVersions(id, selectedVersion),
+        { packageId, currentVersion },
+      ),
     cacheStats: () => page.evaluate(() => window.__adoption!.cacheStats()),
     queryOccurrences: workspace =>
       page.evaluate(
@@ -1221,9 +1237,59 @@ test.describe("Package Query website over real Wasm", () => {
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
-    await page.locator('[data-query-term-add="depends"]').click();
+    await firstValue.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Active Package Query term editor is missing.");
+      }
+      window.__packageQueryComposingEditor = element;
+      element.focus();
+      element.setSelectionRange(10, 30, "backward");
+      element.dispatchEvent(new CompositionEvent("compositionstart", {
+        bubbles: true,
+        data: "",
+      }));
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: element.value,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+    });
+    await expect(firstValue).toBeFocused();
+    await expect(firstValue)
+      .toHaveAttribute("data-query-editor-composing", "true");
+    await page.locator('[data-query-term-add="depends"]')
+      .evaluate(element => {
+        if (!(element instanceof HTMLButtonElement)) {
+          throw new Error("Package Query term action is missing.");
+        }
+        element.click();
+      });
+    await expect.poll(() => page.evaluate(
+      () => window.__packageQueryComposingEditor?.isConnected,
+    )).toBe(true);
+    await expect(page.locator("[data-query-term-draft-value]")).toHaveCount(0);
+    await page.evaluate(() => {
+      const element = window.__packageQueryComposingEditor;
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Composing Package Query editor is missing.");
+      }
+      element.dispatchEvent(new CompositionEvent("compositionend", {
+        bubbles: true,
+        data: element.value,
+      }));
+    });
+    await expect.poll(() => page.evaluate(
+      () => window.__packageQueryComposingEditor?.isConnected,
+    )).toBe(false);
+    await expect(page.locator("[data-query-term-draft-value]")).toBeVisible();
     await expect(firstValue)
       .toHaveValue("Microsoft.Extensions.DependencyInjection");
+    await expect(firstValue).toHaveJSProperty("selectionStart", 10);
+    await expect(firstValue).toHaveJSProperty("selectionEnd", 30);
+    await expect(firstValue).toHaveJSProperty(
+      "selectionDirection",
+      "backward");
     await page.locator("[data-query-term-draft-cancel]").click();
     await firstValue.fill("not a package id");
     const beforeInvalid = searchRequests;
@@ -1682,6 +1748,26 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     });
     expect(openedResult.versionSettlement.share.kind).toBe("NonProjectable");
     expect(openedResult.versionSettlement.diagnostics).toEqual([]);
+
+    // The production C# serializer, generated facade, Worker transport, and
+    // authored TypeScript agree that unavailable predecessor facts are absent.
+    const withPredecessor = await engine.queryVersions(
+      libraryDiffPackageId,
+      libraryDiffV2.version,
+    );
+    expect(withPredecessor).toEqual({
+      versions: ["2.0.0", "1.0.0"],
+      currentVersionInsertionIndex: 0,
+      previousVersion: "1.0.0",
+    });
+    const withoutPredecessor = await engine.queryVersions(
+      healthy.packageId,
+      healthy.version,
+    );
+    expect(withoutPredecessor).toEqual({
+      versions: [healthy.version],
+      currentVersionInsertionIndex: 0,
+    });
 
     // A terminal settlement failure crosses the same generated facade and
     // Worker boundary as typed Content rather than becoming a managed fault.

@@ -111,7 +111,7 @@ length](workspace-registration-and-call-graph-scope.md#end-to-end-product-scenar
 ```text
 discovery-oriented command or Spotlight selection
   -> Ecosystems creates the current curated WorkspacePlan
-     -> project Platform, ASP.NET Core, and Microsoft.Extensions
+     -> project .NET Runtime, ASP.NET Core, and Microsoft.Extensions
         into complete lower ecosystem declarations
         -> caller constructs one fresh InspectionWorkspace from the plan
            -> add the selected package as membership
@@ -123,9 +123,10 @@ discovery-oriented command or Spotlight selection
 The declaration added by this slice carries the inert information needed at the
 second step. For example, the ASP.NET Core declaration can retain its concrete
 package roots, Platform population, and `Microsoft.AspNetCore.` package-prefix
-population, while the Platform declaration retains the .NET runtime
-population. Later consumers can select those exact contributions without
-importing the application catalog or reconstructing them from display text.
+population, while the .NET Runtime declaration retains the .NET runtime
+population and `System.` package-prefix population. Later consumers can select
+those exact contributions without importing the application catalog or
+reconstructing them from display text.
 
 The handoff does not decide that the discovery operation should be curated,
 admit the selected package, establish focus, choose `Everything`, resolve a
@@ -383,12 +384,12 @@ The application catalog owns two separate authored sequences:
 
 ```text
 PlatformProductWorkspace
-  ecosystem.platform
+  ecosystem.runtime
   ecosystem.aspnetcore
   ecosystem.microsoft-extensions
 
 AllKnownProductWorkspace
-  ecosystem.platform
+  ecosystem.runtime
   ecosystem.aspnetcore
   ecosystem.microsoft-extensions
   ecosystem.aspire
@@ -425,7 +426,7 @@ The current target contributions are:
 
 | Curated registration | Registered package roots | Additional populations |
 | --- | --- | --- |
-| Platform | none | `Platform(DotNetRuntime)` |
+| .NET Runtime | none | `Platform(DotNetRuntime)`, `System.` |
 | ASP.NET Core | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` | `Platform(AspNetCore)`, `Microsoft.AspNetCore.` |
 | Microsoft.Extensions | DI, configuration, and logging abstractions | `Microsoft.Extensions.` |
 | Aspire (all-known only) | `Aspire.Hosting` | `Aspire.` |
@@ -441,9 +442,9 @@ Aspire is absent from platform curation and present in all-known construction.
 Its `Aspire.Hosting` registered root and exact Integration-owned scanner binding
 are retained alongside the prefix. This supports the real
 `Aspire.Hosting.Redis` scenario without resolving that package or invoking the
-scanner. Platform
-retains its runtime declaration for scenarios such as `System.Text.Json`,
-without inventing a package coordinate for the framework library.
+scanner. .NET Runtime retains its runtime declaration and inert `System.`
+discovery prefix for scenarios such as `System.Text.Json`, without inventing a
+package coordinate for the framework library.
 
 AI is also absent from platform curation and present in all-known construction.
 Its five concrete registered packages supply finite traversal roots. Its four
@@ -703,14 +704,14 @@ Construction through `EcosystemPackCatalog` obtains:
 CreatePlatformWorkspacePlan()
   -> WorkspacePlan
      Registrations
-       1. ecosystem.platform
+       1. ecosystem.runtime
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
 
 CreateWorkspacePlan()
   -> WorkspacePlan
      Registrations
-       1. ecosystem.platform
+       1. ecosystem.runtime
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
        4. ecosystem.aspire
@@ -719,11 +720,11 @@ CreateWorkspacePlan()
        7. ecosystem.blazor
        8. ecosystem.maui
 
-CreateWorkspacePlan([ecosystem.aspire, ecosystem.platform])
+CreateWorkspacePlan([ecosystem.aspire, ecosystem.runtime])
   -> WorkspacePlan
      Registrations
        1. ecosystem.aspire
-       2. ecosystem.platform
+       2. ecosystem.runtime
 
 ```
 
@@ -744,7 +745,7 @@ membership.
 | Explicit correspondence | Equal text without a retained pair cannot project; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
-| Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
+| Curated product Workspace | The current .NET Runtime, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
 | All-known product Workspace | The separate current eight-row order includes Aspire, AI, Azure, Blazor, and .NET MAUI and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |

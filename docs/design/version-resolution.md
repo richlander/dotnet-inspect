@@ -102,9 +102,10 @@ sparse or dense cells without rediscovery while every cell remains restricted
 to authorities that reported its version.
 
 The initial production bridge is online configured-source composition.
-Subject-owned Diff History and package version Count are the target consumers.
-Current API-range and top-level `timeline` execution, offline extraction,
-History coordination, and Browser/Wasm adoption remain separate slices.
+Top-level Diff History, its operation-backed subject sections, and package
+version Count are the target consumers. Current API-range and top-level
+`timeline` execution, offline extraction, History coordination, and
+Browser/Wasm adoption remain separate slices.
 
 ## Resolution receipt
 

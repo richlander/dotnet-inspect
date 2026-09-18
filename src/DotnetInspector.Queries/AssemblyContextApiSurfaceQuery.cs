@@ -417,11 +417,15 @@ public static class AssemblyContextApiSurfaceQuery
         IReadOnlyList<AssemblyContextParticipant>? participants = null)
         => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: false);
 
-    internal static AssemblyContextApiSurfaceResult ExecuteBoundedResolved(
+    /// <summary>
+    /// Projects a selected participant set under explicit bounds and resolves generic
+    /// constraints while each retained surface is extracted.
+    /// </summary>
+    public static AssemblyContextApiSurfaceResult ExecuteBoundedResolved(
         AssemblyContextGroup group,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
-        IReadOnlyList<AssemblyContextParticipant> participants)
+        IReadOnlyList<AssemblyContextParticipant>? participants = null)
         => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: true);
 
     static AssemblyContextApiSurfaceResult ExecuteBoundedCore(

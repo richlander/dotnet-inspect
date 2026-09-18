@@ -178,6 +178,71 @@ public static partial class FixtureExports
     }
 
     [JSExport]
+    public static string RenameWidgetForOwner(
+        string owner,
+        string widgetJson,
+        string newName)
+    {
+        string payload = widgetJson;
+        WidgetDto widget = JsonSerializer.Deserialize(
+            payload, FixtureJsonContext.Default.WidgetDto)!;
+        return JsonSerializer.Serialize(
+            widget with { Name = $"{owner}/{newName}" },
+            FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static string ReadWidgetOrAudit(
+        string payload,
+        string summaryJson,
+        bool readAudit)
+    {
+        WidgetSummary summary = JsonSerializer.Deserialize(
+            summaryJson,
+            FixtureJsonContext.Default.WidgetSummary)!;
+        if (readAudit)
+        {
+            _ = JsonSerializer.Deserialize(
+                payload,
+                FixtureJsonContext.Default.WidgetAudit);
+        }
+        else
+        {
+            _ = JsonSerializer.Deserialize(
+                payload,
+                FixtureJsonContext.Default.WidgetDto);
+        }
+        return summary.Name;
+    }
+
+    [JSExport]
+    public static string RenameNormalizedWidget(
+        string widgetJson,
+        string newName)
+    {
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson.Trim(),
+            FixtureJsonContext.Default.WidgetDto)!;
+        return JsonSerializer.Serialize(
+            widget with { Name = newName },
+            FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static bool WidgetMatchesAudit(
+        string widgetJson,
+        string auditJson)
+    {
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson,
+            FixtureJsonContext.Default.WidgetDto)!;
+        WidgetAudit audit = JsonSerializer.Deserialize(
+            auditJson,
+            FixtureJsonContext.Default.WidgetAudit)!;
+        return widget.Name == audit.Name;
+    }
+
+    [JSExport]
     public static string GetWidgetOrOwner(bool wantOwner) =>
         wantOwner
             ? JsonSerializer.Serialize(
@@ -567,11 +632,23 @@ public sealed record DirectionalOutputDto(string Name)
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string AlwaysPresent { get; init; } = "";
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? AlwaysNullable { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int DefaultHidden { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int? NullableDefaultHidden { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NullHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NonNullableNullHidden { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DirectionalNote?[]? NullableItems { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DirectionalConditionalNote? ConditionalNote { get; init; }

@@ -614,10 +614,10 @@ public static class DiscoverOutput
     }
 
     /// <summary>
-    /// Filters selected field-based schema sections to the field rows emitted by the
+    /// Filters selected schema sections to the items that emitted data through the
     /// serializer. Other effective sections retain their full schema.
     /// </summary>
-    internal static DocumentSchema FilterSchemaToRenderedFields(
+    internal static DocumentSchema FilterSchemaToRenderedItems(
         List<string> effectiveSections,
         DocumentSchema schema,
         RenderedSectionManifest rendered,
@@ -633,21 +633,19 @@ public static class DiscoverOutput
                 continue;
             }
 
-            var renderedFields = filteredSections.Contains(name)
-                ? rendered.GetFields(name)
+            var renderedItems = filteredSections.Contains(name)
+                ? rendered.GetSectionRenderedNames(section.ItemKind, name)
                 : null;
-            if (renderedFields is not null)
+            if (renderedItems is not null)
             {
                 var effectiveItems = section.Items
-                    .Where(item => renderedFields.Contains(item.Name))
+                    .Where(item => renderedItems.Contains(item.Name))
                     .Select(item => item.Name)
                     .ToArray();
-                filtered.Add(
-                    name,
-                    section.ItemKind,
-                    effectiveItems.Length > 0
-                        ? effectiveItems
-                        : section.Items.Select(item => item.Name).ToArray());
+                if (effectiveItems.Length > 0)
+                    filtered.Add(name, section.ItemKind, effectiveItems);
+                else
+                    filtered.AddSection(name);
             }
             else if (section.Items.Length > 0)
             {

@@ -61,7 +61,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public void AssetProjectionPublishesItsSettledSemanticContentAndEvidence()
+    public void AssetProjectionPreservesTheOperationEnvelope()
     {
         var summary = new DependencyInspectionSummary(
             DependencyInspectionRootSetCompletion.Complete,
@@ -78,48 +78,54 @@ public sealed class DependsAssetCommandTests
             IsPrefixRootSet: false,
             PackagePrefix: null);
         var graph = new DependencyGraphDocument([], [], [], [], []);
-        var root = new DependsRootRow(
-            occurrence: 1,
+        var contentRoot = new DependencyInspectionRoot(
+            new DependencyRootOccurrenceIdentity(1),
             DependencyInspectionRootKind.Library,
             new InertString(TextPolicy.Field, "example.dll"),
-            source: "Path",
             DependencyInspectionRootState.Admitted,
-            identityKind: null,
-            identity: null,
+            GraphIdentity: null,
             DependencyInspectionTraversalCompletion.NotRequested,
             DependencyInspectionEvidenceAvailability.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested,
             DependencyInspectionSelectionStatus.NotRequested,
             DependencyInspectionEvidenceAvailability.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested);
-        PackageDependencyEvidenceOutcome outcome =
-            PackageDependencyEvidenceQuery.Execute(
-                new PackageDependencyEvidenceRequest([], []));
-        var evidence = new DependencyInspectionEvidenceDocument(
-            outcome,
-            [],
-            []);
-
-        var projection = new DependsAssetProjection(
+        var content = new DependencyInspectionContent(
             summary,
             graph,
+            [contentRoot],
+            [],
+            [],
+            []);
+        var inspection = new InspectionEnvelope<DependencyInspectionContent>(
+            content,
+            new InspectionShare.NonProjectable(
+                "dependencies",
+                "Test inspection."));
+        var root = new DependsRootRow(
+            contentRoot,
+            source: "Path",
+            identityKind: null,
+            identity: null);
+
+        var projection = new DependsAssetProjection(
+            inspection,
             GraphRows: [],
             [root],
-            Dependencies: [],
-            Pruning: [],
             RestoredEdges: [],
-            Failures: [],
             DependencyGroups: [],
             RestoredPackages: [],
-            evidence);
+            Evidence: null);
 
-        Assert.Same(summary, projection.Content.Summary);
-        Assert.Same(graph, projection.Content.Graph);
-        Assert.Same(root.Content, Assert.Single(projection.Content.Roots));
+        Assert.Same(inspection, projection.Inspection);
+        Assert.Same(content, projection.Content);
+        Assert.Same(summary, projection.Summary);
+        Assert.Same(graph, projection.Graph);
+        Assert.Same(contentRoot, Assert.Single(projection.Content.Roots));
         Assert.Equal(
             new DependencyRootOccurrenceIdentity(1),
             Assert.Single(projection.Content.Roots).Identity);
-        Assert.Same(evidence, projection.Evidence);
+        Assert.Null(projection.Evidence);
         Assert.Empty(projection.Content.Dependencies);
         Assert.Empty(projection.Content.Pruning);
         Assert.Empty(projection.Content.Failures);
@@ -805,6 +811,66 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
+    public async Task MarkdownRendersSelectedSectionsWithoutCompletionDocument()
+    {
+        string[] arguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Graph,Dependencies",
+        ];
+
+        (int markdownExit, string markdown, string markdownError) =
+            await RunCapturedAsync(arguments);
+        (int projectedExit, string projected, string projectedError) =
+            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
+        (int jsonExit, string json, string jsonError) =
+            await RunCapturedAsync([.. arguments, "--json", "--compact"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, projectedExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(projectedError);
+        Assert.Empty(jsonError);
+        Assert.StartsWith(
+            "## Dependency Graph",
+            markdown.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            markdown.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+        Assert.StartsWith(
+            "## Dependency Graph",
+            projected.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            projected,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            projected.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
     public async Task RestoredDependencies_ExposeResolvedVersionInEveryTableShape()
     {
         string[] arguments =
@@ -1427,58 +1493,6 @@ public sealed class DependsAssetCommandTests
             expected,
             DependsCommand.IsFailedPrefixTruncation(reason));
 
-    [Theory]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        true)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        1,
-        0,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        1,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.SourcePageLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.ClientPageLimit,
-        false)]
-    public void PackagePrefixRootSetCompletion_OnlyRequestedLimitIsSuccessful(
-        PackageDependencyEvidenceRootSetCompletion completion,
-        int rejectedRootCount,
-        int failedRootCount,
-        bool isTruncated,
-        PackageSearchTruncationReason truncationReason,
-        bool expected) =>
-        Assert.Equal(
-            expected,
-            DependsCommand.IsCompleteCommandRootSet(
-                completion,
-                rejectedRootCount,
-                failedRootCount,
-                isTruncated,
-                truncationReason));
-
     [Fact]
     public async Task FailedSibling_RetainsUsableRootAndReturnsNonzero()
     {
@@ -1534,8 +1548,33 @@ public sealed class DependsAssetCommandTests
         Assert.True(
             document.RootElement.GetProperty("dependencies")
                 .GetArrayLength() > 0);
+        int expectedCount =
+            document.RootElement.GetProperty("dependencies").GetArrayLength();
         Assert.Single(
             document.RootElement.GetProperty("failures").EnumerateArray());
+
+        (int countExit, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--library",
+                malformed,
+                "--project",
+                AssetsFixture,
+                "-S",
+                "Dependencies",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExit);
+        Assert.Equal(
+            expectedCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            countOutput.Trim());
+        Assert.Contains(
+            "typed failure",
+            countError,
+            StringComparison.Ordinal);
     }
 
     [Fact]

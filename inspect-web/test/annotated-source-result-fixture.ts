@@ -89,6 +89,13 @@ export const sampleViewerCatalog = {
     available: false,
     unavailableReason: "NotProjected",
   },
+  callCycles: {
+    available: false,
+    unavailableReason: "NotProjected",
+    isComplete: false,
+    limits: [],
+    findings: [],
+  },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;
 
 export const csharpOnlyEmptyViewerCatalog = {
@@ -107,5 +114,12 @@ export const csharpOnlyEmptyViewerCatalog = {
   callRelationships: {
     available: false,
     unavailableReason: "NotProjected",
+  },
+  callCycles: {
+    available: false,
+    unavailableReason: "NotProjected",
+    isComplete: false,
+    limits: [],
+    findings: [],
   },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;

@@ -7,8 +7,9 @@ namespace ILInspector.JsExportSurface.UnionFixtures;
 public union ScalarUnion(int, string);
 public union NullableUnion(int?, string);
 public union DtoUnion(PackageSummary, string);
-public union GenericUnion<T>(T, string);
-public union GenericArrayUnion<T>(T[], bool);
+public union InspectionResult<T>(T, string);
+public union PackageReadResult<T>(T, PackageProblem);
+public union ItemsOrCount<T>(T[], int);
 public union ParameterNameUnion<T>(T, T0);
 public union UnsupportedCaseUnion(Guid, int);
 public union initializeRuntime(int, string);
@@ -16,8 +17,18 @@ public union RecursiveUnion(RecursiveOtherUnion);
 public union RecursiveOtherUnion(RecursiveUnion);
 public union ReferenceArrayUnion(string?[], int);
 public union NestedUnion(ScalarUnion, bool);
-public union ObjectUnion(PackageSummary, PackageProblem);
-public union NumberUnion(int, double);
+
+// These output scenarios intentionally prove boundaries where JSON token shape
+// cannot identify the original case. A classifier would invent a read contract
+// that the bridge neither consumes nor supports.
+#pragma warning disable SYSLIB1227
+public union PackageResolutionResult(PackageSummary, PackageProblem);
+public union MetricValue(int, double);
+public union InspectionValueOrCount(JsonElement, int);
+public union RawInspectionResult<T>(T, string);
+#pragma warning restore SYSLIB1227
+
+public union InspectionRowsOrCount(JsonElement[], int);
 
 [JsonConverter(typeof(CustomUnionConverter))]
 public union CustomUnion(int, string);
@@ -35,6 +46,24 @@ public sealed record NonParametricNestedAnnotatedArrayRecord<T>(
     IReadOnlyDictionary<string, T?[]> Items);
 public sealed record ParametricNullableValueArrayRecord<T>(T?[] Items)
     where T : struct;
+public sealed record ConditionalGenericRecord<T>(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    T Payload);
+public sealed record ConditionalInspectionValueRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    InspectionValueOrCount Payload);
+public sealed record ConditionalRawInspectionResultRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    RawInspectionResult<JsonElement> Payload);
+public sealed record ConditionalNestedRawInspectionResultRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    RawInspectionResult<RawInspectionResult<JsonElement>> Payload);
+public sealed record ConditionalOpenRawInspectionResultRecord<T>(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    RawInspectionResult<T> Payload);
+public sealed record ConditionalInspectionRowsRecord(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    InspectionRowsOrCount Payload);
 public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
 public sealed record GlobalConcreteArrayRecord<Collision>(
     Collision Value,
@@ -62,38 +91,38 @@ public static partial class UnionExports
             UnionJsonContext.Default.NullableUnion);
 
     [JSExport]
-    public static string GetGeneric() =>
+    public static string GetInspectionResult() =>
         JsonSerializer.Serialize(
-            new GenericUnion<int>(7),
-            UnionJsonContext.Default.GenericUnionInt32);
+            new InspectionResult<int>(7),
+            UnionJsonContext.Default.InspectionResultInt32);
 
     [JSExport]
-    public static string GetGenericBytes() =>
+    public static string GetPackageReadBytes() =>
         JsonSerializer.Serialize(
-            new GenericUnion<byte[]>([1, 2, 3]),
-            UnionJsonContext.Default.GenericUnionByteArray);
+            new PackageReadResult<byte[]>([1, 2, 3]),
+            UnionJsonContext.Default.PackageReadResultByteArray);
 
     [JSExport]
-    public static string GetGenericDictionary() =>
+    public static string GetInspectionDictionary() =>
         JsonSerializer.Serialize(
-            new GenericUnion<Dictionary<string, int?>>(new Dictionary<string, int?>
+            new InspectionResult<Dictionary<string, int?>>(new Dictionary<string, int?>
             {
                 ["value"] = 42,
                 ["empty"] = null,
             }),
-            UnionJsonContext.Default.GenericUnionDictionaryStringNullableInt32);
+            UnionJsonContext.Default.InspectionResultDictionaryStringNullableInt32);
 
     [JSExport]
-    public static string GetGenericArrayBytes() =>
+    public static string GetItemsOrCountBytes() =>
         JsonSerializer.Serialize(
-            new GenericArrayUnion<byte>([1, 2, 3]),
-            UnionJsonContext.Default.GenericArrayUnionByte);
+            new ItemsOrCount<byte>([1, 2, 3]),
+            UnionJsonContext.Default.ItemsOrCountByte);
 
     [JSExport]
-    public static string GetGenericArrayNumbers() =>
+    public static string GetItemsOrCountNumbers() =>
         JsonSerializer.Serialize(
-            new GenericArrayUnion<int>([1, 2, 3]),
-            UnionJsonContext.Default.GenericArrayUnionInt32);
+            new ItemsOrCount<int>([1, 2, 3]),
+            UnionJsonContext.Default.ItemsOrCountInt32);
 
     [JSExport]
     public static string GetParameterNameUnion() =>
@@ -126,10 +155,10 @@ public static partial class UnionExports
             UnionJsonContext.Default.ReferenceArrayUnion);
 
     [JSExport]
-    public static string GetGenericReferenceArray() =>
+    public static string GetInspectionReferenceArray() =>
         JsonSerializer.Serialize(
-            new GenericUnion<string?[]>(["value", null]),
-            UnionJsonContext.Default.GenericUnionStringArray);
+            new InspectionResult<string?[]>(["value", null]),
+            UnionJsonContext.Default.InspectionResultStringArray);
 
     [JSExport]
     public static string GetNested() =>
@@ -138,16 +167,16 @@ public static partial class UnionExports
             UnionJsonContext.Default.NestedUnion);
 
     [JSExport]
-    public static string GetObjects() =>
+    public static string GetPackageResolution() =>
         JsonSerializer.Serialize(
-            new ObjectUnion(new PackageProblem(404)),
-            UnionJsonContext.Default.ObjectUnion);
+            new PackageResolutionResult(new PackageProblem(404)),
+            UnionJsonContext.Default.PackageResolutionResult);
 
     [JSExport]
-    public static string GetNumbers() =>
+    public static string GetMetricValue() =>
         JsonSerializer.Serialize(
-            new NumberUnion(1.5),
-            UnionJsonContext.Default.NumberUnion);
+            new MetricValue(1.5),
+            UnionJsonContext.Default.MetricValue);
 
     [JSExport]
     public static string GetEnvelope() =>
@@ -213,6 +242,74 @@ public static partial class UnionExports
                 .ParametricNullableValueArrayRecordInt32);
 
     [JSExport]
+    public static string GetConditionalGenericRecord()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalGenericRecord<JsonElement>(
+                document.RootElement.Clone()),
+            UnionJsonContext.Default.ConditionalGenericRecordJsonElement);
+    }
+
+    [JSExport]
+    public static string GetConditionalInspectionValue()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalInspectionValueRecord(
+                new InspectionValueOrCount(document.RootElement.Clone())),
+            UnionJsonContext.Default.ConditionalInspectionValueRecord);
+    }
+
+    [JSExport]
+    public static string GetConditionalRawInspectionResult()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalRawInspectionResultRecord(
+                new RawInspectionResult<JsonElement>(
+                    document.RootElement.Clone())),
+            UnionJsonContext.Default.ConditionalRawInspectionResultRecord);
+    }
+
+    [JSExport]
+    public static string GetConditionalNestedRawInspectionResult()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalNestedRawInspectionResultRecord(
+                new RawInspectionResult<RawInspectionResult<JsonElement>>(
+                    new RawInspectionResult<JsonElement>(
+                        document.RootElement.Clone()))),
+            UnionJsonContext.Default
+                .ConditionalNestedRawInspectionResultRecord);
+    }
+
+    [JSExport]
+    public static string GetConditionalOpenRawInspectionResult()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalOpenRawInspectionResultRecord<JsonElement>(
+                new RawInspectionResult<JsonElement>(
+                    document.RootElement.Clone())),
+            UnionJsonContext.Default
+                .ConditionalOpenRawInspectionResultRecordJsonElement);
+    }
+
+    [JSExport]
+    public static string GetConditionalInspectionRows()
+    {
+        using JsonDocument document = JsonDocument.Parse("""{"value":1}""");
+        return JsonSerializer.Serialize(
+            new ConditionalInspectionRowsRecord(
+                new InspectionRowsOrCount(
+                    new[] { document.RootElement.Clone() })),
+            UnionJsonContext.Default
+                .ConditionalInspectionRowsRecord);
+    }
+
+    [JSExport]
     public static string GetConcreteArrayRecord() =>
         JsonSerializer.Serialize(
             new ConcreteArrayRecord<int>(7, [new(8)]),
@@ -229,8 +326,10 @@ public static partial class UnionExports
         _ = JsonSerializer.Deserialize(json, UnionJsonContext.Default.ScalarUnion);
 
     [JSExport]
-    public static void ReadObjects(string json) =>
-        _ = JsonSerializer.Deserialize(json, UnionJsonContext.Default.ObjectUnion);
+    public static void ReadPackageResolution(string json) =>
+        _ = JsonSerializer.Deserialize(
+            json,
+            UnionJsonContext.Default.PackageResolutionResult);
 }
 
 public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
@@ -248,21 +347,22 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(ScalarUnion))]
 [JsonSerializable(typeof(NullableUnion))]
 [JsonSerializable(typeof(DtoUnion))]
-[JsonSerializable(typeof(GenericUnion<int>))]
-[JsonSerializable(typeof(GenericUnion<byte[]>))]
-[JsonSerializable(typeof(GenericUnion<Dictionary<string, int?>>))]
-[JsonSerializable(typeof(GenericArrayUnion<byte>))]
-[JsonSerializable(typeof(GenericArrayUnion<int>))]
+[JsonSerializable(typeof(InspectionResult<int>))]
+[JsonSerializable(typeof(PackageReadResult<byte[]>))]
+[JsonSerializable(typeof(InspectionResult<Dictionary<string, int?>>))]
+[JsonSerializable(typeof(ItemsOrCount<byte>))]
+[JsonSerializable(typeof(ItemsOrCount<int>))]
 [JsonSerializable(typeof(ParameterNameUnion<int>))]
 [JsonSerializable(typeof(UnsupportedCaseUnion))]
 [JsonSerializable(typeof(initializeRuntime))]
 [JsonSerializable(typeof(RecursiveUnion))]
 [JsonSerializable(typeof(RecursiveOtherUnion))]
 [JsonSerializable(typeof(ReferenceArrayUnion))]
-[JsonSerializable(typeof(GenericUnion<string?[]>))]
+[JsonSerializable(typeof(InspectionResult<string?[]>))]
 [JsonSerializable(typeof(NestedUnion))]
-[JsonSerializable(typeof(ObjectUnion))]
-[JsonSerializable(typeof(NumberUnion))]
+[JsonSerializable(typeof(PackageResolutionResult))]
+[JsonSerializable(typeof(MetricValue))]
+[JsonSerializable(typeof(InspectionRowsOrCount))]
 [JsonSerializable(typeof(CustomUnion))]
 [JsonSerializable(typeof(UnionEnvelope))]
 [JsonSerializable(typeof(OrdinaryValue))]
@@ -271,6 +371,12 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NonParametricAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(NonParametricNestedAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(ParametricNullableValueArrayRecord<int>))]
+[JsonSerializable(typeof(ConditionalGenericRecord<JsonElement>))]
+[JsonSerializable(typeof(ConditionalInspectionValueRecord))]
+[JsonSerializable(typeof(ConditionalRawInspectionResultRecord))]
+[JsonSerializable(typeof(ConditionalNestedRawInspectionResultRecord))]
+[JsonSerializable(typeof(ConditionalOpenRawInspectionResultRecord<JsonElement>))]
+[JsonSerializable(typeof(ConditionalInspectionRowsRecord))]
 [JsonSerializable(typeof(ConcreteArrayRecord<int>))]
 [JsonSerializable(typeof(GlobalConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

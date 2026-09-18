@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 
@@ -7,6 +9,122 @@ namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageHouseExecutionTests
 {
+    [Fact]
+    public async Task PackageInfoEnvelopeRetainsMeasuredSelectionCorrespondence()
+    {
+        const string UnsafeFolder = "HOSTILE\u202EMARKER";
+        byte[] archive = TestPackageArchive.CreateWithContent(
+            ($"lib/net10.0/{MaterializedPackageId}.dll", new byte[13]),
+            ("build/net10.0/Package.targets", new byte[3]),
+            ($"{UnsafeFolder}/net10.0/data.bin", new byte[5]),
+            ("lib/net8.0/Legacy.dll", new byte[17]));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.Project(settlement);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.Measured,
+            measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["build", @"HOSTILE\u202EMARKER", "lib"],
+            measurements.SelectedTargetFrameworkFolders!
+                .Select(static folder => folder.ToString()));
+        Assert.Equal(13, measurements.SelectedLibraryPayloadBytes);
+        Assert.Equal(1, measurements.SelectedLibraryCount);
+        Assert.Same(
+            settlement.Payload.Content.GenerationIdentity,
+            measurements.Generation);
+        Assert.Same(
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                settlement.Result.Evidence.Realization).Receipt,
+            measurements.SelectionReceipt);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+        string json = JsonSerializer.Serialize(
+            envelope,
+            PackageInfoMeasurementJsonContext.Default
+                .InspectionEnvelopePackageInfoMeasurements);
+        Assert.Contains(
+            "\"selectedTargetFrameworkFolders\":"
+                + "[\"build\",\"HOSTILE\\\\u202EMARKER\",\"lib\"]",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', json);
+        InspectionEnvelope<PackageInfoMeasurements> roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                PackageInfoMeasurementJsonContext.Default
+                    .InspectionEnvelopePackageInfoMeasurements)!;
+        Assert.Equal(measurements.Status, roundTripped.Content.Status);
+        Assert.Equal(
+            measurements.SelectedLibraryPayloadBytes,
+            roundTripped.Content.SelectedLibraryPayloadBytes);
+        Assert.Equal(
+            measurements.SelectedTargetFrameworkFolders,
+            roundTripped.Content.SelectedTargetFrameworkFolders);
+        Assert.Null(roundTripped.Content.Evidence);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task PackageInfoEnvelopeKeepsNoCompileSlicesTyped()
+    {
+        byte[] archive = TestPackageArchive.Create("package/readme.txt");
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.Project(settlement);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.NoCompileSlices,
+            measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal(0, measurements.AvailableTargetFrameworkCount);
+        Assert.Null(measurements.SelectedTargetFramework);
+        Assert.Null(measurements.SelectedTargetFrameworkFolders);
+        Assert.Null(measurements.SelectedLibraryPayloadBytes);
+        Assert.Null(measurements.SelectedLibraryCount);
+        Assert.NotNull(measurements.Detail);
+        InspectionDiagnostic diagnostic = Assert.Single(envelope.Diagnostics);
+        Assert.Equal(
+            "package-info-measurements.no-compile-slices",
+            diagnostic.Code);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Warning,
+            diagnostic.Severity);
+        await environment.AssertRootSettledAsync();
+    }
+
     [Fact]
     public async Task CompileSliceMeasurementsUseOneSelectedPayloadPerLibrary()
     {
@@ -20,6 +138,10 @@ public sealed partial class PackageHouseExecutionTests
             (
                 $"runtimes/linux-x64/lib/net10.0/{MaterializedPackageId}.dll",
                 realImplementation),
+            ("build/net10.0/Package.targets", new byte[2]),
+            ("contentFiles/any/net10.0/readme.txt", new byte[3]),
+            ("custom/net10.0/data.bin", new byte[4]),
+            ("tools/net8.0/tool.dll", new byte[5]),
             ("lib/net8.0/Legacy.dll", new byte[17]));
         var content = new InMemoryPackageContent(
             archive,
@@ -48,6 +170,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
         Assert.Equal(2, measurements.SelectedLibraryCount);
+        Assert.Equal(
+            ["build", "contentFiles", "custom", "lib", "ref", "runtimes"],
+            measurements.SelectedTargetFrameworkFolders);
         Assert.Equal(
             realImplementation.LongLength + 11,
             measurements.SelectedLibraryPayloadBytes);
@@ -112,6 +237,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(2, empty.Measurements.AvailableTargetFrameworkCount);
         Assert.Equal(0, empty.Measurements.SelectedLibraryCount);
         Assert.Equal(0, empty.Measurements.SelectedLibraryPayloadBytes);
+        Assert.Empty(empty.Measurements.SelectedTargetFrameworkFolders);
         Assert.Empty(empty.Measurements.Libraries);
         await environment.AssertRootSettledAsync();
     }

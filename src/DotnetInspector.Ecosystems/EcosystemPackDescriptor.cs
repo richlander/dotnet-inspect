@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.EcosystemLoading;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
@@ -16,6 +17,7 @@ public sealed class EcosystemPackDescriptor
         PackageSetId? packageSet,
         IEnumerable<EcosystemDemoDescriptor> demos,
         bool hasScanner,
+        bool hasPopulationLoader,
         ImmutableArray<string> namespaceRoots,
         ImmutableArray<PackageCoordinate> corePackages,
         ImmutableArray<PackageCoordinate> toolPackages,
@@ -28,6 +30,7 @@ public sealed class EcosystemPackDescriptor
         PackageSet = packageSet;
         Demos = [.. demos];
         HasScanner = hasScanner;
+        HasPopulationLoader = hasPopulationLoader;
         NamespaceRoots = namespaceRoots;
         CorePackages = corePackages;
         ToolPackages = toolPackages;
@@ -47,6 +50,8 @@ public sealed class EcosystemPackDescriptor
     public ImmutableArray<EcosystemDemoDescriptor> Demos { get; }
 
     public bool HasScanner { get; }
+
+    public bool HasPopulationLoader { get; }
 
     public bool HasWorkspaceRegistration { get; }
 
@@ -163,6 +168,40 @@ public abstract record EcosystemScannerSelectionResult
     }
 
     public sealed record Unknown : EcosystemScannerSelectionResult
+    {
+        internal Unknown(EcosystemPackId id) => Id = id;
+
+        public EcosystemPackId Id { get; }
+    }
+}
+
+/// <summary>
+/// The result of selecting one catalog-retained population-loader binding,
+/// without invoking it.
+/// </summary>
+public abstract record EcosystemPopulationLoaderSelectionResult
+{
+    private protected EcosystemPopulationLoaderSelectionResult()
+    {
+    }
+
+    public sealed record Known : EcosystemPopulationLoaderSelectionResult
+    {
+        internal Known(EcosystemPopulationLoaderBinding binding) =>
+            Binding = binding;
+
+        public EcosystemPopulationLoaderBinding Binding { get; }
+    }
+
+    /// <summary>The pack is registered but does not contribute a loader.</summary>
+    public sealed record Unavailable : EcosystemPopulationLoaderSelectionResult
+    {
+        internal Unavailable(EcosystemPackId id) => Id = id;
+
+        public EcosystemPackId Id { get; }
+    }
+
+    public sealed record Unknown : EcosystemPopulationLoaderSelectionResult
     {
         internal Unknown(EcosystemPackId id) => Id = id;
 

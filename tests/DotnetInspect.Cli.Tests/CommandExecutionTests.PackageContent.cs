@@ -262,13 +262,156 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_SourceFilesSection_Bare_AppliesLineAndRowWindowsToOutput()
+    public async Task Package_SourceFilesSection_SemanticTailSelectsTheSameRowAcrossFormats()
+    {
+        string[] baselineArgs =
+        [
+            "package", "Newtonsoft.Json@13.0.3",
+            "-S", "SourceLink: Files", "-t", "JsonReader",
+            "--raw", "--tips", "q",
+        ];
+        var baseline = await RunAppAsync(
+            [.. baselineArgs, "--tsv", "--no-headers"]);
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Empty(baseline.Error);
+        var baselineRows = baseline.Output
+            .ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, baselineRows.Length);
+        string firstUrl = baselineRows[0].Split('\t')[^1];
+        string selectedUrl = baselineRows[1].Split('\t')[^1];
+
+        string[] selectedArgs = [.. baselineArgs, "-n", "1", "--tail"];
+        var markdown = await RunAppAsync(selectedArgs);
+        var table = await RunAppAsync([.. selectedArgs, "--table"]);
+        var tsv = await RunAppAsync(
+            [.. selectedArgs, "--tsv", "--no-headers"]);
+        var jsonl = await RunAppAsync([.. selectedArgs, "--jsonl"]);
+        var json = await RunAppAsync([.. selectedArgs, "--json"]);
+        var count = await RunAppAsync([.. selectedArgs, "--count"]);
+        var value = await RunAppAsync(
+            [.. selectedArgs, "--fields", "Url", "--value"]);
+        var urls = await RunAppAsync([.. selectedArgs, "--urls"]);
+        var bare = await RunAppAsync([.. selectedArgs, "--bare"]);
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+            count,
+            value,
+            urls,
+            bare,
+        })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (string output in new[]
+        {
+            markdown.Output,
+            table.Output,
+            tsv.Output,
+            jsonl.Output,
+            json.Output,
+            value.Output,
+            urls.Output,
+            bare.Output,
+        })
+        {
+            Assert.Contains(selectedUrl, output, StringComparison.Ordinal);
+            Assert.DoesNotContain(firstUrl, output, StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(json.Output);
+        JsonElement sourceFile = Assert.Single(
+            document.RootElement
+                .GetProperty("source_files")
+                .EnumerateArray());
+        Assert.Equal(
+            selectedUrl,
+            sourceFile.GetProperty("url").GetString());
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal(selectedUrl, value.Output.Trim());
+        Assert.Equal(selectedUrl, urls.Output.Trim());
+        Assert.Equal(selectedUrl, bare.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_AliasAndTypeSugarAcceptSemanticOpenWindows()
+    {
+        var alias = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "-t", "JsonReader",
+            "--rows", "..1", "--count", "--tips", "q");
+        var typeSugar = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3",
+            "-t", "JsonReader",
+            "--rows", "2..", "--count", "--tips", "q");
+
+        Assert.Equal(0, alias.Exit);
+        Assert.Empty(alias.Error);
+        Assert.Equal("1", alias.Output.Trim());
+        Assert.Equal(0, typeSugar.Exit);
+        Assert.Empty(typeSugar.Error);
+        Assert.Equal("1", typeSugar.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_UnavailableSemanticWindowWithholdsOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "-t", "JsonReader",
+            "--rows", "2..3", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Package SourceLink file row selection stage 1 requires row 3, "
+                + "but only 2 rows are available.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_RejectsLegacyCountRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Source Files",
+            "--rows", "1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_SourceFilesSection_Bare_ComposesSemanticAndLineWindows()
     {
         var tempDirectory = Directory.CreateTempSubdirectory("package-bare-urls-");
         try
         {
             var lineWindowPath = Path.Combine(tempDirectory.FullName, "line-window.txt");
-            var rowWindowPath = Path.Combine(tempDirectory.FullName, "row-window.txt");
+            var semanticWindowPath = Path.Combine(tempDirectory.FullName, "semantic-window.txt");
             var composedPath = Path.Combine(tempDirectory.FullName, "composed.txt");
             string[] args =
             [
@@ -283,14 +426,14 @@ public partial class CommandExecutionTests
             var redirected = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
                 [.. args, "--lines", "-n1", "--out", lineWindowPath, "--tips", "q"]);
-            var rowWindow = await RunAppInDirectoryAsync(
+            var semanticWindow = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "--rows", "1", "--out", rowWindowPath, "--tips", "q"]);
+                [.. args, "--rows", "2..2", "--out", semanticWindowPath, "--tips", "q"]);
             var composed = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
                 [
                     .. args,
-                    "--rows", "2",
+                    "--rows", "2..2",
                     "--lines", "-n1",
                     "--out", composedPath,
                     "--tips", "q",
@@ -298,26 +441,328 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, stdout.Exit);
             Assert.Equal(0, redirected.Exit);
-            Assert.Equal(0, rowWindow.Exit);
+            Assert.Equal(0, semanticWindow.Exit);
             Assert.Equal(0, composed.Exit);
             Assert.Empty(stdout.Error);
             Assert.Empty(redirected.Output);
             Assert.Empty(redirected.Error);
-            Assert.Empty(rowWindow.Output);
-            Assert.Empty(rowWindow.Error);
+            Assert.Empty(semanticWindow.Output);
+            Assert.Empty(semanticWindow.Error);
             Assert.Empty(composed.Output);
             Assert.Empty(composed.Error);
             Assert.Equal(stdout.Output, File.ReadAllText(lineWindowPath));
-            Assert.Equal(stdout.Output, File.ReadAllText(rowWindowPath));
-            Assert.Equal(stdout.Output, File.ReadAllText(composedPath));
+            string semanticOutput = File.ReadAllText(semanticWindowPath);
+            Assert.Equal(semanticOutput, File.ReadAllText(composedPath));
+            Assert.NotEqual(stdout.Output, semanticOutput);
+            Assert.EndsWith(
+                "/Src/Newtonsoft.Json/JsonReader.cs" + Environment.NewLine,
+                stdout.Output,
+                StringComparison.Ordinal);
+            Assert.EndsWith(
+                "/Src/Newtonsoft.Json/JsonReader.Async.cs" + Environment.NewLine,
+                semanticOutput,
+                StringComparison.Ordinal);
             Assert.Single(
                 stdout.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            Assert.Single(
+                semanticOutput.Split(
                     '\n',
                     StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {
             tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_SemanticTailSelectsTheSameRowAcrossFormats()
+    {
+        const string selectedPath = "skills/z-last/SKILL.md";
+        const string excludedPath = "skills/a-first/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.Formats",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                (excludedPath, "first"),
+                (selectedPath, "last"),
+            ]);
+        try
+        {
+            string[] args =
+            [
+                "package", packagePath,
+                "-S", "Package files",
+                "-n", "1", "--tail",
+                "--tips", "q",
+            ];
+            var markdown = await RunAppAsync(args);
+            var table = await RunAppAsync([.. args, "--table"]);
+            var tsv = await RunAppAsync([.. args, "--tsv", "--no-headers"]);
+            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
+            var json = await RunAppAsync([.. args, "--json"]);
+            var count = await RunAppAsync([.. args, "--count"]);
+            var value = await RunAppAsync(
+                [.. args, "--fields", "Path", "--value"]);
+            var paths = await RunAppAsync([.. args, "--paths"]);
+
+            foreach (var result in new[]
+            {
+                markdown,
+                table,
+                tsv,
+                jsonl,
+                json,
+                count,
+                value,
+                paths,
+            })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            foreach (string output in new[]
+            {
+                markdown.Output,
+                table.Output,
+                tsv.Output,
+                jsonl.Output,
+                json.Output,
+                value.Output,
+                paths.Output,
+            })
+            {
+                Assert.Contains(selectedPath, output, StringComparison.Ordinal);
+                Assert.DoesNotContain(excludedPath, output, StringComparison.Ordinal);
+            }
+
+            Assert.Single(
+                jsonl.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var document = JsonDocument.Parse(json.Output);
+            JsonElement file = Assert.Single(
+                document.RootElement
+                    .GetProperty("files")
+                    .EnumerateArray());
+            Assert.Equal(
+                selectedPath,
+                file.GetProperty("path").GetString());
+            Assert.Equal("1", count.Output.Trim());
+            Assert.Equal(selectedPath, value.Output.Trim());
+            Assert.Equal(selectedPath, paths.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_AliasAndPathAcceptSemanticWindows()
+    {
+        const string firstSkill = "skills/a-first/SKILL.md";
+        const string secondSkill = "skills/z-last/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.Windows",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                (firstSkill, "first"),
+                (secondSkill, "second"),
+            ]);
+        try
+        {
+            var alias = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Files",
+                "--rows", "..1",
+                "--paths",
+                "--tips", "q");
+            var path = await RunAppAsync(
+                "package", packagePath,
+                "--path", "skills/*/SKILL.md",
+                "--rows", "2..",
+                "--paths",
+                "--tips", "q");
+            var shorthand = await RunAppAsync(
+                "package", packagePath,
+                "--path", "skills/*/SKILL.md",
+                "-1", "--tail",
+                "--paths",
+                "--tips", "q");
+
+            Assert.Equal(0, alias.Exit);
+            Assert.Empty(alias.Error);
+            Assert.Equal("README.md", alias.Output.Trim());
+            Assert.Equal(0, path.Exit);
+            Assert.Empty(path.Error);
+            Assert.Equal(secondSkill, path.Output.Trim());
+            Assert.Equal(0, shorthand.Exit);
+            Assert.Empty(shorthand.Error);
+            Assert.Equal(secondSkill, shorthand.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_UnavailableWindowWithholdsOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.Unavailable",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package files",
+                "--rows", "2..3",
+                "--json",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package file row selection stage 1 requires row 3, "
+                    + "but only 2 rows are available.",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_RejectInvalidRequestsBeforePackageResolution()
+    {
+        var legacyCount = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package files",
+            "--rows", "1");
+        var jsonLines = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--path", "README.md",
+            "--lines", "-n", "1",
+            "--json");
+        var familyLines = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package README file",
+            "-n", "1",
+            "--json");
+
+        Assert.Equal(1, legacyCount.Exit);
+        Assert.Empty(legacyCount.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, jsonLines.Exit);
+        Assert.Empty(jsonLines.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, familyLines.Exit);
+        Assert.Empty(familyLines.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            familyLines.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            familyLines.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_FileRows_ExplicitLinesClipsRenderedText()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.Lines",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package files",
+                "--table",
+                "--lines", "-n", "1",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_MultiSectionRetainsLegacyWindowValidation()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.MultiSection",
+            "README.md",
+            "readme");
+        try
+        {
+            var category = await RunAppAsync(
+                "package", packagePath,
+                "-S", "@Files",
+                "--rows", "1",
+                "--tips", "q");
+            var family = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package README file",
+                "--rows", "1",
+                "--tips", "q");
+            var mixed = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package files,Package Info",
+                "--rows", "1",
+                "--tips", "q");
+
+            Assert.Equal(0, category.Exit);
+            Assert.Empty(category.Error);
+            Assert.Equal(0, family.Exit);
+            Assert.Empty(family.Error);
+            Assert.Equal(0, mixed.Exit);
+            Assert.Empty(mixed.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -2368,7 +2813,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_SinglePackage_FilesJsonlWindowsRows()
+    public async Task Package_SinglePackage_FilesJsonlSemanticWindowSelectsRows()
     {
         var (package, directory) =
             CreateLocalReadmePackage(
@@ -2390,7 +2835,7 @@ public partial class CommandExecutionTests
                 "Package files",
                 "--jsonl",
                 "--rows",
-                "1");
+                "1..1");
             var count = await RunAppAsync(
                 "package",
                 package,
@@ -2398,7 +2843,7 @@ public partial class CommandExecutionTests
                 "Package files",
                 "--jsonl",
                 "--rows",
-                "1",
+                "1..1",
                 "--count");
             var projected = await RunAppAsync(
                 "package",
@@ -2409,7 +2854,7 @@ public partial class CommandExecutionTests
                 "--columns",
                 "Path",
                 "--rows",
-                "1");
+                "1..1");
 
             Assert.Equal(0, full.Exit);
             Assert.Equal(0, windowed.Exit);

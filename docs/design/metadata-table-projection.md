@@ -372,7 +372,7 @@ category. Three separate mechanisms are involved, and they do different jobs:
   gate — `SectionPipeline.IsRequested` returns `false` for an `ExplicitOnly`
   entry unless it is explicitly included, so no verbosity level auto-selects it.
   This is per-section configuration, the same as the `@Performance` sections and
-  the `--il-offset` coordinate sections.
+  the IL-coordinate context sections.
 - Each also declares `SectionCost.Unbounded`, which no verbosity budget admits —
   not even `-v:d`. This is a **second, independently sufficient** gate:
   measured by mutation, removing either one alone still leaves raw tables
@@ -386,16 +386,16 @@ category. Three separate mechanisms are involved, and they do different jobs:
 
 Heap **addressing** is the one place this lens does introduce a new currency: a
 heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
-carrier. `--heap` is that carrier, and it behaves like `--il-offset` — it makes a
-coordinate-scoped section available and discoverable only when present (see the
-coordinate-carrier family in [output-shapes.md](output-shapes.md)):
+carrier. `library coordinate` is that carrier: it makes a coordinate-scoped
+section available and discoverable only when present (see the coordinate-
+carrier family in [output-shapes.md](output-shapes.md)):
 
 ```bash
 # what this heap holds — just a section
 dotnet-inspect library My.dll -S "Metadata: #Strings"
 
 # one address — a coordinate
-dotnet-inspect library My.dll --heap "#Strings:0x1a4"
+dotnet-inspect library coordinate "#Strings:0x1a4" --library My.dll
 ```
 
 **Status: implemented**
@@ -425,8 +425,8 @@ rather than a footnote:
 Every listing renders its coverage as a caveat, so a referenced-values listing
 never reads as a walk of the heap and `#US`'s empty table never reads as an
 empty heap. `#US` keeps its section rather than being hidden: the section is how
-a caller learns the heap exists, how large it is, and that `--heap "#US:<addr>"`
-still reads any address in it.
+a caller learns the heap exists, how large it is, and that
+`library coordinate "#US:<addr>"` still reads any address in it.
 
 Reference scanning deliberately ignores a `--tables` filter. An entry is
 referenced by the *image*, not by whichever subset of tables the caller happens
@@ -1579,7 +1579,7 @@ Three rules follow from treating the hex form as an address rather than a name:
 
 - **Hex carries its `0x`.** A bare `02` is a table *name* position, and
   inferring a radix would let one spelling mean two things. This matches the
-  `--heap` address rule.
+  heap-coordinate address rule.
 - **Only projected tables resolve.** The alias table is derived from
   `MetadataTableProjector.ProjectedTables`, the same array the canonical names
   come from, so a table the projection does not cover cannot become selectable
@@ -1644,7 +1644,7 @@ Resolved:
   already taken as a presentation modifier ("render as a pretty table").
 - **Heap surfacing flags.** Per-heap listings are ordinary sections
   (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
-  a carrier: `--heap "#Strings:0x1a4"`.
+  a carrier: `library coordinate "#Strings:0x1a4"`.
 - **What a heap listing contains.** Not a byte scan, and not nothing. Each heap
   is listed by the strongest honest means it admits — complete for `#GUID`,
   referenced-values-only for `#Strings` and `#Blob`, nothing at all for `#US` —

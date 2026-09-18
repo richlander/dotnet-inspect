@@ -8,8 +8,12 @@ using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using Markout;
 using NuGetFetch;
 using NuGetFetch.Plugins;
 
@@ -72,6 +76,65 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Equal(Readme, output.Trim());
         Assert.Empty(error);
+        Assert.Equal(0, transports);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LayoutDoesNotValidatePackageInfoTarget()
+    {
+        string id = $"Pinned.Layout.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "layout package",
+            library: new byte[17],
+            libraryName: $"{id}.dll");
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--layout", "--tfm", "bad tfm", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "TFM 'bad tfm' not found. Use --tfms to list available frameworks.",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("bounded ASCII target moniker", error);
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageInfoRejectsInvalidTargetBeforeAcquisition()
+    {
+        string id = $"Pinned.InvalidTarget.{Guid.NewGuid():N}";
+        int transports = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+        {
+            transports++;
+            throw new InvalidOperationException(
+                "Invalid Package Info target reached acquisition.");
+        });
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tfm", "bad tfm", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Invalid --tfm value 'bad tfm': expected a bounded ASCII target moniker.",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
         Assert.Equal(0, transports);
     }
 
@@ -747,6 +810,111 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPinnedPackage_CompileRealizationFeedsPackageInfoEnvelope()
+    {
+        const string Marker = "HOSTILE";
+        const string UnsafeFolder = Marker + "\u202EMARKER";
+        string id = $"Pinned.Measurements.{Guid.NewGuid():N}";
+        byte[] library = new byte[17];
+        byte[] archive = CreatePackage(
+            id,
+            "measurement package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ($"{UnsafeFolder}/net11.0/data.bin", new byte[3]),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault());
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            Assert.Same(result.AcquiredPayload, settlement.Payload);
+            InspectionEnvelope<PackageInfoMeasurements> envelope =
+                PackageInfoMeasurementInspection.Project(settlement);
+            PackageInfoMeasurements measurements = envelope.Content;
+
+            Assert.Equal(
+                PackageInfoMeasurementStatus.Measured,
+                measurements.Status);
+            Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+            Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+            Assert.Equal(1, measurements.AvailableTargetFrameworkCount);
+            Assert.Equal(
+                [@"HOSTILE\u202EMARKER", "lib"],
+                measurements.SelectedTargetFrameworkFolders!
+                    .Select(static folder => folder.ToString()));
+            Assert.Equal(library.LongLength, measurements.SelectedLibraryPayloadBytes);
+            Assert.Equal(1, measurements.SelectedLibraryCount);
+            Assert.Same(
+                settlement.Payload.Content.GenerationIdentity,
+                measurements.Generation);
+            Assert.Same(
+                settlement.Result.Evidence.Realization,
+                measurements.Evidence!.Realization);
+            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+            Assert.Empty(envelope.Diagnostics);
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(".nupkg", StringComparison.Ordinal)));
+
+            var inspection = new InspectionResult
+            {
+                PackageName = id,
+                Version = Version,
+                PackageInfoMeasurementInspection = envelope,
+            };
+            string output = MarkoutSerializer.Serialize(
+                new InspectionResultView(inspection),
+                InspectionContext.Default);
+            Assert.Contains("| Package Size (compressed) |", output);
+            Assert.Contains("| Selected TFM | net11.0 |", output);
+            Assert.Contains(
+                @"| Selected-TFM Folders | HOSTILE\u202EMARKER, lib |",
+                output);
+            HostileOutputAssert.MarkersRendered(
+                output,
+                "Package Info selected-TFM folders",
+                Marker);
+            HostileOutputAssert.NoRenderingHazard(
+                output,
+                "Package Info selected-TFM folders");
+            Assert.Contains("| TFM Count | 1 |", output);
+            Assert.Contains("| Selected-TFM Size | 17 B |", output);
+            Assert.Contains("| Selected-TFM Library Count | 1 |", output);
+            Assert.DoesNotContain("| Highest TFM |", output);
+            Assert.DoesNotContain("| Size |", output);
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
     public async Task ExtractPinnedPackage_LocalWrapperReauthorizesRedirectedId()
     {
         const string WrapperId = "Pinned.Wrapper";
@@ -902,7 +1070,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string root, string id, string readme, bool hierarchical = false,
         string? redirectId = null, string version = Version,
         byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0")
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -914,7 +1084,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 redirectId,
                 version,
                 library,
-                libraryName));
+                libraryName,
+                documentation,
+                libraryDirectory));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -923,7 +1095,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     private static byte[] CreatePackage(
         string id, string readme, string? redirectId = null,
         string version = Version, byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0",
+        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -939,8 +1114,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(
-                    $"lib/net11.0/{libraryName}").Open();
+                    $"{libraryDirectory}/{libraryName}").Open();
                 entry.Write(library);
+            }
+            if (documentation is not null)
+            {
+                using Stream entry = archive.CreateEntry(
+                    $"{libraryDirectory}/"
+                        + Path.ChangeExtension(libraryName, ".xml"))
+                    .Open();
+                entry.Write(documentation);
             }
             if (redirectId is not null)
             {
@@ -952,6 +1135,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                       </RuntimeIdentifierPackages>
                     </DotNetCliTool>
                     """);
+            }
+            if (extraEntries is not null)
+            {
+                foreach (var (path, content) in extraEntries)
+                {
+                    using Stream entry = archive.CreateEntry(path).Open();
+                    entry.Write(content);
+                }
             }
         }
         return buffer.ToArray();

@@ -6,6 +6,8 @@ export type InertString = string & {
   readonly [inertStringBrand]: "InertString";
 };
 
+export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
+
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
 
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
@@ -38,6 +40,22 @@ export interface BrowserAnnotatedSource {
   readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
   readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
+}
+
+export interface BrowserAnnotatedSourceCallCycle {
+  readonly findingKey: string;
+  readonly ordinal: number;
+  readonly edgeRows: ReadonlyArray<number>;
+  readonly factIds: ReadonlyArray<number>;
+  readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+}
+
+export interface BrowserAnnotatedSourceCallCycleInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly isComplete: boolean;
+  readonly limits: ReadonlyArray<BrowserAnnotatedSourceCallCycleLimit>;
+  readonly findings: ReadonlyArray<BrowserAnnotatedSourceCallCycle>;
 }
 
 export interface BrowserAnnotatedSourceCallRelationship {
@@ -93,6 +111,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
   readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
   readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
+  readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {

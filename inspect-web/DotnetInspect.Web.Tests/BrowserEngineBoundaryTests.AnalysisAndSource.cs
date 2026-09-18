@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -759,6 +760,101 @@ public sealed partial class BrowserEngineBoundaryTests
                 span.GetProperty("start").GetInt32(),
                 span.GetProperty("length").GetInt32())
                 .Contains("stackalloc", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MemberFindingCensus_ProjectsExactMutualCycleWitness()
+    {
+        const string PackageId = "Browser.Member.CallCycles";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphTarget
+                .AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await QueryPackageSurfaceJson(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                    == "Target.InstanceRecursionApi");
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                    == "IsEven");
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source.SourceExports
+                .QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    type.GetProperty("assembly").GetString()!,
+                    type.GetProperty("definitionId").GetString()!,
+                    type.GetProperty("queryId").GetString()!,
+                    member.GetProperty("name").GetString()!,
+                    member.GetProperty("signature").GetString()!,
+                    member.GetProperty("graphSelectorKey")
+                        .GetString()!,
+                    member.GetProperty("metadataToken").GetInt32(),
+                    "[]");
+
+        using JsonDocument censusDocument =
+            JsonDocument.Parse(censusJson);
+        JsonElement annotatedSource =
+            censusDocument.RootElement
+                .GetProperty("annotatedSource");
+        JsonElement cycles = annotatedSource
+            .GetProperty("viewerCatalog")
+            .GetProperty("callCycles");
+        Assert.True(
+            cycles.GetProperty("available").GetBoolean());
+        JsonElement cycle = Assert.Single(
+            cycles.GetProperty("findings").EnumerateArray());
+        Assert.Equal(
+            2,
+            cycle.GetProperty("edgeRows").GetArrayLength());
+        int factId = Assert.Single(
+            cycle.GetProperty("factIds").EnumerateArray())
+            .GetInt32();
+        Assert.Equal(
+            ["IsOdd", "IsEven"],
+            cycle.GetProperty("targets")
+                .EnumerateArray()
+                .Select(target =>
+                    target.GetProperty("memberName").GetString()));
+
+        JsonElement relationship = Assert.Single(
+            annotatedSource.GetProperty("callRelationships")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("factId").GetInt32()
+                    == factId);
+        Assert.Equal(
+            cycle.GetProperty("edgeRows")[0].GetInt32(),
+            relationship.GetProperty("edgeRow").GetInt32());
+        Assert.DoesNotContain(
+            factId,
+            annotatedSource
+                .GetProperty("viewerCatalog")
+                .GetProperty("defaultFindingIds")
+                .EnumerateArray()
+                .Select(value => value.GetInt32()));
     }
 
     [Fact]

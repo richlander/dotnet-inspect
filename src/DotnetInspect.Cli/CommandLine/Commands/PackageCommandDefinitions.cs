@@ -100,6 +100,13 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
+        var commandArgs = new PackageOptionsParser.PackageCommandArgs(
+            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            contentOption, frontmatterOption, bodyOption,
+            tfmOption, typeFilterOption, versionOption,
+            opts.Lines, opts.TailLines, outOption, pathMatchOption,
+            skipEmptyOption, opts.NoHeaders);
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -109,7 +116,15 @@ public static class PackageCommandDefinitions
             packageCommand,
             validateLegacyRowWindow: result =>
                 !result.GetValue(versionsOption)
-                && !result.GetValue(versionsWithFeedOption));
+                && !result.GetValue(versionsWithFeedOption)
+                && !PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
         opts.AddPrintOptionTo(packageCommand);
@@ -201,7 +216,15 @@ public static class PackageCommandDefinitions
                         packageReference,
                         out _,
                         out string? rangeError)
-                    && rangeError is null),
+                    && rangeError is null)
+                || PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -220,13 +243,6 @@ public static class PackageCommandDefinitions
                 packageCommand,
                 packageNameArg));
 
-        var commandArgs = new PackageOptionsParser.PackageCommandArgs(
-            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
-            contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption,
-            opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
 
         CliOptionValueValidation.RegisterCapacity(

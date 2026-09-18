@@ -3,25 +3,29 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** adopted implementation contract with a proposed placement
-transition. `depends` implements the type-relationship and explicit-root
+**Status:** adopted implementation contract with a superseded placement
+proposal. `depends` implements the type-relationship and explicit-root
 dependency contracts through #5994. The separate `dependency-evidence` command
-and positional type-to-library fallback were retired in #5995. The next target,
-tracked by steps 5 and 8 of
-[#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
-selected-Type workflow to `type graph`, moves the heterogeneous asset-root
-workflow to `graph dependencies`, and then retires `depends`.
-The Debug service-evidence enrichment is proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+and positional type-to-library fallback were retired in #5995.
+[Operation Commands and Subject Sections](operation-command-and-subject-section-composition.md)
+now retains `depends` as a top-level operation and uses subject sections for
+curated subject-first dependency views. It supersedes every later proposal in
+this document to move the operation to `type graph` or `graph dependencies`
+and retire `depends`; those passages remain historical input for focused
+Dependency adoption rather than target grammar.
+The host-neutral dependency settlement operation and ordinary CLI adoption are
+implemented under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
+sidecar serialization and Browser/Wasm adoption remain proposed.
 
 ## Owner and claim
 
-The Dependency command owner defines one CLI operation, currently exposed as
-two modes of `depends` and targeted for two subject-admission placements:
+The Dependency command owner defines one CLI operation, exposed through
+top-level `depends` and future curated subject sections:
 
 > Admit explicitly named dependency subjects and assets, project their
 > owner-issued relationships and evidence, apply one traversal and disclosure
-> model, and close each target placement into its declared document and
+> model, and close each entry point into its declared document and
 > rendering contract.
 
 Traversal and evidence are not separate operations. Traversal selects which
@@ -35,12 +39,12 @@ This owner defines:
 - root-set lifetime and partial-failure behavior;
 - traversal direction and depth;
 - the current Dependency documents and CLI section composition;
-- the selected-Type machine-schema transition into Dependency-owned Type Graph
-  content containing an Inspection Graph document;
+- subject-section bindings that preserve the same Dependency operation and
+  result contract;
 - row selection, count, output-format eligibility, diagnostics, and exit
   status; and
 - migration from the former two-command split to the current `depends`
-  surface, then to target `type graph` and `graph dependencies` placements.
+  surface and any focused subject-section adoption.
 
 It consumes owner-issued facts and does not redefine their construction:
 
@@ -108,10 +112,10 @@ The target experience lets the user vary two independent axes:
 
 Neither axis changes the admitted subject or operation arity, so the
 [Command Transition Model](command-transition-model.md) keeps them within one
-Dependency operation. The target CLI placement splits only on subject
-admission: `type graph` begins with one selected Type, while
-`graph dependencies` admits an explicit heterogeneous asset-root set. Neither
-placement splits traversal from evidence.
+Dependency operation. Top-level `depends` admits explicit subjects and
+heterogeneous asset-root sets. Subject commands may expose curated Dependency
+sections using their already resolved subject. Neither entrance splits
+traversal from evidence.
 
 The historical `dependency-evidence` design used heterogeneous root cardinality
 to justify a separate command. This target supersedes that conclusion. Root-set
@@ -123,26 +127,21 @@ Type relationship mode and asset dependency mode use different admission plans
 and target documents. They remain under one Dependency semantic owner because
 both project owner-issued dependency relationships and evidence through the
 same traversal/disclosure axes, not because they share a target envelope.
-`type graph` adapts the selected-Type producer into Dependency-owned Type Graph
-content whose topology is an `InspectionGraphDocument`; `graph dependencies`
-retains the sectioned Dependency document.
+Graph may separately consume those owner-issued relationships for
+identity-preserving topology without replacing either Dependency result.
 
 ## Consumer, tracker, and delivery
 
-The current production consumer is the `depends` CLI command. The target
-production consumers are:
-
-- `type graph` for the selected-Type relationship workflow, tracked by step 5
-  of [#7308](https://github.com/richlander/dotnet-inspect/issues/7308); and
-- `graph dependencies` for the heterogeneous asset-root workflow, tracked by
-  step 8.
+The current production consumer is the top-level `depends` CLI command. Target
+production consumers also include Package, Library, Type, and Member sections
+that bind curated dependency requests to already resolved subjects.
 
 This document remains the sole owner of each Dependency request, producer
-result, evidence, failure, and migration contract. The Type Graph adoption
-supplies local subject admission, Inspection Graph composition, and final
-Graph-document rendering over that producer result. The root Graph owner
-supplies only the `graph dependencies` command namespace; the Dependency owner
-retains that mode's sectioned document and rendering eligibility.
+result, evidence, failure, and migration contract. Subject sections supply
+local subject admission and authored presets without changing that ownership.
+The Graph owner may project the same owner-issued evidence into a separate
+Graph result while retaining Dependency identity, resolution, and failure
+semantics.
 
 The shared evidence substrate is implemented by
 [#5533](https://github.com/richlander/dotnet-inspect/issues/5533), and
@@ -151,10 +150,16 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The Debug service-evidence adopter in #7117 is shared host-neutral work despite
-this command's CLI presentation ownership. It composes the existing Package
-Dependency Evidence outcome without moving its normalization contract.
-It is the third slice of the diagnostic-sidecar composition tracked by
+The dependency service adopter in #7117 is shared host-neutral work despite
+this command's CLI presentation ownership. `DependencyInspectionOperation`
+now settles the selected-plan `DependencyInspectionContent` and ordinary
+`InspectionEnvelope<DependencyInspectionContent>`, and its enriched entry
+point composes the existing Package Dependency Evidence outcome without moving
+its normalization contract.
+The CLI supplies acquired owner-issued results to that operation and retains
+only acquisition, graph-row shaping, labels, section composition, and
+rendering. Debug sidecar publication is the third slice of the
+diagnostic-sidecar composition tracked by
 [#7293](https://github.com/richlander/dotnet-inspect/issues/7293), consuming
 the generic attachment contract and CLI sidecar transport without redefining
 either owner.
@@ -554,13 +559,20 @@ section selection and row shaping
 Markdown / tree / Mermaid / table / TSV / JSONL / JSON / count
 ```
 
-The implementation now retains its semantic selected-plan value as
-owner-issued `DependencyInspectionContent` while the existing CLI projection
-continues to own section membership, graph rows, row windows, display
-ordering, and rendering. This extraction is not a new dependency-semantics
-model. The Content value carries references to or copies of owner-issued
-identities and evidence plus dependency-inspection occurrence identities,
-graph endpoint indices, and stable semantic ordering.
+The host-neutral `DependencyInspectionOperation` now settles the semantic
+selected-plan value as owner-issued `DependencyInspectionContent` and returns
+it in `InspectionEnvelope<DependencyInspectionContent>`. Its request contains
+the already-acquired Package Dependency Evidence outcome, explicit root inputs,
+graph, pruning, and typed host-adapted failures. The operation owns occurrence
+association, phase projection, declaration-to-restored-edge joins, plan-relative
+graph, traversal, pruning, and failure inclusion, and aggregate completion.
+Producer values for an unselected traversal or pruning phase do not enter
+Content even if a host adapter supplies them. The CLI projection consumes that
+envelope and continues to own section membership, graph rows, row windows,
+display ordering, and rendering. This extraction is not a new dependency-
+semantics model. The Content value carries references to or copies of owner-
+issued identities and evidence plus dependency-inspection occurrence
+identities, graph endpoint indices, and stable semantic ordering.
 
 This selected-plan document is baseline Content for envelope adoption.
 Root-set and requested-phase completion, graph meaning, normalized
@@ -657,11 +669,14 @@ default; `--platform-family aspnetcore` selects the ASP.NET Core comparison
 inventory. The family is a disclosed policy comparison target, not a claim
 that an application activates that shared framework.
 
-Root-set completion and the state of every requested phase are mandatory
-document fields at every verbosity. They remain visible when the selected
-graph or evidence rows are empty or partial. A traversal phase omitted by
-section planning renders as `NotRequested`; the pruning summary does the same
-when `Pruning` is not selected.
+Root-set completion and the state of every requested phase are mandatory typed
+Content and remain present in unprojected JSON when the selected graph or
+evidence rows are empty or partial. Ordinary Markdown renders the selected H2
+sections directly rather than projecting completion as a root document or
+table. Diagnostics, exit status, and exact-count eligibility still consume
+the typed completion state. A traversal phase omitted by section planning is
+`NotRequested`; the pruning summary has the same state when `Pruning` is not
+selected.
 
 The implementation also retains four **diagnostic sections** for developing
 and diagnosing the command:
@@ -707,8 +722,11 @@ demonstration that diagnostic registration disappears from retail compilation.
 
 ## Debug service-evidence enrichment
 
-**Status:** proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+**Status:** partially implemented under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
+host-neutral ordinary and enriched settlement entry points and ordinary CLI
+cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
+remain proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -742,9 +760,10 @@ baseline consumer to understand `TEvidence`.
 
 ### Concrete evidence value
 
-The typed Content, evidence Document, root-occurrence currency, and
-same-execution association are implemented. The complete evidence capture
-request, generated serialization, and host adoption remain proposed.
+The typed Content, evidence Document, root-occurrence currency,
+same-execution association, selected-plan settlement operation, and ordinary
+CLI consumption are implemented. Generated sidecar serialization and
+Browser/Wasm adoption remain proposed.
 
 The dependency service issues one named settled Document:
 
@@ -816,15 +835,17 @@ capture remains visible in `PackageInputs` and does not reinterpret an
 otherwise equivalent baseline. Producers shared by both plans retain their
 ordinary failure meaning.
 
-For equivalent ordinary inputs and baseline plans, extracting `Inspection`
-from the enriched result yields equal Content, Share, and Diagnostics.
-Rendering or serialization consumes the settled values and never reopens an
-archive, assets file, package source, or traversal.
+For one settled operation request and baseline plan, ordinary and enriched
+execution yield equal Content, Share, and Diagnostics. This is not a
+cross-owner structural-equality contract for independently reconstructed
+Package Dependency Evidence or dependency graphs. Rendering or serialization
+consumes the settled values and never reopens an archive, assets file, package
+source, or traversal.
 
 ### Thin Debug views and Browser adoption
 
-After replacement coverage exists, the four diagnostic sections remain useful
-Debug views but stop owning duplicated production:
+The four diagnostic sections remain useful Debug views but no longer own
+duplicated semantic production:
 
 - `Dependency Groups`, `Restored Packages`, and `Restored Edges` project
   `PackageInputs` through the retained owner-issued identities;
@@ -881,11 +902,15 @@ pathological fixtures. They cover:
 - semantic equality between the extracted `DependencyInspectionContent` and
   the existing asset-mode command projection before host rendering;
 - exact admitted and failed occurrence association, including mixed root kinds
-  and a package-prefix failure without an explicit occurrence;
+  and a package-prefix failure without an explicit occurrence, while rejecting
+  an unassociated failure for a non-prefix request;
 - complete empty, partial, unavailable, failed, and bounded/truncated Package
   Dependency Evidence outcomes;
 - equal extracted baselines for ordinary and enriched execution, including an
-  evidence-only producer failure;
+  evidence-only producer failure and complete envelope equality for one
+  settled request;
+- selected-plan exclusion of graph, traversal, pruning, and their failures
+  when a host adapter supplies values for an unselected phase;
 - one execution, detached lifetime, and serialization without acquisition or
   recapture; and
 - exact `asset-dependencies` version `1` framing for baseline and enriched
@@ -1233,7 +1258,13 @@ That completed change was **intentionally breaking** under
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
 
-### Target Graph placements
+### Historical Graph placement proposal
+
+This section and the remaining target grammar, demonstrations, and gates that
+refer to `type graph`, `graph dependencies`, or retiring `depends` record the
+superseded #7308 proposal. They are non-normative input to the focused
+Dependency, Graph, section-naming, and default-selection follow-ons under
+issues #7623, #7624, #7625, and #7628.
 
 The next placement is also intentionally breaking:
 

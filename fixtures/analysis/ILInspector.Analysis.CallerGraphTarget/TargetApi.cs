@@ -105,6 +105,14 @@ namespace Target
 
         bool IsOdd(int value) =>
             value != 0 && IsEven(value - 1);
+
+        public async Task<int> RecurseAsync(int depth)
+        {
+            await Task.Yield();
+            return depth <= 0
+                ? 0
+                : await RecurseAsync(depth - 1);
+        }
     }
 
     public interface IBodilessApi

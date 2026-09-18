@@ -848,8 +848,6 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--path", "-n1")]
-    [InlineData("--path", "-1")]
     [InlineData("--library", "-n1")]
     [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
@@ -861,6 +859,23 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public void PreprocessArgs_PackagePathPreservesSemanticLimit(
+        string rowLimit)
+    {
+        string[] args = ["package", "Foo", "--path", rowLimit];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        string[] result =
+            CommandLineBuilder.PreprocessArgs(args, root);
+
+        Assert.Equal(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
@@ -1142,7 +1157,6 @@ public class CommandLineTests
     [InlineData("--where", "Field=Value", "System.Text.Json")]
     [InlineData("--match", "first", "System.Text.Json")]
     [InlineData("--path", "lib/*", "System.Text.Json")]
-    [InlineData("--il-offset", "0x06000001+0x0", "System.Text.Json")]
     [InlineData("--metadata-root", "r2r-manifest", "System.Text.Json")]
     [InlineData("--extract-resources", "/tmp/out", "System.Text.Json")]
     [InlineData("--row", "1", "System.Text.Json")]

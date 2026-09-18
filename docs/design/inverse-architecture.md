@@ -302,7 +302,7 @@ a pretty print:
 
 Guardrails: the lane is opt-in, and it lives in the harness, where attribute reflection
 is fine. The shipped decompiler stays SRM-only and NativeAOT-clean — the product
-`--il-offset` / CLI path does not reflect assertions. It is sequenced last: it needs
+IL-coordinate CLI path does not reflect assertions. It is sequenced last: it needs
 both the annotations and the `Check()` predicates in place.
 
 ## Declared non-inverse boundaries

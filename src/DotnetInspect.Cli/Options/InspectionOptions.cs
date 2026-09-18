@@ -173,6 +173,16 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? VersionRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for a single package's SourceLink file rows.
+    /// </summary>
+    public RowSelectionIntent<string>? SourceLinkFileRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one single-package file-list section.
+    /// </summary>
+    public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
+
+    /// <summary>
     /// Output as JSON instead of MDF.
     /// </summary>
     public bool JsonOutput { get; init; }

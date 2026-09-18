@@ -24,6 +24,45 @@ public sealed partial class DesktopPackageSourceComposition
         IssueHouseOperation(cancellationToken);
 
     /// <summary>
+    /// Realizes one exact package compile selection with payload authority
+    /// retained through the returned settlement.
+    /// </summary>
+    public ValueTask<PackageHouseSettlement> RealizePinnedCompileAsync(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        string? requiredProducerKey = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentNullException.ThrowIfNull(createStore);
+
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize,
+                _options.RequestTimeout,
+                _options.OperationTimeout),
+            PackageHouseTargetContext.Exact(targetFramework),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+        return new(
+            ExecuteHouseAsync(
+                request,
+                coordinate.PackageId,
+                sourceOptions,
+                new PackagePayloadAcquisitionPlan(
+                    createStore,
+                    log: log),
+                cancellationToken,
+                requiredProducerKey,
+                log));
+    }
+
+    /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition
     /// owns the operation lifetime.
     /// </summary>
@@ -112,11 +151,15 @@ public sealed partial class DesktopPackageSourceComposition
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
-            string? requiredProducerKey)
+            string? requiredProducerKey,
+            PackageHouseTargetContext? compileTargetContext = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
-            PackageHouseOperationProfile.Acquire);
+            compileTargetContext is null
+                ? PackageHouseOperationProfile.Acquire
+                : PackageHouseOperationProfile.Realize,
+            compileTargetContext);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -142,11 +185,15 @@ public sealed partial class DesktopPackageSourceComposition
             Action<string>? log,
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
-            IPackagePayloadTransferPolicy? transferPolicy)
+            IPackagePayloadTransferPolicy? transferPolicy,
+            PackageHouseTargetContext? compileTargetContext = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
-            PackageHouseOperationProfile.Acquire);
+            compileTargetContext is null
+                ? PackageHouseOperationProfile.Acquire
+                : PackageHouseOperationProfile.Realize,
+            compileTargetContext);
         return ExecuteAndProjectPayloadAsync(
             request,
             selection.PackageId,
@@ -196,7 +243,10 @@ public sealed partial class DesktopPackageSourceComposition
             ProjectAuthorityFailures(settlement.Result),
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
-            settlement.SelectionUsesOriginalSources);
+            settlement.SelectionUsesOriginalSources,
+            settlement is PackageHouseSettlement.Acquired
+                ? settlement
+                : null);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -281,13 +331,18 @@ public sealed partial class DesktopPackageSourceComposition
 
     private PackageHouseRequest CreateHouseRequest(
         PackageHouseDemand demand,
-        PackageHouseOperationProfile profile) =>
+        PackageHouseOperationProfile profile,
+        PackageHouseTargetContext? targetContext = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
                 profile,
                 _options.RequestTimeout,
-                _options.OperationTimeout));
+                _options.OperationTimeout),
+            targetContext,
+            profile == PackageHouseOperationProfile.Realize
+                ? PackageHouseAssetSelectionKind.Compile
+                : null);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

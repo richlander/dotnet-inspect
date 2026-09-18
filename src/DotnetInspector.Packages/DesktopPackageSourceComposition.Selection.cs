@@ -22,9 +22,17 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
+        if (compileTargetContext is not null
+            && operationContext is not null)
+        {
+            throw new ArgumentException(
+                "PackageHouse compile realization cannot use a legacy operation context.",
+                nameof(operationContext));
+        }
         if (operationContext is not null)
         {
             return PackageSourceSettlementCompatibility.RunAsync(
@@ -83,7 +91,8 @@ public sealed partial class DesktopPackageSourceComposition
                     log,
                     sourceOperation,
                     limits,
-                    transferPolicy);
+                    transferPolicy,
+                    compileTargetContext);
             sourceOperation = null;
             return execution;
         }

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
@@ -391,6 +392,11 @@ public enum DiffHistoryChangedVersionState
     Unevaluated,
 }
 
+public enum DiffHistoryCountCohort
+{
+    ChangedVersions,
+}
+
 /// <summary>
 /// One destination Version assessed only against its immediate population
 /// predecessor.
@@ -486,6 +492,48 @@ public sealed record DiffHistoryChangedVersionAssessment<T>
 }
 
 /// <summary>
+/// Completion evidence retained when Changed Versions cannot supply an exact
+/// Count for the requested logical prefix.
+/// </summary>
+public sealed class DiffHistoryChangedVersionCountEvidence
+{
+    internal DiffHistoryChangedVersionCountEvidence(
+        int totalAssessmentCount,
+        int establishedAssessmentCount,
+        int? requiredChangedVersionPrefix,
+        DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+            firstUnestablishedAssessment)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(totalAssessmentCount);
+        if (establishedAssessmentCount < 0
+            || establishedAssessmentCount > totalAssessmentCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(establishedAssessmentCount));
+        }
+        if (requiredChangedVersionPrefix is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requiredChangedVersionPrefix));
+        }
+
+        TotalAssessmentCount = totalAssessmentCount;
+        EstablishedAssessmentCount = establishedAssessmentCount;
+        RequiredChangedVersionPrefix = requiredChangedVersionPrefix;
+        FirstUnestablishedAssessment = firstUnestablishedAssessment;
+    }
+
+    public int TotalAssessmentCount { get; }
+
+    public int EstablishedAssessmentCount { get; }
+
+    public int? RequiredChangedVersionPrefix { get; }
+
+    public DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+        FirstUnestablishedAssessment { get; }
+}
+
+/// <summary>
 /// Typed whole-Type API Member content for one settled Diff History document.
 /// </summary>
 public sealed class DiffHistoryApiMemberDocument
@@ -503,7 +551,9 @@ public sealed class DiffHistoryApiMemberDocument
         ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions,
         ImmutableArray<
             DiffHistoryChangedVersionAssessment<ApiMemberHandle>>
-            changedVersionAssessments)
+            changedVersionAssessments,
+        ApiDiffOptions comparisonOptions,
+        int matchAcceptanceThreshold)
     {
         Population =
             population ?? throw new ArgumentNullException(nameof(population));
@@ -533,6 +583,14 @@ public sealed class DiffHistoryApiMemberDocument
             ?? throw new ArgumentNullException(nameof(correlation));
         Transitions = transitions;
         ChangedVersionAssessments = changedVersionAssessments;
+        ComparisonOptions = comparisonOptions
+            ?? throw new ArgumentNullException(nameof(comparisonOptions));
+        if (matchAcceptanceThreshold is < 0 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(matchAcceptanceThreshold));
+        }
+        MatchAcceptanceThreshold = matchAcceptanceThreshold;
         UnevaluatedAddresses =
         [
             .. population.Addresses.Where(address =>
@@ -545,7 +603,11 @@ public sealed class DiffHistoryApiMemberDocument
                 .Where(static assessment =>
                     assessment.State
                         == DiffHistoryChangedVersionState.Changed)
-                .Select(static assessment => assessment.Destination),
+        ];
+        ChangedVersionAddresses =
+        [
+            .. ChangedVersions.Select(static assessment =>
+                assessment.Destination),
         ];
     }
 
@@ -576,9 +638,20 @@ public sealed class DiffHistoryApiMemberDocument
         DiffHistoryChangedVersionAssessment<ApiMemberHandle>>
         ChangedVersionAssessments { get; }
 
+    public ApiDiffOptions ComparisonOptions { get; }
+
+    public int MatchAcceptanceThreshold { get; }
+
     public ImmutableArray<PackageVersionAddress> UnevaluatedAddresses { get; }
 
-    public ImmutableArray<PackageVersionAddress> ChangedVersions { get; }
+    public ImmutableArray<
+        DiffHistoryChangedVersionAssessment<ApiMemberHandle>>
+        ChangedVersions { get; }
+
+    public ImmutableArray<PackageVersionAddress> ChangedVersionAddresses
+    {
+        get;
+    }
 }
 
 /// <summary>One producer-specific document arm of shared Diff History.</summary>
@@ -609,12 +682,21 @@ public abstract record DiffHistoryOutcome
 
     public sealed record Available : DiffHistoryOutcome
     {
-        internal Available(DiffHistoryDocument document)
+        internal Available(
+            DiffHistoryDocument document,
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>? count = null)
         {
             Document =
                 document ?? throw new ArgumentNullException(nameof(document));
+            Count = count;
         }
 
         public DiffHistoryDocument Document { get; }
+
+        public SectionCountOutcome<
+            DiffHistoryCountCohort,
+            DiffHistoryChangedVersionCountEvidence>? Count { get; }
     }
 }
