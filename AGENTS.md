@@ -545,7 +545,7 @@ Every PR body puts `## Demo` above validation and follows the full
 
 ## PR and CI discipline
 
-- Outside release preparation, record each user-observable change and its PR or stack link on [the 0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493); do not edit
+- Before merging a user-observable change, record it and its PR or stack link on [the 0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493); outside release preparation, do not edit
   `src/DotnetInspect.Cli/release-notes.md`.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
   Label a Markdown-only PR (every changed file is `*.md`) `documentation`.

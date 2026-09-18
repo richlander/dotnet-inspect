@@ -126,7 +126,7 @@ outputs. `PackagingSurfaceTests` pins both defaults and the tool census.
 `src/DotnetInspect.Cli/release-notes.md` is a release-preparation artifact.
 Ordinary feature and fix PRs do not edit it. Instead, `AGENTS.md` names the
 current release tracker, and each user-observable change adds a short comment
-there with its implementing PR or stack link.
+there with its implementing PR or stack link before the implementation merges.
 
 A tracker is an append-only candidate ledger, not a release manifest. The exact
 shipped commit defines release membership. Do not move or delete entries to
@@ -142,11 +142,14 @@ Prepare the notes and hand off intake as follows:
    implementations on both the outgoing and successor trackers. Include a
    change only when its implementation is after the previous release commit
    and is an ancestor of the proposed release commit; tracker placement never
-   decides membership.
-4. Commit the notes, then select the exact release SHA. Recheck the linked
-   implementations from both trackers against that SHA. If the selected history
-   and notes disagree, correct the notes and select the replacement commit
-   before dispatching.
+   decides membership. The pre-merge comment requirement makes every
+   implementation in that proposed history visible before this intake pass.
+4. Commit the notes and select that commit as the exact release SHA. This closes
+   implementation membership: later merges are not ancestors and remain next-
+   release candidates. Immediately before dispatch, recheck both trackers
+   against the selected SHA. If a late comment exposes an earlier qualifying
+   implementation or the history and notes otherwise disagree, correct the
+   notes and select the replacement commit.
 5. After every coordinated release surface succeeds, comment on the successor
    tracker with the released version, release URL, and full shipped SHA. State
    that changes at or before that commit shipped in the completed release and
