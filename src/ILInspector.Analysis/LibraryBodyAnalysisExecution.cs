@@ -74,7 +74,8 @@ public sealed class LibraryBodyAnalysisExecution
         ImplementationProfiles =
             CreateImplementationProfileResult(
                 Receipt,
-                analysis);
+                analysis,
+                _moduleName);
     }
 
     /// <summary>
@@ -111,7 +112,8 @@ public sealed class LibraryBodyAnalysisExecution
     private static LibraryImplementationProfileAnalysisResult
         CreateImplementationProfileResult(
             LibraryBodyAnalysisReceipt receipt,
-            LibraryBodyAnalysisResult analysis)
+            LibraryBodyAnalysisResult analysis,
+            string? moduleName)
     {
         if (!receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.ImplementationProfiles))
@@ -135,7 +137,8 @@ public sealed class LibraryBodyAnalysisExecution
         ];
         MethodDefinitionMap methodMap =
             MethodDefinitionMap.Create(
-                analysis.Methods.DeclaredMethods);
+                analysis.Methods.DeclaredMethods,
+                moduleName);
         Dictionary<int, MethodSignals> signals =
             MethodSignalAnalysis.Collect(
                 physicalDirectCalls,
