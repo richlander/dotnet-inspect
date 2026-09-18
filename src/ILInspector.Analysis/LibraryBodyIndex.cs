@@ -1561,9 +1561,7 @@ public sealed class LibraryBodyIndex
         var expanded = new HashSet<int>();
 
         int ResolveCallee(DirectCall call)
-            => DeclaredMethod(call.CalleeDefinitionToken)
-                    ?.MetadataToken
-                ?? declarationMap.Resolve(call);
+            => declarationMap.Resolve(call);
 
         // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
         // members depend on this one"), and the reverse graph draws one edge per distinct
@@ -1724,52 +1722,15 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        MethodDefinitionMap methodMap =
-            DeclaredMethodMap;
-
         int ResolveCalleeToken(DirectCall call)
-        {
-            // Direct callvirt/call edges to the selected method reference it by its own
-            // MethodDef token (peeled from a MethodSpec for generic-method calls). Accept that
-            // even when the selected method has no body of its own (abstract/interface/extern)
-            // and so is absent from Methods, so a Caller Graph rooted at a bodiless member still
-            // surfaces its real inbound callers.
-            if (call.CalleeDefinitionToken == rootMethodToken)
-                return rootMethodToken;
-            if (methodMap.ContainsToken(call.CalleeDefinitionToken))
-                return call.CalleeDefinitionToken;
-            return methodMap.Resolve(call);
-        }
+            => DeclaredMethodMap.Resolve(call);
 
         // Group inbound call edges by callee, then collapse to one edge per distinct caller
         // method (the section reports callers, not call sites). Preserve the in-loop signal:
         // if any call site from a caller hits the target inside a loop, keep that edge so the
         // loop annotation survives deduplication.
-        //
-        // DeclaredMethodMap includes bodiless definitions, so every declared root
-        // uses the shared root-independent grouping. Only an unknown token needs
-        // the root-specific raw-token fallback.
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> reverseEdges =
-            methodMap.ContainsToken(rootMethodToken)
-                ? DistinctCallerEdgesByCallee()
-                : DirectCalls
-                    .GroupBy(call => ResolveCalleeToken(call))
-                    .Where(group => group.Key != 0)
-                    .ToDictionary(
-                        group => group.Key,
-                        group => CallTreeOrdering.OrderCallers(
-                                group,
-                                call => call.Caller.AssemblyName,
-                                call => CallTreeMember.ToQualifiedDisplayString(
-                                    call.Caller),
-                                call => call.Caller.ParameterTypes.Length,
-                                call => call.Caller.ModuleVersionId,
-                                call => call.Caller.MetadataToken,
-                                call => call.ILOffset)
-                            .GroupBy(call => call.Caller.MetadataToken)
-                            .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
-                            .ToImmutableArray(),
-                        EqualityComparer<int>.Default);
+            DistinctCallerEdgesByCallee();
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
