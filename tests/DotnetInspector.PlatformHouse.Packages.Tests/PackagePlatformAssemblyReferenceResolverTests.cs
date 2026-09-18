@@ -2,6 +2,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
+using NuGetFetch;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
@@ -186,6 +187,153 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         Assert.Empty(rejected.Receipt.SourceSettlements);
     }
 
+    [Theory]
+    [InlineData(PackageSourceTerminalCase.Unavailable)]
+    [InlineData(PackageSourceTerminalCase.Rejected)]
+    [InlineData(PackageSourceTerminalCase.Incomplete)]
+    [InlineData(PackageSourceTerminalCase.Failed)]
+    public async Task
+        ResolveAsync_ProjectsPackageSourceTerminalOutcomes(
+            PackageSourceTerminalCase terminalCase)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            TerminalEnvironment(terminalCase);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken,
+            maxSourceOperations:
+                terminalCase == PackageSourceTerminalCase.Incomplete
+                    ? 0
+                    : 1);
+
+        PackagePlatformHouseResult<PackageReferenceRealization> result =
+            await adapter.RealizeReferenceAsync(
+                request,
+                environment.IssueOperation(
+                    cancellationToken,
+                    operationTimeout: request.Work.MaxDuration));
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(result);
+        await environment.AssertSettledAsync();
+        int payloadRequests =
+            environment.Clients.Sum(
+                static client => client.PayloadRequests);
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
+                request,
+                result,
+                TerminalConsumed(terminalCase));
+
+        Assert.Equal(
+            ExpectedDiagnostic(terminalCase),
+            terminal.Diagnostic.Kind);
+        Assert.Equal(payloadRequests,
+            environment.Clients.Sum(
+                static client => client.PayloadRequests));
+        PlatformSourceSettlement settlement =
+            Assert.Single(outcome.Receipt.SourceSettlements);
+        Assert.Same(terminal.Contribution, settlement.Contribution);
+        Assert.Equal(
+            PlatformSourceSettlementDisposition.OutcomeRelevant,
+            settlement.Disposition);
+        Assert.Equal(
+            ExpectedSettlement(terminalCase),
+            outcome.Receipt.SettlementKind);
+
+        switch (terminalCase)
+        {
+            case PackageSourceTerminalCase.Unavailable:
+                Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Unavailable>(outcome);
+                break;
+            case PackageSourceTerminalCase.Rejected:
+                var rejected = Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Rejected>(outcome);
+                Assert.Equal(
+                    PlatformHouseRejectionKind.InvalidOwnerResult,
+                    Assert.IsType<
+                            PlatformHouseRejection.OwnerEvidence>(
+                                rejected.Evidence.Rejection)
+                        .Kind);
+                break;
+            case PackageSourceTerminalCase.Incomplete:
+                Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Incomplete>(outcome);
+                break;
+            case PackageSourceTerminalCase.Failed:
+                var failed = Assert.IsType<
+                    PlatformHouseOutcome<
+                        AssemblyBindingDecision>.Failed>(outcome);
+                Assert.Equal(
+                    [PlatformHouseFailureKind.Source],
+                    failed.Evidence.Failures);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(terminalCase));
+        }
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_RejectsForeignPackageSourceTerminal()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            TerminalEnvironment(
+                PackageSourceTerminalCase.Unavailable);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        AssemblyReferenceIdentity identity =
+            PackagePlatformTestData.Identity(image);
+        PlatformHouseRequest sourceRequest =
+            Request(adapter, identity, cancellationToken);
+        PlatformHouseRequest executionRequest =
+            Request(adapter, identity, cancellationToken);
+        PackagePlatformHouseResult<PackageReferenceRealization> result =
+            await adapter.RealizeReferenceAsync(
+                sourceRequest,
+                environment.IssueOperation(
+                    cancellationToken,
+                    operationTimeout:
+                        sourceRequest.Work.MaxDuration));
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(result);
+        await environment.AssertSettledAsync();
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PackagePlatformAssemblyReferenceResolver.ResolveAsync(
+                executionRequest,
+                result,
+                TerminalConsumed(
+                    PackageSourceTerminalCase.Unavailable));
+
+        var rejected = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                outcome);
+        Assert.Equal(
+            PlatformHouseRejectionKind.InvalidOwnerResult,
+            Assert.IsType<PlatformHouseRejection.OwnerEvidence>(
+                    rejected.Evidence.Rejection)
+                .Kind);
+        Assert.Empty(rejected.Receipt.SourceSettlements);
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.AuthorizationDenied,
+            terminal.Diagnostic.Kind);
+    }
+
     static byte[] Image() =>
         PackagePlatformTestData.Assembly(
             "System.Text.Json",
@@ -211,7 +359,8 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
     static PlatformHouseRequest Request(
         PackagePlatformHouseAdapter adapter,
         AssemblyReferenceIdentity identity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maxSourceOperations = 1)
     {
         var target = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
@@ -261,7 +410,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             operation,
             sources,
             new PlatformHouseWorkBudget(
-                maxSourceOperations: 1,
+                maxSourceOperations,
                 maxTargetCandidates: 0,
                 maxAssemblies: 1,
                 maxXmlDocuments: 0,
@@ -289,5 +438,111 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             forwardingHops: 0,
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
+    }
+
+    static PackagePlatformTestEnvironment TerminalEnvironment(
+        PackageSourceTerminalCase terminalCase) =>
+        terminalCase switch
+        {
+            PackageSourceTerminalCase.Unavailable =>
+                PackagePlatformTestEnvironment.Create(
+                    [
+                        TestSourceBehavior.Create(
+                            PackagePlatformTestEnvironment
+                                .RuntimePackageId),
+                    ],
+                    deniedPackageIds:
+                    [
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                    ]),
+            PackageSourceTerminalCase.Rejected =>
+                PackagePlatformTestEnvironment.Create(
+                    [
+                        TestSourceBehavior.Create(
+                            PackagePlatformTestEnvironment.RuntimePackageId,
+                            entries:
+                            [
+                                PackagePlatformTestData.Entry(
+                                    "ref/net11.0/System.Text.Json.dll",
+                                    [0, 1, 2, 3]),
+                            ]),
+                    ]),
+            PackageSourceTerminalCase.Incomplete =>
+                PackagePlatformTestEnvironment.Create(
+                    [
+                        TestSourceBehavior.Create(
+                            PackagePlatformTestEnvironment
+                                .RuntimePackageId),
+                    ]),
+            PackageSourceTerminalCase.Failed =>
+                PackagePlatformTestEnvironment.Create(
+                    [
+                        TestSourceBehavior.Create(
+                            PackagePlatformTestEnvironment.RuntimePackageId,
+                            payloadFailure:
+                                PackageSourceFailureKind.Transport),
+                    ]),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(terminalCase)),
+        };
+
+    static PlatformHouseConsumedWork TerminalConsumed(
+        PackageSourceTerminalCase terminalCase) =>
+        new(
+            sourceOperations:
+                terminalCase == PackageSourceTerminalCase.Incomplete
+                    ? 0
+                    : 1,
+            targetCandidates: 0,
+            assemblies: 0,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes:
+                terminalCase == PackageSourceTerminalCase.Rejected
+                    ? 4
+                    : 0,
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
+    static PackagePlatformSourceDiagnosticKind ExpectedDiagnostic(
+        PackageSourceTerminalCase terminalCase) =>
+        terminalCase switch
+        {
+            PackageSourceTerminalCase.Unavailable =>
+                PackagePlatformSourceDiagnosticKind.AuthorizationDenied,
+            PackageSourceTerminalCase.Rejected =>
+                PackagePlatformSourceDiagnosticKind.MalformedAssembly,
+            PackageSourceTerminalCase.Incomplete =>
+                PackagePlatformSourceDiagnosticKind.WorkLimitExceeded,
+            PackageSourceTerminalCase.Failed =>
+                PackagePlatformSourceDiagnosticKind.PackageUnavailable,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(terminalCase)),
+        };
+
+    static PlatformHouseSettlementKind ExpectedSettlement(
+        PackageSourceTerminalCase terminalCase) =>
+        terminalCase switch
+        {
+            PackageSourceTerminalCase.Unavailable =>
+                PlatformHouseSettlementKind.Unavailable,
+            PackageSourceTerminalCase.Rejected =>
+                PlatformHouseSettlementKind.Rejected,
+            PackageSourceTerminalCase.Incomplete =>
+                PlatformHouseSettlementKind.Incomplete,
+            PackageSourceTerminalCase.Failed =>
+                PlatformHouseSettlementKind.Failed,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(terminalCase)),
+        };
+
+    public enum PackageSourceTerminalCase
+    {
+        Unavailable,
+        Rejected,
+        Incomplete,
+        Failed,
     }
 }

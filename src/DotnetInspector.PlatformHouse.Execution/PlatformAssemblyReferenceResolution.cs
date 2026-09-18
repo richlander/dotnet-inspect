@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using DotnetInspector.Libraries;
 using DotnetInspector.Platforms;
@@ -14,6 +15,80 @@ namespace DotnetInspector.PlatformHouse;
 public static class PlatformHouseAssemblyReferenceResolver
 {
     private const string IdentityPrefix = "platform-assembly-reference";
+
+    /// <summary>
+    /// Projects one exact source-terminal contribution without performing
+    /// source, Artifact, Library, or Metadata work.
+    /// </summary>
+    public static PlatformHouseOutcome<AssemblyBindingDecision>
+        ProjectSourceTerminal(
+            PlatformHouseRequest request,
+            PlatformSourceContribution contribution,
+            PlatformHouseConsumedWork consumedWork,
+            PlatformHouseRejectionKind? sourceRejectionKind = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(contribution);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryValidateRequest(
+                request,
+                out _,
+                out PlatformTargetDemand.Exact? exact)
+            || !ValidSourceTerminal(
+                request,
+                exact!,
+                contribution,
+                sourceRejectionKind))
+        {
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidOwnerResult,
+                $"{IdentityPrefix}.invalid-source-terminal");
+        }
+
+        if (contribution is PlatformSourceContribution.Failed)
+        {
+            return Failed(
+                request,
+                consumedWork,
+                contribution,
+                [PlatformHouseFailureKind.Source],
+                cancellationObserved: false,
+                $"{IdentityPrefix}.source-failed");
+        }
+
+        if (PlatformHouseLibraryRealizer.ExceedsBudget(
+                consumedWork,
+                request)
+            || contribution is PlatformSourceContribution.Incomplete)
+        {
+            return Incomplete(
+                request,
+                consumedWork,
+                $"{IdentityPrefix}.source-incomplete",
+                contribution);
+        }
+
+        return contribution switch
+        {
+            PlatformSourceContribution.Unavailable => Unavailable(
+                request,
+                consumedWork,
+                contribution,
+                $"{IdentityPrefix}.source-unavailable"),
+            PlatformSourceContribution.Rejected => Rejected(
+                request,
+                consumedWork,
+                sourceRejectionKind!.Value,
+                $"{IdentityPrefix}.source-rejected",
+                contribution),
+            _ => throw new InvalidOperationException(
+                "Validated source-terminal evidence has an unknown kind."),
+        };
+    }
 
     public static async ValueTask<
         PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
@@ -368,35 +443,9 @@ public static class PlatformHouseAssemblyReferenceResolver
         out PlatformHouseOperation.ResolveAssemblyReference? operation,
         out PlatformTargetDemand.Exact? exact)
     {
-        operation = request.Operation
-            as PlatformHouseOperation.ResolveAssemblyReference
-                .WithPrerequisites<PlatformAssemblyReferenceRoute>;
-        exact = request.Target as PlatformTargetDemand.Exact;
-        if (operation
-                is not PlatformHouseOperation.ResolveAssemblyReference
-                    .WithPrerequisites<PlatformAssemblyReferenceRoute>
-                        routed
-            || exact is null
-            || !ReferenceEquals(
-                routed.Prerequisites.Request,
-                ((PlatformHouseOperationSnapshot.ResolveAssemblyReference)
-                    operation.Snapshot).Request)
-            || routed.Prerequisites.Target != exact.Target
-            || !ReferenceEquals(
-                routed.Prerequisites.Origin,
-                request.Origin)
-            || !ReferenceEquals(
-                routed.Prerequisites.SourcePlan,
-                request.Sources.Identity)
-            || !ReferenceEquals(
-                routed.Prerequisites.SourcePolicy,
-                request.Sources.Generation)
-            || operation.RequiredView != PlatformViewDemand.Reference
-            || operation.Request.Target
+        if (!TryValidateRequest(request, out operation, out exact)
+            || operation!.Request.Target
                 is not AssemblyBindingTarget.AssemblyReference target
-            || operation.Request.Origin
-                is not AssemblyBindingOrigin.GlobalOrigin
-            || operation.Request.Scope != AssemblyResolutionScope.Platform
             || reference.ContentLength <= 0
             || reference.Contribution.Facet
                 != PlatformSourceFacet.Reference
@@ -434,6 +483,74 @@ public static class PlatformHouseAssemblyReferenceResolver
         }
 
         return true;
+    }
+
+    static bool TryValidateRequest(
+        PlatformHouseRequest request,
+        [NotNullWhen(true)]
+        out PlatformHouseOperation.ResolveAssemblyReference? operation,
+        [NotNullWhen(true)] out PlatformTargetDemand.Exact? exact)
+    {
+        operation = request.Operation
+            as PlatformHouseOperation.ResolveAssemblyReference
+                .WithPrerequisites<PlatformAssemblyReferenceRoute>;
+        exact = request.Target as PlatformTargetDemand.Exact;
+        return operation
+                is PlatformHouseOperation.ResolveAssemblyReference
+                    .WithPrerequisites<PlatformAssemblyReferenceRoute>
+                        routed
+            && exact is not null
+            && ReferenceEquals(
+                routed.Prerequisites.Request,
+                ((PlatformHouseOperationSnapshot.ResolveAssemblyReference)
+                    operation.Snapshot).Request)
+            && routed.Prerequisites.Target == exact.Target
+            && ReferenceEquals(
+                routed.Prerequisites.Origin,
+                request.Origin)
+            && ReferenceEquals(
+                routed.Prerequisites.SourcePlan,
+                request.Sources.Identity)
+            && ReferenceEquals(
+                routed.Prerequisites.SourcePolicy,
+                request.Sources.Generation)
+            && operation.RequiredView == PlatformViewDemand.Reference
+            && operation.Request.Target
+                is AssemblyBindingTarget.AssemblyReference
+            && operation.Request.Origin
+                is AssemblyBindingOrigin.GlobalOrigin
+            && operation.Request.Scope == AssemblyResolutionScope.Platform;
+    }
+
+    static bool ValidSourceTerminal(
+        PlatformHouseRequest request,
+        PlatformTargetDemand.Exact exact,
+        PlatformSourceContribution contribution,
+        PlatformHouseRejectionKind? sourceRejectionKind)
+    {
+        bool isRejected =
+            contribution is PlatformSourceContribution.Rejected;
+        return contribution is PlatformSourceContribution.Unavailable
+                or PlatformSourceContribution.Rejected
+                or PlatformSourceContribution.Incomplete
+                or PlatformSourceContribution.Failed
+            && isRejected == sourceRejectionKind.HasValue
+            && (!sourceRejectionKind.HasValue
+                || Enum.IsDefined(sourceRejectionKind.Value))
+            && contribution.Facet == PlatformSourceFacet.Reference
+            && ReferenceEquals(
+                contribution.Request,
+                request.Snapshot)
+            && contribution.ExactTarget == exact.Target
+            && request.Sources.Authorizes(
+                PlatformSourceFacet.Reference,
+                contribution.Capability)
+            && request.Sources.SelectionFor(
+                    PlatformSourceFacet.Reference)
+                is { Capabilities.Count: 1 } sourceSelection
+            && ReferenceEquals(
+                sourceSelection.Capabilities[0],
+                contribution.Capability);
     }
 
     static AssemblyBindingDecision ProjectDecision(
@@ -610,17 +727,26 @@ public static class PlatformHouseAssemblyReferenceResolver
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformHouseRejectionKind kind,
-        string evidenceName)
+        string evidenceName,
+        PlatformSourceContribution? contribution = null)
     {
         var termination = new PlatformHouseTermination.Rejected(
             new PlatformHouseRejection.OwnerEvidence(
                 kind,
                 PlatformHouseTerminalEvidenceIdentity.Create(
                     evidenceName)));
+        PlatformSourceSettlement[] settlements = contribution is null
+            ? []
+            :
+            [
+                new PlatformSourceSettlement(
+                    contribution,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant),
+            ];
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [],
+            settlements,
             consumedWork,
             termination: termination);
         return new PlatformHouseOutcome<AssemblyBindingDecision>.Rejected(
@@ -628,17 +754,48 @@ public static class PlatformHouseAssemblyReferenceResolver
             receipt);
     }
 
-    static PlatformHouseOutcome<AssemblyBindingDecision> Incomplete(
+    static PlatformHouseOutcome<AssemblyBindingDecision> Unavailable(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
+        PlatformSourceContribution contribution,
         string evidenceName)
     {
-        var termination = new PlatformHouseTermination.Incomplete(
+        var termination = new PlatformHouseTermination.Unavailable(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
+        var settlement = new PlatformSourceSettlement(
+            contribution,
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
             PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [],
+            [settlement],
+            consumedWork,
+            termination: termination);
+        return new PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable(
+            termination,
+            receipt);
+    }
+
+    static PlatformHouseOutcome<AssemblyBindingDecision> Incomplete(
+        PlatformHouseRequest request,
+        PlatformHouseConsumedWork consumedWork,
+        string evidenceName,
+        PlatformSourceContribution? contribution = null)
+    {
+        var termination = new PlatformHouseTermination.Incomplete(
+            PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
+        PlatformSourceSettlement[] settlements = contribution is null
+            ? []
+            :
+            [
+                new PlatformSourceSettlement(
+                    contribution,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant),
+            ];
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
+            settlements,
             consumedWork,
             termination: termination);
         return new PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete(
