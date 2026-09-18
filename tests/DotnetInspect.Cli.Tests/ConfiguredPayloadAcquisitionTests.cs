@@ -1070,7 +1070,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string root, string id, string readme, bool hierarchical = false,
         string? redirectId = null, string version = Version,
         byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0")
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -1082,7 +1084,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 redirectId,
                 version,
                 library,
-                libraryName));
+                libraryName,
+                documentation,
+                libraryDirectory));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -1092,6 +1096,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string id, string readme, string? redirectId = null,
         string version = Version, byte[]? library = null,
         string libraryName = "Npgsql.dll",
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0",
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
     {
         using var buffer = new MemoryStream();
@@ -1108,8 +1114,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(
-                    $"lib/net11.0/{libraryName}").Open();
+                    $"{libraryDirectory}/{libraryName}").Open();
                 entry.Write(library);
+            }
+            if (documentation is not null)
+            {
+                using Stream entry = archive.CreateEntry(
+                    $"{libraryDirectory}/"
+                        + Path.ChangeExtension(libraryName, ".xml"))
+                    .Open();
+                entry.Write(documentation);
             }
             if (redirectId is not null)
             {

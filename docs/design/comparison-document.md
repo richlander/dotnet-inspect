@@ -1180,7 +1180,7 @@ prerequisites must prove:
   adopter preserves root, subject, and exceptional change joins across the
   diff fixture matrix;
 - diff adopters exercise no payload change, add-only, remove-only, add plus
-  remove, changed, and moved-region payloads independently from subject Diff,
+  remove, changed, and moved-region payloads independently from ordinary Diff,
   Addition, Deletion, Rename, and Move;
 - a closed `ComparisonDocument<AnalysisDiff<PortableSourceRegion>>` adopter
   retains the three extraction-region Move relations in its type-wide root
