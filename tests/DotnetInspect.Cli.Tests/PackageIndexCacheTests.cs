@@ -381,7 +381,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCacheSubject predecessorSubject = Subject(
             $"{packageId}.predecessor");
         PersistentCache.SetBytes(
-            "pkg-index-v17",
+            "pkg-index-v18",
             PackageIndexCache.CacheKey(predecessorSubject),
             bytes,
             extension: "bin");
