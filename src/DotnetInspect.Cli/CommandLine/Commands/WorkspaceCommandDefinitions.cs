@@ -111,7 +111,15 @@ public static class WorkspaceCommandDefinitions
                 "Exact destination view-facet id, such as type.compare or member.compare",
         };
         var shareOption = WorkspaceShareOption.Create(
-            "Emit the complete portable Workspace definition as a canonical packet or URL without realization");
+            "Emit the complete portable Workspace definition as a canonical packet or URL");
+        var makePackageDependenciesExplicitOption =
+            new Option<bool>("--make-package-dependencies-explicit")
+            {
+                Description =
+                    "Acquire direct Package roots and append their exact direct "
+                    + "dependencies to the portable Workspace definition; "
+                    + "requires --share",
+            };
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
@@ -129,6 +137,7 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(memberOption);
         command.Options.Add(lensOption);
         command.Options.Add(shareOption);
+        command.Options.Add(makePackageDependenciesExplicitOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
@@ -213,6 +222,9 @@ public static class WorkspaceCommandDefinitions
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =
                         WorkspaceShareOption.Parse(parseResult, shareOption),
+                    MakePackageDependenciesExplicit =
+                        parseResult.GetValue(
+                            makePackageDependenciesExplicitOption),
                     SourceOptions =
                         opts.ParseNuGetSourceOptions(parseResult),
                 },
