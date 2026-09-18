@@ -91,6 +91,13 @@ make an operation command redundant: the user may still begin with the
 operation, choose broader scope, or supply roots that have no honest single
 subject command.
 
+Operation modes remain part of their broad top-level command when they change
+arity, population, or execution while preserving the same operation identity.
+For example, pairwise and temporal Diff are modes of top-level `diff`; a
+subject-first History section may bind the temporal mode without introducing
+another command. A distinct request or Outcome does not by itself require a
+different command token.
+
 Command identity follows the semantic result, not the renderer. A Graph edge
 table remains a Graph result. A JSON dependency hierarchy remains a Depends
 result. Mermaid availability does not move a Dependency request into Graph.

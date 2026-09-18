@@ -88,8 +88,10 @@ History:   A -> v1 -> v2 -> ... ----> B
 
 Grouping them as modes of one Diff operation family makes the same source and
 focus usable for endpoint confirmation and temporal investigation.
-Distinct arity does not require another command. Two-endpoint comparison and
-N-address correlation retain different acquisition and failure semantics.
+Distinct arity does not require another command; one operation mode can select
+the pairwise or temporal request and its owner-specific Outcome. Two-endpoint
+comparison and N-address correlation retain different acquisition and failure
+semantics.
 
 Existing `PackageVersionVector` addressing and `FindingCensusCorrelation<T>`
 are the implementation baseline. The `match`/`match --similar` operation family
