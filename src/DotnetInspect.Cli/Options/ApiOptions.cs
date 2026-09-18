@@ -115,7 +115,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool DocsExplicitlySet { get; init; }
     public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
-    public bool BrowsableUrls { get; init; }
+    public bool PreferRenderedUrls { get; init; }
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
@@ -336,7 +336,7 @@ public record MemberOptions : ApiOptions
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
-    internal bool LegacyUrlModeExplicitlySet { get; init; }
+    internal bool UrlPreferenceExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
 

@@ -82,17 +82,29 @@ public static class GitHubUrlResolver
     /// </summary>
     public static string ConvertRawToBlobUrl(string url)
     {
-        // The raw-to-browse conversion has one owner. Doing it here as well would be a second
-        // implementation of a shared rule, and the two would drift on exactly the inputs that
-        // matter: a URL that traverses out of the repository it appears to name must not be
-        // dressed up as a github.com link. The owner returns null for those, and the passthrough
-        // below shows the URL as it is instead.
+        // SourceLink owns conversion from a raw-content origin to a repository browser URL.
         if (ILInspector.SourceLink.SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
         {
             return browseUrl;
         }
 
-        return url.Replace("/raw/", "/blob/", StringComparison.Ordinal);
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttps
+            && uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            && uri.IsDefaultPort
+            && uri.UserInfo.Length == 0)
+        {
+            var parts = uri.AbsolutePath.TrimStart('/').Split('/', 5);
+            if (parts.Length == 5
+                && parts.All(static part => part.Length > 0)
+                && parts[2] == "raw")
+            {
+                parts[2] = "blob";
+                return new UriBuilder(uri) { Path = string.Join("/", parts) }.Uri.AbsoluteUri;
+            }
+        }
+
+        return url;
     }
 
     /// <summary>

@@ -112,7 +112,7 @@ mkdir -p skills/markout-output-formats
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S "Package skill files" --paths
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --blob --bare \
+  -S "Package skill files" --print --row 4 --prefer-rendered-urls --bare \
   > skills/markout-output-formats/SKILL.md
 ```
 
@@ -120,14 +120,15 @@ Or ask dotnet-inspect to write the same contained payload:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --blob --bare \
+  -S "Package skill files" --print --row 4 --prefer-rendered-urls --bare \
   --output skills/markout-output-formats/SKILL.md
 ```
 
-`--blob` retains authored GitHub link shapes. Preserve each packaged document as
-its own skill rather than combining, renaming, or decoding contained text. If
-the skill references sibling scripts, references, or assets, inspect the package
-subtree and persist those beside `SKILL.md` too.
+For authored package content, `--prefer-rendered-urls` retains the existing
+links instead of normalizing GitHub file links to fetchable form. Preserve each
+packaged document as its own skill rather than combining, renaming, or decoding
+contained text. If the skill references sibling scripts, references, or assets,
+inspect the package subtree and persist those beside `SKILL.md` too.
 
 Do not duplicate the same skill into several roots; harnesses may discover
 duplicate names and the copies will drift.

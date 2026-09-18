@@ -14,7 +14,7 @@ internal static class SourceFileCollector
         SourceLinkService service,
         string assemblyPath,
         bool includeAll = false,
-        bool browsableUrls = false,
+        bool preferRenderedUrls = false,
         string? typeFilter = null)
     {
         if (!service.HasPdb || !service.HasSourceLink)
@@ -55,7 +55,7 @@ internal static class SourceFileCollector
 
             rows.Add(new SourceFileInfo(
                 typeDisplayName,
-                SelectUrl(defaultDocument, browsableUrls)));
+                SelectUrl(defaultDocument, preferRenderedUrls)));
 
             foreach (SourceLinkResolver.TypeSourceDocument document
                 in sourceInfo.Documents)
@@ -65,7 +65,7 @@ internal static class SourceFileCollector
 
                 rows.Add(new SourceFileInfo(
                     typeDisplayName,
-                    SelectUrl(document, browsableUrls)));
+                    SelectUrl(document, preferRenderedUrls)));
             }
         }
 
@@ -80,7 +80,7 @@ internal static class SourceFileCollector
         VerboseLogger logger,
         HttpClient httpClient,
         bool includeAll = false,
-        bool browsableUrls = false,
+        bool preferRenderedUrls = false,
         string? typeFilter = null,
         NuGetSourceOptions? sourceOptions = null)
     {
@@ -97,18 +97,18 @@ internal static class SourceFileCollector
             service,
             assemblyPath,
             includeAll,
-            browsableUrls,
+            preferRenderedUrls,
             typeFilter);
     }
 
     private static string? SelectUrl(
         SourceLinkResolver.TypeSourceDocument info,
-        bool browsableUrls)
-        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, browsableUrls);
+        bool preferRenderedUrls)
+        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, preferRenderedUrls);
 
-    private static string? SelectUrl(string? browseUrl, string? rawUrl, bool browsableUrls)
+    private static string? SelectUrl(string? browseUrl, string? rawUrl, bool preferRenderedUrls)
     {
-        if (!browsableUrls)
+        if (!preferRenderedUrls)
             return rawUrl;
 
         var url = browseUrl ?? rawUrl;

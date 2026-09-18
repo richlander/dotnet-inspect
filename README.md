@@ -375,6 +375,7 @@ transport.
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
@@ -382,6 +383,10 @@ transport.
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
+
+Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
+view when supported; it changes neither `--print` acquisition nor `--bare`
+decoration. The old `--raw` and `--blob` flags are no longer accepted.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.
@@ -427,7 +432,7 @@ dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
-  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 

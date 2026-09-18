@@ -1798,11 +1798,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SourceFilesSection_TypeFilterAndBlobUrls()
+    public async Task LibraryCommand_SourceFilesSection_TypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json",
-            "-S", "Source Files", "-t", "JsonConvert", "--blob", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

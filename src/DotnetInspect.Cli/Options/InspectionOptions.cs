@@ -37,9 +37,9 @@ public record InspectionOptions : IProjectionOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// Prefer rendered browser-view URLs when supported; otherwise keep the original URL.
     /// </summary>
-    public bool BrowsableUrls { get; init; }
+    public bool PreferRenderedUrls { get; init; }
 
     /// <summary>
     /// Library inside the package to inspect. Null means package inspection; empty string means select
