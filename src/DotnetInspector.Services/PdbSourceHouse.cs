@@ -27,6 +27,8 @@ public enum PdbMemberSourceOutcome
     InvalidSequencePointCoordinates,
     SourceExtractionFailed,
     InspectionFailed,
+    SourceDeadlineExceeded,
+    SourceLimitExceeded,
 }
 
 public sealed record PdbMemberSourceInspection(
@@ -45,6 +47,41 @@ public sealed record PdbMemberSourceInspection(
             : PdbMemberSourceOutcome.InspectionFailed;
 }
 
+public enum PdbTypeSourceOutcome
+{
+    Unspecified,
+    Complete,
+    PortablePdbUnavailable,
+    PortablePdbAcquisitionFailed,
+    SourceMappingUnavailable,
+    SourceDocumentUnavailable,
+    ChecksumUnavailable,
+    ChecksumUnsupported,
+    ChecksumMismatch,
+    SourceAcquisitionUnavailable,
+    SourceAcquisitionFailed,
+    SourceTooComplex,
+    SourceExtractionFailed,
+    InspectionFailed,
+    SourceDeadlineExceeded,
+    SourceLimitExceeded,
+}
+
+public enum PdbTypeSourceUnitScope
+{
+    PrimaryTypeDocument,
+}
+
+public enum PdbTypeSourceMappingStrength
+{
+    CorrelatedTypeDocument,
+    InferredTypeDocument,
+}
+
+public sealed record PdbTypeSourceAdditionalDocument(
+    string OriginalPath,
+    string? ResolvedUrl);
+
 public sealed record PdbTypeSourceInspection(
     FindingInspection<string> Lines,
     string? Text,
@@ -54,6 +91,17 @@ public sealed record PdbTypeSourceInspection(
 {
     public bool IsComplete =>
         Lines.Value is FindingInspection<string>.Complete;
+
+    public PdbTypeSourceOutcome Outcome { get; init; } =
+        Lines.Value is FindingInspection<string>.Complete
+            ? PdbTypeSourceOutcome.Complete
+            : PdbTypeSourceOutcome.Unspecified;
+
+    public PdbTypeSourceUnitScope? Scope { get; init; }
+    public PdbTypeSourceMappingStrength? Strength { get; init; }
+    public bool IsPartial { get; init; }
+    public IReadOnlyList<PdbTypeSourceAdditionalDocument> AdditionalDocuments { get; init; } =
+        Array.Empty<PdbTypeSourceAdditionalDocument>();
 }
 
 /// <summary>
@@ -84,7 +132,8 @@ public static class PdbSourceHouse
         ArgumentNullException.ThrowIfNull(error);
         return TypeFailed(
             subject,
-            $"Portable PDB acquisition failed: {error.Message}");
+            $"Portable PDB acquisition failed: {error.Message}",
+            PdbTypeSourceOutcome.PortablePdbAcquisitionFailed);
     }
 
     /// <summary>
@@ -110,7 +159,8 @@ public static class PdbSourceHouse
         {
             return TypeFailed(
                 subject,
-                "A matching portable PDB remains unresolved after acquisition.");
+                "A matching portable PDB remains unresolved after acquisition.",
+                PdbTypeSourceOutcome.PortablePdbUnavailable);
         }
 
         SourceLinkResolver.TypeSourceInfo? mapping;
@@ -122,12 +172,14 @@ public static class PdbSourceHouse
         {
             return TypeFailed(
                 subject,
-                $"Portable PDB type source mapping failed: {ex.Message}");
+                $"Portable PDB type source mapping failed: {ex.Message}",
+                PdbTypeSourceOutcome.InspectionFailed);
         }
         if (mapping?.SourceFilePath is not { Length: > 0 } sourcePath)
         {
             return TypeAbsent(
-                "The selected type has no portable-PDB source mapping.");
+                "The selected type has no portable-PDB source mapping.",
+                PdbTypeSourceOutcome.SourceMappingUnavailable);
         }
 
         FindingInspection<SourceDocumentObservation> documentInspection =
@@ -140,12 +192,16 @@ public static class PdbSourceHouse
             return TypeAbsent(
                 absent.Detail
                     ?? "PDB source document is unavailable.",
+                PdbTypeSourceOutcome.SourceDocumentUnavailable,
                 mapping);
         }
         if (documentInspection.Value
             is FindingInspection<SourceDocumentObservation>.Failed failed)
         {
-            return TypeFailed(failed.Error, mapping);
+            return TypeFailed(
+                failed.Error,
+                PdbTypeSourceOutcome.InspectionFailed,
+                mapping);
         }
 
         var complete =
@@ -160,6 +216,7 @@ public static class PdbSourceHouse
         {
             return TypeAbsent(
                 "The selected type's primary source document is not uniquely identified in the portable PDB.",
+                PdbTypeSourceOutcome.SourceDocumentUnavailable,
                 mapping);
         }
         if (document.ChecksumAlgorithm is not { Length: > 0 }
@@ -167,6 +224,7 @@ public static class PdbSourceHouse
         {
             return TypeAbsent(
                 "The portable PDB does not provide a usable source checksum.",
+                PdbTypeSourceOutcome.ChecksumUnavailable,
                 mapping,
                 document,
                 SourceChecksumVerification.Unavailable);
@@ -204,6 +262,7 @@ public static class PdbSourceHouse
                 return TypeFailed(
                     subject,
                     "The SourceLink mapping for the selected source document was rejected.",
+                    PdbTypeSourceOutcome.SourceAcquisitionFailed,
                     mapping,
                     document);
             }
@@ -212,6 +271,7 @@ public static class PdbSourceHouse
                 document.Storage == SourceDocumentStorage.Embedded
                     ? "Embedded PDB-source retrieval is not available."
                     : "The selected source document has no fetchable SourceLink URL.",
+                PdbTypeSourceOutcome.SourceAcquisitionUnavailable,
                 mapping,
                 document,
                 SourceChecksumVerification.Unavailable);
@@ -231,6 +291,7 @@ public static class PdbSourceHouse
             {
                 return TypeAbsent(
                     "The resolved SourceLink document was not found.",
+                    PdbTypeSourceOutcome.SourceAcquisitionUnavailable,
                     mapping,
                     document,
                     SourceChecksumVerification.Unavailable);
@@ -248,6 +309,9 @@ public static class PdbSourceHouse
                         "The source-content store failed.",
                     _ => "Could not fetch PDB source.",
                 },
+                failure.Error == SourceError.ValidationFailed
+                    ? PdbTypeSourceOutcome.ChecksumMismatch
+                    : PdbTypeSourceOutcome.SourceAcquisitionFailed,
                 mapping,
                 document,
                 failure.Error == SourceError.ValidationFailed
@@ -716,6 +780,7 @@ public static class PdbSourceHouse
         {
             return TypeAbsent(
                 "The portable PDB does not provide a usable source checksum.",
+                PdbTypeSourceOutcome.ChecksumUnavailable,
                 mapping,
                 document,
                 verification);
@@ -728,14 +793,59 @@ public static class PdbSourceHouse
                 verification == SourceChecksumVerification.Unsupported
                     ? $"The source checksum algorithm '{document.ChecksumAlgorithm}' is unsupported."
                     : "Fetched PDB source does not match the portable-PDB checksum.",
+                verification == SourceChecksumVerification.Unsupported
+                    ? PdbTypeSourceOutcome.ChecksumUnsupported
+                    : PdbTypeSourceOutcome.ChecksumMismatch,
                 mapping,
                 document,
                 verification);
         }
 
+        string text;
         try
         {
-            string text = SourceLinkService.DecodeSourceText(content);
+            text = SourceLinkService.DecodeSourceText(content);
+        }
+        catch (ArgumentException ex)
+        {
+            return TypeFailed(
+                subject,
+                $"Could not decode the PDB type source: {ex.Message}",
+                PdbTypeSourceOutcome.SourceExtractionFailed,
+                mapping,
+                document,
+                verification);
+        }
+
+        return FromVerifiedTypeContent(
+            mapping,
+            document,
+            text,
+            verification,
+            subject);
+    }
+
+    public static PdbTypeSourceInspection FromVerifiedTypeContent(
+        SourceLinkResolver.TypeSourceInfo mapping,
+        SourceDocumentObservation document,
+        string text,
+        SourceChecksumVerification verification,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(mapping);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(subject);
+        if (verification is not SourceChecksumVerification.Exact
+            and not SourceChecksumVerification.LineEndingNormalized)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(verification),
+                "Verified type content requires an accepted checksum result.");
+        }
+
+        try
+        {
             return new PdbTypeSourceInspection(
                 new FindingInspection<string>.Complete(
                     TextFindings.Inspect(
@@ -746,14 +856,17 @@ public static class PdbSourceHouse
                 text,
                 mapping,
                 document,
-                verification);
+                verification)
+            {
+                Outcome = PdbTypeSourceOutcome.Complete,
+            };
         }
-        catch (Exception ex) when (ex is ArgumentException
-            or TextFindingComplexityException)
+        catch (TextFindingComplexityException ex)
         {
             return TypeFailed(
                 subject,
                 $"Could not decode the PDB type source: {ex.Message}",
+                PdbTypeSourceOutcome.SourceTooComplex,
                 mapping,
                 document,
                 verification);
@@ -964,6 +1077,7 @@ public static class PdbSourceHouse
 
     static PdbTypeSourceInspection TypeAbsent(
         string detail,
+        PdbTypeSourceOutcome outcome,
         SourceLinkResolver.TypeSourceInfo? mapping = null,
         SourceDocumentObservation? document = null,
         SourceChecksumVerification? verification = null)
@@ -974,21 +1088,29 @@ public static class PdbSourceHouse
             Text: null,
             mapping,
             document,
-            verification);
+            verification)
+        {
+            Outcome = outcome,
+        };
 
     static PdbTypeSourceInspection TypeFailed(
         InspectionError error,
+        PdbTypeSourceOutcome outcome,
         SourceLinkResolver.TypeSourceInfo? mapping = null)
         => new(
             new FindingInspection<string>.Failed(error),
             Text: null,
             mapping,
             Document: null,
-            ChecksumVerification: null);
+            ChecksumVerification: null)
+        {
+            Outcome = outcome,
+        };
 
     static PdbTypeSourceInspection TypeFailed(
         FindingSubject subject,
         string reason,
+        PdbTypeSourceOutcome outcome,
         SourceLinkResolver.TypeSourceInfo? mapping = null,
         SourceDocumentObservation? document = null,
         SourceChecksumVerification? verification = null)
@@ -1001,7 +1123,10 @@ public static class PdbSourceHouse
             Text: null,
             mapping,
             document,
-            verification);
+            verification)
+        {
+            Outcome = outcome,
+        };
 
     static bool IsPdbInspectionFailure(Exception exception)
         => exception is BadImageFormatException

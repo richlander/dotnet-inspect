@@ -26,4 +26,10 @@
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Include="../PointerElementUpdateSamples.cs" Link="PointerElementUpdateSamples.cs" />
+    <Compile Include="../PointerVariableUpdateSamples.cs" Link="PointerVariableUpdateSamples.cs" />
+    <Compile Include="../ScalarSelfUpdateSamples.cs" Link="ScalarSelfUpdateSamples.cs" />
+  </ItemGroup>
+
 </Project>

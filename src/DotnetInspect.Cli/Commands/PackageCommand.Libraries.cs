@@ -75,7 +75,7 @@ public partial class PackageCommand
             conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
@@ -96,7 +96,7 @@ public partial class PackageCommand
             conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null
@@ -491,7 +491,7 @@ public partial class PackageCommand
                     out _)) == true)
         {
             CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
-            CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
+            CommandError.WriteLine("Use Markdown output for categories, or select Integrations, Integration Opportunities, or Library Info.");
             return 1;
         }
 
@@ -507,7 +507,7 @@ public partial class PackageCommand
             if (unsupportedSection is not null)
             {
                 CommandError.Write($"--all-libraries row output does not support section: {unsupportedSection}.");
-                CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
+                CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integrations, or Integration Opportunities.");
                 return 1;
             }
         }
@@ -1024,7 +1024,7 @@ public partial class PackageCommand
         if (table == null)
         {
             CommandError.Write($"--all-libraries row output does not support section: {section}.");
-            CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
+            CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integrations, or Integration Opportunities.");
             return false;
         }
 
@@ -1157,43 +1157,39 @@ public partial class PackageCommand
                 switchRows.Length != 0);
         }
 
-        var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
-        if (descriptor == null)
+        if (!section.Equals(
+                IntegrationSectionNames.Integrations,
+                StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var signals = inspections
-            .SelectMany(inspection => descriptor.GetSignals(inspection)
-                .Select(signal => new { Inspection = inspection, Signal = signal }))
-            .ToList();
-        var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
-        var includeTypes = descriptor.IncludeTypesWhenApisPresent;
-        string[] headers =
-            hasApis
-                ? rowSchema.Headers
-                : rowSchema.AlternateHeaders
-                    ?? rowSchema.Headers;
-        string[] stableHeaders =
-            hasApis
-                ? rowSchema.StableHeaders
-                : rowSchema.AlternateStableHeaders
-                    ?? rowSchema.StableHeaders;
-        var focusedRows = signals
-            .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
-            .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
-            .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
+        var integrationRows = LibraryIntegrationCatalog.All
+            .SelectMany(descriptor => inspections
+                .SelectMany(inspection => descriptor
+                    .RenderedSignals(descriptor.GetSignals(inspection))
+                    .Select(signal => new
+                    {
+                        Descriptor = descriptor,
+                        Inspection = inspection,
+                        Signal = signal,
+                    }))
+                .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
+                .ThenBy(row => row.Signal.Name, StringComparer.Ordinal))
             .Select(row => WithProvenance(
                 packageName,
                 version,
                 row.Inspection,
+                row.Descriptor.Name,
                 row.Signal.Kind,
+                row.Signal.Shape == IntegrationSignalShape.Api
+                    ? "API"
+                    : "Type",
                 row.Signal.Name))
             .ToArray();
         return new(
-            headers,
-            stableHeaders,
-            [.. RowWindow.Apply(rowWindow, focusedRows)],
-            focusedRows.Length != 0);
+            rowSchema.Headers,
+            rowSchema.StableHeaders,
+            [.. RowWindow.Apply(rowWindow, integrationRows)],
+            integrationRows.Length != 0);
     }
 
     private static AllLibrariesRowSchema?
@@ -1343,9 +1339,13 @@ public partial class PackageCommand
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
-        => section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase)
-           || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
-           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
+        => section.Equals(
+               IntegrationSectionNames.Opportunities,
+               StringComparison.OrdinalIgnoreCase)
+           || section.Equals(
+               IntegrationSectionNames.Integrations,
+               StringComparison.OrdinalIgnoreCase)
+           || section.Equals("Switches", StringComparison.OrdinalIgnoreCase);
 
     private static AggregatedSectionDocument? BuildAggregatedSection(
         string section,
@@ -1413,47 +1413,41 @@ public partial class PackageCommand
                 }).ToList()));
         }
 
-        var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
-        if (descriptor == null)
+        if (!section.Equals(
+                IntegrationSectionNames.Integrations,
+                StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var signals = inspections
-            .SelectMany(inspection => descriptor.GetSignals(inspection)
-                .Select(signal => new
-                {
-                    Library = inspection.FileName,
-                    Tfm = inspection.Tfm ?? "",
-                    Signal = signal
-                }))
+        var integrationRows = LibraryIntegrationCatalog.All
+            .SelectMany(descriptor => inspections
+                .SelectMany(inspection => descriptor
+                    .RenderedSignals(descriptor.GetSignals(inspection))
+                    .Select(signal => new
+                    {
+                        Library = inspection.FileName,
+                        Tfm = inspection.Tfm ?? "",
+                        Integration = descriptor.Name,
+                        Signal = signal,
+                    }))
+                .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
+                .ThenBy(row => row.Signal.Name, StringComparer.Ordinal))
             .ToList();
-        if (signals.Count == 0)
+        if (integrationRows.Count == 0)
             return null;
 
-        var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
-        var includeTypes = descriptor.IncludeTypesWhenApisPresent;
-        var focusedRows = signals
-            .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
-            .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
-            .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
-            .ToList();
-        if (focusedRows.Count == 0)
-            return null;
-
-        var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
-        var valueColumn = hasApis ? "API" : "Type";
-
-        List<string> headers = ["Library", "TFM"];
-        if (includeKindColumn) headers.Add("Kind");
-        headers.Add(valueColumn);
-
-        return CreateAggregatedSection(section, new MarkoutTable(headers, focusedRows.Select(row =>
-        {
-            List<string> values = [CodeCell(row.Library), CodeCell(row.Tfm)];
-            if (includeKindColumn) values.Add(row.Signal.Kind);
-            values.Add(CodeCell(row.Signal.Name));
-            return values.ToArray();
-        }).ToList()));
+        return CreateAggregatedSection(section, new MarkoutTable(
+            ["Library", "TFM", "Integration", "Kind", "Shape", "Symbol"],
+            integrationRows.Select(row => new[]
+            {
+                CodeCell(row.Library),
+                CodeCell(row.Tfm),
+                row.Integration,
+                row.Signal.Kind,
+                row.Signal.Shape == IntegrationSignalShape.Api
+                    ? "API"
+                    : "Type",
+                CodeCell(row.Signal.Name),
+            }).ToList()));
     }
 
     private static AggregatedSectionDocument CreateAggregatedSection(

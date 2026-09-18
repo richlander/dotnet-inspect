@@ -6,6 +6,8 @@ using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
 using Inspector.Text;
+using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
+using static ILInspector.Decompiler.Pipeline.PlaceIdentity;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -948,20 +950,7 @@ public sealed partial class CSharpPrinter
     };
 
     static HashSet<int> CollectBranchTargets(IrNode functionScope)
-    {
-        var targets = new HashSet<int>();
-        foreach (var node in functionScope.DescendantsOutsideNestedFunctions)
-        {
-            switch (node)
-            {
-                case Branch branch: targets.Add(branch.TargetOffset); break;
-                case ConditionalBranch conditional: targets.Add(conditional.TargetOffset); break;
-                case Leave leave: targets.Add(leave.TargetOffset); break;
-                case SwitchBranch sw: foreach (int t in sw.TargetOffsets) targets.Add(t); break;
-            }
-        }
-        return targets;
-    }
+        => ReferenceOwnership.CollectBranchTargets(functionScope);
 
     IEnumerable<string> CollectDeclarations(IrFunction function)
     {
@@ -1523,8 +1512,9 @@ public sealed partial class CSharpPrinter
                         _declaringStores.Add(store);
                         _legacyAwaitScopedDeclarations.Add(store);
                     }
-                    else if (function.IsLocalDeclaredInNestedScope(store.Index)
-                        && LocalReferencesStayInsideStoreBlock(function, store))
+                    else if ((function.IsLocalDeclaredInNestedScope(store.Index)
+                            || store.Parent is Block { Parent: Block })
+                        && LocalReferencesStayInsideDeclarationBlock(function, store, store.Index))
                     {
                         // The PDB scoped this local to a nested block, so the source
                         // declared it at its assignment rather than at method scope.
@@ -1548,8 +1538,14 @@ public sealed partial class CSharpPrinter
                     // child, so this fires before the address marks the
                     // local as seen.
                     seenLocals.Add(initTarget.Index);
-                    if (entryStatements.Contains(init))
+                    if (entryStatements.Contains(init)
+                        || (function.IsLocalDeclaredInNestedScope(initTarget.Index)
+                                || init.Parent is Block { Parent: Block })
+                            && LocalReferencesStayInsideDeclarationBlock(
+                                function, init, initTarget.Index))
+                    {
                         _declaringStores.Add(init);
+                    }
                     break;
                 case LoadLocal load: seenLocals.Add(load.Index); break;
                 case LoadLocalAddress address: seenLocals.Add(address.Index); break;
@@ -1638,6 +1634,131 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    internal static IReadOnlyDictionary<int, IrNode> LocalDeclarationScopes(
+        IrNode scope, int localCount)
+    {
+        IrFunction? function = scope as IrFunction;
+        if (function is null)
+        {
+            var owner = scope is Lambda or LocalFunctionStatement ? scope : scope.Parent;
+            (BlockContainer? Body, ImmutableArray<TypeRef> Locals, ImmutableArray<string?> Names,
+                ImmutableArray<bool> NestedScopes, ImmutableArray<PdbLocalDeclaration?> Bindings,
+                ImmutableArray<Parameter> Parameters, TypeRef? ReturnType) nested = owner switch
+            {
+                Lambda lambda => (lambda.Body, lambda.Locals, lambda.LocalNames,
+                    lambda.LocalDeclaredInNestedScope, lambda.LocalDeclarationBindings,
+                    lambda.Parameters, LambdaReturnType(lambda) ?? TypeRef.CoreLib("System", "Void")),
+                LocalFunctionStatement local => (local.Body, local.Locals, local.LocalNames,
+                    local.LocalDeclaredInNestedScope, local.LocalDeclarationBindings,
+                    local.Parameters, local.ReturnType),
+                _ => default,
+            };
+            if (nested.Body is null || nested.ReturnType is null)
+                return new Dictionary<int, IrNode>();
+            IrFunction? enclosing = null;
+            for (IrNode? ancestor = owner?.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            {
+                if (ancestor is IrFunction parentFunction)
+                {
+                    enclosing = parentFunction;
+                    break;
+                }
+            }
+            function = new IrFunction(
+                "", enclosing?.DeclaringType ?? TypeRef.CoreLib("System", "Object"),
+                new MethodSignature(nested.ReturnType, nested.Parameters, false, 0),
+                nested.Locals, (BlockContainer)nested.Body.Clone())
+            {
+                LocalNames = nested.Names,
+                LocalDeclaredInNestedScope = nested.NestedScopes,
+                LocalDeclarationBindings = nested.Bindings,
+                UsesUpdatedMemorySafetyRules = owner is Lambda { UsesUpdatedMemorySafetyRules: true }
+                    or LocalFunctionStatement { UsesUpdatedMemorySafetyRules: true },
+                SkipLocalsInit = owner is Lambda { SkipLocalsInit: true }
+                    or LocalFunctionStatement { SkipLocalsInit: true },
+            };
+            if (enclosing is not null)
+                function.CopyTypeFactsFrom(enclosing);
+        }
+
+        // Use the same placement decision as emission, including unsafe-run
+        // hoisting. Disjoint PDB ranges alone cannot authorize name reuse.
+        var printer = new CSharpPrinter(function)
+        {
+            _labelTargets = CollectBranchTargets(function),
+        };
+        printer.CollectDeclaringStores(function);
+        var scopes = Enumerable.Range(0, localCount)
+            .ToDictionary(index => index, _ => (IrNode)function.Body);
+        foreach (var declaration in printer._declaringStores)
+        {
+            int? index = declaration switch
+            {
+                StoreLocal store => store.Index,
+                InitObject { Address: LoadLocalAddress address } => address.Index,
+                _ => null,
+            };
+            if (index is { } local && declaration.Parent is { } parent)
+                scopes[local] = parent is Block { Parent: BlockContainer container } ? container : parent;
+        }
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        {
+            switch (node)
+            {
+                case IsPattern pattern
+                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    AddOwned(pattern.LocalIndex, patternScope);
+                    break;
+                case RecursivePropertyDeclarationPattern pattern
+                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    AddOwned(pattern.LocalIndex, patternScope);
+                    break;
+                case PatternSwitchExpressionArm arm:
+                    AddOwned(arm.LocalIndex, arm);
+                    AddOwned(arm.Subpattern?.LocalIndex, arm);
+                    break;
+                case UnionSwitchExpressionArm arm:
+                    AddOwned(arm.LocalIndex, arm);
+                    break;
+                case ForeachStatement loop:
+                    AddOwned(loop.LocalIndex, loop);
+                    break;
+                case UsingStatement { DeclaresResourceVariable: true } resource:
+                    AddOwned(resource.LocalIndex, resource);
+                    break;
+                case Fixed { LocalIsStackSlot: false } pin:
+                    AddOwned(pin.LocalIndex, pin);
+                    break;
+                case CatchClause clause:
+                    AddOwned(clause.VariableIndex, clause);
+                    break;
+            }
+        }
+        return scopes;
+
+        static IrNode? PatternDeclarationScope(IrNode pattern)
+        {
+            for (IrNode? current = pattern.Parent;
+                current is not null and not IrFunction;
+                current = current.Parent)
+            {
+                if (current is Block block)
+                    return block.Parent is BlockContainer container ? container : block;
+            }
+            return null;
+        }
+
+        void AddOwned(int? index, IrNode owner)
+        {
+            if (index is { } local
+                && IrFunction.LocalSlotReferencesInScope(function.Body, local)
+                    .All(reference => ExactLocalNameAllocation.Contains(owner, reference)))
+            {
+                scopes[local] = owner;
+            }
+        }
+    }
+
     /// <summary>True when the local slot is read (loaded by value or address) anywhere in the body.</summary>
     static bool LocalIsRead(IrFunction function, int index)
         => function.DescendantsOutsideNestedFunctions.Any(n =>
@@ -1709,9 +1830,9 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Every reference to the local written by <paramref name="store"/> lies in the
-    /// run of statements from that store to the end of its enclosing block, so the
-    /// declaration can be merged into the store where it sits.
+    /// Every reference to <paramref name="index"/> lies in the run of statements
+    /// from <paramref name="declaration"/> to the end of its enclosing block, so
+    /// the declaration can remain where it sits.
     /// </summary>
     /// <remarks>
     /// <see cref="LocalReferencesStayInBlockAfterStatement"/> answers the same question
@@ -1722,21 +1843,23 @@ public sealed partial class CSharpPrinter
     /// *ancestor* of the reference instead, so that test can never say yes. This walks
     /// the reference nodes themselves, which is orientation-free.
     /// </remarks>
-    bool LocalReferencesStayInsideStoreBlock(IrFunction function, StoreLocal store)
+    bool LocalReferencesStayInsideDeclarationBlock(
+        IrFunction function, IrNode declaration, int index)
     {
-        if (store.Parent is not Block block || store.ChildIndex < 0)
+        if (declaration.Parent is not Block block || declaration.ChildIndex < 0)
             return false;
-        if (StoreValueReferencesLocal(store))
+        if (declaration is StoreLocal store && StoreValueReferencesLocal(store))
             return false;
-        if (HasBranchTargetAfterStatement(store))
-            return false;
-
-        if (store.ChildIndex >= block.Children.Count || !ReferenceEquals(block.Children[store.ChildIndex], store))
+        if (HasBranchTargetAfterStatement(declaration))
             return false;
 
-        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        if (declaration.ChildIndex >= block.Children.Count
+            || !ReferenceEquals(block.Children[declaration.ChildIndex], declaration))
+            return false;
 
-        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, store.Index))
+        var allowed = block.Children.Skip(declaration.ChildIndex).ToList();
+
+        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, index))
         {
             if (!allowed.Any(statement => IsDescendantOrSelf(reference, statement)))
                 return false;
@@ -2021,6 +2144,9 @@ public sealed partial class CSharpPrinter
             {
                 LocalNames = localFunction.LocalNames,
                 SynthesizedLocalNames = localFunction.SynthesizedLocalNames,
+                LocalDeclaredInNestedScope = localFunction.LocalDeclaredInNestedScope,
+                LocalDeclarationBindings = localFunction.LocalDeclarationBindings,
+                LocalNameImportCauses = localFunction.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,
                 // The nested scope is metadata-free like the enclosing one; carry the
@@ -2334,6 +2460,13 @@ public sealed partial class CSharpPrinter
         statementStartOverride = null;
         _statementIndent = indent;
         string pad = new(' ', indent * 4);
+        if (node is Block lexicalBlock)
+        {
+            sb.Append(pad).AppendLf("{");
+            AppendStatements(sb, lexicalBlock.Children, indent + 1);
+            sb.Append(pad).AppendLf("}");
+            return;
+        }
         if (node is Return && IsSharedScopeLambdaReturn(node))
         {
             sb.Append(pad).AppendLf(LambdaStatement(node)!);
@@ -2585,7 +2718,9 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+            string initializer = forLoop.Initializer is PointerCompoundAssignment update
+                ? PointerUpdateText(update, statement: false)
+                : Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad);
             int headerStart = sb.Length;
@@ -3257,64 +3392,20 @@ public sealed partial class CSharpPrinter
                 return UnsafeRequirementsAreWithin(node, yieldReturn.Value);
             case Throw { Value: { } value } when value is not CaughtException:
                 return UnsafeRequirementsAreWithin(node, value);
-            case StoreLocal { Value: not StackAllocate } store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadLocal load && load.Index == store.Index,
-                        store.Type) is { } localRoot
-                    && UnsafeRequirementsAreWithin(
-                        store,
-                        store.Type.Kind == TypeRefKind.ByRef,
-                        localRoot);
-            case StoreArgument store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadArgument load
-                            && PlaceIdentity.SameArgument(
-                                load.Index,
-                                load.Parameter,
-                                store.Index,
-                                store.Parameter),
-                        store.Type) is { } argumentRoot
-                    && UnsafeRequirementsAreWithin(store, argumentRoot);
+            case ScalarStore { Value: not StackAllocate } store:
+                return AssignmentUnsafeExpressionRoot(store.Value, store.UpdateKind) is { } root
+                    && UnsafeRequirementsAreWithin(store, store is StoreLocal { Type.Kind: TypeRefKind.ByRef }, root);
             case StoreStackSlot { Value: not StackAllocate } store:
                 var slotType = StackSlotTargetType(store);
                 return AssignmentUnsafeExpressionRoot(
                         store.Value,
-                        left => left is LoadStackSlot load
-                            && StackSlotName(load) == StackSlotName(store),
-                        slotType) is { } slotRoot
+                        ResidualSlotUpdateKind(store)) is { } slotRoot
                     && UnsafeRequirementsAreWithin(
                         store,
                         slotType?.Kind == TypeRefKind.ByRef,
                         slotRoot);
-            case StoreField store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadField load
-                            && load.Field.Name == store.Field.Name
-                            && Equals(load.Field.DeclaringType, store.Field.DeclaringType)
-                            && SamePlace(load.Instance, store.Instance),
-                        store.Field.Type) is { } fieldRoot
-                    && UnsafeRequirementsAreWithin(store, fieldRoot);
-            case StoreProperty store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadProperty load
-                            && load.PropertyName == store.PropertyName
-                            && Equals(load.Accessor.DeclaringType, store.Accessor.DeclaringType)
-                            && SameLValue(load.Instance, store.Instance)
-                            && PlaceIdentity.SameOperands(load.IndexArguments, store.IndexArguments),
-                        StorePropertyTargetType(store)) is { } propertyRoot
-                    && UnsafeRequirementsAreWithin(store, propertyRoot);
             case StoreElement store when InlineReceiverTempStoreValue(store) is null:
                 return UnsafeRequirementsAreWithin(store, store.Value);
-            case StoreIndirect store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadIndirect load && SameLValue(load.Address, store.Address),
-                        IndirectStoreType(store.Address, store.Type)) is { } indirectRoot
-                    && UnsafeRequirementsAreWithin(store, indirectRoot);
             case DeconstructionAssignment assignment:
                 return UnsafeRequirementsAreWithin(assignment, assignment.Source);
             case ChainedAssignment assignment:
@@ -3419,15 +3510,12 @@ public sealed partial class CSharpPrinter
                     ResultType: { Kind: TypeRefKind.Pointer }
                 });
 
-    IrExpression? AssignmentUnsafeExpressionRoot(
-        IrExpression value,
-        Func<IrExpression, bool> readsTarget,
-        TypeRef? targetType)
+    static IrExpression? AssignmentUnsafeExpressionRoot(IrExpression value, ScalarUpdateKind? updateKind)
     {
-        if (value is not Binary binary || !readsTarget(binary.Left))
+        if (updateKind is null)
             return value;
+        var binary = (Binary)value;
         if (binary.IsChecked
-            || targetType?.Kind == TypeRefKind.Pointer
             || binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight)
         {
             return null;
@@ -3891,7 +3979,7 @@ public sealed partial class CSharpPrinter
             : $"{LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(s.Type, s.Value))};"
-            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, s.UpdateKind, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {UnsafeExpressionText(d.Source, Expression(d.Source))};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {UnsafeExpressionText(c.Value, CoerceText(c.Value, c.InnermostTargetType))};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.LocalType))};",
@@ -3901,12 +3989,7 @@ public sealed partial class CSharpPrinter
             s,
             CSharpNaming.ContainedIdentifier(s.Name),
             s.Value,
-            left => left is LoadArgument load
-                && PlaceIdentity.SameArgument(
-                    load.Index,
-                    load.Parameter,
-                    s.Index,
-                    s.Parameter),
+            s.UpdateKind,
             s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -3915,33 +3998,28 @@ public sealed partial class CSharpPrinter
             : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
-            : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
+            : AssignmentText(s, StackSlotName(s), s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             s,
             FieldTarget(s.Field, s.Instance), s.Value,
-            left => left is LoadField load
-                && load.Field.Name == s.Field.Name
-                && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
-                && SamePlace(load.Instance, s.Instance),
+            s.UpdateKind,
             s.Field.Type),
         StoreProperty s => AssignmentText(
             s,
             PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
-            left => left is LoadProperty load
-                && load.PropertyName == s.PropertyName
-                && Equals(load.Accessor.DeclaringType, s.Accessor.DeclaringType)
-                && SameLValue(load.Instance, s.Instance)
-                && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
+            s.UpdateKind,
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
+        PointerElementCompoundAssignment s => $"{Operand(s.Pointer)}[{Expression(s.Index)}] {BinaryOperator(s.Operation)}= {Expression(s.Value)};",
+        PointerCompoundAssignment s => PointerUpdateText(s, statement: true),
         StoreIndirect s => AssignmentText(
             s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
-            left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
+            s.UpdateKind,
             IndirectStoreType(s.Address, s.Type),
             parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
         // default-initialization of a named place spells through the place,
@@ -3988,9 +4066,53 @@ public sealed partial class CSharpPrinter
     }
 
     string ForLoopIncrementText(IrNode node)
-        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
+    {
+        if (node is PointerCompoundAssignment update)
+            return PointerUpdateText(update, statement: false);
+        return node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
             ? Expression(increment)
             : Statement(node)?.TrimEnd(';') ?? "";
+    }
+
+    string PointerUpdateText(PointerCompoundAssignment update, bool statement)
+    {
+        bool enclosingChecked = _checkedContext;
+        _checkedContext = update.IsChecked;
+        try
+        {
+            string target = update.Target switch
+            {
+                LoadIndirect load => IndirectTarget(load.Address, update.PointerType),
+                LoadProperty load => PropertyTarget(update.Setter!, load.Instance, load.IndexArguments, load.PropertyName, load.IsVirtual),
+                _ => Expression(update.Target),
+            };
+            string? context = update.IsChecked ? "checked" : enclosingChecked ? "unchecked" : null;
+            if (!statement && context is not null)
+            {
+                string op = update.Kind is PointerUpdateKind.Add or PointerUpdateKind.Increment ? "+" : "-";
+                _printedRangeMetadata?.SetNodeKind(update, "AssignmentStatement");
+                return $"{target} = {context}({target} {op} {Operand(update.Index)})";
+            }
+            string incrementTarget = update.Target is LoadIndirect indirect && RendersAsPointerDeref(indirect.Address)
+                ? $"({target})" : target;
+            string text = update.Kind switch
+            {
+                PointerUpdateKind.Increment => $"{incrementTarget}++",
+                PointerUpdateKind.Decrement => $"{incrementTarget}--",
+                PointerUpdateKind.Add => $"{target} += {Expression(update.Index)}",
+                PointerUpdateKind.Subtract => $"{target} -= {Expression(update.Index)}",
+                _ => throw new InvalidOperationException($"Unknown pointer update: {update.Kind}"),
+            };
+            if (context is null)
+                return statement ? $"{text};" : text;
+            _printedRangeMetadata?.SetNodeKind(update, "CheckedStatement");
+            return $"{context} {{ {text}; }}";
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
 
     string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
     {
@@ -5277,105 +5399,6 @@ public sealed partial class CSharpPrinter
         return $"{Operand(pointer)}[{Expression(index)}]";
     }
 
-    static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
-    {
-        if (add.Left.ResultType is { Kind: TypeRefKind.Pointer } && add.Right.ResultType is not { Kind: TypeRefKind.Pointer })
-        {
-            pointer = add.Left;
-            offset = add.Right;
-            return true;
-        }
-        if (add.Right.ResultType is { Kind: TypeRefKind.Pointer } && add.Left.ResultType is not { Kind: TypeRefKind.Pointer })
-        {
-            pointer = add.Right;
-            offset = add.Left;
-            return true;
-        }
-
-        pointer = add.Left;
-        offset = add.Right;
-        return false;
-    }
-
-    static bool TryScaledPointerIndex(IrExpression offset, TypeRef elementType, out IrExpression index)
-    {
-        if (ByteSize(elementType) is not { } elementSize)
-        {
-            index = offset;
-            return false;
-        }
-
-        if (TryConstantMultiple(offset, elementSize, out var multiple))
-        {
-            index = multiple >= int.MinValue && multiple <= int.MaxValue
-                ? new Constant((int)multiple, TypeRef.CoreLib("System", "Int32"))
-                : new Constant(multiple, TypeRef.CoreLib("System", "Int64"));
-            return true;
-        }
-
-        if (offset is Binary { Kind: BinaryKind.Multiply } multiply)
-        {
-            if (IsConstant(multiply.Left, elementSize))
-            {
-                index = NativeIntegerOperand(multiply.Right);
-                return true;
-            }
-            if (IsConstant(multiply.Right, elementSize))
-            {
-                index = NativeIntegerOperand(multiply.Left);
-                return true;
-            }
-        }
-
-        if (elementSize == 1)
-        {
-            index = NativeIntegerOperand(offset);
-            return true;
-        }
-
-        index = offset;
-        return false;
-    }
-
-    static IrExpression NativeIntegerOperand(IrExpression expression)
-        => expression is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" }, Operand: { } operand }
-            ? operand
-            : expression;
-
-    static bool IsConstant(IrExpression expression, int value)
-        => expression is Constant { Value: int i } && i == value
-            || expression is Constant { Value: long l } && l == value;
-
-    static bool TryConstantMultiple(IrExpression expression, int divisor, out long multiple)
-    {
-        long value = expression switch
-        {
-            Constant { Value: int i } => i,
-            Constant { Value: long l } => l,
-            _ => 0,
-        };
-        if (expression is not Constant { Value: int or long } || divisor == 0 || value % divisor != 0)
-        {
-            multiple = 0;
-            return false;
-        }
-
-        multiple = value / divisor;
-        return true;
-    }
-
-    static int? ByteSize(TypeRef type)
-        => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            ? type.Name switch
-            {
-                "Boolean" or "Byte" or "SByte" => 1,
-                "Char" or "Int16" or "UInt16" => 2,
-                "Int32" or "UInt32" or "Single" => 4,
-                "Int64" or "UInt64" or "Double" => 8,
-                _ => null,
-            }
-            : null;
-
     string IndirectTarget(IrExpression address, TypeRef? elementType)
         => elementType is not null && IsNativeInteger(address.ResultType)
             ? NativeIntPointerDeref(address, elementType)
@@ -5421,19 +5444,7 @@ public sealed partial class CSharpPrinter
     /// the address — the faithful target — falling back to the opcode type when
     /// the address carries no pointer/managed-ref type (an untyped <c>stind</c>).
     /// </summary>
-    TypeRef? IndirectStoreType(IrExpression address, TypeRef? opcodeType) => PointeeType(address) ?? opcodeType;
-
-    /// <summary>The element a pointer/managed-ref address points at, seen through the additive pointer arithmetic (<c>p + i</c>) and conversions that an indexed store roots in.</summary>
-    static TypeRef? PointeeType(IrExpression address) => address.ResultType switch
-    {
-        { Kind: TypeRefKind.Pointer or TypeRefKind.ByRef, ElementType: { } element } => element,
-        _ => address switch
-        {
-            Binary { Kind: BinaryKind.Add or BinaryKind.Subtract } b => PointeeType(b.Left) ?? PointeeType(b.Right),
-            Convert c => PointeeType(c.Operand),
-            _ => null,
-        },
-    };
+    TypeRef? IndirectStoreType(IrExpression address, TypeRef? opcodeType) => PointerArithmetic.PointeeType(address) ?? opcodeType;
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
@@ -5975,35 +5986,35 @@ public sealed partial class CSharpPrinter
         }
         && element.Name.StartsWith("ValueTuple`", StringComparison.Ordinal);
 
-    /// <summary>
-    /// Assignment spelling with compound/increment sugar: when the value is
-    /// an unchecked binary whose left operand reads the assignment target,
-    /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
-    /// </summary>
+    ScalarUpdateKind? ResidualSlotUpdateKind(StoreStackSlot store)
+        => StackSlotTargetType(store)?.Kind != TypeRefKind.Pointer
+            && store.Value is Binary { Left: LoadStackSlot read } binary
+            && StackSlotName(read) == StackSlotName(store)
+                ? ScalarSelfUpdatePass.Classify(binary)
+                : null;
+
     string AssignmentText(
         IrNode owner,
         string target,
         IrExpression value,
-        Func<IrExpression, bool> readsTarget,
+        ScalarUpdateKind? updateKind,
         TypeRef? targetType = null,
         bool parenthesizeIncrementTarget = false)
     {
-        if (value is Binary binary && readsTarget(binary.Left))
+        if (updateKind is { } kind)
         {
-            // A compound assignment only forms when the value reads the target
-            // in same-type arithmetic, so the result already matches the target
-            // — no conversion is involved on this path.
+            var binary = (Binary)value;
             string statement = CompoundStatement(
                 target,
                 binary,
                 targetType,
-                parenthesizeIncrementTarget,
-                out bool isIncrement);
+                kind,
+                parenthesizeIncrementTarget);
             _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
                     ? "CheckedStatement"
-                    : isIncrement
+                    : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
                         ? "IncrementOrDecrementExpression"
                         : "AssignmentStatement");
             // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
@@ -6025,32 +6036,14 @@ public sealed partial class CSharpPrinter
         string target,
         Binary binary,
         TypeRef? targetType,
-        bool parenthesizeIncrementTarget,
-        out bool isIncrement)
+        ScalarUpdateKind updateKind,
+        bool parenthesizeIncrementTarget)
     {
-        isIncrement = false;
         string incrementTarget = parenthesizeIncrementTarget
             ? $"({target})"
             : target;
-        if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
-            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
-        {
-            if (TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
-            {
-                if (pointerIndex is Constant { Value: 1 })
-                {
-                    isIncrement = true;
-                    return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-                }
-                return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
-            }
-            return $"{target} = {CoerceText(binary, targetType)};";
-        }
-        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
-        {
-            isIncrement = true;
-            return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-        }
+        if (updateKind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement)
+            return $"{incrementTarget}{(updateKind == ScalarUpdateKind.Increment ? "++" : "--")};";
         // The compound runs in the lvalue's type. Prefer the resolved store type
         // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
         // target through `ldind.i`, which the importer types as the signed native
@@ -6102,50 +6095,6 @@ public sealed partial class CSharpPrinter
         rightText = UnsafeExpressionText(binary.Right, rightText);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
-
-    /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>
-    static bool SamePlace(IrExpression? a, IrExpression? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
-            x.Index,
-            x.Parameter,
-            y.Index,
-            y.Parameter),
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        _ => false,
-    };
-
-    /// <summary>
-    /// Structural, side-effect-free equality for compound-assignment lvalues — the
-    /// receiver/address an <c>x op= v</c> fold reads on its right and writes on its
-    /// left. Restricted to leaves whose re-evaluation is observably free (locals,
-    /// arguments, constants, and field/element addresses rooted in those), so
-    /// collapsing the two evaluations into one preserves the opcode stream. A
-    /// shape with any potential side effect (a call, an arbitrary expression)
-    /// falls through to <c>false</c> and keeps the expanded spelling.
-    /// </summary>
-    static bool SameLValue(IrExpression? a, IrExpression? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
-            x.Index,
-            x.Parameter,
-            y.Index,
-            y.Parameter),
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        (Constant x, Constant y) => Equals(x.Value, y.Value),
-        (LoadField x, LoadField y) => x.Field.Name == y.Field.Name
-            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
-        (LoadFieldAddress x, LoadFieldAddress y) => x.Field.Name == y.Field.Name
-            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
-        (FixedBufferElementAddress x, FixedBufferElementAddress y) => x.BufferField.Name == y.BufferField.Name
-            && Equals(x.BufferField.DeclaringType, y.BufferField.DeclaringType)
-            && SameLValue(x.Instance, y.Instance)
-            && SameLValue(x.Index, y.Index),
-        (LoadElementAddress x, LoadElementAddress y) => SameLValue(x.Array, y.Array) && SameLValue(x.Index, y.Index),
-        _ => false,
-    };
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call)

@@ -186,6 +186,27 @@ contracts.
 Add envelope fields only for demonstrated cross-host concerns with one typed
 meaning. Do not add a generic metadata, extension, or action dictionary.
 
+When an inspection has supplemental service facts that would help developers
+explain a plausible wrong result or validate that a claimed path actually ran,
+define a distinct evidence-enabled entry point returning
+`EvidenceInspectionEnvelope<TContent, TEvidence>`. Keep required completion,
+failure, provenance, and interpretation facts in baseline Content or ordinary
+Diagnostics. Each evidence field must answer one named question; do not collect
+speculative metrics, and do not treat static counts or one invocation's timing
+as runtime proof. Keep the service contract and correctness gates
+configuration-neutral. Use
+`EvidenceInspectionBuilder<TContent, TEvidence>` at the host boundary so
+Release callers
+omit the evidence request and one of two static delegates performs the
+operation. The returned ordinary inspection and optional enriched envelope
+share the same baseline instance; normal output consumes the former while a
+Debug host may publish the latter to its evidence destination. Agents may rely
+on the result only when that Debug host explicitly advertises the gesture.
+Follow
+[Use evidence envelopes during command development](evidence-and-validation.md#use-evidence-envelopes-during-command-development)
+for the executable reference pattern, command-family evidence patterns, and
+measurement boundary.
+
 ### Publish typed diagnostics
 
 Use envelope diagnostics for cross-host disclosures that are not primary

@@ -70,7 +70,9 @@ General preconditions for all workflows:
   network-guard workflow is the current exception.
 
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
-- **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).
+- **Network**: Some commands require network access (for example,
+  `Package@latest --version`). Others are fully offline (for example,
+  `--version` with cached data).
 
 ## Running a single workflow
 

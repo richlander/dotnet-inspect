@@ -363,7 +363,7 @@ static class TsTypeMapper
                 suppressOuterNull);
             return suppressOuterNull
                 ? mappedInner
-                : $"{mappedInner} | null";
+                : TsJsonUnionMapper.WithNull(mappedInner);
         }
 
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
@@ -434,7 +434,7 @@ static class TsTypeMapper
                 suppressOuterNull);
             return suppressOuterNull
                 ? mappedInner
-                : $"{mappedInner} | null";
+                : TsJsonUnionMapper.WithNull(mappedInner);
         }
 
         if (TryMapDictionary(

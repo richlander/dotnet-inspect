@@ -20,13 +20,15 @@ end-to-end latency and Browser-pressure work.
 exact package and terminal-star prefix input, product-issued inspection terms,
 streaming Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
-and bounded completion states, and typed Workspace handoff. The controller,
+and bounded completion states, package-grain decoded library-literal
+qualification, and typed Workspace handoff. The controller,
 adapter, route, renderer, and engine projection are enforced by the
 package-query frontend and Browser engine test suites. Visualization,
 persistence, sharing, outcome caching, and additional assembly-pattern
 vocabulary are future scope and are unverified. The first production assembly
 pattern is the Analysis-owned ordinal substring over decoded `ldstr`
-occurrences, run only over an explicit bounded package selection.
+occurrences, run only over the exact-ID or bounded terminal-star package
+selection.
 
 ## Shell placement boundary
 
@@ -69,7 +71,7 @@ for the survivors. Two different questions get two different shapes.
 QueryRequest       — source input + predicates + independent source/match bounds
     |
     v
-QueryOutcome       — streamed QueryResultRow[] + assembly assessments +
+QueryOutcome       — streamed QueryResultRow[] + semantic candidate outcomes +
                      partial failures + completion state
     |
     v
@@ -144,30 +146,43 @@ evaluation failures remain visible per-package failures. Each evidence entry
 retains its product-issued package-or-query scope and optional count-plus-preview
 summary from [Package Query inspection evidence](package-query-inspection-evidence.md).
 
-Assembly-pattern requests are a separate request mode, not another Package
-Query term tier. The host discovers descriptors from the assembly-pattern registry
-and submits one opaque pattern ID, the literal operand unchanged, up to five
-explicit exact `ID@VERSION` coordinates, and a target framework.
+Library-literal qualification is a separate request mode, not another package
+term tier. Its collapsed **Library literal** section submits the literal
+operand as exact decoded UTF-16 text without trimming and an exact target
+framework (`net10.0` initially). Because HTML text controls normalize carriage
+returns, the Browser editor uses reversible spelling: `\r` means carriage
+return and `\\` means a literal backslash, while a line feed remains a line
+break. The ordinary package editor supplies either one exact package ID,
+resolved to its latest eligible listed version, or one terminal-star prefix
+admitting at most five candidates. Activating the literal operand clears presets
+and active terms, including unapplied editor state belonging to those removed terms;
+an independently open new-term draft remains separate. Clearing the literal
+restores ordinary Package Query defaults.
+The disclosure remains open while either editor retains focus, so clearing the
+operand or editing the framework cannot redirect an in-progress edit into the
+package selector. Intermediate input-method composition stays in the live
+editor; the Browser publishes the committed literal after composition ends.
 The first host delivery does not expose RID selection: Browser Workspace
 coordinates do not yet preserve that intent across navigation. The shared
 evaluator can consume RID-aware bindings independently of these host gestures.
-The framework follows the existing selector's exact-group semantics: a package
-without that framework group is `NotApplicable`, not a semantic non-match.
-The first pattern evaluates only the selector-issued primary
-implementation assembly for each coordinate. Package editor text, prerelease
-selection, and terms do not compose into that request; applying a package-mode
-editor, option, or term change clears assembly mode.
 
-The generated package facade exposes pattern discovery, assembly-query
-execution, and exact result opening. `BrowserPackageAssemblyQueryTests` covers
-typed projection and opening over a separately acquired generation, including
-a framework-neutral acquisition with a non-null selection target. The
-**Assembly Package Query website over real Wasm** scenario in
-`browser/package-adoption.spec.ts` runs the real `/query` page through match,
-semantic miss, non-applicability, and admission failure, then opens the match
-through its issued Root request. The fixture observes a second package
-download at opening: the disposable query candidate does not populate the
-Browser Workspace cache.
+The framework follows the existing selector's exact-group semantics: a package
+without that framework group is `NotApplicable`, not a semantic non-match. The
+shared operation evaluates only the selector-issued primary implementation
+assembly for each admitted package and returns
+`InspectionEnvelope<PackageAssemblySemanticQueryDocument>`. One matched package
+is one Result; decoded literal occurrences are its evidence. `NoMatch`,
+`NotApplicable`, `Failure`, and `NotEvaluated` remain typed candidate outcomes
+rather than rows.
+
+The generated package facade exposes the shared semantic operation and exact
+Root reopening. Browser projection retains the complete occurrence count and
+shows at most three occurrence descriptions on the package card. `Open in
+workspace` sends the serialized opaque `PackageRootReacquisitionRequest`; it
+does not reconstruct selection from package or asset display text. The real-
+Wasm package-adoption scenario runs the production `/query` page against the
+cataloged `analysis.string-literals` fixture, verifies its package Result and
+occurrence evidence, and reopens the issued Root.
 
 ## Layout
 
@@ -222,14 +237,14 @@ and
   free term reruns the current nonblank package input through the product
   planner rather than filtering retained rows. The Browser merges both kinds
   into one term array before crossing the Worker and managed boundaries.
-- **Assembly patterns**: a collapsed rail section rendered only when the
-  engine returns at least one pattern descriptor. It opens for the active
-  assembly request and exposes the registered pattern selector, one exact
-  `ID@VERSION` coordinate per line, literal operand, target framework
-  (`net10.0` initially), and an explicit Run action. Editing
-  these fields never starts work. The section states that the scope is the
-  selector-issued primary implementation assembly, not every assembly in a
-  package.
+- **Library literal**: a collapsed rail section containing the decoded-literal
+  operand and exact target framework (`net10.0` initially). It opens while
+  active. The ordinary query bar remains the package selector: exact ID means
+  the latest eligible listed version; one terminal `*` admits at most five
+  prefix candidates. Literal mode is exclusive with presets and active terms
+  and states that evaluation covers the selector-issued primary implementation
+  library, not every assembly in a package. Editing these fields never starts
+  work; **Run query** starts the explicit evaluation.
 - **Result stream**: the Browser initially advertises room for 20 package rows.
   As scrolling approaches the end of the delivered window, it grants 10 more
   row slots. The engine retains the active query and pauses durable match
@@ -273,8 +288,8 @@ and
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
 | Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting broader terms, not a bare blank pane |
 | Exact complete | Exact package selection finishes, including no eligible version | Preserve exact-selection identity through completion; a zero-row result states that no fallback search was used |
-| Assembly assessment | One explicit coordinate semantically does not match or cannot supply the selected implementation assembly | Render `No match` and `Not applicable` separately from failures and match rows. State the selected-assembly scope; neither outcome is a package-wide absence claim. |
-| Empty assembly match set | Explicit candidate evaluation completes without a match row | Retain all assessments and failures, repeat the exact finite completion scope, and do not suggest unrelated package discovery. |
+| Library-literal candidate outcome | One admitted package semantically does not match, cannot supply the selected implementation assembly, fails, or misses the operation deadline | Render `No match`, `Not applicable`, `Failure`, and `Not evaluated` separately from package Results. State the selected-assembly scope; none is a package-wide absence claim. |
+| Empty library-literal Result set | Candidate evaluation completes without a package Result | Retain every typed candidate outcome and failure, repeat the exact finite completion scope, and do not suggest unrelated package discovery. |
 
 Changing the editor text, changing prerelease selection, toggling a preset,
 cancelling, leaving the route, or starting another run aborts or supersedes
@@ -298,19 +313,18 @@ with this feature-owned vocabulary:
 - `Progress(PackageContent, completed, candidateLimit)` starts before the first
   admitted archive acquisition and advances after each archive is evaluated or
   becomes a visible item failure. The same upper-bound wording applies.
-- `Progress(Assembly, completed, explicitCandidateCount)` advances once for
-  every explicit package whose selected-assembly outcome is known.
-- `Match` and `Failure` are durable events. Package mode produces at most
-  `candidateLimit` durable candidate events; assembly mode produces exactly
-  one durable match, assessment, or failure outcome per explicit candidate.
-- `Assessment` is a durable `NoMatch` or `NotApplicable` candidate outcome. It
-  does not consume match credit, increment match counts, or become a failure.
+- `Progress(Assembly, completed, candidateCount)` advances once for every
+  admitted package whose selected-assembly outcome is known.
+- `Match` and `Failure` are durable events only in ordinary package mode,
+  which produces at most `candidateLimit` durable candidate events.
 - `Completed` is the producer stream's only terminal event. In package mode,
   the sole adapter retains its Summary, never sends it through the callback,
   and returns one `InspectionEnvelope<PackageQueryDocument>` through the
   managed task. The Browser derives its terminal UI event from the Document
-  Summary. Assembly mode remains a separate event-only operation and returns
-  its terminal event directly.
+  Summary. Library-literal mode likewise returns one authoritative
+  `InspectionEnvelope<PackageAssemblySemanticQueryDocument>` through the
+  managed task. Its callback sink carries progress only; Results, candidate
+  outcomes, evidence, failures, and completion come only from the Document.
 
 Progress is monotonic per phase and keyed by phase for Browser-state
 coalescing. A request produces at most two search checkpoints, one manifest
@@ -323,19 +337,17 @@ then limited to one animation-frame patch of the dynamic query regions.
 Because all Package Query work is bounded, the callback queue is structurally
 capped at `2 * candidateLimit + 2` events without package-content terms and
 `3 * candidateLimit + 3` events with them.
-Assembly mode is separately capped at five explicit candidates and at most
-`2 * explicitCandidateCount + 1` nonterminal callback events: one initial
-progress checkpoint plus one durable outcome and one progress checkpoint per
-candidate.
+Library-literal mode is separately capped at five prefix candidates and at
+most one nonterminal progress callback per admitted candidate.
 
 Package Query uses the shared owner's optional durable-item credit. The
 positive initial credit is 20 matches and each replenishment grants 10.
 Near-end pressure means the scroll container is within 600 CSS pixels of its
 current end; the controller additionally requires that received rows are
 within five of already granted credit, preventing repeated scroll events from
-over-granting. Only `Match` consumes credit. Progress is advisory, while `Assessment` and
-`Failure` remain bounded by the candidate limit or explicit candidate count,
-so none can prevent a visible package window from filling. The managed adapter may establish one
+over-granting. Only ordinary-mode `Match` consumes credit. Progress is advisory, while
+ordinary failures remain bounded by the candidate limit, so none can prevent a
+visible package window from filling. The managed adapter may establish one
 match beyond available credit, waits before publishing it, and requests no
 later producer event while waiting. A completion or non-match event discovered
 after the last credited match does not require surplus match credit.
@@ -347,7 +359,9 @@ work, not the user's reading time: the sole adapter suspends it while waiting
 for match credit, with no producer work in flight, and resumes the remaining
 budget rather than granting a fresh one. Caller cancellation remains effective
 while paused. Source request deadlines and ordinary non-query package
-operation deadlines are unchanged.
+operation deadlines are unchanged. Library-literal mode uses a 25-second
+source-and-semantic deadline inside the Browser's 30-second package-operation
+deadline, leaving time to serialize a typed deadline-expired Document.
 The shared profile now consumes
 [incremental prefix pages](package-prefix-candidate-stream.md):
 each page's manifests are evaluated before
@@ -365,9 +379,10 @@ they are not serialized into the envelope. The Browser facade and Worker
 validate that Summary match and failure counts agree with the Document arrays.
 Package-mode Worker settlement carries the inspection without a second
 completion-event field; consumers derive the terminal UI event from the
-Document Summary. This incompatible Browser result-schema change advances the
-managed boundary to version 3. Assembly mode retains its event-only terminal
-under that shared result version.
+Document Summary. Library-literal settlement follows the same rule and validates
+its package Results, occurrences, candidate-outcome counts, population facts,
+failure flags, and completion facts against the semantic Document before
+publishing it.
 Cancellation and unexpected execution failure settle outside the envelope;
 expected source or item failure can still produce a valid Document whose
 Summary reports failed completion.
@@ -458,12 +473,13 @@ different in kind, so they are saved as two separate artifacts rather than one
   readable field names and explicitly not a query language ("portable
   type/member shapes are the selector vocabulary, not the container"). A
   saved query here is that same `kind: "query"` record —
-  `{ kind: "query", schemaVersion, id, intent }` — not a locally-invented
-  `queryPreset` shape. `intent` uses the product's Portable Query encoding,
-  including structural terms, inspection terms, bounds, and stages, layered on
-  the record/reference slots `workspace-definitions.md` pins. This record is
-  small and content-only; the URL carries a terse projection of it rather than
-  the record verbatim (see
+  `{ kind: "query", schemaVersion, id, queryId, payload }` — not a
+  locally-invented `queryPreset` shape. `queryId` is
+  `package-query/v1`; `payload` is the closed Portable Query object for
+  structural terms, inspection terms, bounds, and stages, canonically rewritten
+  by its owner codec and layered on the record/reference slots
+  `workspace-definitions.md` pins. This record is small and content-only; the
+  URL carries a terse projection of it rather than the record verbatim (see
   [Sharing](#sharing-and-url-shape)), and local storage keeps the full record
   — the same content, two destinations, one canonical shape.
 - **The outcome cache — local only, keyed by the preset's signature.** Rows,
@@ -532,10 +548,10 @@ preset never needs to "contain" its own history.
   a new request, keeping displayed counts honest.
 - No unbounded archive evaluation. Package-content terms are an explicit
   gesture and are product-gated to 20 candidates.
-- No Gallery-discovered, prefix-scanned, package-wide, all-assembly, arbitrary
-  metadata/IL, regex, or byte-pattern evaluation. The first assembly pattern
-  accepts only up to five explicit exact package coordinates and one
-  engine-issued decoded-`ldstr` literal predicate.
+- No package-wide, all-assembly, arbitrary metadata/IL, regex, or byte-pattern
+  evaluation. Library-literal mode accepts one exact package ID or a
+  terminal-star prefix capped at five candidates and one product-issued
+  decoded-`ldstr` literal predicate.
 - No persistence, sharing, or outcome cache in the current slice.
 - No chart or aggregation surface in the current slice.
 
@@ -585,13 +601,12 @@ and browser-history and focus-return outcomes are proved by
 10. Confirm `/query` has no Gallery search/browse action, package-type control,
     or source-order control. Confirm blank **Run query** starts no source work
     and Spotlight remains the open-text package discovery path.
-11. Confirm that the assembly control is absent when the engine returns no
-   descriptors. With the first descriptor present, run one to five exact
-   `ID@VERSION` packages using the unchanged literal operand, `net10.0`
-   default TFM. Confirm RID controls are absent. Confirm package editor text,
-   prerelease selection, and package terms are absent from the engine assembly
-   request and that no assembly/IL promoted term, selection checkbox, `Deepen`
-   control, regex, or byte-pattern capability is rendered.
+11. Activate **Library literal** and confirm presets and terms are unavailable,
+   exact package input admits one latest eligible listed version, and a
+   terminal-star prefix admits at most five candidates. Run the unchanged
+   literal operand with the `net10.0` default TFM. Confirm RID controls,
+   selection checkboxes, `Deepen`, regex, and byte-pattern capabilities are
+   absent.
 12. Confirm that a query publishes no more than 20 matches before Browser
    pressure, near-end pressure grants 10 more without repeated over-granting,
    producer work pauses with at most one match established ahead, completion
@@ -607,10 +622,11 @@ and browser-history and focus-return outcomes are proved by
    from the first rows through the middle to the final rows; confirm five-row
    overscan, spacer-preserved range, stable visible-row anchoring, typed row
    opening, and near-end demand pressure.
-15. Confirm assembly `NoMatch`, `NotApplicable`, and failures remain distinct,
-   an empty match set states only selected-primary-implementation-assembly
-   scope, assessments spend no match credit, and every assembly match opens
-   by its exact opaque Root request after candidate disposal.
+15. Confirm library-literal `NoMatch`, `NotApplicable`, `Failure`, and
+   `NotEvaluated` outcomes remain distinct, an empty Result set states only
+   selected-primary-implementation-library scope, the callback sink carries
+   progress only, and every package Result opens by its exact opaque Root
+   request after candidate disposal.
 
 ## Landing sequence
 
@@ -627,17 +643,17 @@ and browser-history and focus-return outcomes are proved by
    replenishment, and frame-batched query-region rendering through #5832. Its
    Browser-owned DOM follow-up retains the complete outcome in state while
    mounting a bounded 30-card result window with five-row overscan.
-6. [Package Query assembly-pattern
-   evaluation](package-query-assembly-evaluation.md) owns one-candidate
-   primary-assembly selection, semantic confirmation, evidence, and resource
-   release. **#6030** supplies the first Browser composition through the
-   existing Query rail: an explicit bounded exact-package gesture, serial
-   candidate scheduling, assessment and match rendering, and exact result
-   opening. Its
-   `Open in workspace` action consumes #5837's Artifact Acquisition-owned Root
-   reacquisition request rather than applying the ordinary package-row
-   ID/version handoff to a result whose selection target may differ from its
-   acquisition coordinate.
+6. [Package Query library-literal
+   qualification](package-query-library-literal.md) owns package-grain
+   candidate selection, primary-implementation-library evaluation, typed
+   outcomes, evidence, completion, and resource release. #7210 supplies the
+   shared `InspectionEnvelope<PackageAssemblySemanticQueryDocument>` operation.
+   The Browser composition tracked by #6796 consumes that operation through the
+   existing Query rail, a progress-only sink, package Result cards, and exact
+   Root reopening. Its `Open in workspace` action consumes #5837's Artifact
+   Acquisition-owned Root reacquisition request rather than applying the
+   ordinary package-row ID/version handoff to a result whose selection target
+   may differ from its acquisition coordinate.
 7. **#6019** historically added a Gallery discovery consumer. The browse/order
    gesture and its shared discovery substrate are now retired; supported
    Package Query input is exact ID or explicit V3-backed prefix only.

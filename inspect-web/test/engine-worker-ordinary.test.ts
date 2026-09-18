@@ -60,6 +60,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     packageCacheStats: () => unexpected("packageCacheStats"),
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
+    queryPackageRoot: () => unexpected("queryPackageRoot"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
@@ -138,13 +139,19 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    activateRetainedWorkspaceDefinition: () =>
+      unexpected("activateRetainedWorkspaceDefinition"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    deactivateRetainedWorkspaceDefinition: () =>
+      unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
     encodeWorkspaceShareState: () =>
       unexpected("encodeWorkspaceShareState"),
+    observeRetainedWorkspaceSettlement: () =>
+      unexpected("observeRetainedWorkspaceSettlement"),
     runHomeDemo: () => unexpected("runHomeDemo"),
   },
 };
@@ -876,6 +883,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackage",
       "queryPackageDependencies",
       "queryPackagePruning",
+      "queryPackageRoot",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
@@ -920,9 +928,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "activateRetainedWorkspaceDefinition",
       "canonicalizeWorkspaceSharePacket",
+      "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
+      "observeRetainedWorkspaceSettlement",
       "resolveHomeDemo",
       "runHomeDemo",
     ],
@@ -939,7 +950,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 55);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 59);
 
   const state = fixture();
   const groups = [

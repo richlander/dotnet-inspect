@@ -113,6 +113,34 @@ public abstract record CompleteRestorationResolvedState
                         nameof(ActiveStateIndex));
     }
 
+    public sealed record Version4(
+        CommittedScenarioDefinitionSet Definitions,
+        ImmutableArray<CompleteRestorationResolvedViewState> States,
+        int? ActiveStateIndex)
+        : CompleteRestorationResolvedState
+    {
+        public CommittedScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+
+        public ImmutableArray<CompleteRestorationResolvedViewState> States
+        {
+            get;
+        } = !States.IsDefault
+            && States.All(static state => state is not null)
+                ? States
+                : throw new ArgumentException(
+                    "Resolved states must be an initialized immutable array.",
+                    nameof(States));
+
+        public int? ActiveStateIndex { get; } =
+            (ActiveStateIndex is null && States.IsEmpty)
+                || (ActiveStateIndex is >= 0
+                    && ActiveStateIndex < States.Length)
+                    ? ActiveStateIndex
+                    : throw new ArgumentOutOfRangeException(
+                        nameof(ActiveStateIndex));
+    }
 }
 
 public sealed record CompleteRestorationResolvedViewState
@@ -190,6 +218,8 @@ public static class CompleteRestorationProjections
                     version2.Definitions,
                 CompleteRestorationResolvedState.Version3 version3 =>
                     version3.Definitions,
+                CompleteRestorationResolvedState.Version4 version4 =>
+                    version4.Definitions,
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration resolved state."),
             };
@@ -487,6 +517,15 @@ public static class CompleteRestorationCoordinator
 
         var ready =
             (CompleteRestorationPreparationResult.Ready)preparation;
+        if (FindInvalidFacet(ready.Plan.Recipe, options.Facets)
+            is { } invalidFacet)
+        {
+            return new CompleteRestorationResult<TActivation>.Failed(
+                preparation.Intent,
+                preparation.Request,
+                new CompleteRestorationFailure.SelectorResolutionFailed(
+                    invalidFacet));
+        }
 
         CompleteWorkspaceActivation? callbackActivation = null;
         CompleteRestorationHostResult<TActivation> hostResult =
@@ -538,6 +577,70 @@ public static class CompleteRestorationCoordinator
             _ => throw new InvalidOperationException(
                 "Unknown complete-restoration host result."),
         };
+    }
+
+    private static CommittedSelectorResolutionFailure? FindInvalidFacet(
+        CompleteRestorationRecipe recipe,
+        ViewFacetRegistry facets)
+    {
+        CommittedScenarioDefinitionSet definitions = recipe switch
+        {
+            CompleteRestorationRecipe.Version2 version2 =>
+                version2.Definitions,
+            CompleteRestorationRecipe.Version3 version3 =>
+                version3.Definitions,
+            CompleteRestorationRecipe.Version4 version4 =>
+                version4.Definitions,
+            _ => throw new InvalidOperationException(
+                "Unknown complete restoration recipe."),
+        };
+        if (definitions.View is not { } view)
+            return null;
+
+        for (int index = 0; index < view.States.Count; index++)
+        {
+            CommittedViewStateDefinition state = view.States[index];
+            if (state.Facet is not { } facet)
+                continue;
+
+            if (!facets.TryGetDescriptor(
+                facet,
+                out ViewFacetDescriptor? descriptor))
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    index,
+                    state.Navigation,
+                    $"View state {index} facet '{facet}' is not registered.");
+            }
+
+            StructuralSubjectKind subjectKind = state.Subject switch
+            {
+                PortableSubjectRequest.Workspace =>
+                    StructuralSubjectKind.Workspace,
+                PortableSubjectRequest.Package =>
+                    StructuralSubjectKind.Package,
+                PortableSubjectRequest.Library =>
+                    StructuralSubjectKind.Library,
+                PortableSubjectRequest.Type =>
+                    StructuralSubjectKind.Type,
+                PortableSubjectRequest.Member =>
+                    StructuralSubjectKind.Member,
+                _ => throw new InvalidOperationException(
+                    "An exact committed facet requires an exact subject."),
+            };
+            if (descriptor.Kind != subjectKind)
+            {
+                return new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind.InvalidFacet,
+                    index,
+                    state.Navigation,
+                    $"View state {index} facet '{facet}' does not apply to "
+                        + $"the {subjectKind} subject.");
+            }
+        }
+
+        return null;
     }
 
     private static async ValueTask<CompleteWorkspacePreparationResult>
@@ -911,6 +1014,9 @@ public static class CompleteRestorationCoordinator
                 CompleteRestorationRecipe.Version3 version3 =>
                     (version3.Definitions,
                         InspectionDefinitionSchema.Version3),
+                CompleteRestorationRecipe.Version4 version4 =>
+                    (version4.Definitions,
+                        InspectionDefinitionSchema.Version4),
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration recipe."),
             };
@@ -1075,6 +1181,11 @@ public static class CompleteRestorationCoordinator
                     detachedActiveStateIndex),
             InspectionDefinitionSchema.Version3 =>
                 new CompleteRestorationResolvedState.Version3(
+                    resolution.Definitions,
+                    detachedStates,
+                    detachedActiveStateIndex),
+            InspectionDefinitionSchema.Version4 =>
+                new CompleteRestorationResolvedState.Version4(
                     resolution.Definitions,
                     detachedStates,
                     detachedActiveStateIndex),

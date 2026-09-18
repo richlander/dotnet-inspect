@@ -1,7 +1,5 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
@@ -84,15 +82,17 @@ public enum LibraryBodyAnalysisFeatures
 /// </summary>
 public sealed class LibraryBodyIndex
 {
-    LibraryBodyIndex(
+    internal LibraryBodyIndex(
         string path,
         LibraryBodyModuleIdentity moduleIdentity,
+        string? moduleName,
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features,
         bool hasFullMethodEvidenceScope)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
+        _moduleName = moduleName;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
@@ -270,6 +270,7 @@ public sealed class LibraryBodyIndex
         _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
     MethodDefinitionMap? _methodMap;
+    MethodDefinitionMap? _declaredMethodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
     LibraryBodyLocalCallGraph? _rootPathGraph;
@@ -295,6 +296,7 @@ public sealed class LibraryBodyIndex
     public void ReleaseCallGraphCaches()
     {
         _methodMap = null;
+        _declaredMethodMap = null;
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
         _rootPathGraph = null;
@@ -376,7 +378,8 @@ public sealed class LibraryBodyIndex
                                     _physicalDirectCalls,
                                     _rawOpportunities,
                                     _suppressedOpportunityTokens,
-                                    reachByToken)
+                                    reachByToken,
+                                    DeclaredMethodMap)
                                 .Select(OptimizationOpportunityAnalysis
                                     .AddFallbackMetadata),
                         ]
@@ -417,11 +420,12 @@ public sealed class LibraryBodyIndex
                     .. AllocationFanout.Analyze(
                             Methods,
                             ClassifyExactCallTargets(
-                                Path,
                                 _physicalDirectCalls,
+                                DeclaredMethodMap,
                                 Methods),
                             _allocationOccurrences,
-                            _scopeExcludedOpportunityTokens)
+                            _scopeExcludedOpportunityTokens,
+                            DeclaredMethodMap)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
                                 .Contains(
@@ -458,7 +462,8 @@ public sealed class LibraryBodyIndex
         => _directCallerLoops ??= CallerLoopEvidenceAnalysis.FindNearest(
             Methods,
             _physicalDirectCalls,
-            maxDepth: 1);
+            maxDepth: 1,
+            DeclaredMethodMap);
 
     Dictionary<int, int> RootReachByToken
     {
@@ -476,44 +481,29 @@ public sealed class LibraryBodyIndex
     }
 
     static ImmutableArray<DirectCall> ClassifyExactCallTargets(
-        string path,
         ImmutableArray<DirectCall> calls,
+        MethodDefinitionMap declarationMap,
         ImmutableArray<MethodIdentity> methods)
     {
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var methodMap = MethodDefinitionMap.Create(methods);
+        Dictionary<int, MethodIdentity> methodsByToken =
+            methods.ToDictionary(
+                static method => method.MetadataToken);
         return
         [
             .. calls.Select(call =>
             {
-                int targetToken = methodMap.Resolve(call);
-                bool exact = targetToken != 0 && call.Kind switch
-                {
-                    CallKind.Call or CallKind.NewObject => true,
-                    CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
-                    _ => false,
-                };
+                int targetToken =
+                    declarationMap.Resolve(call);
+                bool exact =
+                    methodsByToken.TryGetValue(
+                        targetToken,
+                        out MethodIdentity? target)
+                    && CatalogCallGraphScope.IsResolvedExactTarget(
+                        call.Kind,
+                        target);
                 return call with { ExactTarget = exact };
             }),
         ];
-    }
-
-    static bool IsExactVirtualTarget(MetadataReader reader, int methodToken)
-    {
-        var handle = MetadataTokens.EntityHandle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
-            return false;
-        var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-        if ((method.Attributes & MethodAttributes.Virtual) == 0
-            || (method.Attributes & MethodAttributes.Final) != 0)
-        {
-            return true;
-        }
-
-        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
-        return (declaringType.Attributes & TypeAttributes.Sealed) != 0;
     }
 
     ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
@@ -784,7 +774,8 @@ public sealed class LibraryBodyIndex
         => DirectCalls.Any(call =>
             call.Kind == CallKind.NewObject
             && call.InLoop
-            && call.CalleeDefinitionToken == constructor.MetadataToken);
+            && DeclaredMethodMap.Resolve(call)
+                == constructor.MetadataToken);
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
@@ -978,7 +969,8 @@ public sealed class LibraryBodyIndex
                     _implementationProfiles,
                     DirectCalls,
                     Signals,
-                    OverloadRelationships());
+                    OverloadRelationships(),
+                    DeclaredMethodMap);
         }
 
         return scope is null
@@ -1002,7 +994,8 @@ public sealed class LibraryBodyIndex
             _overloadRelationships = MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
                     DeclaredMethods,
-                    DirectCalls);
+                    DirectCalls,
+                    DeclaredMethodMap);
         }
         return _overloadRelationships;
     }
@@ -1059,11 +1052,22 @@ public sealed class LibraryBodyIndex
     }
 
     /// <summary>
-    /// Token/signature resolution over this assembly's defined methods. Depends only on
-    /// <see cref="Methods"/>, so it is built once instead of per call-tree request: a single
-    /// progressive render asks for several trees over the same index.
+    /// Membership map for definitions with analyzable bodies. Correspondence
+    /// always resolves through <see cref="DeclaredMethodMap"/> first.
     /// </summary>
-    MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
+    readonly string? _moduleName;
+
+    MethodDefinitionMap MethodMap =>
+        _methodMap ??=
+            MethodDefinitionMap.Create(
+                Methods,
+                _moduleName);
+
+    internal MethodDefinitionMap DeclaredMethodMap =>
+        _declaredMethodMap ??=
+            MethodDefinitionMap.Create(
+                DeclaredMethods,
+                _moduleName);
 
     internal LibraryBodyLocalCallGraph RootPathGraph()
         => _rootPathGraph ??=
@@ -1105,7 +1109,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     IReadOnlyDictionary<int, int> DistinctCallersByCallee()
         => _distinctCallersByCallee ??= DirectCalls
-            .GroupBy(call => MethodMap.Resolve(call))
+            .GroupBy(call => DeclaredMethodMap.Resolve(call))
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
@@ -1116,17 +1120,13 @@ public sealed class LibraryBodyIndex
     /// Inbound call edges per callee definition token, collapsed to one edge per distinct caller
     /// method and preserving an in-loop call site when the same caller has one.
     ///
-    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/>, which is root-independent. The caller
-    /// tree's own resolution additionally maps any edge whose callee definition token equals the
-    /// requested root onto that root, which matters only when the root is bodiless
-    /// (abstract/interface/extern) and therefore absent from <see cref="Methods"/>; for a root with
-    /// a body <c>Resolve</c> already returns that same token. <see cref="BuildCallerTree(int, int,
-    /// int)"/> therefore uses this cache only for rooted-in-a-body requests and builds its own map
-    /// for the bodiless case, rather than caching a map that silently depends on the root.
+    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/> over all declarations,
+    /// so abstract, interface, extern, and runtime declarations retain inbound
+    /// identity even though they have no analyzable body.
     /// </summary>
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>> DistinctCallerEdgesByCallee()
         => _distinctCallerEdgesByCallee ??= DirectCalls
-            .GroupBy(call => MethodMap.Resolve(call))
+            .GroupBy(call => DeclaredMethodMap.Resolve(call))
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
@@ -1199,7 +1199,10 @@ public sealed class LibraryBodyIndex
         => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
 
     public static LibraryBodyIndex Open(string path)
-        => Open(path, resolver: null);
+        => LibraryBodyAnalysisService.AnalyzePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.Default));
 
     internal static LibraryBodyIndex FromEvidence(
         ImmutableArray<MethodIdentity> methods,
@@ -1219,6 +1222,7 @@ public sealed class LibraryBodyIndex
         return new(
             path: "",
             moduleIdentity,
+            moduleName: null,
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
@@ -1287,7 +1291,13 @@ public sealed class LibraryBodyIndex
             features |= LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        return Open(path, features, resolver, bodyScope, bodyTypeScope);
+        return LibraryBodyAnalysisService.AnalyzePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope),
+            resolver);
     }
 
     public static LibraryBodyIndex Open(
@@ -1297,57 +1307,24 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
+        return LibraryBodyAnalysisService.AnalyzePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope);
-
-        if (resolver is not null
-            && UsesReferenceResolution(plan))
-        {
-            LibraryBodyRootSnapshot? rootSnapshot =
-                AcquireRootSnapshot(path);
-            if (rootSnapshot is not null)
-            {
-                using var imageReader =
-                    new PEReader(rootSnapshot.Snapshot.Content);
-                return BuildFromReader(
-                    path,
-                    imageReader,
-                    plan,
-                    resolver,
-                    rootSnapshot);
-            }
-        }
-
-        // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
-        // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
-        // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
-        // decode only a handful of bodies sequentially, so they keep the lazy default.
-        var streamOptions = !plan.IsScoped
-            ? PEStreamOptions.PrefetchEntireImage
-            : PEStreamOptions.Default;
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream, streamOptions);
-        return BuildFromReader(
-            path,
-            peReader,
-            plan,
-            resolver,
-            rootSnapshot: null);
+                bodyTypeScope),
+            resolver);
     }
 
     /// <summary>
-    /// Builds an index over caller-provided immutable PE image content without
-    /// reopening the target file.
+    /// Compatibility facade for immutable-image Analysis execution. New
+    /// consumers should use <see cref="LibraryBodyAnalysisService"/>.
     /// </summary>
     /// <remarks>
-    /// <c>LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage</c> gates shared
-    /// image consumption, and
-    /// <c>LibraryBodyIndex_PrefetchedImageHonorsBodyScope</c> gates scoped
-    /// decoding through this entry point.
+    /// <c>LibraryBodyAnalysisService_ConsumesImageWithoutReopeningSourceName</c>
+    /// gates shared image consumption, and
+    /// <c>LibraryBodyAnalysisService_ImageRequestHonorsBodyScope</c> gates
+    /// scoped decoding through the service.
     /// </remarks>
     public static LibraryBodyIndex OpenFromPrefetchedImage(
         string path,
@@ -1357,29 +1334,14 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (image.IsDefaultOrEmpty)
-            throw new ArgumentException("A prefetched PE image is required.", nameof(image));
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
+        return LibraryBodyAnalysisService.AnalyzeImage(
+            path,
+            image,
+            LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope);
-
-        using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
-        LibraryBodyRootSnapshot? rootSnapshot =
-            resolver is not null
-                && reader.IsAssembly
-                && UsesReferenceResolution(plan)
-                ? CreateRootSnapshot(path, reader, image)
-                : null;
-        return BuildFromReader(
-            path,
-            peReader,
-            plan,
-            resolver,
-            rootSnapshot);
+                bodyTypeScope),
+            resolver);
     }
 
     /// <summary>
@@ -1440,38 +1402,6 @@ public sealed class LibraryBodyIndex
         return builder.HasUnsafeEvidence();
     }
 
-    static LibraryBodyIndex BuildFromReader(
-        string path,
-        PEReader peReader,
-        LibraryBodyAnalysisPlan plan,
-        IAssemblyReferenceResolver? resolver,
-        LibraryBodyRootSnapshot? rootSnapshot)
-    {
-        if (!peReader.HasMetadata)
-            throw new BadImageFormatException($"No managed metadata: {path}");
-        var reader = peReader.GetMetadataReader();
-        LibraryBodyModuleIdentity moduleIdentity =
-            LibraryBodyModuleIdentity.FromImage(reader);
-        IAssemblyReferenceResolver? analysisResolver =
-            UsesReferenceResolution(plan) ? resolver : null;
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            reader,
-            peReader,
-            analysisResolver,
-            analysisResolver is null
-                ? null
-                : rootSnapshot);
-        LibraryBodyAnalysisResult analysis =
-            builder.Build(plan);
-        return new LibraryBodyIndex(
-            path,
-            moduleIdentity,
-            analysis,
-            plan.Features,
-            hasFullMethodEvidenceScope: !plan.IsScoped);
-    }
-
     static void ValidateSyntheticEvidenceIdentity(
         LibraryBodyModuleIdentity moduleIdentity,
         ImmutableArray<MethodIdentity> methods)
@@ -1513,125 +1443,6 @@ public sealed class LibraryBodyIndex
             first.ModuleVersionId);
     }
 
-    static bool UsesReferenceResolution(
-        LibraryBodyAnalysisPlan plan) =>
-        plan.Includes(
-            LibraryBodyAnalysisFeatures.OptimizationOpportunities)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.LocalThrows);
-
-    static LibraryBodyRootSnapshot? AcquireRootSnapshot(string path)
-    {
-        string fullPath = System.IO.Path.GetFullPath(path);
-        AssemblyReferenceIdentity identity;
-        DateTime lastWriteTimeUtc;
-        using (FileStream stream = File.OpenRead(fullPath))
-        using (var peReader = new PEReader(
-            stream,
-            PEStreamOptions.LeaveOpen
-                | PEStreamOptions.PrefetchMetadata))
-        {
-            if (!peReader.HasMetadata)
-            {
-                throw new BadImageFormatException(
-                    $"No managed metadata: {path}");
-            }
-
-            MetadataReader reader = peReader.GetMetadataReader();
-            if (!reader.IsAssembly)
-                return null;
-            identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader);
-            lastWriteTimeUtc =
-                File.GetLastWriteTimeUtc(stream.SafeFileHandle);
-        }
-
-        var assembly = ResolvedAssemblyReference.Create(
-            identity,
-            fullPath,
-            () => File.OpenRead(fullPath),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"),
-            lastWriteTimeUtc);
-        AssemblyImageSnapshotResult result =
-            AssemblyImageSnapshot.Open(
-                assembly,
-                length => length
-                    <= AssemblyImageSnapshot
-                        .DefaultMaxRetainedImageBytes,
-                _ => { });
-        return result switch
-        {
-            AssemblyImageSnapshotResult.Ready ready =>
-                new LibraryBodyRootSnapshot(
-                    assembly,
-                    ready.Snapshot),
-            AssemblyImageSnapshotResult.Rejected rejected =>
-                throw RootSnapshotFailure(path, rejected.Failure),
-            _ => throw new InvalidOperationException(
-                "Unknown root-image acquisition result."),
-        };
-    }
-
-    static LibraryBodyRootSnapshot CreateRootSnapshot(
-        string path,
-        MetadataReader reader,
-        ImmutableArray<byte> image)
-    {
-        if (image.Length
-            > AssemblyImageSnapshot.DefaultMaxRetainedImageBytes)
-        {
-            throw new InvalidOperationException(
-                "The root assembly exceeds the retained-image budget.");
-        }
-
-        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
-        var assembly = ResolvedAssemblyReference.Create(
-            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-            System.IO.Path.GetFullPath(path),
-            () => new MemoryStream(bytes, writable: false),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"));
-        AssemblyImageSnapshotResult result =
-            AssemblyImageSnapshot.FromRetainedContent(
-                assembly,
-                image);
-        return result switch
-        {
-            AssemblyImageSnapshotResult.Ready ready =>
-                new LibraryBodyRootSnapshot(
-                    assembly,
-                    ready.Snapshot),
-            AssemblyImageSnapshotResult.Rejected rejected =>
-                throw RootSnapshotFailure(path, rejected.Failure),
-            _ => throw new InvalidOperationException(
-                "Unknown root-image acquisition result."),
-        };
-    }
-
-    static Exception RootSnapshotFailure(
-        string path,
-        CandidateOpenFailure failure) =>
-        failure.Kind switch
-        {
-            CandidateOpenFailureKind.InvalidImage =>
-                new BadImageFormatException(
-                    $"{failure.Detail} Path: {path}"),
-            CandidateOpenFailureKind.Unreadable =>
-                new IOException(
-                    $"{failure.Detail} Path: {path}"),
-            CandidateOpenFailureKind.ResourceBudget =>
-                new InvalidOperationException(
-                    $"{failure.Detail} Path: {path}"),
-            _ => new InvalidOperationException(
-                $"Unknown root-image failure for {path}."),
-        };
-
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
 
@@ -1644,7 +1455,8 @@ public sealed class LibraryBodyIndex
         => UnsafeLeverage.Top(
             _physicalDirectCalls,
             _unsafeLeverageMethods,
-            count);
+            count,
+            DeclaredMethodMap);
 
     /// <summary>
     /// The most-leveraged methods in this assembly, ranked by distinct direct
@@ -1657,7 +1469,9 @@ public sealed class LibraryBodyIndex
             DirectCalls,
             Methods,
             count,
-            scope);
+            scope,
+            maxDepth: 64,
+            DeclaredMethodMap);
 
     /// <summary>
     /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
@@ -1735,7 +1549,9 @@ public sealed class LibraryBodyIndex
 
         var callsByCaller = GetDirectCallsByCaller();
 
-        var methodMap = MethodMap;
+        MethodDefinitionMap bodyMap = MethodMap;
+        MethodDefinitionMap declarationMap =
+            DeclaredMethodMap;
         var diagnosticsByToken = Diagnostics
             .GroupBy(diagnostic => diagnostic.MethodToken)
             .ToDictionary(group => group.Key, group => group.First());
@@ -1747,7 +1563,7 @@ public sealed class LibraryBodyIndex
         int ResolveCallee(DirectCall call)
             => DeclaredMethod(call.CalleeDefinitionToken)
                     ?.MetadataToken
-                ?? methodMap.Resolve(call);
+                ?? declarationMap.Resolve(call);
 
         // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
         // members depend on this one"), and the reverse graph draws one edge per distinct
@@ -1793,7 +1609,7 @@ public sealed class LibraryBodyIndex
                     : diagnostic is not null
                         ? CallTreeStatus.AnalysisIncomplete
                         : definition is not null
-                            && !methodMap.ContainsToken(token)
+                            && !bodyMap.ContainsToken(token)
                             ? CallTreeStatus.Bodiless
                             : CallTreeStatus.Leaf;
                 return Node(
@@ -1908,7 +1724,8 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var methodMap = MethodMap;
+        MethodDefinitionMap methodMap =
+            DeclaredMethodMap;
 
         int ResolveCalleeToken(DirectCall call)
         {
@@ -1929,11 +1746,9 @@ public sealed class LibraryBodyIndex
         // if any call site from a caller hits the target inside a loop, keep that edge so the
         // loop annotation survives deduplication.
         //
-        // When the root has a body, ResolveCalleeToken agrees with MethodDefinitionMap.Resolve
-        // for every edge — Resolve returns CalleeDefinitionToken whenever that token is a defined
-        // method — so the shared per-index cache applies. A bodiless root is the one case where
-        // the grouping genuinely depends on the root, because edges naming it would otherwise be
-        // resolved onto some other defined method; that case builds its own map.
+        // DeclaredMethodMap includes bodiless definitions, so every declared root
+        // uses the shared root-independent grouping. Only an unknown token needs
+        // the root-specific raw-token fallback.
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> reverseEdges =
             methodMap.ContainsToken(rootMethodToken)
                 ? DistinctCallerEdgesByCallee()

@@ -1,9 +1,13 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.MetadataRendering;
+using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -12,15 +16,17 @@ internal static class LibraryCoordinateCommandDefinitions
     internal static Command Create(
         SharedOptions opts,
         Command parentCommand,
-        Argument<string?> parentSourceArgument)
+        Argument<string?> parentSourceArgument,
+        Option<string?> metadataRootOption)
     {
         var command = new Command(
             "coordinate",
-            "Inspect one exact coordinate within a selected .NET Library");
+            "Inspect exact coordinates within a selected .NET Library");
         var coordinateArgument = new Argument<string?>("coordinate")
         {
             Description =
-                "MethodDef token plus IL offset (for example, 0x06000001+0x5)",
+                "MethodDef token plus IL offset, or metadata heap plus address "
+                + "(for example, 0x06000001+0x5 or #Strings:0x1a4)",
             Arity = ArgumentArity.ZeroOrOne,
         };
         coordinateArgument.DefaultValueFactory = _ => null;
@@ -30,13 +36,14 @@ internal static class LibraryCoordinateCommandDefinitions
                 return;
 
             string value = result.Tokens[^1].Value;
-            if (!ILOffsetQuery.TryParse(value, out _, out _))
-            {
-                result.AddError(
-                    $"Invalid coordinate '{value}'. Expected a MethodDef token "
-                    + "plus IL offset, for example 0x06000001+0x5.");
-            }
+            if (!TryClassifyCoordinate(value, out _, out string? error))
+                result.AddError(error!);
         });
+        var fileOption = new Option<string?>("--file")
+        {
+            Description =
+                "Text file of up to 1,024 sparse MethodDef token plus IL offset coordinates",
+        };
 
         var libraryOption = new Option<string?>("--library")
         {
@@ -81,6 +88,8 @@ internal static class LibraryCoordinateCommandDefinitions
         command.Options.Add(frameworkOption);
         command.Options.Add(versionOption);
         command.Options.Add(tfmOption);
+        command.Options.Add(fileOption);
+        command.Options.Add(metadataRootOption);
         command.Options.Add(opts.RawUrls);
         command.Options.Add(opts.BrowsableUrls);
         command.Options.Add(opts.Trace);
@@ -101,6 +110,28 @@ internal static class LibraryCoordinateCommandDefinitions
         opts.AddPrintOptionTo(command);
         opts.AddShapeProjectionOptionsTo(command);
         opts.AddNuGetOptionsTo(command);
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                !string.IsNullOrWhiteSpace(
+                    result.GetValue(fileOption))
+                && opts.ParseDiscover(result) is null,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         var acceptedParentOptions = new HashSet<Option>(command.Options);
         command.Validators.Add(result =>
@@ -128,10 +159,29 @@ internal static class LibraryCoordinateCommandDefinitions
         {
             string? coordinate =
                 parseResult.GetValue(coordinateArgument);
-            if (string.IsNullOrWhiteSpace(coordinate))
+            string? coordinateFile =
+                parseResult.GetValue(fileOption);
+            bool hasCoordinate = !string.IsNullOrWhiteSpace(coordinate);
+            bool hasCoordinateFile = !string.IsNullOrWhiteSpace(coordinateFile);
+            if (hasCoordinate == hasCoordinateFile)
             {
                 CommandError.Write(
-                    "library coordinate requires one exact coordinate.");
+                    hasCoordinate
+                        ? "library coordinate accepts either one exact coordinate "
+                            + "or --file, not both."
+                        : "library coordinate requires one exact coordinate or "
+                            + "--file <path>.");
+                return 1;
+            }
+
+            if (!CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "IL coordinate",
+                        out RowSelectionIntent<string>? rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
                 return 1;
             }
 
@@ -142,6 +192,25 @@ internal static class LibraryCoordinateCommandDefinitions
             string? version = parseResult.GetValue(versionOption);
             string? tfm = parseResult.GetValue(tfmOption);
             bool includePrerelease = parseResult.GetValue(prereleaseOption);
+            CoordinateFamily family = default;
+            if (hasCoordinate
+                && !TryClassifyCoordinate(
+                    coordinate!,
+                    out family,
+                    out string? coordinateError))
+            {
+                CommandError.Write(coordinateError!);
+                return 1;
+            }
+
+            if (!InspectionCommandDefinitions.TryParseMetadataRoot(
+                    parseResult.GetValue(metadataRootOption),
+                    out MetadataRootKind metadataRoot,
+                    out string? metadataRootError))
+            {
+                CommandError.Write(metadataRootError!);
+                return 1;
+            }
 
             if (!TryValidateSource(
                     opts,
@@ -157,6 +226,26 @@ internal static class LibraryCoordinateCommandDefinitions
             {
                 CommandError.Write(sourceError!);
                 return 1;
+            }
+
+            ILCoordinatePopulation? coordinatePopulation = null;
+            bool structuralDiscovery =
+                opts.IsDiscoveryMode(parseResult)
+                && opts.ParseSchema(parseResult);
+            if (hasCoordinateFile && !structuralDiscovery)
+            {
+                ILCoordinatePopulationOutcome population =
+                    ILOffsetQuery.ReadPopulation(coordinateFile!);
+                if (!population.Succeeded)
+                {
+                    CommandError.Write(
+                        ILOffsetQuery.PopulationFailureMessage(
+                            population.Failure!,
+                            coordinateCommand: true));
+                    return 1;
+                }
+
+                coordinatePopulation = population.Population;
             }
 
             string[]? select = opts.ParseSelect(parseResult);
@@ -175,7 +264,19 @@ internal static class LibraryCoordinateCommandDefinitions
                 PlatformFramework = framework,
                 PlatformVersion = version,
                 Tfm = tfm,
-                ILOffsetParameter = coordinate,
+                ILOffsetParameter =
+                    hasCoordinate
+                    && family == CoordinateFamily.IL
+                        ? coordinate
+                        : null,
+                ILOffsetsPath = coordinateFile,
+                ILCoordinatePopulation = coordinatePopulation,
+                HeapParameter =
+                    hasCoordinate
+                    && family == CoordinateFamily.Heap
+                        ? coordinate
+                        : null,
+                MetadataRoot = metadataRoot,
                 IsCoordinateCommand = true,
                 BrowsableUrls =
                     parseResult.GetValue(opts.BrowsableUrls)
@@ -216,7 +317,10 @@ internal static class LibraryCoordinateCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                CoordinateRowSelection = rowSelection,
+                Rows = rowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions =
@@ -225,6 +329,57 @@ internal static class LibraryCoordinateCommandDefinitions
         });
 
         return command;
+    }
+
+    private enum CoordinateFamily
+    {
+        IL,
+        Heap,
+    }
+
+    private static bool TryClassifyCoordinate(
+        string value,
+        out CoordinateFamily family,
+        out string? error)
+    {
+        if (ILOffsetQuery.TryParse(value, out _, out _))
+        {
+            family = CoordinateFamily.IL;
+            error = null;
+            return true;
+        }
+
+        if (MetadataHeapCoordinate.TryParse(
+                value,
+                out _,
+                out _,
+                out string? heapError))
+        {
+            family = CoordinateFamily.Heap;
+            error = null;
+            return true;
+        }
+
+        family = default;
+        if (LooksLikeHeapCoordinate(value))
+        {
+            error = $"Invalid coordinate '{value}': {heapError}";
+            return false;
+        }
+
+        error =
+            $"Invalid coordinate '{value}'. Expected a MethodDef token plus "
+            + "IL offset (0x06000001+0x5) or a metadata heap plus address "
+            + "(#Strings:0x1a4).";
+        return false;
+    }
+
+    private static bool LooksLikeHeapCoordinate(string value)
+    {
+        string trimmed = value.Trim();
+        return trimmed.StartsWith('#')
+            || trimmed.Contains(':')
+            || MetadataHeapCoordinate.TryParseHeap(trimmed, out _);
     }
 
     private static bool TryValidateSource(

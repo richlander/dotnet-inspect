@@ -818,13 +818,17 @@ public partial class CommandExecutionTests
                 [
                     CompliantProjectSkill(
                         "skills/project-skill/SKILL.md",
-                        "project skill")
+                        "project skill"),
+                    CompliantProjectSkill(
+                        "skills/second-project-skill/SKILL.md",
+                        "second project skill")
                 ]));
         try
         {
             (string Name, string[] Arguments)[] cases =
             [
                 ("paths", ["-S", "Skills", "--paths"]),
+                ("paths-lines", ["-S", "Skills", "--paths", "--lines", "-n", "1"]),
                 ("print", ["-S", "Skills", "--print", "--row", "1", "--body"]),
             ];
 
@@ -844,12 +848,49 @@ public partial class CommandExecutionTests
                 Assert.Empty(redirected.Error);
                 Assert.Empty(redirected.Output);
                 Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                if (testCase.Name == "paths-lines")
+                {
+                    Assert.Single(
+                        baseline.Output.Split(
+                            '\n',
+                            StringSplitOptions.RemoveEmptyEntries));
+                }
             }
         }
         finally
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ProjectJsonArrayRejectsRenderedLineSelectionBeforeAcquisition()
+    {
+        string missingProject = Path.Combine(
+            Path.GetTempPath(),
+            Guid.NewGuid().ToString("n"),
+            "missing.csproj");
+
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            missingProject,
+            "-S",
+            "Skills",
+            "--paths",
+            "--json-array",
+            "-n",
+            "1",
+            "--lines");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            error);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

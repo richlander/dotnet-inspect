@@ -52,6 +52,24 @@ Transitions` view remains a standalone exact-name section.
 Project uses `@Project` as its base category for package-authored `Skills` and
 `Package README file` documents from restored direct dependencies. Bare `-S`
 retains `Skills`; selecting `@Project` explicitly requests both inventories.
+Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
+select the vocabularies consumed by those query families; bare output and bare
+`-S` retain the `Vocabulary Sections` index.
+Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
+operand first chooses the catalog-wide, focused-pack, or focused-Platform
+section set; `@Ecosystem` then composes that complete set. Exact
+`Integrations` selects the product-configured bindings. Ecosystem has no
+single-member `@Integrations` category. Ordinary output retains `Ecosystems`
+or `Ecosystem Info`, while bare `-S` retains the complete route-specific
+composition.
+`graph libraries` uses `@Libraries` as its base category for the pair-wide
+`Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, and `Provider API
+Types` projections. Ordinary output remains `Call Sites`, while bare `-S`
+retains the two summary projections. Coordinate-gated `Public Root Paths`
+remains exact-name-only and outside the category.
+Package Query uses `@Query` as its base category for `Packages` and
+`Query Summary`. Ordinary output remains adaptive, while bare `-S` retains
+the non-adaptive `Packages` preset.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -102,6 +120,7 @@ dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S References --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
+dotnet-inspect package query Newtonsoft.Json -S @Query
 dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
@@ -132,6 +151,9 @@ removes that section.
 Member contexts use focused presets within `@Member`: member-kind summaries for
 a broad type view, the matching inventory for a member name, and `Signature`
 for one selected overload. See [Bare `-S` default view](info-view.md).
+Package Query's authored `Packages` preset and `graph libraries`' authored
+summary pair are deliberate command-specific bare-`-S` projections rather than
+automatic verbosity presets.
 
 ## Discovery
 
@@ -157,9 +179,10 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Package, type-listing, member, diff, and project catalogs follow this model.
-Commands not yet migrated may retain their existing discovery behavior; new
-work should follow the reference model rather than copy a legacy command.
+Package, type-listing, member, diff, project, vocabulary, and ecosystem
+catalogs follow this model. Commands not yet migrated may retain their existing
+discovery behavior; new work should follow the reference model rather than
+copy a legacy command.
 
 ## Query discovery
 

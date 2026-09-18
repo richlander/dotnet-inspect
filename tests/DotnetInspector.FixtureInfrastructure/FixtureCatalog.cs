@@ -103,6 +103,9 @@ public static class FixtureIds
     public const string AnalysisMethodCorrespondenceSurface =
         "analysis.method-correspondence.surface";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
+    public const string AnalysisCallOverloads = "analysis.call-overloads";
+    public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
+    public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
     public const string AnalysisProtobuf = "analysis.protobuf";
@@ -143,6 +146,8 @@ public static class FixtureIds
     public const string HostileLiterals = "hostile.literals";
     public const string InspectWebCloneTransport =
         "inspect-web.clone-transport";
+    public const string InspectWebDocumentation =
+        "inspect-web.documentation";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
@@ -237,6 +242,17 @@ public static class FixtureCatalog
         "InspectWeb.CloneTransportFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "inspect-web", "clone", "generic-identity", "explicit-interface");
+
+    public static readonly FixtureDefinition InspectWebDocumentation = Fixture(
+        FixtureIds.InspectWebDocumentation,
+        "InspectWeb.DocumentationFixtures",
+        "InspectWeb.DocumentationFixtures.dll",
+        ["inspect-web", "documentation", "extension", "non-public"],
+        Boundaries(FixtureBoundary.SidecarAsset),
+        Asset(
+            "documentation",
+            "InspectWeb.DocumentationFixtures",
+            "InspectWeb.DocumentationFixtures.xml"));
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
@@ -470,6 +486,27 @@ public static class FixtureCatalog
         "ILInspector.Analysis.OwnershipFlowFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "ownership-flow");
+
+    public static readonly FixtureDefinition AnalysisCallOverloads = Fixture(
+        FixtureIds.AnalysisCallOverloads,
+        "ILInspector.Analysis.CallOverloadFixtures",
+        "ILInspector.Analysis.CallOverloadFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallGenericScope = Fixture(
+        FixtureIds.AnalysisCallGenericScope,
+        "ILInspector.Analysis.CallGenericScopeFixtures",
+        "ILInspector.Analysis.CallGenericScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallFunctionPointerScope = Fixture(
+        FixtureIds.AnalysisCallFunctionPointerScope,
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures",
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
 
     public static readonly FixtureDefinition AnalysisTopLevelAsync = Fixture(
         FixtureIds.AnalysisTopLevelAsync,
@@ -944,6 +981,7 @@ public static class FixtureCatalog
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
+        InspectWebDocumentation,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
@@ -966,6 +1004,9 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
+        AnalysisCallOverloads,
+        AnalysisCallGenericScope,
+        AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
         AnalysisCallerGraphCallerTwin,
@@ -1057,6 +1098,9 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisCallOverloads,
+            AnalysisCallGenericScope,
+            AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1349,6 +1393,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyReference",
             "InspectWeb.CloneTransportFixtures" =>
                 "fixtures/inspect-web/InspectWeb.CloneTransportFixtures",
+            "InspectWeb.DocumentationFixtures" =>
+                "fixtures/inspect-web/InspectWeb.DocumentationFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
@@ -1399,6 +1445,9 @@ public static class FixtureCatalog
             "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
             "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
+            "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
+            "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
+            "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
             "ILInspector.Analysis.SpoofFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofFixtures",

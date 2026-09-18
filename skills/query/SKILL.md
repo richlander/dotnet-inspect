@@ -118,6 +118,10 @@ evidence unless a category is named.
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
+| `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
+| `ecosystem` | `@Ecosystem` | none |
+| `graph libraries` | `@Libraries` | none |
+| `package query` | `@Query` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -131,8 +135,16 @@ overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
 by exact name. Project `@Project` composes restored dependency `Skills` and
-`Package README file` inventories. `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+`Package README file` inventories. Vocabulary `@Vocabulary` composes the
+complete product-owned vocabulary document; use `@API` or `@Decompiler` for
+the corresponding query family. Ecosystem `@Ecosystem` composes every section
+available after the optional focus operand chooses the route; select exact
+`Integrations` for configured Integration bindings. Graph `@Libraries`
+composes the pair-wide call-site, summary, and direct-use cluster projections;
+coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
+section. Package Query `@Query` composes `Packages` and `Query Summary`;
+ordinary output remains adaptive and bare `-S` retains `Packages`.
+There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
@@ -190,6 +202,9 @@ dnx dotnet-inspect -y -- package query Azure.Mcp \
   --where "tool=true"
 dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
+dnx dotnet-inspect -y -- package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -197,28 +212,39 @@ expressions. Independent terms are ANDed; the broad `tool=true` term identifies
 the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 `tool-format=v2` for settings-based format classification; those specific
 formats are ORed. Query rows represent individual packages, with exact versions
-and product-authored evidence. `--take` bounds candidate work, while `-n` and
-`--rows` select final matched-package rows. Without explicit `--take`, a simple
-`-n N` is pushed into execution: direct package rows use an effective candidate
-bound of N, while filtered queries scan until N matches or their default
-candidate bound. Pushdown is capped at 1,000 candidates; larger semantic heads
-remain valid and are applied after bounded execution. Selecting a
-package-content term is itself approval for archive acquisition and permits at
-most 20 candidates; use
+and product-authored evidence. Dependency predicates inspect all nuspec groups
+by default; use `dependency-target=<TFM>` to select one compatible group, or
+`dependency-target=all` to spell the default explicitly. The query scope
+`all` remains distinct from a manifest's `any` group and does not request
+traversal. `--take` bounds candidate work, while `-n` and `--rows` select final
+matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
+execution: direct package rows use an effective candidate bound of N, while
+filtered queries scan until N matches or their default candidate bound.
+Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
+are applied after bounded execution. Selecting a package-content term is
+itself approval for archive acquisition and permits at most 20 candidates; use
 `--nuspec-only` to reject such a query. `--count` observes selected rows and
 succeeds only when completion or a satisfied finite row selection proves that
 count exact. Reached candidate bounds and failures remain visible.
-Package Query does not
-accept API-search scopes, source overrides, or ranking. Query-execution flags
-cannot be combined with `-Q`.
+Default non-count output shows `Packages` when at least one package matched and
+`Query Summary` otherwise. The summary separates candidate, match, and
+evaluation-failure counts; select a stable shape with `-S Packages` or
+`-S "Query Summary"`. Bare `-S` selects the non-adaptive `Packages` preset, and
+explicit `Packages` preserves its empty schema. Select `@Query` to compose both
+sections in Markdown or JSON.
+Package Query does not accept API-search scopes, source overrides, or ranking.
+Query-execution flags cannot be combined with `-Q`.
 
-`library -Q Integrations` describes the ecosystem facet for the whole Integration
-family. All integrations are enabled by default; use
+`library -Q Integrations` describes the concept and ecosystem facets for the
+whole Integration family. All integrations are enabled by default; use
 `library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
-to narrow the ordinary result. The initial supported value is
-`ecosystem.aspire`. Use a concrete section such as `Integration: Aspire` for
-TSV/JSONL. This predicate does not combine with Body Shapes or Performance
-Triage filters/rankings.
+to enable an ecosystem's registered concepts, or
+`--where "integration=integration.aspire"` to select one concept. Aspire
+currently enables the complete configured Integration catalog, and an
+`integration` predicate narrows within that set. Query discovery lists every
+supported concept identity.
+`Integrations` supports TSV/JSONL. Neither facet combines with Body Shapes or
+Performance Triage filters/rankings.
 
 ## Correlate one member's Findings
 
@@ -307,26 +333,30 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines on commands that
-  have not adopted semantic rows, like `head`.
-- `--tail` takes the same count from the end, like `tail`.
+- `-n N` and numeric shorthand like `-6` select semantic rows when the active
+  command or lens declares them; otherwise they select rendered lines.
+- Add `--tail` for the last N items. Use `--lines` to switch a semantic command
+  to rendered lines or `--tail-lines` for trailing rendered lines.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.
 - On commands retaining the legacy row window, `--rows 2..10` is an absolute
   1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
-  and `10..` runs from row 10 to the end. These legacy ranges reject
-  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
+  and `10..` runs from row 10 to the end. A legacy range rejects
+  `--head`/`--tail` when no `-n` is present. Legacy `--rows` composes with an
+  inferred or explicit rendered-line `-n`; in that composition, `--head` or
+  `--tail` modifies `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-`find`, `package query`, package `--versions` / `--versions-with-feed`, and
-`demo list` use semantic rows. `-n N` selects complete items. Package version
-listings and `demo list` also accept `-n N --lines` to clip rendered lines.
-`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
-`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range. On `package query`, `--take N` separately bounds package work
-before semantic row selection.
+`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`timeline`, `package query`, package activity, package `--versions` /
+`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
+complete items; `-n N --lines` instead clips rendered output. Where supported,
+`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
+stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
+`package query`, `--take N` separately bounds package work before semantic row
+selection.

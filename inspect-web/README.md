@@ -1348,7 +1348,7 @@ remain excluded.
 Search also exposes a `Package query` action that opens the routed `/query`
 surface. Package Query accepts an exact package ID or terminal-star literal
 prefix and remains idle when blank; Spotlight remains the open-text NuGet
-discovery experience. The separate inspection facets explicitly add manifest
+discovery experience. Inspection presets and active terms explicitly add manifest
 or bounded package-content evaluation. Browser Wasm streams shared product rows
 and visible failures, then hands an exact result coordinate to the normal
 Workspace package-opening path. Prefix results disclose their source and client
@@ -1356,15 +1356,20 @@ bounds rather than claiming globally exhaustive coverage. The route keeps
 request and result state in the current session rather than in the URL; a
 direct load starts with empty package input.
 
-The **Assembly patterns** disclosure is a separate explicit mode. Select
-**IL string literal contains**, enter one to five exact `ID@VERSION` packages,
-an unchanged literal operand, and a framework group. The shared evaluator
-searches only each selector-issued primary implementation assembly, not every
-assembly or the raw string heap. Semantic misses, unavailable roles, and
-failures remain distinct. **Open in workspace** passes the owner's exact Root
-request and reacquires under current source authorization; it does not retain
-the query candidate in the Workspace cache. RID selection and ecosystem-wide
-candidate discovery are outside this first assembly-pattern gesture.
+The collapsed **Library literal** disclosure is a separate explicit mode.
+Enter an exact package ID or terminal-star prefix in the ordinary query bar,
+an unchanged decoded-literal operand, and a framework group. Exact input
+resolves the latest eligible listed version; prefix input admits at most five
+candidates. The shared evaluator searches only each selector-issued primary
+implementation assembly, not every assembly or the raw string heap. Semantic
+misses, unavailable roles, failures, and deadline non-evaluation remain
+distinct. The callback sink carries progress only; the returned
+`InspectionEnvelope<PackageAssemblySemanticQueryDocument>` carries package
+Results, occurrence evidence, candidate outcomes, failures, and completion.
+**Open in workspace** passes the owner's exact Root request and reacquires
+under current source authorization; it does not reconstruct the Root from
+display text. RID selection and ecosystem-wide candidate discovery remain
+outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
@@ -1393,11 +1398,11 @@ The same harness's **Package Activity website over real Wasm** scenario enters
 the dedicated `/activity` route directly and through Spotlight, refreshes it,
 and exercises Back/Forward before validating progressive report publication.
 
-The same harness's **Assembly Package Query website over real Wasm** scenario
-uses the cataloged `analysis.string-literals` fixture to exercise all four
-dispositions and exact reopening from the real `/query` page. Run just that
-scenario with
-`eng/test-inspect-web-package-adoption-gate.sh --grep 'Assembly Package Query website'`.
+The same harness's library-literal Package Query scenario uses the cataloged
+`analysis.string-literals` fixture to verify the package Result, bounded
+occurrence preview, and exact Root reopening from the real `/query` page. Run
+just that scenario with
+`eng/test-inspect-web-package-adoption-gate.sh --grep 'qualifies package Results by decoded library literal'`.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -2080,8 +2085,8 @@ unclaimed globally.
 
 `test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
 handled fallthrough, exact modifiers, conflict reporting, disposal, and the
-original stack-navigation collision. `test/spotlight-identity.test.js` gates
-the single-listener wiring and the complete workbench priority order.
+original stack-navigation collision. `test/composition-root-controls.test.ts`
+gates the single-listener wiring and the complete workbench priority order.
 `test/workspace-navigation.test.ts` gates
 history traversal, stale-entry removal, navigation cancellation, generated
 codec delegation, canonical topology and identity adaptation, visible typed
@@ -2110,8 +2115,8 @@ or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
 exact Platform pins additionally gate version-aware resident reuse and engine
 invocation;
-`test/spotlight-identity.test.js` gates provenance, failure adaptation, and
-composition-root wiring.
+`test/composition-root-controls.test.ts` gates provenance, failure adaptation,
+and composition-root wiring.
 
 `src/package-inspection.ts` owns the async request lifecycle for Dependencies,
 Integrations, Opportunities, Analysis, and package-level Metadata, including
@@ -2121,7 +2126,7 @@ diagnostics, and rendering ports while retaining lens selection and
 presentation. `test/package-inspection.test.ts` gates complete cache identity,
 resident-package checks, visible partial/failure results, package/platform
 routing, stale publication, and explicit Platform library scope;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+`test/composition-root-controls.test.ts` gates the composition-root wiring.
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
 call-graph source request lifecycle: shared cancellation, request-owned Type
@@ -2133,7 +2138,8 @@ state and rendering ports, and retains source presentation.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
 settled empty graph failure, and graph auto-load eligibility;
-`test/spotlight-identity.test.js` gates engine and composition-root wiring.
+`test/composition-root-member-source.test.ts` gates engine and composition-root
+wiring.
 The focused Type and Member Source state contract is
 [Inspect Web Type and Member Source State](../docs/design/inspect-web-type-member-source-state.md).
 
@@ -2146,7 +2152,7 @@ requests, and retains mutable state, rendering, and annotated-source
 interaction handlers. `test/member-detail-inspection.test.ts` gates current and
 stale completion, cached failures, runtime documentation, exact request
 coordinates, cross-surface invalidation, and focus restoration;
-`test/spotlight-identity.test.js` gates composition-root wiring.
+`test/composition-root-member-source.test.ts` gates composition-root wiring.
 
 `src/call-graph-inspection.ts` owns member call-graph request coordination:
 fast local publication followed by full-workspace expansion, runtime-member
@@ -2156,8 +2162,8 @@ the selected overload, constructs exact engine requests, and supplies paint,
 rendering, DOM patching, package-stat, and platform-navigation ports.
 `test/call-graph-inspection.test.ts` gates cache reuse, progressive ordering,
 workspace and runtime routing, partial failures, stale completion, drill
-navigation, and focus restoration; `test/spotlight-identity.test.js` gates
-composition-root wiring.
+navigation, and focus restoration; `test/composition-root-call-graph.test.ts`
+gates composition-root wiring.
 
 `src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
 Metadata Explorer's table-window and heap-listing requests, including cache
@@ -2167,7 +2173,8 @@ typed state, engine, rendering, and scroll ports while retaining selection
 validation, explorer focus/history navigation, and DOM effects.
 `test/metadata-inspection.test.ts` gates cached and stale type completions,
 focus preservation, explorer routing, window identity, failure publication,
-and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
+and focused scrolling;
+`test/composition-root-workspace-navigation.test.ts` gates composition-root
 wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,

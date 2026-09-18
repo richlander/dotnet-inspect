@@ -63,16 +63,6 @@ public static class PackageCommandDefinitions
             Description = "List available versions with source feeds; use -n N to select N version/feed rows",
             Arity = ArgumentArity.Zero
         };
-        var linesOption = new Option<bool>("--lines")
-        {
-            Description = "Apply -n to rendered lines instead of version rows",
-            Arity = ArgumentArity.Zero
-        };
-        var tailLinesOption = new Option<bool>("--tail-lines")
-        {
-            Description = "Apply -n to rendered lines from the end",
-            Arity = ArgumentArity.Zero
-        };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
@@ -85,7 +75,6 @@ public static class PackageCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
-        var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from eligible configured sources (add --preview for prerelease)" };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
@@ -99,8 +88,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
-        packageCommand.Options.Add(linesOption);
-        packageCommand.Options.Add(tailLinesOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(includeUnlistedOption);
         packageCommand.Options.Add(contentOption);
@@ -109,7 +96,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
-        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.RawUrls);
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
@@ -129,20 +115,64 @@ public static class PackageCommandDefinitions
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
+        opts.AddEnvelopeOptionTo(
+            packageCommand,
+            opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+            opts.Lines, opts.TailLines,
+            dependenciesOption, layoutOption, pathOption, pathMatchOption,
+            skipEmptyOption, tfmsOption, libOption, toolsOption,
+            libraryOption, allLibrariesOption,
+            contentOption, frontmatterOption, bodyOption, outOption,
+            tfmOption, typeFilterOption, versionOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption);
-            bool hasLineSelection =
-                result.GetValue(linesOption)
-                || result.GetValue(tailLinesOption);
-            if (!hasPluralVersionSelector
-                && hasLineSelection)
+            if (result.GetValue(opts.Envelope))
             {
-                result.AddError(
-                    "--lines and --tail-lines are available with "
-                    + "--versions or --versions-with-feed.");
+                string[] packageReferences =
+                    result.GetValue(packageNameArg) ?? [];
+                bool isRange =
+                    packageReferences is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null;
+                bool isOrdinaryListing =
+                    packageReferences is [var ordinaryReference]
+                    && !File.Exists(ordinaryReference)
+                    && string.IsNullOrEmpty(
+                        PackageExtractor.ParsePackageReference(
+                            ordinaryReference).version);
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || (isRange && result.GetValue(opts.Count));
+                if (!hasPopulationGesture
+                    || (!isRange && !isOrdinaryListing))
+                {
+                    result.AddError(
+                        "--envelope on package requires one unversioned package "
+                        + "with --versions or --versions-with-feed, or one "
+                        + "Package@A..B range with --versions, "
+                        + "--versions-with-feed, or --count.");
+                }
+
+                if (!result.GetValue(opts.Count))
+                {
+                    foreach (Option option in new Option[]
+                    {
+                        opts.Rows, opts.Limit, opts.Head, opts.Tail,
+                    })
+                    {
+                        if (result.GetResult(option) is { Implicit: false })
+                        {
+                            result.AddError(
+                                $"--envelope cannot be combined with {option.Name}.");
+                        }
+                    }
+                }
             }
 
         });
@@ -156,17 +186,25 @@ public static class PackageCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             result =>
                 result.GetValue(versionsOption)
-                || result.GetValue(versionsWithFeedOption),
+                || result.GetValue(versionsWithFeedOption)
+                || (result.GetValue(opts.Count)
+                    && (result.GetValue(packageNameArg) ?? [])
+                        is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.ResolveFormat(result),
+                    opts.IsJsonDocumentOutput(result),
                     lowering));
 
         var queryCommand = CreatePackageQueryCommand(
@@ -186,8 +224,8 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption,
-            linesOption, tailLinesOption, outOption, pathMatchOption,
+            tfmOption, typeFilterOption, versionOption,
+            opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
 
@@ -308,9 +346,6 @@ public static class PackageCommandDefinitions
         {
             Description = "Minified JSON (use with --json)"
         };
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
-
         queryCommand.Arguments.Add(inputArg);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
@@ -325,6 +360,8 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.Rows);
         queryCommand.Options.Add(opts.Head);
         queryCommand.Options.Add(opts.Tail);
+        queryCommand.Options.Add(opts.Lines);
+        queryCommand.Options.Add(opts.TailLines);
         queryCommand.Options.Add(opts.Count);
         queryCommand.Options.Add(opts.Fields);
         queryCommand.Options.Add(opts.Columns);
@@ -357,6 +394,8 @@ public static class PackageCommandDefinitions
                 opts.Rows,
                 opts.Head,
                 opts.Tail,
+                opts.Lines,
+                opts.TailLines,
                 opts.Fields,
                 opts.Columns,
                 opts.Discover,
@@ -465,20 +504,30 @@ public static class PackageCommandDefinitions
             }
 
             string[]? select = opts.ParseSelect(parseResult);
+            HashSet<string>? includeSections = null;
             if (select is not null)
             {
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
-                    [PackageProfileSections.Packages],
-                    categories: new Dictionary<string, string[]>());
+                    PackageQuerySections.Catalog.SelectableSectionNames,
+                    categories:
+                        PackageQuerySections.Catalog.SelectionCategoryMap);
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
-                if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+                includeSections = selection.Sections;
+                if (parseResult.GetValue(opts.Count)
+                    && (includeSections is not { Count: 1 }
+                        || !includeSections.Contains(PackageProfileSections.Packages)))
                 {
                     CommandError.Write(
-                        "Package Query data selection must include Packages.");
+                        "Package Query --count supports the Packages section only.");
                     return 1;
                 }
+                if (!parseResult.GetValue(opts.Count)
+                    && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                        opts.IsTableExplicitlySet(parseResult),
+                        includeSections))
+                    return 1;
             }
 
             if (!PackageQueryOptions.TryCreate(
@@ -509,7 +558,17 @@ public static class PackageCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                IncludeSections = includeSections,
+                SelectDefault = opts.ParseSelectDefault(parseResult),
             };
+            if (options.LibraryLiteralPlan is not null
+                && includeSections?.Contains(
+                    PackageQuerySections.QuerySummaryName) == true)
+            {
+                CommandError.Write(
+                    "Query Summary is not available with --library-literal.");
+                return 1;
+            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),
@@ -525,11 +584,16 @@ public static class PackageCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,
             takeOption,

@@ -1063,6 +1063,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0"));
         var timeout = new PackageHouseFailure.Timeout(
             request.Operation.Identity,
@@ -1100,6 +1101,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0"));
         var ownerFailure = new PackageAuthorityFailure(
             Reason("nuget.org"),
@@ -1172,8 +1174,35 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
 
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRealizationReceipt.Compile(
+                bundle.Acquisition,
+                receipt));
+    }
+
+    [Fact]
+    public void CompileReceiptRejectsExactTargetOutsideHousePolicy()
+    {
+        PackageHouseRequest request = Request(
+            PackageHouseOperationProfile.Realize,
+            selection: PackageHouseAssetSelectionKind.Compile);
+        IPackageContent content = Content(
+            "ref/net10.0/Contoso.Json.dll");
+        AcquisitionBundle bundle = Acquisition(
+            request,
+            content.GenerationIdentity);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "contoso.json",
+                "net10.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            receipt.Policy);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseRealizationReceipt.Compile(
                 bundle.Acquisition,
@@ -1229,6 +1258,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 other,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
 
         Assert.Throws<ArgumentException>(
@@ -1282,6 +1312,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
         var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
@@ -1320,6 +1351,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 foreign,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
         PackageCompileAsset asset = Assert.Single(
             receipt.Selection.Assets);
@@ -1348,6 +1380,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
         PackageCompileAsset asset = Assert.Single(
             receipt.Selection.Assets);
@@ -1376,6 +1409,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0"));
 
         Assert.True(realization.Selection.IsSelected);
@@ -1422,7 +1456,7 @@ public sealed class PackageHouseContractTests
             PackageHouseOperationProfile.Realize,
             handoff: PackageHouseLibraryHandoffMode.SelectedLibraries);
         IPackageContent content = Content(
-            "ref/net8.0/Contoso.Json.dll");
+            "ref/net11.0/Contoso.Json.dll");
         AcquisitionBundle bundle = Acquisition(
             request,
             content.GenerationIdentity);
@@ -1430,6 +1464,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
         var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
@@ -1444,6 +1479,12 @@ public sealed class PackageHouseContractTests
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
             realization.Selection.Status);
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            realization.Receipt.Policy);
+        Assert.Equal(
+            ["net11.0"],
+            realization.Selection.AvailableTargetFrameworks);
         Assert.Empty(realization.LibraryHandoffs);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseResult.Settled(evidence));
@@ -1469,6 +1510,7 @@ public sealed class PackageHouseContractTests
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
                 "net10.0");
         var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
@@ -1711,6 +1753,7 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseResult),
+            typeof(PackageHouseVersionListingResult),
             typeof(PackageHouseVersionPopulationResult),
         ];
 
@@ -1783,6 +1826,11 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseEvidence),
+            typeof(PackageHouseVersionListingRequest),
+            typeof(PackageHouseVersionListingEvidence),
+            typeof(PackageHouseVersionListingResult),
+            .. typeof(PackageHouseVersionListingResult)
+                .GetNestedTypes(BindingFlags.Public),
             typeof(PackageHouseVersionPopulationRequest),
             typeof(PackageHouseVersionPopulationEvidence),
             typeof(PackageHouseVersionPopulationCell),
@@ -1806,6 +1854,44 @@ public sealed class PackageHouseContractTests
                         "DotnetInspector.Queries",
                         StringComparison.Ordinal)
                     is true);
+    }
+
+    [Fact]
+    public void VersionListingTerminalFamilyIsClosedAndRejectsEmptyReason()
+    {
+        Type result = typeof(PackageHouseVersionListingResult);
+        string[] expected =
+        [
+            "Available",
+            "Failed",
+            "Incomplete",
+            "NotFound",
+            "Rejected",
+            "Unavailable",
+        ];
+        Assert.Equal(
+            expected,
+            result.GetNestedTypes(BindingFlags.Public)
+                .Select(type => type.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        var request = new PackageHouseVersionListingRequest(
+            "Contoso.Json",
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle),
+            includePrerelease: true,
+            includeUnlisted: true);
+        Assert.Equal("contoso.json", request.PackageId);
+        Assert.True(request.IncludePrerelease);
+        Assert.True(request.IncludeUnlisted);
+        var evidence = new PackageHouseVersionListingEvidence(
+            request);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseVersionListingResult.Failed(
+                evidence,
+                default));
     }
 
     [Fact]

@@ -27,6 +27,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
+    public bool SelectDefault { get; init; }
     public bool Tree { get; init; }
 
     private static ImmutableArray<PackageQueryTermDescriptor> CliTerms { get; } =
@@ -49,7 +51,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
-        + "depends=<package ID> matches a direct declared dependency. "
+        + "depends=<package ID> matches a direct declared dependency; "
+        + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
         + "Selecting a package-content term authorizes at most "

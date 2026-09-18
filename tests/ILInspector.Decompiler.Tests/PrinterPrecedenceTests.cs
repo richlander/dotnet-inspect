@@ -71,6 +71,7 @@ public class PrinterPrecedenceTests
             [],
             body);
 
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         DecompilerResult result = CSharpPrinter.Print(function);
         string output = result.Output!;
 

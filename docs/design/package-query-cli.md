@@ -46,8 +46,9 @@ Package-content evaluation is product-gated to at most 20 candidates.
 canary.
 
 CLI and Browser now consume the same first production vocabulary:
-`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
-`readme=true`, `tool=true`, `tool-format=v1|v2`, and `skill=true`.
+`dependencies=none`, `dependency-target=all|<tfm>`,
+`depends=<package-id>`, `downloads=10k|100k|1m`, `readme=true`,
+`tool=true`, `tool-format=v1|v2`, and `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
 `prerelease=stable|include` are structural terms authored by the shared input
 planner rather than host-visible inspection controls. Assembly-semantic
@@ -121,8 +122,9 @@ The production inspection vocabulary is:
 
 | Term | Value | Tier | Meaning |
 | --- | --- | --- | --- |
-| `dependencies` | `none` | nuspec | No declared dependencies in any group |
-| `depends` | NuGet package ID | nuspec | Direct dependency declared in any group |
+| `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
+| `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
+| `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
 | `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
@@ -142,6 +144,10 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "downloads=1m"
 
+dotnet-inspect package query 'Polly.*' \
+  --where "depends=System.Threading.Tasks.Extensions" \
+  --where "dependency-target=netstandard2.0"
+
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
   --where "tool-format=v2" \
@@ -160,11 +166,54 @@ collapse, matching the canonical codec; both CLI and Browser receive the same
 typed planning rejection for a twenty-third inspection term.
 
 `depends` uses NuGet package-ID comparison semantics and matches a direct
-dependency declared in any nuspec dependency group. It does not select a
-target-framework group, evaluate version-range satisfiability, or traverse
-transitively. A matching package's evidence names every distinct observed
-dependency spelling and declared range, subject to the bounded evidence
-preview.
+dependency. Without `dependency-target`, or with
+`dependency-target=all`, dependency predicates inspect every nuspec group.
+`all` is Package Query scope rather than a target-framework identity and is
+distinct from a manifest's real `any` group.
+
+`dependency-target=<tfm>` canonicalizes the requested NuGet target and uses
+the dependency-group owner's compatible selection. The plan and evidence
+retain the requested target and selected manifest group separately. A selected
+empty group and a manifest with no dependency groups satisfy
+`dependencies=none`; no matching target framework does not. The target term
+requires at least one `depends` or `dependencies` term, applies to all such
+terms in the query, and does not traverse, resolve version ranges, or select
+package assets.
+
+## Adaptive result section
+
+Package Query settles package population before choosing its default rendered
+section. Its host-neutral `PackageQueryDocument` always retains Results,
+Failures, Summary, and the derived `HasPackages` decision. CLI and Browser
+consume that same document; a host must not reconstruct the decision from
+display text.
+
+Without `-S`, the CLI selects exactly one section after execution:
+
+- `Packages` when `PackageQueryDocument.HasPackages` is true;
+- `Query Summary` otherwise.
+
+The selection happens before format lowering, so Markdown, table, TSV, JSONL,
+and projected JSON make the same choice. `Query Summary` is one row with
+independent `Candidates`, `Matches`, `Evaluation Failures`, and `Status`
+columns. Predicate false is a nonmatch, not an evaluation failure. Thus a
+missing exact package reports zero candidates, while an existing package
+rejected by a predicate reports one candidate and zero matches.
+
+Explicit selection is non-adaptive. Bare `-S` requests the command's default
+`Packages` preset regardless of the settled result. `-S Packages` retains the
+package schema even when it has no rows, and `-S "Query Summary"` retains the
+settlement row even when packages matched. `@Query` composes both sections.
+Markdown and JSON render that composition in alphabetical order, with
+`Packages` first; table, TSV, and JSONL keep their existing one-section
+requirement.
+
+`--count` remains a semantic reduction over matched package rows rather than a
+count of whichever adaptive section rendered. It therefore supports the
+`Packages` section only.
+
+Matching dependency evidence identifies each declaration's manifest group,
+package ID, and declared range, subject to the bounded evidence preview.
 
 Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
 Such a query defaults the candidate budget to 20 and cannot bypass the
@@ -174,10 +223,11 @@ manifest request. Nuspec terms acquire manifests but no package archive;
 manifest predicates run before archive acquisition.
 
 `PackageQueryTests` gates vocabulary shape, complete intent retention,
-resolution, composition, evidence, candidate/match completion, and the
-search-metadata/no-manifest boundary. `PackageQueryCliTests` gates discovery,
-term spelling, Head/Count behavior, acquisition authorization, and output
-parity.
+resolution, dependency-target default and canonical binding, compatible group
+selection, selected-empty/no-groups/no-match behavior, evidence,
+candidate/match completion, and the search-metadata/no-manifest boundary.
+`PackageQueryCliTests` gates discovery, term spelling, Head/Count behavior,
+acquisition authorization, and output parity.
 
 ## CLI term binding
 

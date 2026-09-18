@@ -33,12 +33,14 @@ type PackageOperations =
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPackage"
+  | "queryPackageRoot"
   | "queryPackageDependencies"
   | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
+  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
   | "searchTypes";
 
@@ -82,11 +84,14 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "activateRetainedWorkspaceDefinition"
   | "canonicalizeWorkspaceSharePacket"
+  | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"
   | "listVocabulary"
+  | "observeRetainedWorkspaceSettlement"
   | "resolveHomeDemo"
   | "runHomeDemo";
 

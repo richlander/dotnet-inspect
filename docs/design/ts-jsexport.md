@@ -406,10 +406,11 @@ DOM-, or URL-safe. Consumers retain their sink-specific escaping.
 The generator and browser receive only the already-encoded representation.
 They do not import or expose `InertText.Encoding`; recovering original text
 remains a separate CLI concern under the InertText audit boundary.
-Polymorphic `System.Text.Json` base records remain structural in this
-generation slice; their runtime discriminator and derived members are
-preserved by the managed serializer, while a later union-lowering slice may
-expose them as a discriminated TypeScript union.
+Authenticated serialize-only polymorphic `System.Text.Json` base records lower
+to discriminated TypeScript unions. Their case interfaces consume the same
+owner-issued member-presence evidence as ordinary records, including exact
+optional present-value mapping; unsupported or deserialize-reached
+polymorphism fails visibly.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual

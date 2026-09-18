@@ -4,8 +4,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -27,12 +29,31 @@ public static class WorkspaceCommand
         CancellationToken cancellationToken = default)
     {
         WorkspaceContextLoadOptions loadOptions = CreateLoadOptions(options);
+        if (options.MakePackageDependenciesExplicit)
+        {
+            await using var composition =
+                new DesktopPackageSourceComposition(
+                    HttpClientFactory.Shared.Timeout);
+            var candidateSource =
+                new DesktopPackageDependencyCandidateSource(
+                    composition,
+                    options.SourceOptions,
+                    options.Verbose ? CommandError.WriteLine : null);
+            return await ExecuteCoreAsync(
+                options,
+                loadOptions,
+                payloadProvider: null,
+                candidateSource,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (options.RootRequest is null)
         {
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
                 payloadProvider: null,
+                candidateSource: null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -44,6 +65,7 @@ public static class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider,
+            candidateSource: null,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -55,12 +77,26 @@ public static class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider: null,
+            candidateSource: null,
+            cancellationToken);
+
+    internal static Task<int> ExecuteAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageDependencyCandidateSource candidateSource,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            options,
+            loadOptions,
+            payloadProvider: null,
+            candidateSource,
             cancellationToken);
 
     static async Task<int> ExecuteCoreAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
         IPackageRootPayloadProvider? payloadProvider,
+        IPackageDependencyCandidateSource? candidateSource,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -69,6 +105,30 @@ public static class WorkspaceCommand
         {
             CommandError.Write(optionError);
             return 1;
+        }
+
+        if (options.ShareFormat is { } definitionFormat)
+        {
+            if (options.MakePackageDependenciesExplicit)
+            {
+                if (candidateSource is null)
+                {
+                    throw new InvalidOperationException(
+                        "Package dependency enrichment requires a candidate source.");
+                }
+
+                return await WriteEnrichedPortableDefinitionAsync(
+                    options,
+                    definitionFormat,
+                    loadOptions,
+                    candidateSource,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return WritePortableDefinition(
+                options,
+                definitionFormat,
+                cancellationToken);
         }
 
         if (options.Packet is not null)
@@ -81,7 +141,10 @@ public static class WorkspaceCommand
 
         WorkspacePlan plan;
         WorkspaceMemberCoordinate[] directMembers = [];
-        if (!TryCreateRegistrations(options, out var registrations))
+        if (!TryCreateRegistrations(
+                options,
+                preserveAuthoredOrder: false,
+                out var registrations))
             return 1;
         if (options.Packages.Length != 0
             && !InspectionGraphCommand.TryCreateMembers(
@@ -311,14 +374,268 @@ public static class WorkspaceCommand
             return result.IsSuccess ? 0 : 1;
         }
 
-        int exitCode = WriteInventory(inventory, options);
-        if (exitCode == 0 && options.ShareFormat is { } shareFormat)
+        return WriteInventory(inventory, options);
+    }
+
+    static int WritePortableDefinition(
+        WorkspaceOptions options,
+        WorkspaceShareFormat format,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            exitCode = WorkspaceShareOutput.Write(
-                inventory.Inspection.Share,
-                shareFormat);
+            if (!TryPreparePortableDefinition(
+                    options,
+                    cancellationToken,
+                    out CommittedScenarioDefinitionSet definitions))
+                return 1;
+            WorkspaceSharePacketProjectionResult projection =
+                WorkspaceSharePacketTransposer.ToPacket(
+                    definitions,
+                    cancellationToken);
+
+            if (!projection.Succeeded)
+            {
+                WorkspaceSharePacketProjectionFailure failure =
+                    projection.Failure
+                    ?? throw new InvalidOperationException(
+                        "A failed Workspace definition projection requires a typed failure.");
+                CommandError.Write(
+                    "The Workspace definition is not projectable.",
+                    [
+                        $"{failure.Kind} at {failure.Path}: "
+                            + failure.Message,
+                    ]);
+                return 1;
+            }
+
+            return WorkspaceShareOutput.Write(
+                projection.Packet
+                    ?? throw new InvalidOperationException(
+                        "A successful Workspace definition projection requires a packet."),
+                format);
         }
-        return exitCode;
+        catch (Exception ex) when (ex is
+            WorkspaceSharePacketException
+            or InspectionDefinitionException
+            or ArgumentException
+            or InvalidDataException)
+        {
+            CommandError.Write(
+                "The Workspace definition could not be prepared.",
+                [ex.Message]);
+            return 1;
+        }
+    }
+
+    static async Task<int> WriteEnrichedPortableDefinitionAsync(
+        WorkspaceOptions options,
+        WorkspaceShareFormat format,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageDependencyCandidateSource candidateSource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!TryPreparePortableDefinition(
+                    options,
+                    cancellationToken,
+                    out CommittedScenarioDefinitionSet definitions))
+                return 1;
+
+            InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
+                envelope =
+                    await WorkspacePackageDependencyEnrichmentInspection
+                        .ExecuteAsync(
+                            new WorkspacePackageDependencyEnrichmentRequest(
+                                definitions,
+                                loadOptions,
+                                candidateSource),
+                            cancellationToken).ConfigureAwait(false);
+            if (envelope.Content
+                is WorkspacePackageDependencyEnrichmentOutcome.Failed failed)
+            {
+                CommandError.Write(
+                    "The Workspace Package dependencies could not be made explicit.",
+                    [
+                        $"{failed.Failure.Kind} at {failed.Failure.Path}: "
+                            + failed.Failure.Message,
+                    ]);
+                return 1;
+            }
+
+            return WorkspaceShareOutput.WriteScalar(envelope.Share, format);
+        }
+        catch (Exception ex) when (ex is
+            WorkspaceSharePacketException
+            or InspectionDefinitionException
+            or ArgumentException
+            or InvalidDataException)
+        {
+            CommandError.Write(
+                "The Workspace definition could not be enriched.",
+                [ex.Message]);
+            return 1;
+        }
+    }
+
+    static bool TryPreparePortableDefinition(
+        WorkspaceOptions options,
+        CancellationToken cancellationToken,
+        out CommittedScenarioDefinitionSet definitions)
+    {
+        if (options.Packet is not null)
+        {
+            WorkspaceSharePacket packet =
+                WorkspaceSharePacketCodec.Decode(
+                    GetPacketInput(options.Packet),
+                    cancellationToken);
+            definitions =
+                WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                    packet,
+                    cancellationToken);
+            return true;
+        }
+
+        if (!TryCreateRegistrations(
+                options,
+                preserveAuthoredOrder: true,
+                out var registrations)
+            || !InspectionGraphCommand.TryCreateMembers(
+                options.Packages,
+                out WorkspaceMemberCoordinate[] directMembers))
+        {
+            definitions = null!;
+            return false;
+        }
+
+        if (directMembers.Length == 0 && registrations.IsEmpty)
+        {
+            CommandError.Write(
+                "--share requires at least one --package or --register-* input.");
+            definitions = null!;
+            return false;
+        }
+        if (directMembers.Length != 0
+            && string.IsNullOrWhiteSpace(options.Tfm))
+        {
+            CommandError.Write(
+                "A shared --tfm is required when the portable Workspace definition contains packages.");
+            definitions = null!;
+            return false;
+        }
+
+        definitions = CreatePortableDefinition(
+            directMembers,
+            options.Tfm,
+            registrations);
+        return true;
+    }
+
+    static CommittedScenarioDefinitionSet CreatePortableDefinition(
+        IReadOnlyList<WorkspaceMemberCoordinate> directMembers,
+        string? framework,
+        ImmutableArray<WorkspaceRegistration> registrations)
+    {
+        DefinitionMemberCoordinate.PackageCoordinate[] coordinates =
+        [
+            .. directMembers
+                .Cast<WorkspaceMemberCoordinate.PackageMember>()
+                .Select(member =>
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        member.PackageId,
+                        member.Version,
+                        framework,
+                        member.RuntimeIdentifier))
+                .DistinctBy(static coordinate =>
+                    new PortablePackageCoordinateKey(
+                        coordinate.Id.ToLowerInvariant(),
+                        NormalizePackageVersion(coordinate.Version),
+                        coordinate.Framework?.ToLowerInvariant(),
+                        coordinate.RuntimeIdentifier)),
+        ];
+        WorkspaceContextDefinition[] contexts =
+            coordinates.Length == 0
+                ? []
+                :
+                [
+                    new WorkspaceContextDefinition(
+                        "g0",
+                        framework,
+                        members: coordinates),
+                ];
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            contexts,
+            registrations: registrations);
+        NavigationTabDefinition[] tabs =
+        [
+            .. coordinates.Select((coordinate, index) =>
+                new NavigationTabDefinition(
+                    $"t{index}",
+                    coordinate: coordinate)),
+        ];
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceSharePacketTransposer.NavigationId,
+            tabs,
+            focus: null);
+        CommittedViewStateDefinition[] states =
+        [
+            new CommittedViewStateDefinition(
+                navigation: null,
+                subject: new PortableSubjectRequest.Workspace()),
+            .. tabs.Select(tab =>
+                new CommittedViewStateDefinition(tab.Id)),
+        ];
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceSharePacketTransposer.ViewId,
+            states);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: contexts.Length == 0 ? null : contexts[0].Name,
+            view: view.Id,
+            navigation: navigation.Id);
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        return registry.PrepareScenario(scenario.Id)
+            is InspectionDefinitionScenarioPreparationResult.Version3 prepared
+                ? prepared.Definitions
+                : throw new InvalidOperationException(
+                    "Schema-version-3 authoring requires version-3 preparation.");
+    }
+
+    static string GetPacketInput(string value)
+    {
+        if (value.StartsWith(
+                WorkspaceShareOutput.UrlPrefix,
+                StringComparison.Ordinal))
+        {
+            string packet =
+                value[WorkspaceShareOutput.UrlPrefix.Length..];
+            if (packet.Length == 0)
+            {
+                throw new InvalidDataException(
+                    "The Workspace URL does not contain a packet.");
+            }
+            return packet;
+        }
+
+        if (Uri.TryCreate(value, UriKind.Absolute, out _))
+        {
+            throw new InvalidDataException(
+                "--packet accepts a canonical packet or an exact "
+                    + $"{WorkspaceShareOutput.UrlPrefix}<packet> URL.");
+        }
+
+        return value;
     }
 
     static async Task<int> ExecutePacketAsync(
@@ -326,10 +643,23 @@ public static class WorkspaceCommand
         WorkspaceContextLoadOptions loadOptions,
         CancellationToken cancellationToken)
     {
+        string packet;
+        try
+        {
+            packet = GetPacketInput(options.Packet!);
+        }
+        catch (InvalidDataException ex)
+        {
+            CommandError.Write(
+                "The Workspace packet input is invalid.",
+                [ex.Message]);
+            return 1;
+        }
+
         var intent = new WorkspaceCommandRestorationIntent(cancellationToken);
         CompleteRestorationPreparationResult preparation =
             CompleteRestorationPreparation.FromPacket(
-                options.Packet!,
+                packet,
                 intent,
                 cancellationToken);
         await using var host = new WorkspaceCommandRestorationHost();
@@ -382,14 +712,7 @@ public static class WorkspaceCommand
                 request,
                 WorkspaceTopLevelInventoryShareBasis
                     .CreateCompleteRestoration(activated.Workspace));
-        int exitCode = WriteInventory(inventory, options);
-        if (exitCode == 0 && options.ShareFormat is { } shareFormat)
-        {
-            exitCode = WorkspaceShareOutput.Write(
-                inventory.Inspection.Share,
-                shareFormat);
-        }
-        return exitCode;
+        return WriteInventory(inventory, options);
     }
 
     static string[] RestorationFailureDetails(
@@ -420,58 +743,34 @@ public static class WorkspaceCommand
 
     static bool TryCreateRegistrations(
         WorkspaceOptions options,
+        bool preserveAuthoredOrder,
         out ImmutableArray<WorkspaceRegistration> registrations)
     {
         var builder = ImmutableArray.CreateBuilder<WorkspaceRegistration>();
         try
         {
-            foreach (string value in options.RegisteredLibraries)
+            foreach (WorkspaceRegistrationInput input
+                in GetRegistrationInputs(options, preserveAuthoredOrder))
             {
-                builder.Add(
-                    new WorkspaceRegistration.ExactLibrary(
-                        ParseExactPackageLibrary(value)));
-            }
-            foreach (string value in options.RegisteredPackagePrefixes)
-            {
-                builder.Add(
-                    new WorkspaceRegistration.PackagePrefix(
-                        new PackagePrefixDeclaration(value)));
-            }
-            foreach (string value in options.RegisteredEcosystems)
-            {
-                string canonical = value.StartsWith(
-                    "ecosystem.",
-                    StringComparison.Ordinal)
-                        ? value
-                        : $"ecosystem.{value}";
-                if (!EcosystemPackId.TryCreate(
-                    canonical,
-                    out EcosystemPackId? id))
+                switch (input.Kind)
                 {
-                    throw new ArgumentException(
-                        $"'{value}' is not a canonical ecosystem identity.");
+                    case WorkspaceRegistrationInputKind.ExactLibrary:
+                        builder.Add(
+                            new WorkspaceRegistration.ExactLibrary(
+                                ParseExactPackageLibrary(input.Value)));
+                        break;
+                    case WorkspaceRegistrationInputKind.PackagePrefix:
+                        builder.Add(
+                            new WorkspaceRegistration.PackagePrefix(
+                                new PackagePrefixDeclaration(input.Value)));
+                        break;
+                    case WorkspaceRegistrationInputKind.Ecosystem:
+                        builder.Add(ParseEcosystemRegistration(input.Value));
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unsupported Workspace registration input kind '{input.Kind}'.");
                 }
-
-                EcosystemWorkspaceRegistrationSelectionResult selected =
-                    EcosystemPackCatalog.SelectWorkspaceRegistration(id);
-                if (selected
-                    is not EcosystemWorkspaceRegistrationSelectionResult.Known
-                        known)
-                {
-                    throw new ArgumentException(
-                        selected switch
-                        {
-                            EcosystemWorkspaceRegistrationSelectionResult
-                                .Unavailable =>
-                                $"Ecosystem '{canonical}' has no Workspace registration.",
-                            EcosystemWorkspaceRegistrationSelectionResult
-                                .Unknown =>
-                                $"Ecosystem '{canonical}' is not registered.",
-                            _ => "The ecosystem registration returned an unsupported result.",
-                        });
-                }
-                builder.Add(
-                    new WorkspaceRegistration.Ecosystem(known.Declaration));
             }
         }
         catch (ArgumentException ex)
@@ -485,6 +784,93 @@ public static class WorkspaceCommand
 
         registrations = builder.ToImmutable();
         return true;
+    }
+
+    static IEnumerable<WorkspaceRegistrationInput> GetRegistrationInputs(
+        WorkspaceOptions options,
+        bool preserveAuthoredOrder)
+    {
+        if (preserveAuthoredOrder
+            && options.OrderedRegistrations.Length != 0)
+        {
+            foreach (WorkspaceRegistrationInput input
+                in options.OrderedRegistrations)
+            {
+                yield return input;
+            }
+            yield break;
+        }
+
+        foreach (string value in options.RegisteredLibraries)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.ExactLibrary,
+                value);
+        }
+        foreach (string value in options.RegisteredPackagePrefixes)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.PackagePrefix,
+                value);
+        }
+        foreach (string value in options.RegisteredEcosystems)
+        {
+            yield return new WorkspaceRegistrationInput(
+                WorkspaceRegistrationInputKind.Ecosystem,
+                value);
+        }
+    }
+
+    static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
+        string value)
+    {
+        string canonical = value.StartsWith(
+            "ecosystem.",
+            StringComparison.Ordinal)
+                ? value
+                : $"ecosystem.{value}";
+        if (!EcosystemPackId.TryCreate(
+            canonical,
+            out EcosystemPackId? id))
+        {
+            throw new ArgumentException(
+                $"'{value}' is not a canonical ecosystem identity.");
+        }
+
+        EcosystemWorkspaceRegistrationSelectionResult selected =
+            EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+        if (selected
+            is not EcosystemWorkspaceRegistrationSelectionResult.Known known)
+        {
+            throw new ArgumentException(
+                selected switch
+                {
+                    EcosystemWorkspaceRegistrationSelectionResult
+                        .Unavailable =>
+                        $"Ecosystem '{canonical}' has no Workspace registration.",
+                    EcosystemWorkspaceRegistrationSelectionResult
+                        .Unknown =>
+                        $"Ecosystem '{canonical}' is not registered.",
+                    _ => "The ecosystem registration returned an unsupported result.",
+                });
+        }
+        return new WorkspaceRegistration.Ecosystem(known.Declaration);
+    }
+
+    static string? NormalizePackageVersion(string? value)
+    {
+        if (value is null)
+            return null;
+        if (!DotnetInspector.Packages.PackageExtractor
+            .TryNormalizePackageVersion(
+                value,
+                out string normalized))
+        {
+            throw new ArgumentException(
+                $"Invalid exact package version '{value}'.");
+        }
+
+        return normalized.ToLowerInvariant();
     }
 
     static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
@@ -1045,8 +1431,21 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument document = available.Document;
-        IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries =
-            RowWindow.Apply(options.Rows, document.Entries);
+        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                options.RowSelection,
+                options.Rows,
+                document.Entries,
+                "Workspace inventory",
+                failure =>
+                    $"Workspace inventory row selection stage "
+                    + $"{failure.Failure.StageNumber} requires entry "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} entries are available.",
+                out IReadOnlyList<WorkspaceTopLevelInventoryEntry> entries))
+        {
+            return 1;
+        }
+
         if (options.Count)
         {
             CountOutput.WriteCount(entries.Count);
@@ -1054,7 +1453,7 @@ public static class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventoryDocument outputDocument =
-            options.Rows is null
+            options.RowSelection is null && options.Rows is null
                 ? document
                 : document with { Entries = [.. entries] };
         switch (options.Format)
@@ -1280,6 +1679,12 @@ public static class WorkspaceCommand
         }
     }
 
+    static bool HasExplicitSourceOptions(NuGetSourceOptions options) =>
+        options.Sources.Length != 0
+        || options.AdditionalSources.Length != 0
+        || options.ConfigFile is not null
+        || options.ConfigDirectory is not null;
+
     static WorkspaceContextLoadOptions CreateLoadOptions(
         WorkspaceOptions options) =>
         new()
@@ -1309,6 +1714,7 @@ public static class WorkspaceCommand
             options.Packages.Length != 0
             || options.Tfm is not null
             || options.RootRequest is not null
+            || options.OrderedRegistrations.Length != 0
             || options.RegisteredLibraries.Length != 0
             || options.RegisteredPackagePrefixes.Length != 0
             || options.RegisteredEcosystems.Length != 0;
@@ -1327,11 +1733,54 @@ public static class WorkspaceCommand
             || options.Type is not null
             || options.Member is not null
             || options.Lens is not null;
+        if (options.MakePackageDependenciesExplicit
+            && options.ShareFormat is null)
+        {
+            return "--make-package-dependencies-explicit requires --share "
+                + "packet or --share url.";
+        }
+        if (options.ShareFormat is not null
+            && options.RootRequest is not null)
+        {
+            return "--root-request opens a live Package Root and cannot be "
+                + "combined with portable Workspace definition output.";
+        }
         if (options.ShareFormat is not null
             && (options.ActivePackage is not null || hasNavigationSelector))
         {
-            return "--share reports top-level Workspace inventory and cannot "
+            return "--share emits a portable Workspace definition and cannot "
                 + "be combined with Package Navigation options.";
+        }
+        if (options.ShareFormat is not null
+            && options.InventoryKinds.Length != 0)
+        {
+            return "--share emits the complete portable Workspace definition "
+                + "and cannot be combined with --kind inventory filters.";
+        }
+        if (options.ShareFormat is not null
+            && (options.Count
+                || options.Rows is not null
+                || options.NoHeader))
+        {
+            return "--share emits one portable Workspace definition and "
+                + "cannot be combined with inventory row controls.";
+        }
+        if (options.ShareFormat is not null
+            && !options.MakePackageDependenciesExplicit
+            && (options.IncludePrerelease
+                || HasExplicitSourceOptions(options.SourceOptions)))
+        {
+            return "--share emits a resource-free portable Workspace "
+                + "definition and cannot be combined with --preview or "
+                + "NuGet source options.";
+        }
+        if (options.ShareFormat is not null
+            && options.Packet is null
+            && options.Packages.Length == 0
+            && options.Tfm is not null)
+        {
+            return "--tfm requires --package when authoring a portable "
+                + "Workspace definition.";
         }
         if (options.Packet is not null
             && (options.ActivePackage is not null || hasNavigationSelector))
@@ -1382,6 +1831,12 @@ public static class WorkspaceCommand
         }
         return null;
     }
+
+    readonly record struct PortablePackageCoordinateKey(
+        string Id,
+        string? Version,
+        string? Framework,
+        string? RuntimeIdentifier);
 }
 
 [JsonSourceGenerationOptions(

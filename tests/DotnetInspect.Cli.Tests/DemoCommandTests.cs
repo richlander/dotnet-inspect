@@ -576,8 +576,7 @@ public class DemoCommandTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Equal(
-            "Error: --lines and --tail-lines cannot be combined with JSON "
-                + "output; use semantic -n to select complete JSON rows.",
+            "Error: Rendered-line selection cannot be combined with JSON output.",
             error.Trim());
     }
 
@@ -621,30 +620,7 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public void DemoScenario_RowSelectionHandoffRemainsInactive()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        var parseResult =
-            root.Parse(
-                [
-                    "demo",
-                    ProductDemoIds.StjSerializer,
-                    "-n",
-                    "1",
-                ]);
-
-        Assert.True(
-            CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
-                parseResult,
-                "Demo",
-                out RowSelectionIntent<string>? intent,
-                out string? error));
-        Assert.Null(intent);
-        Assert.Null(error);
-    }
-
-    [Fact]
-    public void DemoScenarioDoesNotAdoptSemanticRows()
+    public void DemoScenario_RowSelectionRequiresInvocationPreparation()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         var parseResult =
@@ -657,19 +633,62 @@ public class DemoCommandTests
                 ]);
 
         Assert.False(
+            CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Demo",
+                out RowSelectionIntent<string>? intent,
+                out string? error));
+        Assert.Null(intent);
+        Assert.Equal(
+            "Demo row selection was not lowered before execution.",
+            error);
+    }
+
+    [Fact]
+    public void DemoScenarioAdoptsExplicitLineSelectionFallback()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var parseResult =
+            root.Parse(
+                [
+                    "demo",
+                    ProductDemoIds.StjSerializer,
+                    "-n",
+                    "1",
+                ]);
+
+        Assert.True(
             CliRowSelectionCommandRegistry.TryGetActiveAdoption(
                 parseResult,
                 out _));
     }
 
     [Fact]
-    public async Task Cli_DemoScenario_ShorthandBeforeScenarioRetainsLineLimit()
+    public async Task Cli_DemoScenario_PositionalOwnedShorthandDoesNotClipLines()
     {
         var (exitCode, output, error) =
             await RunCliWithLineWindowAsync(
                 "demo",
                 "-1",
                 ProductDemoIds.StjSerializer);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.True(
+            output.Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenario_ShorthandWithLinesClipsOutput()
+    {
+        var (exitCode, output, error) =
+            await RunCliWithLineWindowAsync(
+                "demo",
+                ProductDemoIds.StjSerializer,
+                "-1",
+                "--lines");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);

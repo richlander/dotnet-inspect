@@ -58,6 +58,87 @@ function inertString(value: string): InertString {
 }
 
 const objectStart = sampleDocument.text.indexOf("new object()");
+const calleeText = [
+  "public static bool DeepEquals(JsonElement left, JsonElement right)",
+  "{",
+  "    Span<byte> leftBuffer = stackalloc byte[64];",
+  "    Span<byte> rightBuffer = stackalloc byte[128];",
+  "    return left.ValueKind == right.ValueKind;",
+  "}",
+].join("\n");
+const stackallocText = "stackalloc byte[64]";
+const secondStackallocText = "stackalloc byte[128]";
+const calleeDocument: AnnotatedSourceDocument = {
+  text: calleeText,
+  nodes: [
+    {
+      id: 0,
+      kind: "StackAllocationExpression",
+      medium: "CSharp",
+      spans: [{
+        start: calleeText.indexOf(stackallocText),
+        length: stackallocText.length,
+      }],
+      provenance: {
+        il_offsets: [18],
+      },
+    },
+    {
+      id: 1,
+      kind: "StackAllocationExpression",
+      medium: "CSharp",
+      spans: [{
+        start: calleeText.indexOf(secondStackallocText),
+        length: secondStackallocText.length,
+      }],
+      provenance: {
+        il_offsets: [24],
+      },
+    },
+  ],
+  regions: [],
+  facts: [],
+  targets: [],
+};
+const calleeTarget = {
+  id: "method:System.Text.Json.JsonElement.DeepEquals",
+  assembly: "System.Text.Json",
+  assemblyVersion: "10.0.0.0",
+  assemblyCulture: null,
+  assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
+  typeFullName: "System.Text.Json.JsonElement",
+  typeMetadataId: "System.Text.Json.JsonElement",
+  typeDefinitionId: "System.Text.Json.JsonElement",
+  memberName: "DeepEquals",
+  parameterTypes: [
+    "System.Text.Json.JsonElement",
+    "System.Text.Json.JsonElement",
+  ],
+  returnType: "System.Boolean",
+  genericArity: 0,
+  metadataToken: 0x06000123,
+  selectorKey: "method:DeepEquals",
+  kind: "method",
+  platformPack: null,
+  surfaceAssemblyId: "compile:ref/net10.0/System.Text.Json.dll",
+} as const;
+const costCalleeTarget = {
+  ...calleeTarget,
+  id: "method:ResearchProjectionProbe.AllocationInLoop",
+  assembly: "DotnetInspector.Queries.Tests",
+  assemblyVersion: "1.0.0.0",
+  assemblyPublicKeyToken: null,
+  typeFullName: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  typeMetadataId: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  typeDefinitionId: "DotnetInspector.Queries.Tests.ResearchProjectionProbe",
+  memberName: "AllocationInLoop",
+  parameterTypes: ["System.Int32"],
+  returnType: "System.Int32",
+  metadataToken: 0x06000124,
+  selectorKey: "method:AllocationInLoop",
+  surfaceAssemblyId:
+    "compile:lib/net11.0/DotnetInspector.Queries.Tests.dll",
+} as const;
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
   nodes: [
@@ -104,12 +185,42 @@ const documentWithTighterGeneric: AnnotatedSourceDocument = {
       source_offset: 1,
       origin: "Body",
     },
+    {
+      id: 6,
+      descriptor: "safety.callee",
+      category: "Unsafety",
+      conditionality: "Always",
+      detail: "callee uses stack allocation",
+      source_offset: 1,
+      origin: "Body",
+    },
+    {
+      id: 7,
+      descriptor: "safety.callee",
+      category: "Unsafety",
+      conditionality: "Always",
+      detail: "callee uses a second stack allocation",
+      source_offset: 1,
+      origin: "Body",
+    },
+    {
+      id: 8,
+      descriptor: "cost.callee",
+      category: "Cost",
+      conditionality: "Always",
+      detail: "callee AllocationInLoop: alloc-loop",
+      source_offset: 1,
+      origin: "Body",
+    },
   ],
   targets: [
     ...sampleDocument.targets,
     { fact_id: 3, node_id: 1 },
     { fact_id: 4, node_id: 1 },
     { fact_id: 5, node_id: 1 },
+    { fact_id: 6, node_id: 1 },
+    { fact_id: 7, node_id: 1 },
+    { fact_id: 8, node_id: 1 },
   ],
 };
 const result: AnnotatedSourceResult = {
@@ -141,14 +252,62 @@ const result: AnnotatedSourceResult = {
       },
     }],
     findingEvidence: {
-      available: false,
-      unavailableReason: "NotProjected",
+      available: true,
+      unavailableReason: null,
     },
     destinations: {
       available: true,
       unavailableReason: null,
     },
   },
+  findingEvidenceDocuments: [{
+    id: 0,
+    document: calleeDocument,
+  }],
+  findingEvidence: [{
+    factId: 6,
+    instanceKey: 61,
+    member: "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
+    target: calleeTarget,
+    state: "Instruction",
+    aggregateInputs: [],
+    coordinates: [{
+      ilOffset: 18,
+      kind: "Localloc",
+    }],
+    documentId: 0,
+    nodeIds: [0],
+    unavailableReason: null,
+  }, {
+    factId: 7,
+    instanceKey: 62,
+    member: "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
+    target: calleeTarget,
+    state: "Instruction",
+    aggregateInputs: [],
+    coordinates: [{
+      ilOffset: 24,
+      kind: "Localloc",
+    }],
+    documentId: 0,
+    nodeIds: [1],
+    unavailableReason: null,
+  }, {
+    factId: 8,
+    instanceKey: 63,
+    member:
+      "DotnetInspector.Queries.Tests.ResearchProjectionProbe.AllocationInLoop(int)",
+    target: costCalleeTarget,
+    state: "Method",
+    aggregateInputs: [{
+      kind: "AllocationInLoop",
+      value: null,
+    }],
+    coordinates: [],
+    documentId: null,
+    nodeIds: [],
+    unavailableReason: null,
+  }],
   provenance: inertString("browser-gate product fixture"),
   contextLimitation: null,
 };
@@ -312,6 +471,11 @@ function onAction(action: AnnotatedSourceAction): void {
     case "destination-open":
       document.body.dataset.destination =
         `${action.destination}:${action.destinationIndex}`;
+      closeModal();
+      return;
+    case "finding-evidence-open":
+      document.body.dataset.destination =
+        `${action.destination}:evidence:${action.factId}`;
       closeModal();
       return;
     case "node-select":

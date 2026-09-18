@@ -487,6 +487,7 @@ import {
   withTerm,
   withoutTerm,
   withEditorDraft,
+  withLibraryLiteralDraft,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
@@ -601,6 +602,7 @@ let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
+let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
@@ -611,6 +613,8 @@ let resolveDependencyVersion:
   EngineClient["package"]["resolvePackageDependencyVersion"];
 let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
+let inspectRunPackageAssemblySemanticQuery:
+  EngineClient["package"]["runPackageAssemblySemanticQuery"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
@@ -733,11 +737,14 @@ async function loadEngineModule() {
       queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPackage: inspectPackage,
+      queryPackageRoot: inspectPackageRoot,
       queryPackageDependencies: inspectPackageDependencies,
       queryPackagePruning: inspectPackagePruning,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
+      runPackageAssemblySemanticQuery:
+        inspectRunPackageAssemblySemanticQuery,
       runPackageQuery: inspectRunPackageQuery,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
@@ -1998,6 +2005,24 @@ const packageQueryController = createPackageQueryController(
       includePrerelease,
       initialMatchCredit,
       eventSink),
+    runAssemblySemantic: (
+      operationId,
+      packageInput,
+      operand,
+      targetFramework,
+      maximumCandidates,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink,
+    ) => inspectRunPackageAssemblySemanticQuery(
+      operationId,
+      packageInput,
+      operand,
+      targetFramework,
+      maximumCandidates,
+      includePrerelease,
+      initialMatchCredit,
+      eventSink),
   }, {
     onInspection: inspection => {
       state.packageQueryInspection = inspection;
@@ -2133,11 +2158,20 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.taste);
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
+    const findingEvidenceDocuments =
+      result.annotatedSource.findingEvidenceDocuments.map(entry => {
+        validateAnnotatedSourceDocument(entry.document);
+        return {
+          ...entry,
+          document: entry.document,
+        };
+      });
     return {
       ...result,
       annotatedSource: {
         ...result.annotatedSource,
         document,
+        findingEvidenceDocuments,
       },
     };
   },
@@ -8372,6 +8406,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       binding.onSelect();
       return;
     }
+    case "finding-evidence-open": {
+      const evidence =
+        model.findingEvidenceByFactId.get(action.factId);
+      if (!evidence) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          evidence.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          evidence.target,
+          "the exact callee is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
+      return;
+    }
     case "node-select": {
       const next = selectAnnotatedNode(session, action.nodeId);
       setSession(next);
@@ -12586,6 +12639,23 @@ const packageQueryActions: PackageQueryBindingActions = {
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onPresetToggle: togglePackageQueryPreset,
+  onLibraryLiteralInput: (operand, targetFramework) => {
+    const current = state.packageQueryState.request
+      ?? createQueryRequest(state.packageQueryPrefix);
+    const configured = withLibraryLiteralDraft(
+      current,
+      operand,
+      targetFramework);
+    if (configured.libraryLiteral.operand === current.libraryLiteral.operand
+      && configured.libraryLiteral.targetFramework
+        === current.libraryLiteral.targetFramework
+      && state.packageQueryState.outcome.completion.kind === "idle") return;
+    if (current.terms.length > 0 && configured.terms.length === 0) {
+      state.packageQueryState.termEdits = [];
+    }
+    state.packageQueryNavigationError = "";
+    packageQueryController.configure(configured);
+  },
   onTermAdd: addPackageQueryTerm,
   onTermApply: applyPackageQueryTerm,
   onTermEdit: editPackageQueryTerm,
@@ -15480,6 +15550,7 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
+  queryPackageRoot: rootRequest => inspectPackageRoot(rootRequest),
   loadRuntimePack: (framework, platformVersion) =>
     inspectLoadRuntimePack(framework, platformVersion),
   loadRuntimePackAssembly: (

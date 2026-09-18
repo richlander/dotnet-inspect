@@ -111,6 +111,11 @@ base category. Its membership follows the resolved view: member-kind summaries
 for a type, the matching inventory for a member name, and signature plus local
 implementation evidence for one selected overload.
 
+The `package query` command uses `@Query` as its sole base category. It composes
+the matched `Packages` rows with the `Query Summary` settlement row. Its
+ordinary adaptive output and bare-`-S` preset remain command-owned projections
+over that catalog rather than automatic verbosity presets.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -633,6 +638,79 @@ available from a restored project's direct dependencies. `Skills` remains the
 bare-`-S` high-value section. `Package README file` is explicit and unbounded;
 selecting `@Project` is the gesture that requests both document inventories.
 
+## Vocabulary category map
+
+The vocabulary command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Vocabulary` | `Vocabulary Sections`, `Accessibility`, `C# Style Tiers`, `C# Style Choices`, `C# Body Kinds` |
+| `@API` | `Accessibility` |
+| `@Decompiler` | `C# Body Kinds`, `C# Style Choices`, `C# Style Tiers` |
+
+`@Vocabulary` is the base category and composes the complete product-owned
+vocabulary document. `@API` and `@Decompiler` are domain doors over the
+vocabularies consumed by those query families. Bare output and bare `-S`
+retain the self-describing `Vocabulary Sections` index.
+
+## Ecosystem category map
+
+The ecosystem command compiles one authored catalog after its optional focus
+operand chooses the available section set:
+
+| Route | `@Ecosystem` members |
+| --- | --- |
+| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos`, `Pruning` |
+
+`@Ecosystem` is the base category and always means every section available on
+the already-selected route. Exact `Integrations` describes product-configured
+bindings rather than observations from a library. Ecosystem does not publish a
+single-member `@Integrations` category. Focus remains the only operation that
+changes the available section set.
+
+Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
+section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
+set in alphabetical order. Select `Integrations` directly for configured
+bindings.
+
+## Graph libraries category map
+
+The `graph libraries` command's authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
+
+`@Libraries` is the base category and composes the four pair-wide projections
+in alphabetical section order. Ordinary output remains the exact `Call Sites`
+view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
+summary pair.
+
+`Public Root Paths` remains uncategorized and exact-name-only because it
+requires one positive `Cluster` coordinate before acquisition. Wildcard and
+category selection do not opt into it. The pairwise call-use, direct-use
+cluster, and cluster root-path designs continue to own the section semantics;
+this document owns only their command catalog composition.
+
+## Package Query category map
+
+The `package query` command's authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Query` | `Packages`, `Query Summary` |
+
+`@Query` is the base category and composes the complete query result in
+alphabetical section order. Ordinary output remains adaptive: it renders
+`Packages` when the query matched rows and `Query Summary` otherwise. Bare
+`-S` remains the non-adaptive `Packages` preset. Exact section selection
+remains non-adaptive.
+
+The Package Query design continues to own result settlement, count semantics,
+and format restrictions. This document owns only the catalog composition.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -648,19 +726,29 @@ The section pipeline and derived catalog gates enforce these invariants:
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
    sections. Every diff comparison section belongs to `@Diff`; `Finding
    Transitions` is its only standalone section. Every project section belongs
-   to `@Project`. Gates:
+   to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
+   and decompiler vocabularies cross-listed in their domain categories. Every
+   ecosystem route places all its available sections, including exact
+   `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
+   `@Query`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
-   `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
+   `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
+   `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
+   `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
+   `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles` and
+   `PackageQueryPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
    query cost. `LibraryQueryRegistry_RegistrationMatchesDeclaration` and
    `LibraryPipeline_ConsultsQueryCosts` gate both properties.
 7. Unbounded sections never enter automatic verbosity presets.
-8. Categories preserve declaration order for deterministic rendering.
+8. Categories preserve declaration order in authored metadata. Markout renders
+   composed documents in alphabetical section order by default; callers request
+   data order only when the owning output contract requires it.
 9. Output-shape compatibility is validated before producers run.
 
 Derived tests should compare the authored catalog with the expected ownership
@@ -668,10 +756,11 @@ sets so stale and missing entries both fail.
 
 ## Migration
 
-The library model is the reference implementation. Package, type listing,
-member inspection, diff, and project use the same size/cost axes, base-category
-scope, authored category model, and curated discovery. Remaining API commands
-should migrate incrementally.
+The library model is the reference implementation. Package, Package Query, type
+listing, member inspection, diff, project, vocabulary, ecosystem, and
+`graph libraries` use the same size/cost axes, base-category scope, authored
+category model, and curated discovery. Remaining commands should migrate
+incrementally.
 
 During migration:
 

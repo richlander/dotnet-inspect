@@ -313,6 +313,11 @@ public record InspectionOptions : IProjectionOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Output the complete shared inspection envelope as JSON.
+    /// </summary>
+    public bool EnvelopeOutput { get; init; }
+
+    /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
@@ -320,7 +325,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

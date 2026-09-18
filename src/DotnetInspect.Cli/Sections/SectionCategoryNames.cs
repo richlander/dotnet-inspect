@@ -37,6 +37,32 @@ public static class SectionCategoryNames
     public const string Project = "@Project";
 
     /// <summary>
+    /// Product-owned query vocabularies. This is the vocabulary command's base category.
+    /// </summary>
+    public const string Vocabulary = "@Vocabulary";
+
+    /// <summary>
+    /// Product-configured knowledge available on the selected ecosystem route.
+    /// This is the ecosystem command's base category.
+    /// </summary>
+    public const string Ecosystem = "@Ecosystem";
+
+    /// <summary>
+    /// Pairwise library call-use projections that compose without an additional coordinate.
+    /// This is the <c>graph libraries</c> command's base category.
+    /// </summary>
+    public const string Libraries = "@Libraries";
+
+    /// <summary>
+    /// Matched packages and query-settlement evidence. This is the
+    /// <c>package query</c> command's base category.
+    /// </summary>
+    public const string Query = "@Query";
+
+    /// <summary>Vocabularies consumed by API type and member queries.</summary>
+    public const string Api = "@API";
+
+    /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
     /// member scope. Members that are also ordinary command evidence remain cross-listed in their
     /// base category.
@@ -80,11 +106,11 @@ public static class SectionCategoryNames
     public const string Context = "@Context";
 
     /// <summary>
-    /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members
-    /// plus <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose
-    /// applicability is a capability predicate, each member's applicability is evidence-based
-    /// (a cheap reference probe), so the whole category hyper-subscribes away for a library
-    /// with no integrations.
+    /// Ecosystem integration sections. At library scope these are observed <c>Integrations</c> plus
+    /// <c>Integration Opportunities</c>. Unlike <see cref="Performance"/>, whose applicability
+    /// is a capability predicate, each member's applicability is evidence-based (a cheap
+    /// reference probe), so the whole category hyper-subscribes away for a library with no
+    /// integrations.
     /// </summary>
     public const string Integrations = "@Integrations";
 

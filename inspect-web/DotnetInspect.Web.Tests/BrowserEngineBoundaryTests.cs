@@ -7,7 +7,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text;
-using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
@@ -66,6 +65,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static int InvocationDestinationTarget(int value) => value;
 
+    public static int CalleeEvidenceProbe(int value) =>
+        PerformanceStackAllocProbe(value);
+
+    public static int CostCalleeEvidenceProbe(int count) =>
+        PerformanceAllocationInLoopProbe(count);
+
     public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
         new(bytes);
 
@@ -74,6 +79,14 @@ public sealed partial class BrowserEngineBoundaryTests
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+
+    public static int PerformanceAllocationInLoopProbe(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += new object().GetHashCode();
+        return total;
     }
 
     public static int PerformanceGenericCallProbe()
@@ -159,14 +172,6 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Null(performance.InspectionError);
         Assert.Equal(expectedStatus.ToString(), performance.CompileLibrary.Status.ToString());
-    }
-
-    static string NestedDocumentation(int depth)
-    {
-        string nested = string.Concat(Enumerable.Repeat("<b>", depth));
-        string close = string.Concat(Enumerable.Repeat("</b>", depth));
-        return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
-            + "</member></members></doc>";
     }
 
     static byte[] BuildTransportAmplificationImage(

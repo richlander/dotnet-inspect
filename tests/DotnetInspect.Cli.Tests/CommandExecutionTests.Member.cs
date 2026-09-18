@@ -125,7 +125,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,7 +145,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -163,7 +163,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Member Index",
-            "-n", "80");
+            "-n", "80", "--lines");
         Assert.Equal(0, index.Exit);
         var stable = index.Output
             .Split('\n')
@@ -178,7 +178,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -194,7 +194,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -237,7 +237,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2545,7 +2545,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("-n", "5")]
+    [InlineData("-n", "5", "--lines")]
     [InlineData("--rows", "1")]
     [InlineData("--fields", "Member")]
     [InlineData("--columns", "Member")]
@@ -2992,11 +2992,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--head", true)]
-    [InlineData("--tail", false)]
+    [InlineData("-n", "1", "--head", 0)]
+    [InlineData("-n", "1", "--tail", -1)]
+    [InlineData("--rows", "2..2", null, 1)]
     public async Task Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization(
-        string direction,
-        bool selectsFirst)
+        string window,
+        string value,
+        string? direction,
+        int selectedIndex)
     {
         string[] common =
         [
@@ -3008,8 +3011,11 @@ public partial class CommandExecutionTests
         ];
         var (allExit, allOutput, allError) =
             await RunAppAsync(common);
+        string[] selection = direction is null
+            ? [window, value]
+            : [window, value, direction];
         var (windowExit, windowOutput, windowError) =
-            await RunAppAsync([.. common, "-n", "1", direction]);
+            await RunAppAsync([.. common, .. selection]);
 
         Assert.Equal(0, allExit);
         Assert.Empty(allError);
@@ -3022,7 +3028,7 @@ public partial class CommandExecutionTests
             .ToArray();
         Assert.True(allIds.Length > 1);
 
-        Assert.Equal(0, windowExit);
+        Assert.True(windowExit == 0, windowError);
         Assert.Empty(windowError);
         using JsonDocument windowDocument =
             JsonDocument.Parse(windowOutput);
@@ -3031,14 +3037,121 @@ public partial class CommandExecutionTests
                 .GetProperty("facts")
                 .EnumerateArray());
         Assert.Equal(
-            selectsFirst ? allIds[0] : allIds[^1],
+            selectedIndex < 0
+                ? allIds[^1]
+                : allIds[selectedIndex],
             selected.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Member_FactsProjectedJson_RejectsUnavailableWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--rows", "999..999", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires fact row 999",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_FactsProjectedJson_DeduplicatesEquivalentSelectors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts,Facts", "--json",
+            "--columns", "Id", "-n", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Single(
+            document.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Member_FactsCount_DoesNotActivateProjectedJsonAdoption()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--count", "--rows", "999..999",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            "0",
+            output.Trim());
+    }
+
+    [Theory]
+    [InlineData("1..1", "--head", "1")]
+    [InlineData("1..1", "--tail", "1")]
+    [InlineData("999..999", "--head", "0")]
+    [InlineData("999..999", "--tail", "0")]
+    public async Task Member_FactsCount_LegacyRowsComposeWithInferredLines(
+        string rows,
+        string direction,
+        string expectedCount)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--count",
+            "--rows", rows, "-n", "1", direction, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expectedCount, output.Trim());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption(
+        bool schema)
+    {
+        string[] discovery = schema
+            ? ["-D", "--schema"]
+            : ["-D"];
+        string[] arguments =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            .. discovery,
+            "-S", "Facts", "--json",
+            "--columns", "Name", "-n", "1", "--tips", "q",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
-    public async Task Member_FactsJson_RejectsDirectionOnlyWindow(
+    public async Task Member_FactsJson_DirectionRequiresCount(
         string direction)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3050,7 +3163,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("complete typed document", error);
+        Assert.Contains($"{direction} requires -n", error);
     }
 
     [Fact]
@@ -3340,10 +3453,13 @@ public partial class CommandExecutionTests
     public async Task Member_OverloadInventory_TabularWindowsRetainRows(
         string format, string window, string value, int expectedRows)
     {
+        string[] lineSelection = window == "-n" ? ["--lines"] : [];
         var (exit, output, error) = await RunAppInDirectoryAsync(
             Environment.CurrentDirectory,
-            "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", format, window, value, "--tips", "q");
+            [
+                "member", "JsonSerializer", "--platform", "System.Text.Json",
+                "-m", "Serialize", format, window, value, .. lineSelection, "--tips", "q",
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3623,7 +3739,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3632,7 +3748,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3650,7 +3766,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

@@ -24,16 +24,23 @@ It does not redefine PackageHouse, PlatformHouse, Workspace, artifact, PDB,
 SourceLink interpretation, source-fetch transport, or decompiler internals.
 Their adoption remains separately reviewed through the tracker.
 
-The first production consumer is Inspect Web package type/member Source. The
-CLI and Browser/Wasm hosts then converge on the same SourceHouse contract.
+The first production consumer is the shared selected-member source pair for
+CLI and Browser/Wasm, adopted under #7448. Shared
+[member acquisition](member-source-acquisition.md) now also supplies browser
+member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
+Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
+Source through `TypeSourceInspection` under #7522. Broader CLI enrichment and
+the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
 The current production implementation is `AssemblyContextSourceQuery`, which
 resolves an exact member or type, attempts PDB-mapped source, and falls back to
-`CSharpDecompilerService`. `PdbSourceHouse` currently owns PDB-specific source
-candidate ordering; SourceLinkService owns checksum verification and decoding.
-These are migration evidence, not the target public composition boundary.
+`CSharpDecompilerService`. Type/member authored acquisition and selected-member pairs
+use SourceHouse; `PdbSourceHouse` retains broader enrichment
+ordering. SourceLinkService owns checksum verification and decoding.
+The ordinary query's fallback remains migration evidence, not the target public
+House policy boundary.
 
 ### Authored settlement delivery
 
@@ -61,10 +68,13 @@ into authoritative absence.
 
 The House verifies candidate bytes through SourceLinkService and uses
 CSharpText for member slicing. An authored member requires a vouched
-declaration; a type result retains its primary-document scope, mapping
+declaration; a type result retains its selected-document scope, mapping
 strength and possible partiality rather than claiming a complete declaration.
 Embedded PDB interpretation does not by itself promise embedded source-text
 retrieval.
+Type settlement retains the producer's primary and additional document mapping,
+including line, browse URL, resolution method, and checksum facts, rather than
+replacing that evidence with a path-only reconstruction.
 
 The operation's finite bounds cover detached assembly and PDB bytes,
 SourceLink mapping/document work, candidate attempts, source bytes/text and
@@ -109,9 +119,18 @@ settlement.
 
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
-its callers. The three-delivery adapter-first path and overall twelve-step
-plan below still require both CLI and Browser/Wasm consumers of a shared
-completed `InspectionEnvelope<TContent>` API.
+its callers. The [six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
+and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
+cutover in #7448 supplies the first shared completed
+`InspectionEnvelope<TContent>` adoption, extended to member Source and same-member comparison in #7497
+and Browser Type Source in #7522. These deliveries do not claim full source-policy retirement.
+
+The member cutover also corrects exact-target lookup for explicit-interface
+accessors: their physical and property/event projections can repeat the same
+method token and anchor without introducing a second target. The PR-fast
+`RealPlatformExplicitAccessor_RecognizesOnePhysicalTarget` cases retain the
+real `System.Data.DataView` getter/setter regression; existing CLI Source Diff
+accessor cases gate authored/decompiled comparison behavior.
 
 The motivating real repository input for this delivery is
 [`richlander/dotnet-inspect`](https://github.com/richlander/dotnet-inspect):
@@ -120,6 +139,42 @@ and actual `MemberTextSlicer.cs` source. This permits an offline,
 pathless-content success case with real method/type mappings, alongside
 checksum rejection and lease-retirement cases. The Platform `System.Text.Json`
 scenario below remains the broader production-adoption motivation.
+
+#### Authored type-document selection
+
+An authored type request settles its primary document by default. An explicit
+selection names one exact original PDB document path in that type's
+producer-issued primary/additional mapping. Selection is ordinal, not a URL,
+basename, case-insensitive match, or a path to open directly. The exact TypeDef
+must exist before its document membership is considered. Missing membership
+settles unavailable without reading source content; another type's document
+in the same PDB is not a substitute.
+
+The selected document supplies the candidate path, URL, and checksum. A
+secondary document retains `AdditionalTypeDocument` scope rather than
+masquerading as the primary document. The complete native type mapping still
+identifies its original primary and additional documents; selection does not
+rewrite that mapping or claim a complete type declaration. The request and
+settlement receipt retain the explicit selector, including when settlement
+fails or hits a bound. Existing authored-only policy, authorized capabilities,
+bounds, and cleanup obligations apply unchanged.
+
+The focused prerequisite is #7544. Its real motivating asset is this
+repository's partial `SourceLinkService`, including
+`SourceLinkService.SourceContent.cs`. PR-fast Release
+`AuthoredSourceHouseTests` cases gate explicit primary/additional selection,
+ordinal membership, rejection of unrelated documents, selected-document
+checksum evidence, and operation settlement.
+
+The immediate adoption path has two focused slices: this House selection
+capability (#7544), then a shared completed CLI type-document operation and
+production caller cutover (#7546). The latter must preserve metadata-only
+Source Files listing, explicit authored/decompiled demand, and partial-document
+row selection through `InspectionEnvelope<T>`, with the existing Browser Type
+Source operation as its neighbor. This is a prerequisite within the existing
+twelve-step plan, not a claim that CLI adoption or legacy retirement is complete.
+No rendering changes are introduced here: the later CLI cutover retains its
+Markout sections and printable-document lowering.
 
 ## Authority and exact claim
 
@@ -747,11 +802,16 @@ production hosts remain in scope.
 
 The immediate delivery path is the merged adapter in
 [#7313](https://github.com/richlander/dotnet-inspect/pull/7313), the authored
-settlement core in #7356, and shared source-query adoption through a completed
-`InspectionEnvelope<TContent>` for CLI and Browser/Wasm. The latter delivery
-retires only the legacy composition it actually replaces; unimplemented
-acquisition/decompiler modes and remaining callers stay tracked by the steps
-above.
+settlement core in #7356, supplied-PDB adapter admission in
+[#7439](https://github.com/richlander/dotnet-inspect/issues/7439), and the shared
+member-source-pair cutover in
+[#7448](https://github.com/richlander/dotnet-inspect/issues/7448) through its existing completed
+`InspectionEnvelope<TContent>` for CLI and Browser/Wasm. These four deliveries
+reach the first production consumers without combining the adapter's companion
+contract with query adoption. Shared member Source/comparison (#7497) and type
+acquisition (#7522) extend that path to six deliveries. Each retires only the
+composition it replaces; House-owned fallback, acquisition/decompiler modes,
+broader CLI enrichment, and remaining callers stay tracked by the twelve steps above.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse

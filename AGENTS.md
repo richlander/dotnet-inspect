@@ -366,8 +366,10 @@ Use the smallest sufficient set of claims and gates: state only what the user
 goal or an owned boundary or contract requires, and add only evidence that
 proves it. Inherit existing platform contracts unless a new dependency, API,
 or design calls one into question. Detailed practices live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
-are load-bearing everywhere:
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). During
+command development, expose typed evidence envelopes only through Debug hosts
+and only for supplemental facts that answer a named diagnosis or validation question;
+never treat static data or one-run timing as runtime proof. Three rules are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
@@ -386,10 +388,7 @@ are load-bearing everywhere:
   C# that is later compiled as product evidence. If a test needs that
   compensation, stop and fix the product gap instead.
 
-### Markdown
-
-All changed Markdown must pass `markdownlint` before commit (fixer:
-`npx markdownlint-cli --fix <file>`; check: `npx markdownlint-cli <file>`).
+All changed Markdown must pass `markdownlint` before commit (`npx markdownlint-cli <file>`).
 
 ## Adversarial review
 
@@ -541,13 +540,13 @@ checkpoint and split mechanics:
 
 ## Lead with the demo
 
-Put `## Demo` above validation in every PR body. Show the real scenario and
-output, before and after for a fix, and a neighboring case; use a mockup for
-documentation-only work. [Development Practices](docs/development-practices.md#lead-with-the-demo)
-owns the full contract and the inspect-web hosting pointer.
+Every PR body puts `## Demo` above validation and follows the full
+[demo contract](docs/development-practices.md#lead-with-the-demo).
 
 ## PR and CI discipline
 
+- Before merging a user-observable change, record it and its PR or stack link on [the 0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493); outside release preparation, do not edit
+  `src/DotnetInspect.Cli/release-notes.md`.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
   Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
 - Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata

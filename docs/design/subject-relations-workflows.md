@@ -80,12 +80,13 @@ evidence constraints to ask questions beyond the existing curated views.
 That is potentially much more powerful, but assembling even a baseline query
 may take more work. Expressiveness is not automatically a usability win.
 
-Keep `Integration`, ecosystem guidance and useful shortcuts as curated
-starting points over the shared query capabilities, not as a competing
-pipeline. Preserve producer-issued semantic associations: a raw signature
-predicate is not a replacement for Integration classification. Users should
-be able to start with a useful curated answer, discover its query dimensions,
-and narrow or extend the question without abandoning its evidence.
+Keep the current `Integrations` section, ecosystem guidance and useful
+shortcuts as curated starting points over the shared query capabilities, not
+as a competing pipeline. The proposed `Integration` relation view may later
+adopt that role. Preserve producer-issued semantic associations: a raw
+signature predicate is not a replacement for Integration classification. Users
+should be able to start with a useful curated answer, discover its query
+dimensions, and narrow or extend the question without abandoning its evidence.
 
 ### Exploration checkpoints
 
@@ -1009,11 +1010,11 @@ query or evidence meaning.
 
 ### Integration classification
 
-`Integration` replaces the user-facing family of `Integration: Aspire`,
-`Integration: Logging`, and similar sections after adoption. Ecosystem and
-concept become discoverable facets. One fact may carry multiple associations
-without becoming several physical calls or several logical relation rows.
-Unclassified relations remain available in `Relations`.
+The proposed `Integration` relation view supersedes the current
+observed-currency `Integrations` section after adoption. Ecosystem and concept
+remain discoverable facets. One fact may carry multiple associations without
+becoming several physical calls or several logical relation rows. Unclassified
+relations remain available in `Relations`.
 
 For invocation evidence, the composition may attach a callee API's Integration
 associations only after owner-issued correspondence joins that exact selected
@@ -1397,7 +1398,7 @@ unreviewable changes inside a nominal slice.
 | 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
 | 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, selected-Type and asset-root Dependency replacement routes, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
 | 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
-| 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 16 | Retire `extensions`, `implements`, `depends` and the observed-currency `Integrations` section after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 14 and website adoption step 15; neither is optional
 for this shared substrate. Step 16 is part of completion. Producers may ship

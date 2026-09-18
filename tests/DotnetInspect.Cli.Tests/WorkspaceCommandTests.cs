@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -12,6 +13,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -383,11 +385,61 @@ public sealed class WorkspaceCommandTests
             "exact-library",
             "--share",
             "packet",
+            "--make-package-dependencies-explicit",
         ];
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
 
         Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task DependencyEnrichment_RequiresShare()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    MakePackageDependenciesExplicit = true,
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--make-package-dependencies-explicit requires --share",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DependencyEnrichment_AdmitsExplicitSourcePolicy()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    MakePackageDependenciesExplicit = true,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = ["https://example.test/v3/index.json"],
+                    },
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.DoesNotContain(
+            "resource-free portable Workspace definition",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NoPackageRoots",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -671,6 +723,39 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task SemanticHead_DoesNotHideFailedWorkspaceConstruction()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(store, "Workspace.Good", ("readme.txt", []));
+        await AddPackageAsync(
+            store,
+            "Workspace.Bad",
+            ($"lib/{Framework}/Bad.dll", [1, 2, 3]));
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages =
+                    [
+                        "Workspace.Good@1.0.0",
+                        "Workspace.Bad@1.0.0",
+                    ],
+                    Tfm = Framework,
+                    Format = OutputFormat.Json,
+                    RowSelection = RowSelectionIntent<string>.Create(
+                        [RowSelectionIntentOperation<string>.Head(1)]),
+                },
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.NotEmpty(captured.Error);
+    }
+
+    [Fact]
     public async Task Count_UsesTheCoalescedCommittedRoots()
     {
         var store = new InMemoryPackageStore();
@@ -873,7 +958,7 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketRoute_UsesExactPacketShareBasis()
+    public async Task PacketRoute_WithoutShareMatchesDirectInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -892,7 +977,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -906,7 +990,7 @@ public sealed class WorkspaceCommandTests
                 document.RootElement.GetProperty("entries")
                     .EnumerateArray())
                 .GetProperty("package_id").GetString());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
 
         var direct = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(
@@ -926,7 +1010,7 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketRoute_InventoriesPackageMembershipFromEveryContext()
+    public async Task PacketUrlRoute_InventoriesPackageMembershipFromEveryContext()
     {
         const string secondPackageId = "Markout";
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -950,7 +1034,9 @@ public sealed class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
-                    Packet = WorkspaceSharePacketCodec.Encode(packet),
+                    Packet =
+                        "https://dotnet-inspect.net/?w="
+                        + WorkspaceSharePacketCodec.Encode(packet),
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -989,7 +1075,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -1001,7 +1086,7 @@ public sealed class WorkspaceCommandTests
         using JsonDocument document = JsonDocument.Parse(captured.Output);
         Assert.Single(
             document.RootElement.GetProperty("entries").EnumerateArray());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
@@ -1024,7 +1109,6 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = encoded,
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -1045,7 +1129,7 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(
             "net8.0",
             entry.GetProperty("effective_target_framework").GetString());
-        Assert.Equal(encoded, captured.Error.Trim());
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
@@ -1138,12 +1222,12 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "--share reports top-level Workspace inventory",
+            "--share emits a portable Workspace definition",
             captured.Error);
     }
 
     [Fact]
-    public async Task FilteredPacket_ContentRemainsAvailableButShareDoesNot()
+    public async Task FilteredPacket_WithoutShareRendersSelectedInventory()
     {
         var store = new InMemoryPackageStore();
         await AddPackageAsync(
@@ -1166,13 +1250,12 @@ public sealed class WorkspaceCommandTests
                     [
                         WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
                     ],
-                    ShareFormat = WorkspaceShareFormat.Packet,
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(1, captured.ExitCode);
+        Assert.Equal(0, captured.ExitCode);
         using JsonDocument document = JsonDocument.Parse(captured.Output);
         Assert.Equal(
             0,
@@ -1180,13 +1263,435 @@ public sealed class WorkspaceCommandTests
                 .GetInt32());
         Assert.Empty(
             document.RootElement.GetProperty("entries").EnumerateArray());
-        Assert.Contains(
-            "do not represent inventory kind filters",
-            captured.Error);
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
-    public async Task DirectRouteShare_RemainsNonProjectable()
+    public async Task DirectShare_AuthorsMixedFormat3DefinitionWithoutAcquisition()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages =
+                    [
+                        "System.Text.Json@10.0.0",
+                        "System.Text.Json@10.0.0",
+                    ],
+                    Tfm = "net10.0",
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("System.Text.Json", tab.Source);
+        Assert.Equal("10.0.0", tab.Version);
+        Assert.Equal("net10.0", tab.Framework);
+        Assert.Single(packet.Contexts);
+        var prefix = Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            Assert.Single(packet.Registrations));
+        Assert.Equal("Microsoft.Extensions.", prefix.Prefix.Prefix);
+        Assert.Null(packet.FocusedTabIndex);
+        Assert.Equal(0, packet.SelectedContextIndex);
+        Assert.Equal(2, packet.ViewStates.Count);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Text.Json@10.0.0",
+        "system.text.json@10.0.0")]
+    [InlineData(
+        "System.Text.Json@1.0",
+        "System.Text.Json@1.0.0")]
+    public async Task DirectShare_CoalescesNormalizedPackageCoordinates(
+        string first,
+        string second)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [first, second],
+                    Tfm = "net10.0",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.Single(packet.Tabs);
+        Assert.Single(packet.Contexts);
+        Assert.Single(packet.Contexts[0].TabIndexes);
+    }
+
+    [Fact]
+    public async Task CommandLineShare_PreservesCrossKindRegistrationOrder()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--register-package-prefix",
+            "Zeta.",
+            "--register-library",
+            "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+            "--share",
+            "packet",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            packet.Registrations[0]);
+        Assert.IsType<WorkspaceRegistration.ExactLibrary>(
+            packet.Registrations[1]);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_PreservesGroupedRegistrationOrder()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--register-package-prefix",
+            "Zeta.",
+            "--register-library",
+            "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
+            "--json",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement[] entries =
+        [
+            .. document.RootElement.GetProperty("entries").EnumerateArray(),
+        ];
+        Assert.Equal(
+            ["exactLibrary", "packagePrefix"],
+            entries.Select(entry => entry.GetProperty("kind").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false, "Alpha.")]
+    [InlineData(true, "Zulu.")]
+    public async Task CommandLineInventory_HeadAndBareTailSelectCompleteJsonEntries(
+        bool bareTail,
+        string expectedPrefix)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+        };
+        if (bareTail)
+        {
+            args.Add("-1");
+            args.Add("--tail");
+        }
+        else
+        {
+            args.Add("-n");
+            args.Add("1");
+        }
+        args.Add("--json");
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement entry = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            expectedPrefix,
+            entry.GetProperty("prefix").GetProperty("prefix").GetString());
+        Assert.Equal(
+            2,
+            document.RootElement.GetProperty("selected_entry_count").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.PlainText)]
+    public async Task SemanticTail_SelectsSameInventoryEntryAcrossFormats(
+        OutputFormat format)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Alpha.", "Zulu."],
+                    RowSelection = RowSelectionIntent<string>.Create(
+                        [RowSelectionIntentOperation<string>.Tail(1)]),
+                    Format = format,
+                },
+                LoadOptions(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Contains("Zulu.", captured.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Alpha.",
+            captured.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_CountUsesRowsAfterKindFiltering()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-ecosystem",
+            "aspire",
+            "--register-package-prefix",
+            "Zulu.",
+            "--kind",
+            "package-prefix",
+            "-n",
+            "1",
+            "--tail",
+            "--count");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Equal("1", captured.Output.Trim());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_UnavailableWindowWithholdsDocument()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "--rows",
+            "2..3",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Workspace inventory row selection stage 1 requires entry 3, "
+                + "but only 2 entries are available.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("..1", "Alpha.")]
+    [InlineData("2..", "Zulu.")]
+    public async Task CommandLineInventory_OpenWindowSelectsCompleteEntry(
+        string window,
+        string expectedPrefix)
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "--rows",
+            window,
+            "--json");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        JsonElement entry = Assert.Single(
+            document.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(
+            expectedPrefix,
+            entry.GetProperty("prefix").GetProperty("prefix").GetString());
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-library",
+            "invalid",
+            "-n",
+            "1",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandLineInventory_LinesClipRenderedTable()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--register-package-prefix",
+            "Zulu.",
+            "-n",
+            "2",
+            "--lines",
+            "--table");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Contains("Alpha.", captured.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Zulu.",
+            captured.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            captured.Output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task CommandLineNavigation_InferredLinesRejectCompleteJsonBeforeWorkspaceWork()
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            "--active-package",
+            "1",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task CommandLineShare_SpellingsRemainRenderedLineFallback(
+        string? shareFormat)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--share",
+        };
+        if (shareFormat is not null)
+            args.Add(shareFormat);
+        args.AddRange(["-n", "1", "--json"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--share")]
+    [InlineData("--active-package")]
+    public async Task CommandLineNonInventoryModes_RetainLegacyWindowValidation(
+        string mode)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            mode,
+        };
+        if (mode == "--active-package")
+            args.Add("1");
+        args.AddRange(["--rows", "..1"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--rows '..1' has no start row",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
+    [InlineData("--root-request", "invalid", "--root-request must be")]
+    public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(
+        string route,
+        string value,
+        string expectedError)
+    {
+        var captured = await RunCliAsync(
+            "workspace",
+            route,
+            value,
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(expectedError, captured.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Rendered-line selection",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyShare_AuthorsUrlWithoutAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
         var captured = await ConsoleCapture.RunAsync(
@@ -1194,17 +1699,193 @@ public sealed class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     RegisteredPackagePrefixes = ["Microsoft.Extensions."],
-                    ShareFormat = WorkspaceShareFormat.Packet,
-                    Format = OutputFormat.Json,
+                    ShareFormat = WorkspaceShareFormat.Url,
                 },
-                LoadOptions(client, new InMemoryPackageStore()),
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        const string prefix = "https://dotnet-inspect.net/?w=";
+        Assert.StartsWith(prefix, captured.Output, StringComparison.Ordinal);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd()[prefix.Length..],
+            TestContext.Current.CancellationToken);
+        Assert.Empty(packet.Tabs);
+        Assert.Empty(packet.Contexts);
+        Assert.Single(packet.Registrations);
+        Assert.Null(packet.SelectedContextIndex);
+        Assert.Single(packet.ViewStates);
+    }
+
+    [Fact]
+    public async Task PacketUrlShare_ReemitsCanonicalPacketWithoutAcquisition()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""",
+            TestContext.Current.CancellationToken);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        using var client = new HttpClient(new FailingHandler());
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet =
+                        $"https://dotnet-inspect.net/?w={encoded}",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        Assert.Equal(encoded, captured.Output.TrimEnd());
+    }
+
+    [Fact]
+    public async Task PacketShare_RejectsForeignUrlWithoutAcquisition()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = "https://example.test/?w=packet",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
-        Assert.Contains("packagePrefix", captured.Output);
+        Assert.Empty(captured.Output);
         Assert.Contains(
-            "no retained Definitions-owned projection",
-            captured.Error);
+            "exact https://dotnet-inspect.net/?w=<packet> URL",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScannerBearingEcosystemShare_IsVisiblyNonProjectable()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredEcosystems = ["aspire"],
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "integrationScanner",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "not projectable",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task DefinitionShare_RejectsRuntimeObservationOptions(
+        bool inventoryFilter,
+        bool rootRequest)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    InventoryKinds = inventoryFilter
+                        ?
+                        [
+                            WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+                        ]
+                        : [],
+                    RootRequest = rootRequest ? "root.invalid" : null,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.NotEmpty(captured.Error);
+    }
+
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("source")]
+    public async Task DefinitionShare_RejectsAcquisitionPolicy(
+        string policy)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    RegisteredPackagePrefixes = ["Microsoft.Extensions."],
+                    IncludePrerelease = policy == "preview",
+                    SourceOptions = policy == "source"
+                        ? new NuGetSourceOptions
+                        {
+                            Sources = ["https://example.test/v3/index.json"],
+                        }
+                        : NuGetSourceOptions.Default,
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "resource-free portable Workspace definition",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--rows", "1")]
+    [InlineData("--count", null)]
+    [InlineData("--no-headers", null)]
+    public async Task CommandLineShare_RejectsInventoryRowControls(
+        string option,
+        string? value)
+    {
+        var arguments = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Microsoft.Extensions.",
+            "--share",
+            "packet",
+            option,
+        };
+        if (value is not null)
+            arguments.Add(value);
+        string[] args = [.. arguments];
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "inventory row controls",
+            captured.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1758,6 +2439,17 @@ public sealed class WorkspaceCommandTests
                 WorkspaceNavigationViewContext.Default,
                 OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
 
+    static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
+        params string[] args) =>
+        ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
+
     static WorkspaceContextLoadOptions LoadOptions(HttpClient client, IPackageStore store) => new()
     {
         HttpClient = client,
@@ -1902,6 +2594,26 @@ public sealed class WorkspaceCommandTests
                 {
                     RequestMessage = request,
                 });
+    }
+
+    sealed class FailOnAccessPackageStore : IPackageStore
+    {
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            throw new InvalidOperationException(
+                "Portable Workspace authoring must not read the Package store.");
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Portable Workspace authoring must not write the Package store.");
     }
 
     sealed class VersionListingHandler : HttpMessageHandler

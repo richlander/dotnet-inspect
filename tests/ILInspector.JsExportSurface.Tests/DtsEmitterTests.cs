@@ -599,7 +599,7 @@ public sealed class DtsEmitterTests
             "export declare function register(callback: "
                 + "(arg0: Record<string, Payload>, "
                 + "arg1: (number | null)[], "
-                + "arg2: (unknown | null)[]) => undefined): void;",
+                + "arg2: unknown[]) => undefined): void;",
             DtsEmitter.Emit(surface, diagnostics),
             StringComparison.Ordinal);
         Assert.Empty(diagnostics.UnmappedTypes);

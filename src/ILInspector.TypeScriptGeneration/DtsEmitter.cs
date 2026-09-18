@@ -152,11 +152,43 @@ static class DtsEmitter
                     reason ?? "union case or null evidence is unavailable");
             }
         }
+        foreach (JsExportPolymorphicUnion union
+            in surface.PolymorphicUnions.Where(
+                union => ShouldEmit(surface, union.Definition)))
+        {
+            string? reason = union.UnsupportedReason;
+            if (reason is not null
+                || union.TypeDiscriminatorPropertyName is null
+                || union.Cases.Count == 0)
+            {
+                throw new UnsupportedWireContractException(
+                    $"{union.Definition.FullName} JSON polymorphism",
+                    reason
+                        ?? "discriminator property or case evidence is unavailable");
+            }
+
+            JsonWireDirection directions =
+                surface.WireDirections.GetValueOrDefault(
+                    union.Definition,
+                    JsonWireDirection.Both);
+            if ((directions & JsonWireDirection.Deserialize)
+                != JsonWireDirection.None)
+            {
+                throw new UnsupportedWireContractException(
+                    $"{union.Definition.FullName} JSON polymorphism",
+                    "polymorphic deserialization is unsupported");
+            }
+        }
         ValidateUnionCycles(surface);
         return [
             .. surface.Records
                 .Concat(surface.Enums)
                 .Concat(surface.Unions.Select(union => union.Definition))
+                .Concat(surface.PolymorphicUnions.Select(
+                    union => union.Definition))
+                .Concat(surface.PolymorphicUnions.SelectMany(
+                    union => union.Cases.Select(
+                        @case => @case.Definition)))
                 .Where(type => ShouldEmit(surface, type)),
         ];
     }
@@ -357,6 +389,26 @@ static class DtsEmitter
                 typeEnvironment,
                 diagnostics);
 
+        foreach (JsExportPolymorphicUnion union
+            in surface.PolymorphicUnions
+                .Where(union => ShouldEmit(surface, union.Definition))
+                .OrderBy(
+                    union => AllocatedTypeName(
+                        union.Definition,
+                        allocatedTypeNames),
+                    StringComparer.Ordinal))
+        {
+            EmitPolymorphicUnion(
+                sb,
+                union,
+                surface.Unions,
+                surface.AssemblyIdentity,
+                declaredTypesByScopedIdentity,
+                typeEnvironment,
+                allocatedTypeNames,
+                diagnostics);
+        }
+
         foreach (JsExportUnion union in surface.Unions
             .Where(union => ShouldEmit(surface, union.Definition))
             .OrderBy(
@@ -394,6 +446,198 @@ static class DtsEmitter
         if (parameters.Length > 0)
             sb.Append('<').AppendJoin(", ", parameters).Append('>');
         sb.Append(" = ").AppendJoin(" | ", alternatives.Distinct(StringComparer.Ordinal))
+            .Append(";\n\n");
+    }
+
+    static void EmitPolymorphicUnion(
+        StringBuilder sb,
+        JsExportPolymorphicUnion union,
+        IReadOnlyList<JsExportUnion> unions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity,
+        TypeMappingEnvironment typeEnvironment,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames,
+        TypeScriptGenerationDiagnostics? diagnostics)
+    {
+        ApiType root = union.Definition;
+        string discriminatorPropertyName =
+            union.TypeDiscriminatorPropertyName!;
+        JsonWireNamingPolicy namingPolicy =
+            root.JsonPropertyNamingPolicy
+                ?? JsonWireNamingPolicy.None;
+
+        foreach (JsExportPolymorphicCase @case in union.Cases.OrderBy(
+            @case => AllocatedTypeName(
+                @case.Definition,
+                allocatedTypeNames),
+            StringComparer.Ordinal))
+        {
+            ApiType caseType = @case.Definition;
+            if (caseType.JsonPropertyNamingPolicy != root.JsonPropertyNamingPolicy)
+            {
+                throw new UnsupportedWireContractException(
+                    caseType.FullName,
+                    "polymorphic root and case naming policies differ");
+            }
+            if (caseType.JsonDefaultIgnoreCondition
+                    != root.JsonDefaultIgnoreCondition
+                || caseType.JsonUseStringEnumConverter
+                    != root.JsonUseStringEnumConverter)
+            {
+                throw new UnsupportedWireContractException(
+                    caseType.FullName,
+                    "polymorphic root and case serializer options differ");
+            }
+
+            var members = new List<(ApiMember Member, string ResolvedName)>();
+            var resolvedNames = new HashSet<string>(StringComparer.Ordinal)
+            {
+                discriminatorPropertyName,
+            };
+            foreach (ApiType declaringType in new[] { root, caseType })
+            {
+                foreach (ApiMember member in declaringType.Members.Where(
+                    member => JsonWireMemberRules.ParticipatesInWireContract(
+                        member,
+                        JsonWireDirection.Serialize,
+                        assemblyIdentity,
+                        declaredTypesByScopedIdentity)))
+                {
+                    int overriddenIndex = -1;
+                    if (ReferenceEquals(declaringType, caseType)
+                        && member.IsOverride)
+                    {
+                        overriddenIndex = members.FindIndex(
+                            candidate => candidate.Member.Name.Equals(
+                                member.Name,
+                                StringComparison.Ordinal));
+                        if (overriddenIndex >= 0)
+                        {
+                            resolvedNames.Remove(
+                                members[overriddenIndex].ResolvedName);
+                            members.RemoveAt(overriddenIndex);
+                        }
+                    }
+
+                    string resolvedName = member.JsonPropertyName
+                        ?? ApplyNamingPolicy(member.Name, namingPolicy);
+                    string location =
+                        $"{declaringType.FullName}.{member.Name}";
+                    ValidatePropertyName(location, resolvedName);
+                    if (!resolvedNames.Add(resolvedName))
+                    {
+                        throw new UnsupportedWireContractException(
+                            location,
+                            resolvedName == discriminatorPropertyName
+                                ? "serialized member collides with the "
+                                    + "polymorphic discriminator property"
+                                : "inherited and declared members resolve "
+                                    + "to the same JSON property name");
+                    }
+                    if (overriddenIndex >= 0)
+                        members.Insert(overriddenIndex, (member, resolvedName));
+                    else
+                        members.Add((member, resolvedName));
+                }
+            }
+
+            string declarationName =
+                AllocatedTypeName(caseType, allocatedTypeNames);
+            sb.Append("export interface ")
+                .Append(declarationName)
+                .Append(" {\n  readonly ")
+                .Append(FormatPropertyKey(discriminatorPropertyName))
+                .Append(": \"")
+                .Append(EscapeString(@case.TypeDiscriminator))
+                .Append("\";\n");
+
+            foreach ((ApiMember member, string resolvedName) in members)
+            {
+                string location =
+                    $"{caseType.FullName}.{member.Name}";
+                JsonWireMemberPresence presence =
+                    JsonWireMemberRules.GetPresence(
+                        member,
+                        JsonWireDirection.Serialize,
+                        assemblyIdentity,
+                        declaredTypesByScopedIdentity,
+                        caseType.JsonDefaultIgnoreCondition);
+                ValidateMemberTypeMapping(
+                    caseType,
+                    member,
+                    presence,
+                    unions,
+                    declaredTypesByScopedIdentity);
+                string propertyType =
+                    member.SignatureModel?.ReturnType
+                        ?? member.ReturnType
+                        ?? "unknown";
+                string tsType;
+                if (member.JsonConverterAttributeCount > 0
+                    && !HasApprovedInertStringConverter(member))
+                {
+                    ReportUnsupportedJsonConverter(
+                        location,
+                        diagnostics);
+                    tsType = "unknown";
+                }
+                else
+                {
+                    IReadOnlySet<string>? blockedAliases =
+                        BlockedAliases(
+                            member.SignatureModel?.ReturnTypeReferences,
+                            typeEnvironment.KnownTypeNames,
+                            typeEnvironment.KnownTypeIdentities);
+                    IReadOnlyDictionary<string, string> mappedTypeNames =
+                        MappedTypeNames(
+                            typeEnvironment,
+                            member.SignatureModel?.ReturnTypeReferences
+                                ?? []);
+                    tsType = presence == JsonWireMemberPresence.Conditional
+                        ? TsTypeMapper.MapJsonWirePresentValueType(
+                            propertyType,
+                            typeEnvironment.KnownTypeNames,
+                            diagnostics,
+                            location,
+                            blockedAliases,
+                            mappedTypeNames,
+                            member.SignatureModel?.ReturnTypeShape,
+                            typeEnvironment.IdentityNames,
+                            typeEnvironment.UnionContext)
+                        : TsTypeMapper.MapJsonWireType(
+                            propertyType,
+                            typeEnvironment.KnownTypeNames,
+                            diagnostics,
+                            location,
+                            blockedAliases,
+                            mappedTypeNames,
+                            member.SignatureModel?.ReturnTypeShape,
+                            typeEnvironment.IdentityNames,
+                            typeEnvironment.UnionContext);
+                }
+
+                sb.Append("  readonly ")
+                    .Append(FormatPropertyKey(resolvedName));
+                if (presence == JsonWireMemberPresence.Conditional)
+                    sb.Append('?');
+                sb.Append(": ")
+                    .Append(tsType)
+                    .Append(";\n");
+            }
+
+            sb.Append("}\n\n");
+        }
+
+        sb.Append("export type ")
+            .Append(AllocatedTypeName(root, allocatedTypeNames))
+            .Append(" = ")
+            .AppendJoin(
+                " | ",
+                union.Cases.Select(@case =>
+                    AllocatedTypeName(
+                        @case.Definition,
+                        allocatedTypeNames)))
             .Append(";\n\n");
     }
 
@@ -857,7 +1101,7 @@ static class DtsEmitter
             return;
         }
 
-        if (!enumType.HasJsonStringEnumConverter)
+        if (!UsesStringEnumConverter(enumType))
         {
             sb.Append("export type ").Append(declarationName).Append(" = number;\n\n");
             return;
@@ -984,7 +1228,8 @@ static class DtsEmitter
                     member,
                     declarationDirection,
                     assemblyIdentity,
-                    declaredTypesByScopedIdentity),
+                    declaredTypesByScopedIdentity,
+                    record.JsonDefaultIgnoreCondition),
                 ResolvedName: member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .Where(item => item.Presence is
@@ -997,39 +1242,12 @@ static class DtsEmitter
             JsonWireMemberPresence presence,
             _) in members)
         {
-            if (presence == JsonWireMemberPresence.Conditional
-                && TryGetConditionalParameter(
-                    member.SignatureModel,
-                    record.TypeParameters,
-                    out string? conditionalParameter))
-            {
-                throw new UnsupportedWireContractException(
-                    $"{record.Name}.{member.Name}",
-                    $"conditional generic record parameter "
-                        + $"'{conditionalParameter}' has no exact "
-                        + "present-value mapping");
-            }
-            if (presence == JsonWireMemberPresence.Conditional
-                && TsJsonUnionMapper.CanCollapseToUnknown(
-                    member.SignatureModel?.ReturnTypeShape,
-                    unions,
-                    declaredTypesByScopedIdentity))
-            {
-                throw new UnsupportedWireContractException(
-                    $"{record.Name}.{member.Name}",
-                    "conditional union present-value type can collapse "
-                        + "to unknown");
-            }
-            if (TryGetArrayParameter(
-                    member.SignatureModel,
-                    record.TypeParameters,
-                    out string? parameter))
-            {
-                throw new UnsupportedWireContractException(
-                    $"{record.Name}.{member.Name}",
-                    $"generic record parameter '{parameter}' is embedded "
-                        + "in an array whose JSON mapping is not parametric");
-            }
+            ValidateMemberTypeMapping(
+                record,
+                member,
+                presence,
+                unions,
+                declaredTypesByScopedIdentity);
         }
 
         sb.Append("export interface ").Append(declarationName);
@@ -1100,6 +1318,49 @@ static class DtsEmitter
         }
 
         sb.Append("}\n\n");
+    }
+
+    static void ValidateMemberTypeMapping(
+        ApiType record,
+        ApiMember member,
+        JsonWireMemberPresence presence,
+        IReadOnlyList<JsExportUnion> unions,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
+    {
+        if (presence == JsonWireMemberPresence.Conditional
+            && TryGetConditionalParameter(
+                member.SignatureModel,
+                record.TypeParameters,
+                out string? conditionalParameter))
+        {
+            throw new UnsupportedWireContractException(
+                $"{record.Name}.{member.Name}",
+                $"conditional generic record parameter "
+                    + $"'{conditionalParameter}' has no exact "
+                    + "present-value mapping");
+        }
+        if (presence == JsonWireMemberPresence.Conditional
+            && TsJsonUnionMapper.CanCollapseToUnknown(
+                member.SignatureModel?.ReturnTypeShape,
+                unions,
+                declaredTypesByScopedIdentity))
+        {
+            throw new UnsupportedWireContractException(
+                $"{record.Name}.{member.Name}",
+                "conditional union present-value type can collapse "
+                    + "to unknown");
+        }
+        if (TryGetArrayParameter(
+                member.SignatureModel,
+                record.TypeParameters,
+                out string? parameter))
+        {
+            throw new UnsupportedWireContractException(
+                $"{record.Name}.{member.Name}",
+                $"generic record parameter '{parameter}' is embedded "
+                    + "in an array whose JSON mapping is not parametric");
+        }
     }
 
     static bool TryGetConditionalParameter(
@@ -1246,7 +1507,7 @@ static class DtsEmitter
                 }
                 if (type.JsonPropertyNamingPolicy
                         != JsonWireNamingPolicy.Unsupported
-                    && type.HasJsonStringEnumConverter
+                    && UsesStringEnumConverter(type)
                     && !type.IsFlagsEnum
                     && members.Length == 0)
                 {
@@ -1364,7 +1625,7 @@ static class DtsEmitter
     /// </remarks>
     static void ValidateFlagsAttributeEvidence(ApiType type)
     {
-        if (!type.HasJsonStringEnumConverter)
+        if (!UsesStringEnumConverter(type))
             return;
         if (type.HasMalformedFlagsAttribute)
         {
@@ -1542,8 +1803,12 @@ static class DtsEmitter
     static bool HasUnsupportedJsonConverter(ApiType type) =>
         type.JsonConverterAttributeCount > 0
         && (type.Kind != "enum"
-            || !type.HasJsonStringEnumConverter
+            || !UsesStringEnumConverter(type)
             || type.JsonConverterAttributeCount != 1);
+
+    static bool UsesStringEnumConverter(ApiType type) =>
+        type.HasJsonStringEnumConverter
+        || type.JsonUseStringEnumConverter;
 
     static bool HasApprovedInertStringConverter(ApiMember member) =>
         member.JsonConverterAttributeCount == 1
@@ -1577,6 +1842,10 @@ static class DtsEmitter
         ApiTypeReferenceIdentity[] identities =
         [
             .. surface.Records
+                .Concat(surface.PolymorphicUnions.SelectMany(
+                    union => new[] { union.Definition }
+                        .Concat(union.Cases.Select(
+                            @case => @case.Definition))))
                 .SelectMany(type =>
                 {
                     JsonWireDirection directions =

@@ -34,6 +34,8 @@ import {
 } from "../src/package-acquisition.ts";
 import type {
   BrowserMemberSurface,
+  CompiledDocumentationEntry,
+  CompiledDocumentationOutcome,
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
@@ -137,6 +139,8 @@ function annotatedResult(): AnnotatedSourceResult {
   return {
     document,
     viewerCatalog: sampleViewerCatalog,
+    findingEvidenceDocuments: [],
+    findingEvidence: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
@@ -199,6 +203,49 @@ function documentationRequest(
     isRuntimePack: false,
     isCurrent: () => true,
     ...overrides,
+  };
+}
+
+function availableDocumentation(
+  documentation: Partial<CompiledDocumentationEntry> = {},
+): CompiledDocumentationOutcome {
+  return {
+    kind: "available",
+    subject: {
+      assembly: { name: "Example.Package" },
+      documentationId: "M:Example.Widget.Run(System.String)",
+    },
+    source: {
+      kind: "Package",
+      name: "Example.Package.xml",
+    },
+    documentation: {
+      summary: "Runs the widget.",
+      parameters: [{
+        name: "value",
+        description: "The value to run.",
+      }],
+      exceptions: [],
+      samples: [],
+      ...documentation,
+    },
+  };
+}
+
+function absentDocumentation(): CompiledDocumentationOutcome {
+  return {
+    kind: "absent",
+    subject: {
+      assembly: { name: "Example.Package" },
+      documentationId: "M:Example.Widget.Run(System.String)",
+    },
+    sources: [{
+      source: {
+        kind: "Package",
+        name: "Example.Package.xml",
+      },
+      kind: "Absent",
+    }],
   };
 }
 
@@ -276,12 +323,7 @@ function inspectionDependencies(
       unavailable: null,
       compatibility: false,
     }),
-    queryDocumentation: async () => ({
-      summary: "Runs the widget.",
-      returns: null,
-      parameters: { value: "The value to run." },
-      exceptions: [],
-    }),
+    queryDocumentation: async () => availableDocumentation(),
     queryFindingCensus: async () => findingCensusResult(),
     queryFacts: async () => factsResult(),
     describeError: error =>
@@ -465,12 +507,10 @@ test("another member starts while documentation is in flight", async () => {
     inspectionDependencies(state, {
       queryDocumentation: async () => {
         queries++;
-        return {
+        return availableDocumentation({
           summary: "Current member documentation.",
-          returns: null,
-          parameters: {},
-          exceptions: [],
-        };
+          parameters: [],
+        });
       },
     }));
 
@@ -494,12 +534,10 @@ test("settled documentation failures can retry for the same member", async () =>
     inspectionDependencies(state, {
       queryDocumentation: async () => {
         queries++;
-        return {
+        return availableDocumentation({
           summary: "Recovered documentation.",
-          returns: null,
-          parameters: {},
-          exceptions: [],
-        };
+          parameters: [],
+        });
       },
     }));
 
@@ -523,15 +561,18 @@ test("documentation completion updates the current overload and restores focus",
         assert.equal(
           documentationId,
           "M:Example.Widget.Run(System.String)");
-        return {
+        return availableDocumentation({
           summary: "Runs the widget.",
           returns: "Nothing.",
-          parameters: { value: "The value to run." },
+          parameters: [{
+            name: "value",
+            description: "The value to run.",
+          }],
           exceptions: [{
-            type: "System.ArgumentException",
+            reference: "T:System#ArgumentException",
             description: "The value is invalid.",
           }],
-        };
+        });
       },
       renderPreservingMemberFocus: fallback => {
         focusCalls.push(fallback);
@@ -568,6 +609,50 @@ test("documentation hydration mutates only the application projection", async ()
   assert.equal(wire.summary, null);
   assert.equal(wire.parameters[0]?.description, null);
   assert.deepEqual(wire.exceptions, []);
+});
+
+test("absent documentation settles without publishing content", async () => {
+  const overload = memberSurface();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => absentDocumentation(),
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, true);
+  assert.equal(overload.summary, null);
+  assert.equal(overload.returns, null);
+  assert.equal(overload.parameters[0]?.description, null);
+  assert.deepEqual(overload.exceptions, []);
+  assert.equal(state.memberDocumentationError, "");
+});
+
+test("structured documentation failure remains visible and retryable", async () => {
+  const overload = memberSurface();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => ({
+        kind: "malformedOrUnreadableDocument",
+        subject: {
+          assembly: { name: "Example.Package" },
+          documentationId: "M:Example.Widget.Run(System.String)",
+        },
+        source: {
+          kind: "Package",
+          name: "Example.Package.xml",
+        },
+      }),
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(
+    state.memberDocumentationError,
+    "The package documentation could not be read.");
 });
 
 test("current documentation failure remains visible", async () => {
@@ -652,12 +737,14 @@ test("invalidation fences a pending same-signature documentation request", async
         queries++;
         return queries === 1
           ? query.promise
-          : {
+          : availableDocumentation({
               summary: "Runs the widget.",
-              returns: null,
-              parameters: { value: "The value to run." },
+              parameters: [{
+                name: "value",
+                description: "The value to run.",
+              }],
               exceptions: [],
-            };
+            });
       },
     }));
 

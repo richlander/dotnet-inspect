@@ -7,9 +7,9 @@
 ## Status
 
 Implemented structured reference-to-definition architecture. Current consumers
-use the implemented declaration, acquisition, binding-result, resolution, and
-correspondence surfaces. Sections explicitly marked design-only describe target
-contracts rather than shipped behavior.
+use the implemented declaration, acquisition, binding-result, resolution,
+detached binding-decision, and correspondence surfaces. Sections explicitly
+marked design-only describe target contracts rather than shipped behavior.
 
 This document is limited to Metadata's consumer-independent resolution
 contract: one exact structured request, one policy-authorized forwarding path,
@@ -1294,6 +1294,65 @@ internal interface IAssemblyBindingResolver
         AssemblyResolutionScope scope);
 }
 ```
+
+#### Detached binding decisions
+
+> **Status: implemented by #7523.**
+
+`AssemblyBindingOutcome` is the live frozen-generation answer. Its resolved and
+ambiguous arms carry catalog candidates, its occurrences retain policy lineage,
+and its inactive evidence carries acquisition descriptors. Consumers that
+continue Metadata traversal use that outcome while its
+`TypeResolutionContext` remains alive.
+
+`AssemblyBindingDecision` is the terminal, resource-free projection of one
+exact manifested binding answer. Metadata alone constructs it through
+`TypeResolutionContext.ProjectBindingDecision`. One decision retains:
+
+- the exact catalog and frozen-generation identities;
+- the exact policy-version identity that governed the generation;
+- a detached request snapshot with the target, scope, and either global origin
+  or projected requesting-assembly evidence;
+- the unchanged `Resolved`, `Missing`, `Unavailable`, `Ambiguous`, `Rejected`,
+  or `ExpansionRequired` classification;
+- the exact miss disposition or structured failure where applicable;
+- ordered selected and inactive-shadow supplier evidence; and
+- an opaque operation-local identity for each binding lineage needed to retain
+  correspondence inside the projected decision.
+
+One `AssemblyBindingSupplierEvidence` retains the acquisition registration,
+managed assembly identity, optional module-version identity, and immutable
+acquisition provenance. The registration remains the acquisition owner's
+resource-free exact identity, including exact Artifact correspondence when one
+exists. The projection omits path and asset-file display coordinates because
+they establish neither binding nor physical correspondence. It also omits the
+descriptor opener, catalog candidate, context, catalog owner, retained image,
+stream, reader, callback, and disposal obligation.
+
+The projector does not call binding policy, open a descriptor, parse Metadata,
+arbitrate candidates, or traverse adjacency. It copies the answer already
+frozen under the context's request and candidate bounds. Candidate and
+occurrence evidence for one selected registration reuse one exact projected
+supplier instance; equal managed identities backed by different registrations
+remain distinct.
+
+A projected decision is historical owner-issued evidence. It remains usable
+after the context, catalog, and acquisition sources close, but it cannot resume
+binding or type resolution. `AssemblyBindingOutcome` remains the only
+continuation-bearing answer.
+
+The Release `ILInspector.Metadata.Tests` gate verifies:
+
+- `ProjectedBindingDecision_SurvivesContextAndSourceRetirement` projects a real
+  runtime assembly, closes the context and original source, and retains exact
+  request, generation, policy, registration, identity, MVID, provenance, and
+  selected-occurrence correspondence;
+- `ProjectedBindingDecision_PreservesClosedOutcomeAlgebra` exercises every
+  binding arm, all miss dispositions, typed failure evidence, candidate order,
+  and inactive-shadow order without re-invoking policy; and
+- `ProjectedBindingDecision_PublicClosureIsResourceFree` recursively rejects
+  descriptors, candidates, contexts, catalogs, delegates, streams, exceptions,
+  and disposal contracts from the public decision closure.
 
 #### Atomic selection/version snapshots
 

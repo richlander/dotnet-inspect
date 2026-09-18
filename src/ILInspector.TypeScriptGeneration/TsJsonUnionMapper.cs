@@ -452,7 +452,7 @@ static class TsJsonUnionMapper
     }
 
     internal static string WithNull(string type) =>
-        type == "null"
+        type is "null" or "unknown"
             || type.EndsWith(" | null", StringComparison.Ordinal)
                 ? type
                 : $"{type} | null";

@@ -9,13 +9,15 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class CompleteRestorationExecutionTests
+public sealed partial class CompleteRestorationExecutionTests
 {
-    [Fact]
-    public async Task RegistrationOnlyVersion3_RestoresWithoutAcquisition()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task RegistrationOnly_RestoresWithoutAcquisition(int version)
     {
-        const string json =
-            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        string json =
+            $$$"""{"f":{{{version}}},"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
             json,
             TestContext.Current.CancellationToken);
@@ -48,8 +50,12 @@ public sealed class CompleteRestorationExecutionTests
         Assert.Empty(activated.Workspace.Snapshot.Scope.Packages);
         Assert.Single(
             activated.Workspace.Snapshot.Definition.Plan.Registrations);
-        Assert.IsType<CompleteRestorationResolvedState.Version3>(
-            activated.Workspace.Snapshot.Resolved);
+        if (version == InspectionDefinitionSchema.Version3)
+            Assert.IsType<CompleteRestorationResolvedState.Version3>(
+                activated.Workspace.Snapshot.Resolved);
+        else
+            Assert.IsType<CompleteRestorationResolvedState.Version4>(
+                activated.Workspace.Snapshot.Resolved);
         var projectable =
             Assert.IsType<CompleteRestorationProjection.Projectable>(
                 activated.Workspace.Projection);
@@ -432,39 +438,50 @@ public sealed class CompleteRestorationExecutionTests
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
-    [Fact]
-    public async Task InactiveUnknownFacet_FailsBeforeActivation()
+    [Theory]
+    [InlineData(InspectionDefinitionSchema.Version2, "package.unknown")]
+    [InlineData(InspectionDefinitionSchema.Version2, "workspace.overview")]
+    [InlineData(InspectionDefinitionSchema.Version3, "package.unknown")]
+    [InlineData(InspectionDefinitionSchema.Version3, "workspace.overview")]
+    public async Task InactiveInvalidFacet_FailsBeforeConstruction(
+        int schemaVersion,
+        string facet)
     {
-        PackageFixture package = await SystemTextJsonPackageAsync();
         var authority = new TestIntentAuthority();
         var preparation =
             Assert.IsType<CompleteRestorationPreparationResult.Ready>(
                 WorkspaceDefinitionConsumer.PrepareRestoration(
-                    Version2PackageRegistry(
+                    PackageRegistry(
+                        schemaVersion,
                         new CommittedViewStateDefinition(
                             "package",
                             new PortableSubjectRequest.Package(),
                             new PortableRetainedSubjectContext.Package(),
-                            facet: "package.unknown"),
+                            facet),
                         focus: null),
                     "scenario",
                     authority));
-        var host = new TestHost();
         using var client = new HttpClient(new RejectingHandler());
 
         CompleteRestorationResult<InspectionWorkspace> result =
             await WorkspaceDefinitionConsumer.RestoreAsync(
                 preparation,
                 authority,
-                host,
-                Options(client, package.Store),
+                new NeverConstructHost(),
+                Options(client, []),
                 TestContext.Current.CancellationToken);
 
         var failed = Assert.IsType<
             CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
-        Assert.IsType<CompleteRestorationFailure.SelectorResolutionFailed>(
-            failed.Failure);
-        Assert.True(host.CloseReport!.Succeeded);
+        var selectorFailure =
+            Assert.IsType<
+                CompleteRestorationFailure.SelectorResolutionFailed>(
+                    failed.Failure);
+        Assert.Equal(
+            CommittedSelectorResolutionFailureKind.InvalidFacet,
+            selectorFailure.Failure.Kind);
+        Assert.Equal(1, selectorFailure.Failure.StateIndex);
+        Assert.Equal("package", selectorFailure.Failure.NavigationId);
     }
 
     [Fact]
@@ -961,19 +978,30 @@ public sealed class CompleteRestorationExecutionTests
     private static InspectionDefinitionRegistry Version2PackageRegistry(
         CommittedViewStateDefinition? packageState = null,
         bool duplicateContexts = false,
+        string? focus = "package") =>
+        PackageRegistry(
+            InspectionDefinitionSchema.Version2,
+            packageState,
+            duplicateContexts,
+            focus);
+
+    private static InspectionDefinitionRegistry PackageRegistry(
+        int schemaVersion,
+        CommittedViewStateDefinition? packageState = null,
+        bool duplicateContexts = false,
         string? focus = "package")
     {
         var registry = new InspectionDefinitionRegistry();
         registry.Add(PackageWorkspace(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             duplicateContexts));
         registry.Add(new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "navigation",
             [new NavigationTabDefinition("package", coordinate: Package())],
             focus));
         registry.Add(new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "view",
             [
                 new CommittedViewStateDefinition(
@@ -987,7 +1015,7 @@ public sealed class CompleteRestorationExecutionTests
                         facet: "package.overview"),
             ]));
         registry.Add(new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             "scenario",
             workspace: "workspace",
             context: "context",

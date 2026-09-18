@@ -64,11 +64,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return;
 
         ClassicInverseDecision decision;
+        ImmutableArray<DecompilerFidelityCause> localNameImportCauses;
         using (scope)
         {
             IrFunction? rawMoveNext = scope.Import();
             if (rawMoveNext is null)
                 return;
+            localNameImportCauses = [
+                .. rawMoveNext.LocalNameImportCauses.Select(static cause =>
+                    cause.WithLocation(DecompilerFidelityLocation.Unknown)),
+            ];
 
             IrFunction rawKickoff = context.ImportMethodBody!(new MethodRef(
                 function.DeclaringType,
@@ -101,7 +106,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         switch (decision)
         {
             case ClassicInverseDecision.Reconstruct { Plan: var plan }:
-                Apply(function, kickoff, plan, context);
+                Apply(
+                    function,
+                    kickoff,
+                    plan,
+                    localNameImportCauses,
+                    context);
                 return;
 
             case ClassicInverseDecision.Decline decline
@@ -129,6 +139,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction function,
         Kickoff kickoff,
         ClassicInversePlan plan,
+        ImmutableArray<DecompilerFidelityCause> localNameImportCauses,
         PassContext context)
     {
         context.Stepper.StepOver(
@@ -155,7 +166,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         function.MergeTypeFactsFrom(plan.TypeFacts);
         function.ClearImportedExceptionFacts();
         function.ResetLocals(plan.Locals, plan.LocalNames,
-            synthesizedNames: plan.SynthesizedLocalNames);
+            synthesizedNames: plan.SynthesizedLocalNames,
+            declaredInNestedScope: plan.LocalDeclaredInNestedScope,
+            declarationBindings: plan.LocalDeclarationBindings);
+        function.LocalNameImportCauses =
+            function.LocalNameImportCauses.AddRange(localNameImportCauses);
         function.RequiresAsyncBodyModifier = true;
         function.Body.DetachChildren();
         foreach (var block in body.Blocks.ToList())

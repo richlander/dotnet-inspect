@@ -168,27 +168,34 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ## What does it integrate with? (ecosystem)
 
 All integrations are enabled by default. Discover and narrow the ordinary
-Integration result with canonical ecosystem identities:
+Integration result with canonical concept or ecosystem identities:
 
 ```bash
 dnx dotnet-inspect -y -- library -Q Integrations
-dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
-dnx dotnet-inspect -y -- library MyLibrary.dll -S "Integration: Aspire" --where "ecosystem=ecosystem.aspire" --jsonl
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- library MyLibrary.dll -S Integrations \
+  --where "integration=integration.aspire" --jsonl
 ```
 
-Omitting `-S` with this predicate selects the Integration family. Use a concrete
-section for tabular output. An empty filtered result is not absence of all
+Omitting `-S` with either predicate selects `Integrations`. The two facets
+intersect when combined. An empty filtered result is not absence of all
 Integration support; full-library presence and Census remain unchanged.
-Unsupported IDs and combinations fail explicitly. Do not combine the ecosystem
-predicate with Performance Triage or Body Shapes queries.
-This option belongs to `library`, not `package --library` or `graph`.
+Unsupported IDs and combinations fail explicitly. Do not combine either
+predicate with Performance Triage or Body Shapes queries. These options belong
+to `library`, not `package --library` or `graph`.
 
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
 should be narrowed. This is an induced set, not a traversal: it has no direction
 or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
-`--jsonl`, `--count`, and `--rows` project the same logical relationships.
+`--jsonl`, and `--count` project the same logical relationships. `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete logical edges after the
+graph is built and before those formats; use `--lines` only for explicit
+rendered-line clipping. Row selection does not reduce package acquisition or
+hide retained graph failures. `graph libraries` remains a separate
+multi-section command and keeps rendered-line `-n` behavior.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing

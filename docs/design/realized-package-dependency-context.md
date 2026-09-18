@@ -28,8 +28,8 @@ Adjacent owners retain their authority:
   declarations, selected-group identity and status, completion, and failures.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns graph
   expansion and preservation of owner-issued source evidence.
-- [Workspace default target framework](workspace-default-target-framework.md)
-  owns the governing destination target when no authoritative target exists.
+- [Traversal target-framework policy](traversal-target-framework-policy.md)
+  owns the governing destination target for a traversal.
 - [Target-framework selection across dependency
   realization](https://github.com/richlander/dotnet-inspect/issues/6424) owns
   the handoff from an admitted dependency edge to destination Package Root

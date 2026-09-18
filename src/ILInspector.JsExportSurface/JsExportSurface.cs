@@ -33,6 +33,9 @@ public sealed class JsExportSurface
 
     public IReadOnlyList<JsExportUnion> Unions { get; init; } = [];
 
+    public IReadOnlyList<JsExportPolymorphicUnion> PolymorphicUnions
+        { get; init; } = [];
+
     /// <summary>
     /// Complete extracted same-assembly type inventory available when the
     /// surface came from <see cref="JsExportSurfaceBuilder"/> rather than a
@@ -105,6 +108,29 @@ public sealed class JsExportUnion
     /// </summary>
     public string DeserializationUnsupportedReason { get; init; } =
         "union deserialization case classification is not modeled";
+}
+
+/// <summary>
+/// One authentic System.Text.Json discriminated object hierarchy. This stays
+/// separate from <see cref="JsExportUnion"/>, whose runtime union convention
+/// has scalar/value semantics rather than discriminator-bearing objects.
+/// </summary>
+public sealed class JsExportPolymorphicUnion
+{
+    public required ApiType Definition { get; init; }
+
+    public string? TypeDiscriminatorPropertyName { get; init; }
+
+    public IReadOnlyList<JsExportPolymorphicCase> Cases { get; init; } = [];
+
+    public string? UnsupportedReason { get; init; }
+}
+
+public sealed class JsExportPolymorphicCase
+{
+    public required ApiType Definition { get; init; }
+
+    public required string TypeDiscriminator { get; init; }
 }
 
 /// <summary>

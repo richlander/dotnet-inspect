@@ -173,6 +173,229 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Legacy `--rows` composes with an",
+            output);
+        Assert.Contains(
+            "inferred or explicit rendered-line `-n`",
+            output);
+        Assert.DoesNotContain(
+            "all legacy `--rows` forms reject `-n`",
+            output);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_BareCountInfersFixedMarkdownLineSelection()
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            string[] inferredArgs =
+                ["skill", "query", "-n", "1"];
+            var inferredParseResult =
+                CommandLineBuilder.CreateRootCommand().Parse(inferredArgs);
+            var inferred =
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                        inferredParseResult,
+                        inferredArgs));
+            string[] explicitArgs =
+                ["skill", "query", "-n", "1", "--lines"];
+            var explicitParseResult =
+                CommandLineBuilder.CreateRootCommand().Parse(explicitArgs);
+            var explicitResult =
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                        explicitParseResult,
+                        explicitArgs));
+
+            Assert.Equal(0, inferred.ExitCode);
+            Assert.Empty(inferred.Error);
+            Assert.Equal(explicitResult, inferred);
+            Assert.Single(
+                inferred.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
+    }
+
+    [Theory]
+    [InlineData("skill")]
+    [InlineData("focused")]
+    public async Task SkillDocument_CountSelectsRenderedLines(string route)
+    {
+        string[] args =
+            route == "skill"
+                ? ["skill", "-n", "2"]
+                : ["skill", "query", "-n", "2"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_WithoutCountPrintsCompleteDocument()
+    {
+        string[] args = ["skill", "query"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("name: dotnet-inspect-query", output);
+        Assert.Contains(
+            "plain `--json` retains the typed root result array",
+            output);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_BareCountAndTailSelectTrailingLines()
+    {
+        string[] args = ["skill", "query", "-n", "3", "--tail"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("selection.", output);
+        Assert.DoesNotContain(
+            "name: dotnet-inspect-query",
+            output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkillList_BareCountSelectsRenderedLines(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ? ["skill", "-n", "1", "list"]
+                : ["skill", "list", "-n", "1"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkillList_ExplicitLinesAcceptsCountPlacement(
+        bool beforeSubcommand)
+    {
+        string[] args =
+            beforeSubcommand
+                ? ["skill", "-n", "1", "--lines", "list"]
+                : ["skill", "list", "-n", "1", "--lines"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Fact]
+    public async Task FocusedSkill_HelpDescribesLineItems()
+    {
+        string[] args = ["skill", "query", "--help"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Select rendered lines",
+            output);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task FocusedSkill_DirectionWithoutCountRejects(
+        string direction)
+    {
+        string[] args = ["skill", "query", direction];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains($"{direction} requires -n", error);
+    }
+
+    [Fact]
     public async Task EveryRegisteredSkillResourceResolves()
     {
         foreach (var skill in SkillCommand.Skills)

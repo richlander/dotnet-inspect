@@ -61,8 +61,8 @@ not a new rung in this ladder or an already available output option.
 
 ### Implementation status
 
-Baseline transport is adopted by positional `depends <type>` and ordinary
-Library API Diff with exactly one Library per endpoint.
+Baseline transport is adopted by positional `depends <type>`, ordinary
+Library API Diff with exactly one Library per endpoint, and Package Activity.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -101,14 +101,21 @@ JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
+Package Activity registers `ecosystem-change-report` at schema version `1`.
+Unprojected `--json` and `--envelope.content` share the owner-issued
+`EcosystemChangeReportDocument` serializer. Report scope, interval, security
+selection, and semantic result limit remain service inputs. Projection, Count,
+row selection, discovery, section selection, and competing output formats are
+rejected with `--envelope`. Typed incomplete or failed Documents remain
+visible before the command returns a nonzero exit.
+
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
 unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
-[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
-owns command cutover. These two concrete Content registrations complete the
-baseline transport rollout in #6719, not those separate adoption efforts.
+[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) owns this
+command cutover.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -201,10 +208,14 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, the planned `package P@A..B --count --envelope` serializes the
-version-count operation's envelope; it does not count envelope members or
-force a different inspection. A row window already bound into a semantic
-plan is likewise not an instruction to slice serialized JSON.
+For example, `package P@A..B --count --envelope` serializes the package
+version-population operation's complete envelope. Available Content contains
+the population Document and its requested typed Count component; it does not
+count envelope members, replace the Document with a scalar, or force a second
+inspection. Ordinary `--count`, including `--count --json`, projects that same
+component to the existing scalar output. A row window already bound into a
+semantic Count plan selects the counted population cohort; it is not an
+instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
@@ -289,18 +300,23 @@ specific to its result kind; an unrelated result kind need not advance.
 This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
 
-The registered adopter identity is `type-dependencies` for
-`TypeDependencySectionResult`. The second adopted identity is
-`library-api-diff` for `LibraryApiDiffOutcome`. An Outcome's Available,
-Rejected, or other case does not change `result_kind`; its own discriminator
-remains inside `content`. Another operation with a different content contract,
-such as Discover or semantic Count, needs its own registration. Neither the
-command token nor the generic CLR name is a wire discriminator.
-Asset-mode dependency inspection reserves the distinct identity
-`asset-dependencies` at schema version `1` for
-`DependencyInspectionContent`; its enriched form binds
+The registered adopter identities are:
+
+| `result_kind` | Content contract |
+| --- | --- |
+| `type-dependencies` | `TypeDependencySectionResult` |
+| `library-api-diff` | `LibraryApiDiffOutcome` |
+| `asset-dependencies` | `DependencyInspectionContent` |
+| `ecosystem-change-report` | `EcosystemChangeReportDocument` |
+
+The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
 [adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
+An Outcome's Available, Rejected, or other case does not change `result_kind`;
+its own discriminator remains inside `content`. Another operation with a
+different content contract, such as Discover or semantic Count, needs its own
+registration. Neither the command token nor the generic CLR name is a wire
+discriminator.
 
 Envelope and diagnostic member names use lower snake case. Share keeps its
 owner-issued `kind` discriminator and values, including `available` and
@@ -618,11 +634,11 @@ exist to be selected. The family has two currencies: the IL coordinate, and the
 heap coordinate `--heap` carries (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
-The family is counted in currencies, not flags, because one currency can have
-more than one spelling. The IL coordinate has two: `--il-offset` takes a single
-coordinate, and `--il-offsets` takes a file of them for batch reporting. They
-are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
-carry the same currency, so they are one member of this family rather than two.
+The family is counted in currencies, not syntax elements, because one currency
+can have more than one spelling. `library coordinate` accepts either one exact
+IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
+and `--il-offsets` parent options carry the same currency. Exact and file modes
+are mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -1231,11 +1247,12 @@ resolved by discarding one.
 
 ### Lens modes project their own payload
 
-A few flags select a *lens* rather than a section of the normal document:
+A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
-payload it computes itself and returns before the section pipeline, so the
-section-selection vocabulary does not describe what the caller is looking at.
+`library coordinate --file`, transitional `library --il-offsets`, and the
+`-D`/`--discover` listing. Each renders a payload it computes itself and
+returns before the section pipeline, so the section-selection vocabulary does
+not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1605,10 +1622,11 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
-  an input that has no other expression and gate the sections it makes
-  meaningful. They do not narrow a shape, and a flag qualifies for this family
-  only if its input is a new currency. The first two spell the same currency, so
+- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
+  `--heap`, supplies coordinate input that has no other expression and gates
+  the sections it makes meaningful. Coordinate input does not narrow a shape,
+  and syntax qualifies for this family only if its input is a new currency.
+  Exact and file IL coordinates spell the same currency, so
   they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.

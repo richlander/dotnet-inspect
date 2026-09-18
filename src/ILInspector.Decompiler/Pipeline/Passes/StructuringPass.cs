@@ -1220,9 +1220,20 @@ public sealed class StructuringPass : IIrPass
                         break;
                     }
                     if (falseStart + 1 == target
-                        && IsRegionExitTerminator(ctx, falseStart)
-                        && Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                        && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!IsBareRegionExitBlock(ctx, falseStart))
+                        {
+                            if (!CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop, continueTarget))
+                            {
+                                ctx.Recorder?.Record("prefixed-region-exit-ownership-unproven");
+                                return false;
+                            }
+                            if (!Validate(ctx, falseStart, target, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                                return false;
+                        }
+                        if (!Validate(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
+                            return false;
                         i = stop;
                         break;
                     }
@@ -2069,6 +2080,37 @@ public sealed class StructuringPass : IIrPass
             && IsRegionExitLeave(ctx, leave);
     }
 
+    static bool IsBareRegionExitBlock(Ctx ctx, int blockIndex)
+        => IsRegionExitTerminator(ctx, blockIndex)
+            && ctx.Blocks[blockIndex].Children.Count == 1;
+
+    static bool CanDissolvePrefixedRegionExit(
+        Ctx ctx,
+        int falseStart,
+        int target,
+        int stop,
+        int? continueTarget) =>
+        // An infinite-loop body's end flows to its head, not the protected-region continuation.
+        continueTarget is null
+        && target < stop
+        && ReachesProtectedRegionEnd(ctx, stop)
+        && !RegionExternallyEntered(ctx, falseStart, target)
+        && !RegionExternallyEntered(ctx, target, stop);
+
+    static bool ReachesProtectedRegionEnd(Ctx ctx, int start)
+    {
+        for (int i = start; i < ctx.Blocks.Count; i++)
+        {
+            if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
+                continue;
+            if (i != ctx.Blocks.Count - 1
+                || ctx.Blocks[i].Children.Count != 1
+                || !IsRegionExitTerminator(ctx, i))
+                return false;
+        }
+        return true;
+    }
+
     static bool RegionExitBlockPredecessorsAreConsumed(
         Ctx ctx,
         int blockIndex,
@@ -2112,15 +2154,8 @@ public sealed class StructuringPass : IIrPass
             || loopExitIndex >= stop)
             return false;
 
-        for (int i = loopExitIndex; i < stop; i++)
-        {
-            if (ctx.DroppableBlocks.Contains(i) || ctx.Blocks[i].Children.Count == 0)
-                continue;
-            if (i != stop - 1
-                || ctx.Blocks[i].Children.Count != 1
-                || !IsRegionExitTerminator(ctx, i))
-                return false;
-        }
+        if (!ReachesProtectedRegionEnd(ctx, loopExitIndex))
+            return false;
 
         // Clone predecessors are collected from the pristine container and
         // include transfers nested inside already-structured nodes. Cfg.Build
@@ -2939,8 +2974,16 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (falseStart + 1 == target && IsRegionExitTerminator(ctx, falseStart))
                     {
+                        if (!IsBareRegionExitBlock(ctx, falseStart)
+                            && !CanDissolvePrefixedRegionExit(ctx, falseStart, target, stop, continueTarget))
+                        {
+                            throw new InvalidOperationException("Validated prefixed region-exit ownership was not buildable.");
+                        }
                         var takenArm = BuildRegion(ctx, target, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
-                        result.Add(new IfStatement(condition, takenArm, null));
+                        Block? fallthroughArm = IsBareRegionExitBlock(ctx, falseStart)
+                            ? null
+                            : BuildRegion(ctx, falseStart, target, joinIndex, breakTarget, continueTarget, regionExitBreakTarget);
+                        result.Add(new IfStatement(condition, takenArm, fallthroughArm));
                         i = stop;
                         break;
                     }

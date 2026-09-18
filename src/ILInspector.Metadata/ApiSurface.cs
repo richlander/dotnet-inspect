@@ -482,6 +482,15 @@ public class TypeParameter
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
+    /// Exact definition names referenced by type constraints. An empty list
+    /// means the constraints reference no named definitions; null means the
+    /// constraint shape or an exact definition name was unavailable.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<MetadataTypeDefinitionName>? ConstraintTypeDefinitionNames
+        { get; set; }
+
+    /// <summary>
     /// Whether the constraint set proves this type parameter is a reference type, a
     /// value type, or neither — the metadata fact behind C#'s "known to be a reference
     /// type" rule, which is not the same question as which constraint keywords are
@@ -918,6 +927,9 @@ public class ApiType
     public bool HasUnsupportedJsonWireAttributes { get; set; }
 
     [JsonIgnore]
+    public ApiJsonPolymorphismEvidence? JsonPolymorphism { get; set; }
+
+    [JsonIgnore]
     public int JsonSerializableAttributeCount { get; set; }
 
     [JsonIgnore]
@@ -926,6 +938,12 @@ public class ApiType
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
+    [JsonIgnore]
+    public JsonWireIgnoreCondition JsonDefaultIgnoreCondition { get; set; }
+
+    [JsonIgnore]
+    public bool JsonUseStringEnumConverter { get; set; }
 
     /// <summary>
     /// The effective source-generation mode declared by this serializer
@@ -1954,3 +1972,18 @@ public sealed record ApiJsonSerializableRoot(
     [JsonIgnore]
     public JsonSourceGenerationMode GenerationMode { get; init; }
 }
+
+public sealed record ApiJsonDerivedType(
+    ApiTypeReferenceIdentity Type,
+    string TypeDiscriminator);
+
+/// <summary>
+/// Authentic System.Text.Json polymorphism metadata retained without treating
+/// unreadable or unsupported rows as absence.
+/// </summary>
+public sealed record ApiJsonPolymorphismEvidence(
+    int PolymorphicAttributeCount,
+    string? TypeDiscriminatorPropertyName,
+    int DerivedTypeAttributeCount,
+    IReadOnlyList<ApiJsonDerivedType> DerivedTypes,
+    string? UnsupportedReason);

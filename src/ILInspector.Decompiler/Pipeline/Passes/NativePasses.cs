@@ -97,6 +97,8 @@ internal static class NativePasses
     public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
+    [Native(NativeCategory.EmitArtifact, "lexical blocks erased by codegen retained where PDB names and reconstructed uses establish disjoint declaration scopes")]
+    public static PdbLocalScopePass PdbLocalScope => new();
     [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
     public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
     [Native(NativeCategory.EmitArtifact, "a spilled fluent call chain re-composed by folding each single-use scratch receiver/argument temp back into the chained call it feeds")]
@@ -107,6 +109,12 @@ internal static class NativePasses
     public static ShortCircuitTernaryPass ShortCircuitTernary => new();
     [Native(NativeCategory.EmitArtifact, "the compiler's one-temp value-swap codegen shape (S = p; p = q; q = S over two distinct same-type by-value places) folded back to the recognized tuple deconstruction swap (q, p) = (p, q) — byte-identical to the manual temp swap, so it inverts a codegen shape, not the named DeconstructionAssignmentOperator lowering")]
     public static SwapIdiomPass SwapIdiom => new();
+    [Native(NativeCategory.EmitArtifact, "an exclusive dup-based pointer-element address spill consumed by a typed compound update, preserving pointer/index evaluation and the read/RHS/write sequence")]
+    public static PointerElementCompoundAssignmentPass PointerElementCompoundAssignment => new();
+    [Native(NativeCategory.EmitArtifact, "a same-pointer-place read and canonically scaled add/subtract decided as a typed compound update before emission")]
+    public static PointerCompoundAssignmentPass PointerCompoundAssignment => new();
+    [Native(NativeCategory.EmitArtifact, "a final scalar store whose binary reads the exact destination annotated with its self-update or unit-step decision, preserving the explicit read/compute/write tree")]
+    public static ScalarSelfUpdatePass ScalarSelfUpdate => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

@@ -5,9 +5,14 @@ src/Inspector.Artifacts.Local
 src/Inspector.Artifacts.Workspaces
 src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
+src/DotnetInspector.DocumentationHouse
+src/DotnetInspector.DocumentationHouse.Contracts
+src/DotnetInspector.DocumentationHouse.Packages
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.Libraries
 src/DotnetInspector.Networking
+src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
@@ -19,6 +24,7 @@ src/DotnetInspector.QueryEngine
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.Sections
 src/DotnetInspector.Services
+src/DotnetInspector.SourceHouse
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/Inspector.Findings

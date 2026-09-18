@@ -2,11 +2,45 @@
 
 ## Unreleased
 
-- Adds focus-first `library coordinate <MethodDef+offset>` for exact IL
-  coordinate inspection with named `--library`, `--package`, and `--platform`
-  source context. It reuses the existing coordinate sections, projections,
-  discovery, acquisition, and typed failures; the legacy exact option remains
-  available until heap and file modes complete the command transition (#7307).
+- Makes `-n` adapt to the active command's available item sequence: declared
+  semantic rows remain preferred, while commands and modes without semantic
+  row adoption now select rendered lines instead of rejecting the count.
+  `--lines` remains an explicit unit override, and numeric `-t` on
+  `implements` and `extensions` is treated as type-filter input rather than a
+  legacy count or migration diagnostic (#4677).
+- Adds complete service `--envelope` output to `package activity` with result
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
+  emits the same owner-issued report Content without the service frame.
+  Report request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
+- **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
+  `@Integrations` categories, category-first alphabetical discovery, and
+  alphabetical multi-section output. Replace the former unprefixed
+  `-S Integrations` alias with `-S @Integrations`; exact
+  `-S "Known Integrations"` remains available. Computed `@All`, `@Default`,
+  and `@Hidden` selectors remain unsupported (#7453).
+- Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
+  heap inspection and `library coordinate --file <path>` for sparse IL
+  coordinate populations, with named `--library`, `--package`, and `--platform`
+  source context. File mode admits at most 1,024 significant records before
+  Library acquisition; blank and comment lines do not count, while malformed
+  records remain visible. Heap coordinates remain bound to the selected
+  `--metadata-root`. The command reuses the existing coordinate sections,
+  projections, discovery, acquisition, and typed failures; legacy coordinate
+  options remain available until the retirement slice completes the command
+  transition (#7307).
+- **Breaking:** `library coordinate --file` emits valid and malformed records
+  together in source-file order, and applies row windows after that ordering.
+  Legacy `library --il-offsets` continues to group malformed records first
+  during the transition (#7307).
+- **Breaking:** Replaces the separate `Integration: <concept>` library sections
+  with one homogeneous `Integrations` section. Narrow it with
+  `--where "integration=integration.<concept>"`; use the composable `ecosystem`
+  facet to enable an ecosystem's registered Integration set. The current Aspire
+  registration enables the complete configured Integration catalog. Renames
+  `Integration: Opportunities` to `Integration Opportunities`, while
+  `@Integrations` continues to select both current sections.
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
   discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
   member discovery remains case-insensitive and one-to-many across overloads,

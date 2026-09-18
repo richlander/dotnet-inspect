@@ -900,6 +900,12 @@ public sealed class PackageRootRealization
             selection.DefaultAsset,
             Freeze(selection.CandidateAssets),
             Freeze(selection.ImplementationAssets),
+            Freeze(selection.ExplicitEmptyTargetFrameworks),
+            Freeze(selection.AvailableSlices.Select(slice =>
+                new PackageCompileAssetSlice(
+                    slice.TargetFramework,
+                    Freeze(slice.CandidateAssets),
+                    slice.HasExplicitEmptyReferenceGroup)).ToArray()),
             selection.Message);
 
     static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
