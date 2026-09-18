@@ -180,6 +180,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
+| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls that cross assembly boundaries, retaining only boundary calls and their shortest local connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -223,7 +224,7 @@ dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
 dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
-dotnet-inspect ecosystem platform -S Pruning
+dotnet-inspect ecosystem runtime -S Pruning
 ```
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
@@ -258,7 +259,7 @@ report view; `--json` emits the lossless schema-versioned report, while
 acquisition progress on stderr. Single-table formats and catalog-only section
 projections are not available with `package activity`.
 
-`ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
+`ecosystem runtime -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
 platform target supplies, so a reference to one resolves to the platform rather
 than to the package. `Kind` separates a version that moves with the framework
@@ -315,7 +316,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
-source locations; these remain outside the default Finding set.
+source locations; these remain outside the default Finding set. Selecting a
+recursive relationship shows its exact direct or mutual cycle witness and
+whether the bounded focus-graph census was complete.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -426,10 +429,18 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect package Markout@0.35.2 \
+  --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+For one package with exactly `Package files` selected, `-n`, `--tail`, and
+`--rows A..B` select complete path/size rows after archive extraction, file
+enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
+`--value`, and `--paths` observe the same selected rows; add `--lines` only to
+clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
@@ -438,10 +449,11 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
-scalar, including with `--json`; `--count --envelope` emits the complete
-population envelope with both the directed version Document and typed Count
-component. `--preview`, `--include-unlisted`, configured source options, and
-`--versions-with-feed` remain semantic population inputs.
+scalar, including with `--json`; `--count --envelope` makes that same integer
+the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
+the complete directed version Document. `--preview`, `--include-unlisted`,
+configured source options, and `--versions-with-feed` remain semantic
+population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
@@ -1014,6 +1026,13 @@ dotnet-inspect graph integrations \
   --tfm net10.0 \
   --relationship integration.observed \
   -n 10 --tail --table
+dotnet-inspect graph calls \
+  Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
+  AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
+  --root-package OpenTelemetry@1.18.0 \
+  --package OpenTelemetry.Api@1.18.0 \
+  --tfm net10.0 \
+  --all
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -1028,12 +1047,33 @@ dotnet-inspect graph libraries \
   --table
 ```
 
-For `graph integrations`, one semantic row is one logical graph edge in the
-completed induced-set document. Head/Tail and strict Window select those edges
-before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph, or Count
-lowering; selection does not reduce package acquisition or hide retained graph
-failures. Add `--lines` only to clip rendered text explicitly. `graph libraries`
-retains its independent section row sets and rendered-line `-n` fallback.
+For `graph integrations` and `graph calls`, one semantic row is one logical
+graph edge in the completed typed document. Head/Tail and strict Window select
+those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
+or Count lowering; selection does not reduce package acquisition or hide
+retained graph failures. Add `--lines` only to clip rendered text explicitly.
+`graph libraries` retains its independent section row sets and rendered-line
+`-n` fallback.
+
+`graph calls` is the integration-style complement to the general
+`member -S "Call Graph"` view. It starts from one exact member in
+`--root-package`, treats repeatable `--package` values as explicit external
+participants, and shows only calls crossing out of the focus assembly plus the
+shortest local paths needed to reach them. Each edge is typed as `connector`,
+`boundary`, or `unclassified-boundary`, and row-oriented output retains the
+physical MVID, MethodDef token, IL offset, operand token, call kind, dispatch
+kind, and loop state.
+
+The OpenTelemetry example reduces the ordinary 28-edge bounded neighborhood to
+nine explanatory edges. Two local connectors retain the path from
+`AddOpenTelemetrySharedProviderBuilderServices` through
+`Sdk.get_SuppressInstrumentation` and
+`SuppressInstrumentationScope.get_IsSuppressed` to
+`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Calls into assemblies not
+declared by `--package` remain visible as `unclassified-boundary` edges with an
+incompleteness warning instead of being silently dropped. Use `--table`,
+`--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
+complete logical edges after graph construction.
 
 For positional type dependencies, `--json` writes the complete
 `TypeDependencySectionResult` Content, and `--envelope` writes the identical

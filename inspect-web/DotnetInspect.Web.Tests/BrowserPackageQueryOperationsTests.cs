@@ -208,8 +208,8 @@ public sealed class BrowserPackageQueryOperationsTests
         PackageQueryRequestFailureReason.UnknownEcosystem)]
     [InlineData(
         "ecosystem.platform",
-        PackageQueryRequestFailureReason.EcosystemPackagePopulationUnavailable)]
-    public void PackagePlan_RejectsUnavailableProductEcosystemMemberships(
+        PackageQueryRequestFailureReason.UnknownEcosystem)]
+    public void PackagePlan_RejectsUnknownProductEcosystemMemberships(
         string ecosystemId,
         PackageQueryRequestFailureReason expectedReason)
     {

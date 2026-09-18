@@ -13,21 +13,29 @@ the subject, observation, operation, lens, or only the rendering.
 The governing rule is:
 
 > One transition should change one axis. Subject commands name independently
-> navigable domains; their selectors identify subjects. Distinct operations
-> are explicit and may be subcommands under that subject. A change in arity
-> requires a distinct request and outcome contract, not inherently another
-> top-level command. Options and sections select context, observations,
-> traversal, and projection without silently changing the subject.
+> navigable domains; their selectors identify subjects. Broad Diff, Graph, and
+> Depends operations remain explicit top-level commands. A subject command may
+> expose a curated invocation of one through a section, but does not add a
+> `diff`, `graph`, or `depends` subject subcommand. A change in arity requires a
+> distinct request and outcome contract, not inherently another command.
+> Options and sections select context, observations, traversal, and projection
+> without silently changing the subject.
 
-The proposed [subject-owned Diff](#subject-owned-diff) adoption is tracked by
+[Operation Commands and Subject Sections](operation-command-and-subject-section-composition.md)
+owns that cross-command placement. This document retains transition,
+cardinality, and comparison-adoption evidence but no longer owns moving Diff
+under Library, Type, or Member.
+
+The historical [subject-owned Diff](#historical-subject-owned-diff-placement)
+proposal is tracked by
 [#7046](https://github.com/richlander/dotnet-inspect/issues/7046), under
 [Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213).
-This document owns its command placement and completed-host-adoption boundary.
-It supersedes the top-level placement proposed in #6988; the
-[History owner](diff-history.md) retains temporal and population-count
-semantics, not CLI placement. The user also explicitly approved full shared
-envelopes, complete Browser delivery, and public CLI `--envelope` output as
-part of this adoption.
+Its comparison and completed-host-adoption work remains relevant, but its
+subject-subcommand placement is superseded by
+[the operation/section composition](operation-command-and-subject-section-composition.md).
+The [History owner](diff-history.md) retains temporal and population-count
+semantics. Full shared envelopes, complete Browser delivery, and public CLI
+`--envelope` output remain part of focused Diff adoption.
 
 The [location and result cardinality](#location-and-result-cardinality)
 contract is tracked by
@@ -43,19 +51,20 @@ owns the names and semantic extents carried as `TContent`. This adoption
 consumes that contract; it does not define a competing Diff-specific content
 taxonomy.
 
-This is **specification only**. Existing top-level `diff` and `timeline` remain
-current until the cutover. Current examples elsewhere in this document are
-pre-cutover evidence; the target grammar is isolated below. Other root
-operations such as `match`, `find`, `depends`, and `graph` are not relocated
-by this adoption.
+This is **specification only**. Existing top-level `diff` remains current and
+is retained by the composition owner; `timeline` remains current until focused
+Diff adoption retires it. Examples in the historical placement section are
+pre-cutover evidence, not target grammar. Other root operations such as
+`match`, `find`, `depends`, and `graph` are not relocated by this adoption.
 
 Related docs:
 
 - [Coordinate child command](coordinate-child-command.md) defines when a
   required subordinate coordinate earns a child request surface under an
   already selected subject.
-- [Inspection graph modes](inspection-graph-modes.md) defines the target split
-  between subject-local Graph operations and top-level Graph questions.
+- [Inspection graph modes](inspection-graph-modes.md) defines subject-first
+  Graph sections and top-level Graph requests over single seeds, peer seeds,
+  induced sets, Workspace participants, and paths.
 - [Output Shapes](output-shapes.md) defines the
   Document → Table → Vector → Scalar ladder.
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
@@ -622,8 +631,7 @@ These commands are ergonomic spellings of the conceptual unary operation
 `inspect(package|type|member)`. There is no need to add a literal `inspect`
 command until it enables a concrete composition benefit.
 
-Current multi-address operations are operation-first. Before the proposed
-subject-owned Diff cutover:
+Current multi-address operations are operation-first:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
@@ -634,9 +642,10 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
 
 The current `timeline` command changes arity, acquisition, failure topology,
 and the content from a subject Document to an ordered History Document.
-Subject-owned Diff preserves those distinctions as an explicit operation and
-mode, not a `History` output section. Its native temporal evidence remains
-owned by [Diff History inspection](diff-history.md).
+Top-level Diff preserves its own operation identity. A subject-first Diff
+section reuses that operation without turning comparison into an ordinary
+unary observation. Native temporal evidence remains owned by
+[Diff History inspection](diff-history.md).
 
 ### Subject-owned API coordinate match
 
@@ -694,7 +703,14 @@ operation does not reuse or relocate the root `match` command, whose subject is
 implementation-clone comparison rather than cross-version API-coordinate
 correspondence.
 
-## Subject-owned Diff
+## Historical subject-owned Diff placement
+
+The command examples in this section record the earlier placement proposal.
+They are not target CLI grammar. Top-level `diff` remains the operation
+command; subject-first comparison experiences use curated sections backed by
+the same host-neutral Diff operations. Correspondence, History, envelope, and
+comparison-result requirements below remain candidate adoption evidence unless
+they depend specifically on a subject `diff` subcommand.
 
 ### Claim and scope
 
@@ -1122,13 +1138,14 @@ The current command split is:
 inspect -> diff -> timeline
 ```
 
-The approved target retains the subject while selecting the operation:
+The approved placement retains top-level Diff while allowing a subject section
+to bind an already resolved subject:
 
 ```text
-library -> library diff
-type    -> type diff [--history [--at ...]]
-member  -> member diff [--history [--at ...]]
-package range -> package range --count
+library + Diff section -> top-level Diff operation
+type + Diff section    -> top-level Diff operation
+member + Diff section  -> top-level Diff operation
+package range + Count  -> package population reduction
 ```
 
 The user keeps the source and structural focus but changes the question:
@@ -1142,16 +1159,16 @@ A workflow may move on any axis, but one command transition should not hide
 multiple changes. For example:
 
 ```text
-type diff presence
-  -> type diff members    observation change, same Type and operation
-  -> member diff          structural zoom to one Member
-  -> member diff history  operation mode change, same Member
+type + Diff section
+  -> change Diff observation, same Type and operation
+  -> select Member, then its Diff section
+  -> select History-compatible Diff view, same Member
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
-changing operations. In the target subject-owned Diff family, `--history`
-makes the mode change explicit without conflating endpoint and temporal
-content contracts. The diagram describes axes, not positional argument grammar.
+changing operations. A History-compatible Diff section or option makes the mode
+change explicit without conflating endpoint and temporal content contracts.
+The diagram describes axes, not positional argument grammar.
 
 ### Coordinate child
 
@@ -1181,10 +1198,17 @@ positional source does not transfer into the child grammar.
 
 ### Graph operation placement
 
-Graph uses the operation rule. `package graph`, `library graph`, `type graph`,
-and `member graph` are local single-seed operations over an already selected
-subject. Top-level `graph` hosts graph questions without one selected local
-subject.
+Graph uses the operation rule. Top-level `graph` accepts single-seed, peer-seed,
+induced-set, Workspace-backed, and path requests whether or not one local
+subject could also anchor the request. Package, Library, Type, and Member
+commands expose curated operation-backed Graph sections over their already
+resolved subject; they do not add `graph` child commands.
+
+The two entrances preserve one semantic operation. A subject section supplies
+the resolved subject and authored Graph preset, while top-level Graph receives
+the equivalent seed and scope explicitly. Both lower to the same typed Graph
+request and retain its relationships, occurrences, bounds, failures, and
+completeness.
 
 InspectionGraph-backed root modes construct or reopen the Workspace used for
 single-seed, peer-seed, induced-set, or path questions. Another root Graph mode

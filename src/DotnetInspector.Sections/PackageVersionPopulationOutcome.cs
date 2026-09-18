@@ -15,8 +15,7 @@ public abstract record PackageVersionPopulationOutcome
     private protected PackageVersionPopulationOutcome() { }
 
     public sealed record Populated(
-        PackageVersionPopulationDocument Document,
-        PackageVersionPopulationCountOutcome? Count)
+        PackageVersionPopulationDocument Document)
         : PackageVersionPopulationOutcome;
 
     public sealed record NotAvailable(PackageVersionPopulationFailure Failure)

@@ -275,7 +275,7 @@ public class PackageQueryCliTests
     [InlineData("depends-ecosystem=ecosystem.unknown", "Unknown ecosystem")]
     [InlineData(
         "depends-ecosystem=ecosystem.platform",
-        "does not register a package population")]
+        "Unknown ecosystem")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
