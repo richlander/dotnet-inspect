@@ -26,7 +26,7 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
 
-    [Fact]
+[Fact]
     public async Task LibraryCoordinateCommand_ImplicitlySelectsSections()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -44,7 +44,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Context: Member", output);
         Assert.Contains("## Context: Instruction", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_BareLocalRequestRendersMemberContext()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -67,7 +68,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Context: Member", output);
         Assert.Contains(nameof(SemanticFactsFixture.AllSignals), output);
     }
-    [Theory]
+
+[Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_BareCountSelectsRenderedLines(
@@ -101,7 +103,8 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries));
     }
-    [Theory]
+
+[Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_ExplicitLinesAcceptsCountPlacement(
@@ -135,7 +138,8 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries));
     }
-    [Theory]
+
+[Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     public async Task LibraryCoordinateCommand_InferredLinesComposeWithRows(
@@ -163,7 +167,8 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries));
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_UsesPackageRelativeLibrary()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -211,7 +216,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_UsesExplicitPackageLibraryWithinTfm()
     {
         var openMethod = typeof(AssemblyInspectionSession).GetMethod(
@@ -265,7 +271,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_InvalidCoordinateFailsBeforeAcquisition()
     {
         string missingLibrary = Path.Combine(
@@ -287,7 +294,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(missingLibrary, error);
         Assert.DoesNotContain("--il-offset", error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_InvalidMetadataRootFailsBeforeAcquisition()
     {
         string missingLibrary = Path.Combine(
@@ -310,7 +318,8 @@ public partial class CommandExecutionTests
         Assert.Contains("expected cli or r2r-manifest", error);
         Assert.DoesNotContain(missingLibrary, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_HeapSelectionMismatchFailsBeforeAcquisition()
     {
         string missingLibrary = Path.Combine(
@@ -335,7 +344,8 @@ public partial class CommandExecutionTests
             error);
         Assert.DoesNotContain(missingLibrary, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RequiresNamedLibrarySource()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -351,7 +361,8 @@ public partial class CommandExecutionTests
             "requires --library, --package, or --platform",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsMultiLibraryTfmBeforeAcquisition()
     {
         string missingPackage = Path.Combine(
@@ -377,7 +388,8 @@ public partial class CommandExecutionTests
             error,
             StringComparison.OrdinalIgnoreCase);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_MemberSelectionAllowsNonInstructionBoundary()
     {
         var bare = await RunAppAsync(
@@ -412,7 +424,8 @@ public partial class CommandExecutionTests
             "## Context: Instruction",
             member.Output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_DiscoveryIsCoordinateScoped()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -433,7 +446,8 @@ public partial class CommandExecutionTests
         Assert.Contains("Context: Member", output);
         Assert.Contains("Context: Instruction", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_TreeDiscoveryDoesNotRequireLibraryAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -451,7 +465,8 @@ public partial class CommandExecutionTests
         Assert.Contains("Context", output);
         Assert.Contains("Source Location", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsParentPositionalSource()
     {
         string parentSource = Path.Combine(
@@ -475,7 +490,8 @@ public partial class CommandExecutionTests
             error);
         Assert.DoesNotContain(parentSource, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsEmptyParentPositionalSource()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -494,7 +510,8 @@ public partial class CommandExecutionTests
             "A Library inspection source cannot precede library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsParentSourceOption()
     {
         string parentPackage = Path.Combine(
@@ -519,7 +536,8 @@ public partial class CommandExecutionTests
             error);
         Assert.DoesNotContain(parentPackage, error);
     }
-    [Theory]
+
+[Theory]
     [InlineData("--type=", "-t")]
     [InlineData("-t:", "-t")]
     [InlineData("--package=", "--package")]
@@ -544,7 +562,8 @@ public partial class CommandExecutionTests
             $"{diagnosticOption} cannot be combined with library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsInlineEmptyParentValueAfterCoordinateValue()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -565,7 +584,8 @@ public partial class CommandExecutionTests
             "--package cannot be combined with library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsParentOperation()
     {
         string missingLibrary = Path.Combine(
@@ -589,7 +609,8 @@ public partial class CommandExecutionTests
             error);
         Assert.DoesNotContain(missingLibrary, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_HelpShowsFocusAndNamedSources()
     {
         var parent = await RunAppAsync("library", "--help");
@@ -614,7 +635,8 @@ public partial class CommandExecutionTests
         Assert.Contains("#Strings:0x1a4", child.Output);
         Assert.Empty(child.Error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RequiresExactCoordinateOrFile()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -631,7 +653,8 @@ public partial class CommandExecutionTests
             "requires one exact coordinate or --file <path>",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_RejectsExactCoordinateAndFileBeforeAcquisition()
     {
         string missingLibrary = Path.Combine(
@@ -660,7 +683,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(missingLibrary, error);
         Assert.DoesNotContain(missingCoordinates, error);
     }
-    [Theory]
+
+[Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--json")]
@@ -700,7 +724,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileUsesPackageRelativeLibrary()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -755,7 +780,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileUsesPlatformLibrary()
     {
         string coordinatePath = Path.Combine(
@@ -786,7 +812,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FilePreservesSourceRecordOrder()
     {
         var path = Path.Combine(
@@ -832,7 +859,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileWindowsSourceRecordOrder()
     {
         var path = Path.Combine(
@@ -887,7 +915,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Theory]
+
+[Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_FileBareLimitSelectsRows(
@@ -937,7 +966,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileLimitFailsBeforeLibraryAcquisition()
     {
         string coordinatePath = Path.Combine(
@@ -984,7 +1014,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Theory]
+
+[Theory]
     [InlineData("--schema")]
     [InlineData("Context: Member")]
     [InlineData("@Context")]
@@ -1016,7 +1047,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(missingCoordinates, output);
         Assert.DoesNotContain(missingLibrary, output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput()
     {
         string missingCoordinates = Path.Combine(
@@ -1041,7 +1073,8 @@ public partial class CommandExecutionTests
         Assert.Contains("Coordinate file not found", error);
         Assert.Contains(missingCoordinates, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryPreservesFailureDetails()
     {
         string coordinatePath = Path.Combine(
@@ -1078,7 +1111,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Theory]
+
+[Theory]
     [InlineData("0x06000001+0x0", "Context: Member")]
     [InlineData("#Strings:0x1", "@Context")]
     public async Task LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary(
@@ -1105,7 +1139,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.DoesNotContain(missingLibrary, output);
     }
-    [Theory]
+
+[Theory]
     [InlineData("Context: Member", "Member")]
     [InlineData("@Context", "Context: Member")]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery(
@@ -1144,7 +1179,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence()
     {
         string coordinatePath = Path.Combine(
@@ -1207,7 +1243,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence()
     {
         string coordinatePath = Path.Combine(
@@ -1242,7 +1279,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields()
     {
         var (token, offset) = FindIlCoordinate(
@@ -1282,7 +1320,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersListFields()
     {
         int catchToken = typeof(ILOffsetExceptionFixture)
@@ -1343,7 +1382,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields()
     {
         var (syncToken, syncOffset) = FindIlCoordinate(
@@ -1406,7 +1446,8 @@ public partial class CommandExecutionTests
             File.Delete(coordinatePath);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileRendersCoordinateSummary()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -1448,7 +1489,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileRejectsMissingFileBeforeLibraryAcquisition()
     {
         string missingCoordinatesPath =
@@ -1474,7 +1516,8 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(missingLibraryPath, error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates()
     {
         string tempDir = Directory.CreateTempSubdirectory(
@@ -1515,7 +1558,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates()
     {
         string tempDir = Directory.CreateTempSubdirectory(
@@ -1566,7 +1610,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates()
     {
         string? originalDotnetRoot =
@@ -1625,7 +1670,8 @@ public partial class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FilePrefersExactOperationIdentity()
     {
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
@@ -1676,7 +1722,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileRejectsBadCoordinateLine()
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -1708,7 +1755,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_FileJsonUsesSnakeCaseEnvelope()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
@@ -1731,7 +1779,8 @@ public partial class CommandExecutionTests
             File.Delete(path);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCoordinateCommand_SourceLocationSectionSelectorUsesCoordinate()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1748,7 +1797,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_LegacyILOffsetSectionSelector_ResolvesSourceLocation()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1760,7 +1810,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Context: Source Location", output);
         Assert.DoesNotContain("## IL Offset", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_LegacyILOffsetSectionSelector_RequiresFlagParameter()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1773,7 +1824,8 @@ public partial class CommandExecutionTests
             "IL coordinate sections require library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_LegacyCoordinateAliasInMixedSelection_RequiresFlagParameter()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1786,7 +1838,8 @@ public partial class CommandExecutionTests
             "IL coordinate sections require library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_CoordinateWildcardInMixedSelection_IsOmitted()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1800,7 +1853,8 @@ public partial class CommandExecutionTests
             "IL coordinate sections require library coordinate",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetDiscovery_IsCoordinateScoped()
     {
         var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
@@ -1833,7 +1887,8 @@ public partial class CommandExecutionTests
         Assert.Contains("Context: Member", contextOutput);
         Assert.Contains("Context: Instruction", contextOutput);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetMemberContext_RendersMemberFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1850,7 +1905,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| Static | Yes |", output);
         Assert.Contains("| Metadata Token | 0x6000001 |", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetMemberContext_ValueProjectsType()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1861,7 +1917,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("System.HexConverter", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetInstructionContext_RendersInstructionFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1877,7 +1934,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| Operand Kind | None |", output);
         Assert.Contains("| Next Offset | 0x1 |", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetInstructionContext_ValueProjectsOpcode()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1888,7 +1946,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("ldarg.0", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetInstructionContext_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1899,7 +1958,8 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("not an instruction boundary", error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetBareReport_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1910,7 +1970,8 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("not an instruction boundary", error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetMemberContext_AllowsNonInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1923,7 +1984,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| Member | System.HexConverter.FromChar |", output);
         Assert.DoesNotContain("## Context: Instruction", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetInstructionContext_FormatsFloatOperands()
     {
         var token = typeof(ILOffsetFloatFixture).GetMethod(nameof(ILOffsetFloatFixture.FloatConstant))!.MetadataToken;
@@ -1935,7 +1997,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("1.5", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetExceptionContext_RendersContainingRegion()
     {
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
@@ -1950,7 +2013,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| 1 | try | catch |", output);
         Assert.Contains("System.DivideByZeroException", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetExceptionContext_ValueProjectsClause()
     {
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
@@ -1962,7 +2026,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("catch", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCallsiteContext_RendersCallsite()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1978,7 +2043,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| Callee | System.HexConverter::get_CharToHexLookup() |", output);
         Assert.Contains("| Return Address | IL_0006 |", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCallsiteContext_ValueProjectsCallee()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1989,7 +2055,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("System.HexConverter::get_CharToHexLookup()", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetReturnAddressContext_RendersPreviousCall()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2004,7 +2071,8 @@ public partial class CommandExecutionTests
         Assert.Contains("| Opcode | call |", output);
         Assert.Contains("| Callee | System.HexConverter::get_CharToHexLookup() |", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetReturnAddressContext_ValueProjectsCallOffset()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2015,7 +2083,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("IL_0001", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetReturnAddressContext_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2026,7 +2095,8 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("not an instruction boundary", error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetReturnAddressContext_IgnoresMethodPointerFallthrough()
     {
         var token = typeof(ILOffsetFunctionPointerFixture).GetMethod(nameof(ILOffsetFunctionPointerFixture.CreateDelegate))!.MetadataToken;
@@ -2040,7 +2110,8 @@ public partial class CommandExecutionTests
             "This section (Context: Return Address) produced no output.",
             error.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCount_ReturnsSingletonLocationCount()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2051,7 +2122,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("1", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetContextCountsUseTypedRows()
     {
         var scalar = await RunAppAsync(
@@ -2078,7 +2150,8 @@ public partial class CommandExecutionTests
             document.RootElement.EnumerateArray(),
             row => Assert.Equal(1, row.GetProperty("count").GetInt32()));
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCountPreservesProjectionKind()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2099,7 +2172,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, counts["Context: Member"]);
         Assert.True(counts["Performance: Boxing"] > 0);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCountPreservesStructuralWildcard()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2113,7 +2187,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Equal("1", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetExceptionContextCountsTypedRows()
     {
         var method = typeof(ILOffsetExceptionFixture).GetMethod(
@@ -2150,7 +2225,8 @@ public partial class CommandExecutionTests
         Assert.Equal("1", windowed.Output.Trim());
         Assert.Empty(windowed.Error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetValue_ProjectsResolvedLine()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2161,7 +2237,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Matches(@"^\d+$", output.Trim());
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetPrint_PrintsResolvedSourceLine()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2173,7 +2250,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Context: Source Location", output);
         Assert.Contains("CharToHexLookup", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetPrintJsonArray_EmitsPrintableDocument()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2187,7 +2265,8 @@ public partial class CommandExecutionTests
         Assert.Contains("\"label\":\"System.HexConverter.FromChar\"", output);
         Assert.Contains("CharToHexLookup", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetCountRejectsPrint()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2198,7 +2277,8 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("--count cannot be combined with --print", error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetPrint_DoesNotReadLocalPdbPath()
     {
         var tempFile = Path.GetTempFileName();
@@ -2223,7 +2303,8 @@ public partial class CommandExecutionTests
             File.Delete(tempFile);
         }
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetSectionSelector_RequiresFlagParameter()
     {
         var (exit, _, error) = await RunAppAsync(
@@ -2235,7 +2316,8 @@ public partial class CommandExecutionTests
             "IL coordinate sections require library coordinate",
             error);
     }
-    [Theory]
+
+[Theory]
     [InlineData("@Context")]
     [InlineData("Context:*")]
     public async Task LibraryCommand_IlOffsetOnlySelectionWithoutValue_DoesNotBecomeDefaultView(
@@ -2251,20 +2333,8 @@ public partial class CommandExecutionTests
             "IL coordinate sections require library coordinate",
             error);
     }
-    [Fact]
-    public async Task LibraryCommand_HeapOnlyWildcardWithoutValue_DoesNotBecomeDefaultView()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "-S", "Metadata: H*", "--json", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "\"Metadata: Heap\" requires library coordinate",
-            error);
-    }
-    [Fact]
+[Fact]
     public async Task LibraryCommand_IlOffsetParameterizedSectionSelector_IsRejected()
     {
         var (exit, _, error) = await RunAppAsync(
@@ -2276,7 +2346,8 @@ public partial class CommandExecutionTests
             "IL coordinate parameters belong in the coordinate argument",
             error);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetWildcardSelectionWithoutValue_DoesNotRequireFlag()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2287,7 +2358,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("IL coordinate sections require", error);
         Assert.Contains("##", output);
     }
-    [Fact]
+
+[Fact]
     public async Task LibraryCommand_IlOffsetFlag_ErrorsWhenSelectedSectionsExcludeILOffset()
     {
         var (exit, _, error) = await RunAppAsync(
