@@ -290,6 +290,16 @@ paths. Direct local-library CLI queries and Inspect Web platform Integrations
 and Opportunities remain neighboring query consumers and are not claimed by
 these package-backed adoptions.
 
+The Inspect Web package exports preserve each shared envelope as an identifiable
+wire value alongside the existing Browser presentation. A Sections-owned
+source-generated JSON context serializes the exact owner-issued Content into
+`JsonElement`; the Browser projection lowers the envelope into
+Analysis-facade-local wire records that preserve every Share field and the
+ordered diagnostic fields without source-generating product-owned types at the
+JSExport boundary. Serialization occurs from the detached Content and therefore
+neither retains nor reopens the immutable image borrowed by the CLI streaming
+form.
+
 The section catalog binds each member of the family to its owning query
 definition by object identity and owns a separate group-query registry because
 the queries consume an `AssemblyContextGroup`, not a single-library scanner
@@ -316,6 +326,10 @@ gate the Integrations reusable and participant-at-a-time handoffs.
 gates the reusable detached handoff, and
 `AssemblyContextIntegrationsQueryTests.OpportunitiesInspection_StreamingEnvelopeSurvivesRelease`
 gates the participant-at-a-time envelope handoff and release boundary.
+Those streaming tests also serialize the owner-issued Content after terminal
+release. `BrowserIntegrationsEnvelopeParityTests` compares the real
+`Serilog.Sinks.OpenTelemetry` package's Browser-delivered Content JSON, Share,
+and diagnostics with the reusable shared service envelopes.
 `AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection` gates the
 section-specific structured failure surface. Independently inducing a late
 opportunity metadata-decode failure remains unverified. Cancellation-aware
