@@ -65,7 +65,7 @@ To validate:
 ### Latency targets by command class
 
 The workflow document owns the current measured budgets. In particular,
-network-backed latest-version and missing-package checks are external-service
+network-backed `@latest` and missing-package checks are external-service
 smoke scenarios, not local-cache latency gates. Do not copy their limits into
 other workflows; follow the `perf` block beside each command.
 

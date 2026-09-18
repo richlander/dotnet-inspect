@@ -252,10 +252,13 @@ internal static partial class BrowserPackageQueryOperations
             Occurrences = semantic.OccurrenceCount,
             NotEvaluated = semantic.NotEvaluatedCount,
         };
+        BrowserPackageQueryRow[] results =
+        [
+            .. semantic.Results.Select(ProjectResultRow),
+        ];
         BrowserPackageQueryDocument content = new(
-            [
-                .. semantic.Results.Select(ProjectResultRow),
-            ],
+            results,
+            results.Length > 0,
             failures,
             completion)
         {

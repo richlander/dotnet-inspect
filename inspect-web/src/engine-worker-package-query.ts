@@ -1202,7 +1202,7 @@ function parseInspection(
   ], "Package Query inspection");
   const documentRecord = dataRecord(
     inspection.content,
-    ["results", "failures", "completion", "assemblySemantic"],
+    ["results", "failures", "completion", "hasPackages", "assemblySemantic"],
     "Package Query Document");
   const documentBudget = {
     remainingCharacters: maximumEventCharacters,
@@ -1213,6 +1213,9 @@ function parseInspection(
     remainingItems: maximumSemanticCollectionItems,
   };
   const content: EngineWorkerPackageQueryDocument = {
+    hasPackages: booleanValue(
+      documentRecord.hasPackages,
+      "Package Query Document hasPackages"),
     results: arrayItems(
       documentRecord.results,
       "Package Query Document results",
@@ -1241,7 +1244,8 @@ function parseInspection(
           semanticBudget),
   };
   if (content.completion.matches !== content.results.length
-      || content.completion.failures !== content.failures.length) {
+      || content.completion.failures !== content.failures.length
+      || content.hasPackages !== (content.results.length > 0)) {
     throw new PackageQueryPayloadError(
       "Package Query Document does not match its terminal accounting.");
   }

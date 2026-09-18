@@ -189,7 +189,8 @@ public enum DocumentationHouseFailureStage
 
 public sealed record DocumentationHouseFailure(
     DocumentationHouseFailureStage Stage,
-    DocumentationCompiledXmlFailureKind Kind);
+    DocumentationCompiledXmlFailureKind Kind,
+    CompiledXmlContribution Selected);
 
 public sealed record DocumentationHouseWorkCharge(
     int ContributionsObserved,

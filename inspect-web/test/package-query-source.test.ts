@@ -69,6 +69,7 @@ function succeeded(
     value: null,
     inspection: {
       content: {
+        hasPackages: false,
         results: [],
         failures: [],
         completion: value.completion!,
@@ -172,6 +173,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     value: null,
     inspection: {
       content: {
+        hasPackages: true,
         results: [{
           packageId: "contoso.package",
           version: "2.0.0",
@@ -275,6 +277,7 @@ function semanticAssessmentSucceeded(
       ...base.inspection,
       content: {
         ...base.inspection.content,
+        hasPackages: false,
         results: [],
         failures: kind === "Failure"
           ? [{

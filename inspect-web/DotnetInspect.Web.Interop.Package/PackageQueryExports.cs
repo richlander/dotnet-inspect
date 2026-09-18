@@ -660,6 +660,7 @@ namespace DotnetInspect.Web.Interop.Package
                     .. document.Results.Select(result =>
                         Project(new PackageQueryEvent.Match(result)).Row!),
                 ],
+                document.HasPackages,
                 [
                     .. document.Failures.Select(failure =>
                         Project(new PackageQueryEvent.Failure(failure)).Failure!),

@@ -75,7 +75,6 @@ public static class PackageCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
-        var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from eligible configured sources (add --preview for prerelease)" };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
@@ -97,7 +96,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
-        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.RawUrls);
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
@@ -125,7 +123,7 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption);
+            tfmOption, typeFilterOption, versionOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
@@ -217,7 +215,7 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption,
+            tfmOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
@@ -497,20 +495,29 @@ public static class PackageCommandDefinitions
             }
 
             string[]? select = opts.ParseSelect(parseResult);
+            HashSet<string>? includeSections = null;
             if (select is not null)
             {
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
-                    [PackageProfileSections.Packages],
+                    PackageQuerySections.Catalog.SelectableSectionNames,
                     categories: new Dictionary<string, string[]>());
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
-                if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+                includeSections = selection.Sections;
+                if (parseResult.GetValue(opts.Count)
+                    && (includeSections is not { Count: 1 }
+                        || !includeSections.Contains(PackageProfileSections.Packages)))
                 {
                     CommandError.Write(
-                        "Package Query data selection must include Packages.");
+                        "Package Query --count supports the Packages section only.");
                     return 1;
                 }
+                if (!parseResult.GetValue(opts.Count)
+                    && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                        opts.IsTableExplicitlySet(parseResult),
+                        includeSections))
+                    return 1;
             }
 
             if (!PackageQueryOptions.TryCreate(
@@ -541,7 +548,17 @@ public static class PackageCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                IncludeSections = includeSections,
+                SelectDefault = opts.ParseSelectDefault(parseResult),
             };
+            if (options.LibraryLiteralPlan is not null
+                && includeSections?.Contains(
+                    PackageQuerySections.QuerySummaryName) == true)
+            {
+                CommandError.Write(
+                    "Query Summary is not available with --library-literal.");
+                return 1;
+            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),

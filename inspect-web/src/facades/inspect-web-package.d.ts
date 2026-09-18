@@ -609,6 +609,7 @@ export interface BrowserPackageQueryDeclaredDependencyGroup {
 }
 export interface BrowserPackageQueryDocument {
     readonly results: ReadonlyArray<BrowserPackageQueryRow>;
+    readonly hasPackages: boolean;
     readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
     readonly completion: BrowserPackageQueryCompletion;
     readonly assemblySemantic: BrowserPackageAssemblySemanticDocument | null;

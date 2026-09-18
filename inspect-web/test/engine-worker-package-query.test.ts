@@ -240,6 +240,7 @@ function inspected(
     value: null,
     inspection: {
       content: {
+        hasPackages: results.length > 0,
         results,
         failures,
         completion: {
@@ -345,6 +346,7 @@ function semanticInspected(): BrowserPackageQueryResult {
     value: null,
     inspection: {
       content: {
+        hasPackages: true,
         results: [{
           ...matchEvent.row,
           packageId: "contoso.library",
@@ -416,6 +418,7 @@ function semanticCandidateFailureInspected(): BrowserPackageQueryResult {
       ...inspection,
       content: {
         ...content,
+        hasPackages: false,
         results: [],
         failures: [{
           packageId: matched.packageId,
@@ -483,6 +486,7 @@ function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
       ...inspection,
       content: {
         ...content,
+        hasPackages: false,
         results: [],
         failures: [{
           packageId: null,
@@ -973,6 +977,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       event: null,
       inspection: {
         content: {
+          hasPackages: true,
           results: [matchEvent.row],
           failures: [failureEvent.failure],
           completion: completionEvent.completion,

@@ -1036,6 +1036,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryOperations.Complete(envelope);
 
         Assert.Empty(inspection.Content.Results);
+        Assert.False(inspection.Content.HasPackages);
         Assert.Empty(inspection.Content.Failures);
         Assert.Equal(
             BrowserPackageQueryCompletionKind.Exhausted,
@@ -1049,6 +1050,28 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryEventKind.Progress,
             emitted[0].Kind);
+    }
+
+    [Fact]
+    public void OperationCompletionProjectsHasPackages()
+    {
+        PackageQueryEvent.Match match = MatchEvent("Contoso.One");
+        var completed = Assert.IsType<PackageQueryEvent.Completed>(
+            CompletedEvent());
+        var envelope = new InspectionEnvelope<PackageQueryDocument>(
+            new(
+                Results: [match.Value],
+                Failures: [],
+                completed.Value),
+            new InspectionShare.NonProjectable(
+                "package-query/share",
+                "No canonical Workspace packet."));
+
+        BrowserPackageQueryInspection inspection =
+            BrowserPackageQueryOperations.Complete(envelope);
+
+        Assert.True(inspection.Content.HasPackages);
+        Assert.Single(inspection.Content.Results);
     }
 
     [Fact]
@@ -1070,6 +1093,7 @@ public sealed class BrowserPackageQueryOperationsTests
         var inspection = new BrowserPackageQueryInspection(
             new BrowserPackageQueryDocument(
                 Results: [],
+                HasPackages: false,
                 Failures: [],
                 completed.Completion!),
             new BrowserInspectionShare(
@@ -1106,6 +1130,7 @@ public sealed class BrowserPackageQueryOperationsTests
             inspection.Content.Completion,
             roundTripped.Inspection.Content.Completion);
         Assert.Empty(roundTripped.Inspection.Content.Results);
+        Assert.False(roundTripped.Inspection.Content.HasPackages);
         Assert.Empty(roundTripped.Inspection.Content.Failures);
         Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
         Assert.Equal(
