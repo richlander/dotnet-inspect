@@ -954,14 +954,18 @@ public partial class DependsCommand
                             failed.DeclarationIdentity,
                             failed.CanonicalPackageId,
                             failed.CanonicalVersionConstraint,
-                            failed.Outcome,
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                failed.Outcome),
                             ManifestFailure: null,
                             BudgetKind: null,
                             BudgetLimit: null,
                             RestoredFailure: null,
                             MapAffectedRoots(
                                 packageOccurrences,
-                                failed.AffectedRootOccurrences))));
+                                failed.AffectedRootOccurrences))
+                        {
+                            RuntimeCandidateOutcome = failed.Outcome,
+                        }));
             }
             foreach (PackageDependencyTraversalWorkBudgetNode budget in
                      packageTraversal.WorkBudgetDeclarations)
@@ -1001,7 +1005,8 @@ public partial class DependsCommand
                             coordinate.PackageId,
                             coordinate.Version,
                             CandidateOutcome: null,
-                            failure.Detail,
+                            DependencyInspectionPackageManifestFailure.Create(
+                                failure.Detail),
                             BudgetKind: null,
                             BudgetLimit: failure.Detail
                                 is PackageDependencyTraversalManifestFailureDetail
@@ -1011,7 +1016,10 @@ public partial class DependsCommand
                             RestoredFailure: null,
                             MapAffectedRoots(
                                 packageOccurrences,
-                                failure.AffectedRootOccurrences))));
+                                failure.AffectedRootOccurrences))
+                        {
+                            RuntimeManifestFailure = failure.Detail,
+                        }));
             }
         }
 
@@ -1068,7 +1076,9 @@ public partial class DependsCommand
                                     BudgetKind: null,
                                     BudgetLimit: null,
                                     new DependencyInspectionRestoredTraversalFailure
-                                        .Outcome(failed.Failure),
+                                        .Outcome(
+                                            DependencyInspectionRestoredTraversalOutcomeFailure
+                                                .Create(failed.Failure)),
                                     [acquired.Root.OccurrenceIndex])));
                         break;
                 }

@@ -126,6 +126,74 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public void AssetProjectionExcludesLivePackageAuthorityFromContent()
+    {
+        var runtimeFailure = new PackageAuthorityFailure(
+            new InertString(TextPolicy.Field, "private"),
+            PackageAuthorityFailureKind.Transport,
+            "The source failed.");
+        var graph = new DependencyGraphDocument(
+            [],
+            [],
+            [],
+            [
+                new DependencyGraphPackageProjection(
+                    0,
+                    0,
+                    PackageDependencyTraversalProjectionKind
+                        .CandidateAcquired,
+                    PackageDependencyTraversalProjectionExpansion.Expanded,
+                    Evidence: null,
+                    Candidate: null,
+                    RootOccurrence: null,
+                    [
+                        DependencyInspectionPackageAuthorityFailure.Create(
+                            runtimeFailure),
+                    ])
+                {
+                    RuntimeDiagnostics = [runtimeFailure],
+                },
+            ],
+            []);
+        var projection = new DependsAssetProjection(
+            new DependencyInspectionSummary(
+                DependencyInspectionRootSetCompletion.Complete,
+                RequestedRoots: 0,
+                AdmittedRoots: 0,
+                FailedRoots: 0,
+                DependencyInspectionTraversalCompletion.Complete,
+                RequestedDepth: null,
+                GraphNodes: 0,
+                GraphEdges: 0,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionPruningSummary.NotRequested,
+                IsPrefixRootSet: false,
+                PackagePrefix: null),
+            graph,
+            GraphRows: [],
+            Roots: [],
+            Dependencies: [],
+            Pruning: [],
+            RestoredEdges: [],
+            Failures: [],
+            DependencyGroups: [],
+            RestoredPackages: [],
+            new DependencyInspectionEvidenceDocument(
+                PackageDependencyEvidenceQuery.Execute(
+                    new PackageDependencyEvidenceRequest([], [])),
+                [],
+                []));
+
+        Assert.Single(projection.Graph.PackageProjections[0].RuntimeDiagnostics);
+        Assert.Empty(
+            projection.Content.Graph.PackageProjections[0]
+                .RuntimeDiagnostics);
+        Assert.Single(
+            projection.Content.Graph.PackageProjections[0].Diagnostics);
+    }
+
+    [Fact]
     public void ModeValidation_PreservesTypeScopesAndRejectsCrossModeGestures()
     {
         RootCommand root = CommandLineBuilder.CreateRootCommand();

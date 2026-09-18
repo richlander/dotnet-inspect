@@ -330,7 +330,13 @@ public partial class DependsCommand
                                     item.Declaration.CanonicalPackageId,
                                     item.Declaration
                                         .CanonicalVersionConstraint,
-                                    candidateUnavailable.Candidate)));
+                                    DependencyInspectionPackageCandidateOutcome
+                                        .Create(
+                                            candidateUnavailable.Candidate))
+                                {
+                                    RuntimeOutcome =
+                                        candidateUnavailable.Candidate,
+                                }));
                         failed++;
                         continue;
                     }
@@ -573,8 +579,9 @@ public partial class DependsCommand
         DependencyInspectionPruningDisposition disposition,
         string reason,
         PackageDependencyCandidateResult? CandidateOutcome,
-        PackageHouseDependencyPruningResult? Result) =>
-        new(
+        PackageHouseDependencyPruningResult? Result)
+    {
+        return new DependencyInspectionPruning(
             rootOccurrence,
             root.Identity,
             root.Display,
@@ -595,8 +602,18 @@ public partial class DependsCommand
             disposition,
             reason,
             applicability,
-            CandidateOutcome,
-            Result);
+            CandidateOutcome is { } candidateOutcome
+                ? DependencyInspectionPackageCandidateOutcome.Create(
+                    candidateOutcome)
+                : null,
+            Result is { } result
+                ? DependencyInspectionPruningResult.Create(result)
+                : null)
+        {
+            RuntimeCandidateOutcome = CandidateOutcome,
+            RuntimeResult = Result,
+        };
+    }
 
     private sealed record PendingPruningDeclaration(
         int RootOccurrence,

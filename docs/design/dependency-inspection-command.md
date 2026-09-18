@@ -562,6 +562,19 @@ model. The Content value carries references to or copies of owner-issued
 identities and evidence plus dependency-inspection occurrence identities,
 graph endpoint indices, and stable semantic ordering.
 
+Package candidate, source failure, authority failure, manifest failure,
+restored-traversal failure, and pruning-result Content use closed portable
+projections. A package source projection retains credential-free producer
+identity and transport kind but never the configured source, credential,
+runtime source association, or acquisition correspondence. A candidate retains
+its coordinate, kind, and discovery contract but no configured authorities or
+acquisition capability. The CLI presentation aggregate may retain those live
+runtime values only for immediate compatibility rendering of the existing
+ordinary output. They are not part of the issued
+`DependencyInspectionContent`: Content construction copies only the portable
+values, so both in-memory host delivery and generated serialization are
+authority-free and remain usable after the operation ends.
+
 This selected-plan document is baseline Content for envelope adoption.
 Root-set and requested-phase completion, graph meaning, normalized
 dependencies, pruning results, and typed failures remain here whether or not
@@ -889,6 +902,14 @@ pathological fixtures. They cover:
 
 - semantic equality between the extracted `DependencyInspectionContent` and
   the existing asset-mode command projection before host rendering;
+- exclusion of configured source locations, credentials, runtime source
+  associations, acquisition correspondence, and live authority objects from
+  both in-memory Content and its generated wire form while ordinary CLI
+  rendering remains unchanged;
+- round-trip of every reachable closed candidate, manifest,
+  restored-traversal, and pruning outcome, including default immutable
+  collections, plus rejection of noncanonical framework and portable producer
+  identities;
 - exact admitted and failed occurrence association, including mixed root kinds
   and a package-prefix failure without an explicit occurrence;
 - complete empty, partial, unavailable, failed, and bounded/truncated Package

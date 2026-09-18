@@ -179,9 +179,20 @@ public sealed record DependencyGraphPackageProjection(
     PackageDependencyTraversalProjectionKind Kind,
     PackageDependencyTraversalProjectionExpansion Expansion,
     PackageDependencyEvidenceRoot? Evidence,
-    PackageAcquisitionCandidate? Candidate,
+    DependencyInspectionPackageCandidate? Candidate,
     int? RootOccurrence,
-    ImmutableArray<PackageAuthorityFailure> Diagnostics);
+    ImmutableArray<DependencyInspectionPackageAuthorityFailure> Diagnostics)
+{
+    [JsonIgnore]
+    public PackageAcquisitionCandidate? RuntimeCandidate { get; init; }
+
+    [JsonIgnore]
+    public ImmutableArray<PackageAuthorityFailure> RuntimeDiagnostics
+    {
+        get;
+        init;
+    } = [];
+}
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(
@@ -241,10 +252,19 @@ public sealed record DependencyGraphEdge(
     int? TargetPackageProjectionId = null,
     PackageDependencyTraversalEdgeEmissionAuthority? PackageEmissionAuthority =
         null,
-    ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default)
+    ImmutableArray<DependencyInspectionPackageAuthorityFailure>
+        PackageDiagnostics = default)
 {
-    public ImmutableArray<PackageAuthorityFailure> PackageDiagnostics
+    public ImmutableArray<DependencyInspectionPackageAuthorityFailure>
+        PackageDiagnostics
     { get; init; } = PackageDiagnostics.IsDefault ? [] : PackageDiagnostics;
+
+    [JsonIgnore]
+    public ImmutableArray<PackageAuthorityFailure> RuntimePackageDiagnostics
+    {
+        get;
+        init;
+    } = [];
 }
 
 public sealed record DependencyGraphDocument(

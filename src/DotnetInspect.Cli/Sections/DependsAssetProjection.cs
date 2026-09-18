@@ -160,9 +160,67 @@ internal sealed record DependsAssetProjection(
     internal DependencyInspectionContent Content { get; } =
         new(
             Summary,
-            Graph,
+            ContentGraph(Graph),
             [.. Roots.Select(static root => root.Content)],
             Dependencies,
-            Pruning,
-            Failures);
+            [.. Pruning.Select(ContentPruning)],
+            [.. Failures.Select(ContentFailure)]);
+
+    private static DependencyGraphDocument ContentGraph(
+        DependencyGraphDocument graph)
+    {
+        if (!graph.PackageProjections.Any(static projection =>
+                projection.RuntimeCandidate is not null
+                || !projection.RuntimeDiagnostics.IsEmpty)
+            && !graph.Edges.Any(static edge =>
+                !edge.RuntimePackageDiagnostics.IsEmpty))
+        {
+            return graph;
+        }
+
+        return graph with
+        {
+            PackageProjections =
+            [
+                .. graph.PackageProjections.Select(static projection =>
+                    projection with
+                    {
+                        RuntimeCandidate = null,
+                        RuntimeDiagnostics = [],
+                    }),
+            ],
+            Edges =
+            [
+                .. graph.Edges.Select(static edge =>
+                    edge with { RuntimePackageDiagnostics = [] }),
+            ],
+        };
+    }
+
+    private static DependencyInspectionPruning ContentPruning(
+        DependencyInspectionPruning pruning) =>
+        pruning with
+        {
+            RuntimeCandidateOutcome = null,
+            RuntimeResult = null,
+        };
+
+    private static DependencyInspectionFailure ContentFailure(
+        DependencyInspectionFailure failure) =>
+        failure switch
+        {
+            DependencyInspectionFailure.Traversal traversal =>
+                new DependencyInspectionFailure.Traversal(
+                    traversal.Value with
+                    {
+                        RuntimeCandidateOutcome = null,
+                        RuntimeManifestFailure = null,
+                    }),
+            DependencyInspectionFailure.Pruning
+            {
+                Value: DependencyInspectionPruningFailure.Candidate candidate,
+            } => new DependencyInspectionFailure.Pruning(
+                candidate with { RuntimeOutcome = null }),
+            _ => failure,
+        };
 }

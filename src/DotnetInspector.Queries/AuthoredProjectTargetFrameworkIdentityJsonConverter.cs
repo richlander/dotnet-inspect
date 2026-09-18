@@ -92,7 +92,7 @@ public sealed class AuthoredProjectTargetFrameworkIdentityJsonConverter :
                 AuthoredProjectTargetFrameworkKind.Exact
                     when canonicalFramework is not null
                         && comparisonIdentity is null =>
-                    AuthoredProjectTargetFrameworkIdentity.Exact(
+                    Exact(
                         canonicalFramework),
                 AuthoredProjectTargetFrameworkKind.Unrecognized
                     when canonicalFramework is null
@@ -140,6 +140,24 @@ public sealed class AuthoredProjectTargetFrameworkIdentityJsonConverter :
                 value.ComparisonIdentity);
         }
         writer.WriteEndObject();
+    }
+
+    private static AuthoredProjectTargetFrameworkIdentity Exact(
+        string framework)
+    {
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(
+                framework,
+                out string canonical)
+            || !string.Equals(
+                framework,
+                canonical,
+                StringComparison.Ordinal))
+        {
+            throw new JsonException(
+                "An exact authored target framework requires canonical framework text.");
+        }
+
+        return AuthoredProjectTargetFrameworkIdentity.Exact(framework);
     }
 
     private static string ReadUniqueString(

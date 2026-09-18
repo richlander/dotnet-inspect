@@ -90,19 +90,19 @@ public sealed class PackageDependencyFrameworkScopeIdentityJsonConverter :
             PackageDependencyFrameworkScopeKind.ExactFramework
                 when canonicalFramework is not null
                     && opaqueIdentity is null =>
-                PackageDependencyFrameworkScopeIdentity.Exact(
+                Exact(
                     canonicalFramework,
                     inertSourceSpelling),
             PackageDependencyFrameworkScopeKind.UnrecognizedFramework
                 when canonicalFramework is null
                     && opaqueIdentity is not null =>
-                PackageDependencyFrameworkScopeIdentity.Unrecognized(
+                Unrecognized(
                     opaqueIdentity,
                     inertSourceSpelling),
             PackageDependencyFrameworkScopeKind.UnresolvedFramework
                 when canonicalFramework is null
                     && opaqueIdentity is not null =>
-                PackageDependencyFrameworkScopeIdentity.Unresolved(
+                Unresolved(
                     opaqueIdentity,
                     inertSourceSpelling),
             _ => throw new JsonException(
@@ -135,6 +135,57 @@ public sealed class PackageDependencyFrameworkScopeIdentityJsonConverter :
             PropertyName(options, "SourceSpelling"),
             value.SourceSpelling.ToString());
         writer.WriteEndObject();
+    }
+
+    private static PackageDependencyFrameworkScopeIdentity Exact(
+        string framework,
+        InertString sourceSpelling)
+    {
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(
+                framework,
+                out string canonical)
+            || !string.Equals(
+                framework,
+                canonical,
+                StringComparison.Ordinal))
+        {
+            throw new JsonException(
+                "An exact framework scope requires canonical framework text.");
+        }
+
+        return PackageDependencyFrameworkScopeIdentity.Exact(
+            framework,
+            sourceSpelling);
+    }
+
+    private static PackageDependencyFrameworkScopeIdentity Unrecognized(
+        string opaqueIdentity,
+        InertString sourceSpelling)
+    {
+        RequireOpaqueIdentity(opaqueIdentity);
+        return PackageDependencyFrameworkScopeIdentity.Unrecognized(
+            opaqueIdentity,
+            sourceSpelling);
+    }
+
+    private static PackageDependencyFrameworkScopeIdentity Unresolved(
+        string opaqueIdentity,
+        InertString sourceSpelling)
+    {
+        RequireOpaqueIdentity(opaqueIdentity);
+        return PackageDependencyFrameworkScopeIdentity.Unresolved(
+            opaqueIdentity,
+            sourceSpelling);
+    }
+
+    private static void RequireOpaqueIdentity(string opaqueIdentity)
+    {
+        if (opaqueIdentity is not { Length: 64 }
+            || !RestoredProjectIdentityText.IsLowerHex(opaqueIdentity))
+        {
+            throw new JsonException(
+                "An opaque framework scope requires a lowercase 64-character SHA-256 identity.");
+        }
     }
 
     private static string ReadUniqueString(

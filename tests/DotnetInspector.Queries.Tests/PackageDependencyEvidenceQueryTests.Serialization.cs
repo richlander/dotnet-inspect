@@ -72,6 +72,42 @@ public sealed partial class PackageDependencyEvidenceQueryTests
         }
     }
 
+    [Theory]
+    [InlineData(
+        """{"kind":"ExactFramework","canonical_framework":"NET8.0","source_spelling":"NET8.0"}""")]
+    [InlineData(
+        """{"kind":"UnrecognizedFramework","opaque_identity":"not-a-hash","source_spelling":"custom"}""")]
+    [InlineData(
+        """{"kind":"UnresolvedFramework","opaque_identity":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","source_spelling":"custom"}""")]
+    public void Serialization_RejectsInvalidPackageFrameworkIdentities(
+        string json)
+    {
+        JsonTypeInfo<PackageDependencyFrameworkScopeIdentity> typeInfo =
+            (JsonTypeInfo<PackageDependencyFrameworkScopeIdentity>)
+                DependencyInspectionJsonContext.Default.GetTypeInfo(
+                    typeof(PackageDependencyFrameworkScopeIdentity))!;
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize(json, typeInfo));
+    }
+
+    [Theory]
+    [InlineData(
+        """{"kind":"Exact","canonical_framework":"NET8.0"}""")]
+    [InlineData(
+        """{"kind":"Unrecognized","comparison_identity":"not-a-hash"}""")]
+    public void Serialization_RejectsInvalidAuthoredFrameworkIdentities(
+        string json)
+    {
+        JsonTypeInfo<AuthoredProjectTargetFrameworkIdentity> typeInfo =
+            (JsonTypeInfo<AuthoredProjectTargetFrameworkIdentity>)
+                DependencyInspectionJsonContext.Default.GetTypeInfo(
+                    typeof(AuthoredProjectTargetFrameworkIdentity))!;
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize(json, typeInfo));
+    }
+
     [Fact]
     public void Serialization_RoundTripsEveryAdmittedRootKind()
     {

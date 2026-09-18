@@ -131,8 +131,16 @@ public sealed record DependencyInspectionPruning(
     DependencyInspectionPruningDisposition Disposition,
     string Reason,
     PackageHouseDependencyPruningApplicability Applicability,
-    PackageDependencyCandidateResult? CandidateOutcome,
-    PackageHouseDependencyPruningResult? Result);
+    DependencyInspectionPackageCandidateOutcome? CandidateOutcome,
+    DependencyInspectionPruningResult? Result)
+{
+    [JsonIgnore]
+    public PackageDependencyCandidateResult? RuntimeCandidateOutcome
+    { get; init; }
+
+    [JsonIgnore]
+    public PackageHouseDependencyPruningResult? RuntimeResult { get; init; }
+}
 
 public sealed record DependencyInspectionPruningSummary(
     DependencyInspectionPruningCompletion Completion,
@@ -172,7 +180,7 @@ public abstract record DependencyInspectionRestoredTraversalFailure
     }
 
     public sealed record Outcome(
-        RestoredProjectDependencyTraversalFailure Value) :
+        DependencyInspectionRestoredTraversalOutcomeFailure Value) :
         DependencyInspectionRestoredTraversalFailure;
 
     public sealed record Graph(RestoredProjectGraphFailure Value) :
@@ -191,13 +199,23 @@ public sealed record DependencyInspectionTraversalFailure(
     PackageDependencyEvidenceDeclarationIdentity? DeclarationIdentity,
     string? PackageId,
     string? VersionConstraint,
-    PackageDependencyTraversalCandidateResult? CandidateOutcome,
-    PackageDependencyTraversalManifestFailureDetail? ManifestFailure,
+    DependencyInspectionPackageCandidateOutcome? CandidateOutcome,
+    DependencyInspectionPackageManifestFailure? ManifestFailure,
     PackageDependencyTraversalWorkBudgetKind? BudgetKind,
     int? BudgetLimit,
     DependencyInspectionRestoredTraversalFailure? RestoredFailure,
     ImmutableArray<int> AffectedRootOccurrences,
-    DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null);
+    DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null)
+{
+    [JsonIgnore]
+    public PackageDependencyTraversalCandidateResult? RuntimeCandidateOutcome
+    { get; init; }
+
+    [JsonIgnore]
+    public PackageDependencyTraversalManifestFailureDetail?
+        RuntimeManifestFailure
+    { get; init; }
+}
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(DependencyInspectionFailure.Evidence), "evidence")]
@@ -255,8 +273,12 @@ public abstract record DependencyInspectionPruningFailure
         PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
         string PackageId,
         string VersionConstraint,
-        PackageDependencyCandidateResult Outcome) :
-        DependencyInspectionPruningFailure;
+        DependencyInspectionPackageCandidateOutcome Outcome) :
+        DependencyInspectionPruningFailure
+    {
+        [JsonIgnore]
+        public PackageDependencyCandidateResult? RuntimeOutcome { get; init; }
+    }
 }
 
 public sealed record DependencyInspectionSummary(

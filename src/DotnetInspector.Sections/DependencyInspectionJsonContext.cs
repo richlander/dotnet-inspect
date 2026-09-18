@@ -157,4 +157,10 @@ namespace DotnetInspector.Sections;
 [JsonSerializable(
     typeof(PackageDependencyEvidenceProcessingResult.Failed),
     TypeInfoPropertyName = "PackageEvidenceProcessingFailed")]
+[JsonSerializable(
+    typeof(DependencyInspectionPackageManifestFailure.Acquisition),
+    TypeInfoPropertyName = "DependencyInspectionManifestAcquisitionFailure")]
+[JsonSerializable(
+    typeof(DependencyInspectionRestoredTraversalOutcomeFailure.Graph),
+    TypeInfoPropertyName = "DependencyInspectionRestoredOutcomeGraphFailure")]
 public partial class DependencyInspectionJsonContext : JsonSerializerContext;
