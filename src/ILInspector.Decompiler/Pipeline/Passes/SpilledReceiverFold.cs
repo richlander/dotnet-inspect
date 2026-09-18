@@ -9,12 +9,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The shape both passes fold is identical: a sink <see cref="Call"/> preceded in
 /// its block by a contiguous run of single-use spill stores whose one load each
 /// sits inside the call. <see cref="ExpressionInliningPass"/> additionally uses
-/// the fold for a stack-slot-only run of direct returned-call arguments. Folding
-/// collapses each spill back into the call. The
+/// the fold for a stack-slot-only run of direct returned-call arguments or direct
+/// binary operands of a local/argument store. Folding
+/// collapses each spill back into the expression. The
 /// move is only performed when it provably reorders no effect —
 /// <see cref="RunPreservesEffectOrder"/> is the gate, all-or-nothing per run.
 ///
-/// Callers differ only in which call is the sink, how it is found, and whether
+/// Callers differ only in which expression is the sink, how it is found, and whether
 /// user locals are eligible; the fold arithmetic and its safety proof are the
 /// same, and live here.
 /// </summary>
@@ -71,7 +72,7 @@ static class SpilledReceiverFold
     /// </summary>
     public static bool TryFold(
         IrNode statement,
-        Call sink,
+        IrExpression sink,
         IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage,
         PassContext context,
         string stepLabel,
@@ -121,13 +122,13 @@ static class SpilledReceiverFold
     }
 
     /// <summary>
-    /// True when folding every spill in <paramref name="run"/> back into the call
+    /// True when folding every spill in <paramref name="run"/> back into the sink
     /// preserves effect order. Each spill's value is originally produced — in store
-    /// order — before the call evaluates any argument, and unconditionally. The
+    /// order — before the sink evaluates any operand, and unconditionally. The
     /// move is safe only when every order-sensitive spill load is (1) in an
     /// unconditionally-evaluated position (never a short-circuit/ternary/switch
     /// arm, which would make an always-run store conditional), and (2) reached, in
-    /// the call's evaluation order, in store order and before any inline argument's
+    /// the sink's evaluation order, in store order and before any inline operand's
     /// own order-sensitive read or effect. Effect-free, place-free spills
     /// (constants) reorder invisibly and constrain nothing. Argument loads are
     /// likewise barriers when <paramref name="orderSensitiveArguments"/> says
@@ -135,7 +136,7 @@ static class SpilledReceiverFold
     /// </summary>
     public static bool RunPreservesEffectOrder(
         List<(IrNode Store, IrNode Load, IrExpression Value)> run,
-        Call call,
+        IrExpression sink,
         IReadOnlySet<int>? orderSensitiveArguments = null)
     {
         var storeRank = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
@@ -152,11 +153,11 @@ static class SpilledReceiverFold
         // (1) An order-sensitive spill must stay unconditionally evaluated.
         foreach (var load in storeRank.Keys)
         {
-            if (InConditionalPosition(load, call))
+            if (InConditionalPosition(load, sink))
                 return false;
         }
 
-        // (2) Walk the argument tree in evaluation order: order-sensitive spill
+        // (2) Walk the operand tree in evaluation order: order-sensitive spill
         // loads must arrive in store order and before any inline read/effect.
         int lastRank = -1;
         bool sawBarrier = false;
@@ -182,20 +183,20 @@ static class SpilledReceiverFold
                 sawBarrier = true;
         }
 
-        foreach (var argument in call.Arguments)
-            Visit(argument);
+        foreach (var operand in sink.Children)
+            Visit(operand);
         return safe;
     }
 
     /// <summary>
-    /// True when any node between <paramref name="load"/> and <paramref name="call"/>
+    /// True when any node between <paramref name="load"/> and <paramref name="sink"/>
     /// only conditionally evaluates its children — a ternary, <c>??</c>, short-circuit
     /// <c>&amp;&amp;</c>/<c>||</c>, <c>?.</c>, or switch expression. Inlining an
     /// unconditional pre-call store into such a position would make it run conditionally.
     /// </summary>
-    static bool InConditionalPosition(IrNode load, Call call)
+    static bool InConditionalPosition(IrNode load, IrExpression sink)
     {
-        for (var current = load.Parent; current is not null && !ReferenceEquals(current, call); current = current.Parent)
+        for (var current = load.Parent; current is not null && !ReferenceEquals(current, sink); current = current.Parent)
         {
             if (current is Conditional or Coalesce or LogicalBinary or NullConditional
                 or SwitchExpression or SwitchExpressionArm)
