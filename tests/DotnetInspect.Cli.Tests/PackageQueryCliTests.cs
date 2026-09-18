@@ -653,11 +653,20 @@ public class PackageQueryCliTests
         Assert.Equal(0, jsonResult.ExitCode);
         using var json = JsonDocument.Parse(jsonResult.Output);
         JsonElement row = Assert.Single(
-            json.RootElement.GetProperty("packages").EnumerateArray());
-        Assert.Equal("OSMF", row.GetProperty("answer").GetString());
-        Assert.Contains(
+            json.RootElement.GetProperty("results").EnumerateArray());
+        JsonElement answer = Assert.Single(
+            row.GetProperty("answers").EnumerateArray());
+        Assert.Equal("OSMF", answer.GetProperty("value").GetString());
+        JsonElement licenseEvidence = Assert.Single(
+            row.GetProperty("evidence").EnumerateArray(),
+            item => item.GetProperty("id").GetString() == "license");
+        JsonElement declarationValue = Assert.Single(
+            licenseEvidence.GetProperty("properties").EnumerateArray(),
+            item =>
+                item.GetProperty("name").GetString() == "declaration-value");
+        Assert.Equal(
             "OSMFEULA.txt",
-            row.GetProperty("evidence").GetString());
+            declarationValue.GetProperty("value").GetString());
         Assert.Equal(3, jsonFixture.ManifestRequests);
         Assert.Equal(0, jsonFixture.PackageRequests);
         Assert.Empty(jsonResult.Error);
