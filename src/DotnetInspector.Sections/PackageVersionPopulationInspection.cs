@@ -16,8 +16,7 @@ public static class PackageVersionPopulationInspection
         PackageHouse house,
         PackageSourceOperationLease sourceOperation,
         bool includePrerelease = false,
-        bool includeUnlisted = false,
-        PackageVersionPopulationCountRequest? countRequest = null)
+        bool includeUnlisted = false)
     {
         ArgumentNullException.ThrowIfNull(range);
         ArgumentNullException.ThrowIfNull(house);
@@ -44,7 +43,7 @@ public static class PackageVersionPopulationInspection
                     populationRequest,
                     sourceOperation).ConfigureAwait(false);
             return Envelope(
-                Project(request, population, countRequest),
+                Project(request, population),
                 population is PackageHouseVersionPopulationResult.Available
                     ? population.Evidence.Failures
                         .OfType<PackageHouseFailure.Authority>()
@@ -58,8 +57,7 @@ public static class PackageVersionPopulationInspection
 
     private static PackageVersionPopulationOutcome Project(
         PackageVersionPopulationRequest request,
-        PackageHouseVersionPopulationResult population,
-        PackageVersionPopulationCountRequest? countRequest)
+        PackageHouseVersionPopulationResult population)
     {
         if (population is PackageHouseVersionPopulationResult.Available available)
         {
@@ -97,14 +95,7 @@ public static class PackageVersionPopulationInspection
                 request,
                 versions,
                 sourceListings);
-            return new PackageVersionPopulationOutcome.Populated(
-                document,
-                countRequest is null
-                    ? null
-                    : PackageVersionCountProjection.Count(
-                        document.Versions,
-                        document.SourceListings,
-                        countRequest));
+            return new PackageVersionPopulationOutcome.Populated(document);
         }
 
         (PackageVersionPopulationFailureKind kind, InertString reason) =
@@ -161,6 +152,41 @@ public static class PackageVersionPopulationInspection
         }
 
         return population.Reason;
+    }
+
+    /// <summary>Reduces one available population to its requested Count result.</summary>
+    public static PackageVersionPopulationCountOutcome Count(
+        PackageVersionPopulationDocument document,
+        PackageVersionPopulationCountRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(request);
+        return PackageVersionCountProjection.Count(
+            document.Versions,
+            document.SourceListings,
+            request);
+    }
+
+    /// <summary>
+    /// Projects a completed population Count as scalar Content while preserving
+    /// diagnostics from the same settled population.
+    /// </summary>
+    public static InspectionEnvelope<int> ProjectCountEnvelope(
+        InspectionEnvelope<PackageVersionPopulationOutcome> population,
+        PackageVersionPopulationCountOutcome.Completed count)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(count);
+        if (population.Content is not PackageVersionPopulationOutcome.Populated)
+        {
+            throw new ArgumentException(
+                "A Count envelope requires an available package version population.",
+                nameof(population));
+        }
+
+        return PackageVersionCountProjection.ProjectEnvelope(
+            population,
+            count);
     }
 
     private static InspectionEnvelope<PackageVersionPopulationOutcome> Envelope(

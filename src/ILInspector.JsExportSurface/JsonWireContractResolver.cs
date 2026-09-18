@@ -40,12 +40,11 @@ internal readonly record struct JsonContextGetterIdentity(
 /// repository issue #4459 / PR #4461).
 /// </para>
 /// <para>
-/// Only the DTO <em>type</em> is resolved this way. Which of the export's own parameters supplied
-/// a <c>Deserialize</c> call's JSON-string argument is not resolved — that would need call-site
-/// argument data-flow evidence beyond what <see cref="DirectCall"/> carries today. For a method
-/// with a single <c>Deserialize</c> call this is unambiguous in practice; for multiple calls in
-/// one body, every resolved DTO is reported without attribution to a specific parameter position.
-/// This is a residual gap, not a silent guess.
+/// A deserialize DTO is associated with an export parameter only when Analysis
+/// proves that the call's JSON-string operand comes from one original argument
+/// slot in the same physical method body. Transformed, merged, synthesized, or
+/// lifted values retain their unpositioned wire-root evidence but receive no
+/// guessed parameter binding.
 /// </para>
 /// <para>
 /// A return DTO is resolved only when Analysis proves complete envelope coverage: every
@@ -99,9 +98,10 @@ public static class JsonWireContractResolver
     /// <summary>
     /// Returns <paramref name="function"/> with
     /// <see cref="JsExportFunction.ReturnWireType"/>,
-    /// <see cref="JsExportFunction.ReturnWireTypeShape"/>, and
-    /// <see cref="JsExportFunction.ParameterWireTypes"/> populated from the
-    /// direct calls found in <paramref name="bodyIndex"/> for the method
+    /// <see cref="JsExportFunction.ReturnWireTypeShape"/>,
+    /// <see cref="JsExportFunction.ParameterWireTypes"/>, and
+    /// <see cref="JsExportFunction.ParameterWireBindings"/> populated from
+    /// the direct calls found in <paramref name="bodyIndex"/> for the method
     /// identified by <paramref name="metadataToken"/>.
     /// </summary>
     internal static JsExportFunction Attach(
@@ -124,6 +124,9 @@ public static class JsonWireContractResolver
         var parameterTypes = new List<TypeRef>();
         var parameterContextScopeKeys = new HashSet<string>(
             StringComparer.Ordinal);
+        var parameterBindingCandidates =
+            new List<AuthenticatedParameterWireType>();
+        bool hasUnboundReachableParameterWireType = false;
         var wireTypeContextPaths =
             new List<JsExportWireTypeContextPath>();
 
@@ -141,8 +144,12 @@ public static class JsonWireContractResolver
                 continue;
             }
 
-            if (ResolveDeserializeDto(call.Callee) is { } dto
-                && HasAuthenticatedJsonTypeInfoArgument(
+            TypeRef? dto = ResolveDeserializeDto(call.Callee);
+            if (dto is null)
+                continue;
+
+            bool hasAuthenticatedTypeInfo =
+                HasAuthenticatedJsonTypeInfoArgument(
                     bodyIndex,
                     call,
                     dto,
@@ -152,11 +159,29 @@ public static class JsonWireContractResolver
                     registeredJsonTypeInfoShapes,
                     unsupportedJsonTypeInfoGetterReasons,
                     JsonWireDirection.Deserialize,
-                    out _,
-                    out ImmutableArray<string> contextScopeKeys))
+                    out ApiTypeShape? authenticatedShape,
+                    out ImmutableArray<string> contextScopeKeys);
+            if (hasAuthenticatedTypeInfo)
             {
                 parameterTypes.Add(dto);
                 parameterContextScopeKeys.UnionWith(contextScopeKeys);
+                if (authenticatedShape is not null
+                    && TryResolveParameterIndex(
+                        call,
+                        function,
+                        out int parameterIndex))
+                {
+                    parameterBindingCandidates.Add(
+                        new(
+                            parameterIndex,
+                            dto,
+                            authenticatedShape,
+                            contextScopeKeys));
+                }
+                else if (call.IsReachable != false)
+                {
+                    hasUnboundReachableParameterWireType = true;
+                }
                 wireTypeContextPaths.Add(
                     new JsExportWireTypeContextPath
                     {
@@ -165,6 +190,10 @@ public static class JsonWireContractResolver
                             [.. ReferencedTypes(dto).Distinct()],
                         ContextScopeKeys = contextScopeKeys,
                     });
+            }
+            else if (call.IsReachable != false)
+            {
+                hasUnboundReachableParameterWireType = true;
             }
         }
 
@@ -199,6 +228,11 @@ public static class JsonWireContractResolver
             ParameterWireTypes =
                 [.. parameterTypes.Select(
                     type => type.ToQualifiedDisplayString())],
+            ParameterWireBindings =
+                hasUnboundReachableParameterWireType
+                    ? []
+                    : BuildParameterWireBindings(
+                        parameterBindingCandidates),
             ParameterWireTypeReferences =
                 [.. parameterTypes
                     .SelectMany(ReferencedTypes)
@@ -218,6 +252,70 @@ public static class JsonWireContractResolver
                     }]
                 : [.. wireTypeContextPaths],
         };
+    }
+
+    static bool TryResolveParameterIndex(
+        DirectCall deserializerCall,
+        JsExportFunction function,
+        out int parameterIndex)
+    {
+        parameterIndex = -1;
+        if (deserializerCall.IsReachable != true
+            || deserializerCall.Caller != deserializerCall.EvidenceMethod
+            || !deserializerCall.Caller.IsStatic
+            || deserializerCall.ResolvedArgumentValues.Count == 0
+            || deserializerCall.ResolvedArgumentValues[0].Single is not
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: var sourceIndex,
+                }
+            || sourceIndex < 0
+            || sourceIndex >= function.Parameters.Count
+            || sourceIndex >= deserializerCall.Caller.ParameterTypes.Length
+            || !IsTrustedSystemString(
+                deserializerCall.Caller.ParameterTypes[sourceIndex]))
+        {
+            return false;
+        }
+
+        parameterIndex = sourceIndex;
+        return true;
+    }
+
+    static IReadOnlyList<JsExportParameterWireBinding>
+        BuildParameterWireBindings(
+            IReadOnlyList<AuthenticatedParameterWireType> candidates)
+    {
+        var bindings = new List<JsExportParameterWireBinding>();
+        foreach (IGrouping<int, AuthenticatedParameterWireType> group
+            in candidates
+                .GroupBy(candidate => candidate.ParameterIndex)
+                .OrderBy(group => group.Key))
+        {
+            AuthenticatedParameterWireType first = group.First();
+            if (group.Any(candidate =>
+                    !WireTypesEqual(candidate.Type, first.Type)
+                    || !candidate.Shape.Equals(first.Shape)))
+            {
+                return [];
+            }
+
+            bindings.Add(new JsExportParameterWireBinding
+            {
+                ParameterIndex = first.ParameterIndex,
+                WireType = first.Type.ToQualifiedDisplayString(),
+                WireTypeReferences =
+                    [.. ReferencedTypes(first.Type).Distinct()],
+                WireTypeShape = first.Shape,
+                ContextScopeKeys =
+                    [.. group
+                        .SelectMany(candidate =>
+                            candidate.ContextScopeKeys)
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal)],
+            });
+        }
+        return bindings;
     }
 
     static AuthenticatedWireType? ResolveCompleteReturnWireType(
@@ -828,6 +926,12 @@ public static class JsonWireContractResolver
     }
 
     readonly record struct AuthenticatedWireType(
+        TypeRef Type,
+        ApiTypeShape Shape,
+        IReadOnlyList<string> ContextScopeKeys);
+
+    readonly record struct AuthenticatedParameterWireType(
+        int ParameterIndex,
         TypeRef Type,
         ApiTypeShape Shape,
         IReadOnlyList<string> ContextScopeKeys);
