@@ -12,8 +12,10 @@ Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
 projection is implemented by `BrowserSpotlightDestinationProjection`.
 Current-Workspace Package and package-origin Library execution is implemented by
-`BrowserSpotlightCurrentPackageActivation`; fresh-Workspace and retained Browser
-host adoption remain later stages. The previously implemented
+`BrowserSpotlightCurrentPackageActivation`. Fresh-Workspace managed execution
+now accepts one exact schema-version-3 Definitions request carried by the
+rendered descriptor and composes it with the real retained Browser owner;
+final interaction binding remains a later stage. The previously implemented
 `BrowserSpotlightCurrentPlatformActivation` and
 `BrowserSpotlightDestinationPresentation` types are retained staged artifacts,
 not production Browser adoption. Projection and execution must consume the
@@ -462,16 +464,20 @@ be connected to Spotlight.
 Stage 5 is implemented at the managed Definitions and retained-host
 composition boundary. `BrowserSpotlightExternalPackageActivation` accepts only
 `RestoreExternalPackageWorkspace`, validates the source activation basis,
-obtains one opaque retained-host intent authority, and supplies the exact
-Package plus the exact Ecosystems-owned curated `WorkspacePlan` supplied by the
-Catalog facade to the Definitions request factory. The shared Core does not
-reach into the facade-only Ecosystems catalog. Only a typed complete
-Definitions result can reach the synchronous retained-host publication
-operation. A source-basis or host-authority rejection after completion invokes
-the Definitions-owned non-install operation exactly once; a Definitions
-failure is retained without publication or duplicate cleanup. The live
-retained-Workspace collection, TypeScript selection intent, HTML effects, and
-end-to-end Browser acceptance remain owned by
+obtains one opaque retained-host intent authority, and submits the exact
+schema-version-3 Definitions request captured in the rendered Package
+descriptor. The request combines the exact Package coordinate with the exact
+Ecosystems-owned curated `WorkspacePlan`; the shared Core accepts that plan
+from its caller and does not reach into the facade-only Ecosystems catalog.
+Scanner-bearing ecosystem registrations may make the completed definition
+nonprojectable, so the retained record preserves the Definitions request and
+typed projection evidence rather than fabricating a packet. Only a typed
+complete Definitions result can reach synchronous retained-host publication.
+A source-basis or host-authority rejection after completion invokes the
+one-shot non-install operation exactly once; a Definitions failure is retained
+without publication or duplicate cleanup. The live retained-Workspace
+collection, TypeScript selection intent, HTML effects, and end-to-end Browser
+acceptance remain owned by
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
 
 Each implementation stage receives its own focused issue and PR. This design
@@ -537,6 +543,10 @@ committed membership followed by Navigation failure or supersession.
 `BrowserSpotlightPlatformActivationTests` preserves historical evidence for
 the staged, non-production Platform activation types; it is not a production
 Spotlight acceptance gate.
+`BrowserSpotlightRetainedWorkspaceActivationTests` gates exact curated
+Definitions capture, real retained-owner publication of a nonprojectable
+Workspace, stale source-registration settlement without cutover, and
+exact-realization operation admission.
 `WorkspaceScopeTests` gates publication-base-guarded admission and exact
 binding-to-occurrence resolution. Workspace Definitions retains its separate
 non-install cleanup gate for external-package restoration. Selection-intent
@@ -547,6 +557,11 @@ remain end-to-end adoption work under
 Presentation is Browser-native stateful interaction and does not require
 Markout. The model and future Browser tests are the selected positive gates;
 no source-prohibition or host-inventory absence claim is made.
+
+The existing Spotlight and retained-realization TLA+ models already cover the
+source-basis check, unpublished candidate, publication, and non-install
+transitions used by this composition. No new lifecycle state or join currency
+is introduced here, so those registered configurations remain the formal gate.
 
 ## Non-claims
 
