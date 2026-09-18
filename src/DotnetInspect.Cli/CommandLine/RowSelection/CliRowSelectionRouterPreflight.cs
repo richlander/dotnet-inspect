@@ -159,7 +159,10 @@ internal static class CliRowSelectionRouterPreflight
                 : UndeclaredBindings,
             adopted
                 ? adoption!.Capabilities
-                : CliRowSelectionCapabilities.None);
+                : CliRowSelectionCapabilities.None,
+            adopted
+                ? adoption!.DefaultUnit
+                : CliRowSelectionDefaultUnit.SemanticRows);
     }
 
     private static string FormatRequest(
