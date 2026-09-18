@@ -40,6 +40,19 @@ public static class WorkspaceCommandDefinitions
                 "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
             Arity = ArgumentArity.ExactlyOne,
         };
+        var replacePackageOption = new Option<int?>("--replace-package")
+        {
+            Description =
+                "Replace one direct Package by its one-based packet navigation-row order",
+        };
+        var replacementVersionOption = new Option<string?>("--to-version")
+        {
+            Description = "Exact destination Version for --replace-package",
+        };
+        var replacementTfmOption = new Option<string?>("--to-tfm")
+        {
+            Description = "Destination TFM for --replace-package (isolated context only)",
+        };
         var registerLibraryOption =
             new Option<string[]>("--register-library")
             {
@@ -111,12 +124,15 @@ public static class WorkspaceCommandDefinitions
                 "Exact destination view-facet id, such as type.compare or member.compare",
         };
         var shareOption = WorkspaceShareOption.Create(
-            "Emit the complete portable Workspace definition as a canonical packet or URL without realization");
+            "Emit the complete portable Workspace definition as a canonical packet or URL; coordinate replacement realizes Packages");
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
         command.Options.Add(packetOption);
+        command.Options.Add(replacePackageOption);
+        command.Options.Add(replacementVersionOption);
+        command.Options.Add(replacementTfmOption);
         command.Options.Add(registerLibraryOption);
         command.Options.Add(registerPackagePrefixOption);
         command.Options.Add(registerEcosystemOption);
@@ -132,6 +148,7 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
+        command.Options.Add(opts.Envelope);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(command);
         opts.AddCountOptionTo(command);
@@ -189,6 +206,10 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
+                    ReplacePackage = parseResult.GetValue(replacePackageOption),
+                    ReplacementVersion = parseResult.GetValue(replacementVersionOption),
+                    ReplacementTfm = parseResult.GetValue(replacementTfmOption),
+                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                     OrderedRegistrations = orderedRegistrations,
                     RegisteredLibraries =
                         parseResult.GetValue(registerLibraryOption) ?? [],

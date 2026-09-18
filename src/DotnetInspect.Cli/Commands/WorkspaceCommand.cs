@@ -18,7 +18,7 @@ using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
-public static class WorkspaceCommand
+public static partial class WorkspaceCommand
 {
     public const string Name = "workspace";
 
@@ -69,6 +69,12 @@ public static class WorkspaceCommand
         {
             CommandError.Write(optionError);
             return 1;
+        }
+
+        if (options.ReplacePackage is not null)
+        {
+            return await ExecuteReplacementAsync(
+                options, loadOptions, cancellationToken).ConfigureAwait(false);
         }
 
         if (options.ShareFormat is { } definitionFormat)
@@ -1574,6 +1580,15 @@ public static class WorkspaceCommand
 
     static string? NavigationOptionError(WorkspaceOptions options)
     {
+        if (options.ReplacePackage is not null
+            || options.ReplacementVersion is not null
+            || options.ReplacementTfm is not null)
+        {
+            return ReplacementOptionError(options);
+        }
+        if (options.EnvelopeOutput)
+            return "--envelope currently requires --replace-package and --json.";
+
         if (options.RootRequest is not null
             && (options.Packages.Length != 0 || options.Tfm is not null))
         {

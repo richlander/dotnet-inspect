@@ -433,6 +433,38 @@ public sealed class InspectionDefinitionRegistry
                         StringComparer.Ordinal));
     }
 
+    internal static IReadOnlyList<PackageNavigationSource>
+        ResolvePackageNavigationSourcePositions(
+            WorkspaceDefinition workspace,
+            NavigationTabDefinition tab,
+            NavigationTargetMatchMode targetMatchMode)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(tab);
+        if (tab.Coordinate
+            is not DefinitionMemberCoordinate.PackageCoordinate)
+        {
+            return [];
+        }
+
+        return MatchingNavigationSources(
+                workspace,
+                tab,
+                targetMatchMode,
+                coalesceEqualSources: false)
+            .Where(static source =>
+                source.EffectiveCoordinate
+                        is DefinitionMemberCoordinate.PackageCoordinate
+                && source.MemberIndex is not null)
+            .Select(static source =>
+                new PackageNavigationSource(
+                        source.ContextIndex,
+                        source.MemberIndex!.Value,
+                        (DefinitionMemberCoordinate.PackageCoordinate)
+                            source.EffectiveCoordinate!))
+            .ToArray();
+    }
+
     private static IReadOnlyDictionary<string, ResolvedNavigationSource>
         ResolveNavigationSources(
             WorkspaceDefinition workspace,
@@ -446,13 +478,6 @@ public sealed class InspectionDefinitionRegistry
             _ => throw new InspectionDefinitionException(
                 $"Navigation '{navigation.Id}' has an incompatible record kind."),
         };
-        NavigationSourceCandidate[] workspaceSources =
-        [
-            .. workspace.Contexts
-                .SelectMany(ContextSources)
-                .GroupBy(static source => source.Identity)
-                .Select(static group => group.First()),
-        ];
         var resolved =
             new Dictionary<string, ResolvedNavigationSource>(
                 tabs.Count,
@@ -460,16 +485,12 @@ public sealed class InspectionDefinitionRegistry
         var matchedSources = new HashSet<NavigationSourceIdentity>();
         foreach (NavigationTabDefinition tab in tabs)
         {
-            NavigationSourceSelector selector = NavigationSelector(tab);
             NavigationSourceCandidate[] matches =
-            [
-                .. workspaceSources.Where(source =>
-                    source.Identity.Core == selector.Core
-                    && MatchesTarget(
-                        selector.Target,
-                        source.Identity.Target,
-                        targetMatchMode)),
-            ];
+                MatchingNavigationSources(
+                    workspace,
+                    tab,
+                    targetMatchMode,
+                    coalesceEqualSources: true);
             if (matches.Length != 1)
             {
                 throw new InspectionDefinitionException(
@@ -500,6 +521,33 @@ public sealed class InspectionDefinitionRegistry
 
         return new ReadOnlyDictionary<string, ResolvedNavigationSource>(
             resolved);
+    }
+
+    private static NavigationSourceCandidate[] MatchingNavigationSources(
+        WorkspaceDefinition workspace,
+        NavigationTabDefinition tab,
+        NavigationTargetMatchMode targetMatchMode,
+        bool coalesceEqualSources)
+    {
+        NavigationSourceSelector selector = NavigationSelector(tab);
+        IEnumerable<NavigationSourceCandidate> candidates =
+            workspace.Contexts.SelectMany(ContextSources);
+        if (coalesceEqualSources)
+        {
+            candidates = candidates
+                .GroupBy(static source => source.Identity)
+                .Select(static group => group.First());
+        }
+
+        return
+        [
+            .. candidates.Where(source =>
+                source.Identity.Core == selector.Core
+                && MatchesTarget(
+                    selector.Target,
+                    source.Identity.Target,
+                    targetMatchMode)),
+        ];
     }
 
     private static IEnumerable<NavigationSourceCandidate> ContextSources(
@@ -740,7 +788,7 @@ public sealed class InspectionDefinitionRegistry
                 candidate.RuntimeIdentifier,
                 StringComparison.Ordinal));
 
-    private static string? NormalizeVersion(string? value)
+    internal static string? NormalizeVersion(string? value)
     {
         if (value is null)
             return null;
@@ -756,7 +804,7 @@ public sealed class InspectionDefinitionRegistry
         return version.ToNormalizedString().ToLowerInvariant();
     }
 
-    private static string? NormalizeFramework(string? value)
+    internal static string? NormalizeFramework(string? value)
     {
         if (value is null)
             return null;
