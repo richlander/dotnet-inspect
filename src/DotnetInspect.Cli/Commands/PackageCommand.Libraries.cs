@@ -75,7 +75,7 @@ public partial class PackageCommand
             conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
@@ -96,7 +96,7 @@ public partial class PackageCommand
             conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
-        if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
+        if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null
