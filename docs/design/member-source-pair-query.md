@@ -136,10 +136,16 @@ of the immediate adapter-first path: assembly adapter #7313, authored
 House #7368, companion handoff #7440, and this shared production cutover.
 Both hosts adopt in this delivery without another host-specific composition.
 The member-pair route no longer invokes `PdbSourceHouse.AcquireMemberAsync`.
-Existing acquisition and local-byte helpers, ordinary type/member queries,
+Existing acquisition and local-byte helpers, ordinary type queries,
 decompiler fallback, and broader CLI enrichment remain; their migration and
 retirement stay under the twelve-step
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512) plan.
+
+The pair now shares its query-owned authored handoff with
+[ordinary member acquisition](member-source-acquisition.md) under #7497.
+Member queries adopt authored settlement without moving their decompiler
+policy into the House; pair-specific bounds and authored-only behavior remain
+unchanged.
 
 The single delivery ledger is
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706):
