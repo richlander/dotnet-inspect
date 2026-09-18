@@ -251,6 +251,55 @@ public sealed class ApiCoordinateMatchCommandTests
     }
 
     [Theory]
+    [InlineData("System.Text")]
+    [InlineData("Regex")]
+    public async Task TypeEnvelopeRejectsPlatformFallbacks(
+        string type)
+    {
+        var result = await Invoke(
+        [
+            "type", type,
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "best-effort platform prefix matches",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "resolved via platform find",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeEnvelopeRejectsLibraryPackageRangeBeforeAcquisition()
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type",
+            "--package", "Example@1.0.0..2.0.0",
+            "--library", "Example.dll",
+            "--tfm", "net8.0",
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Theory]
     [InlineData("--bare")]
     [InlineData("--tree")]
     [InlineData("--count")]

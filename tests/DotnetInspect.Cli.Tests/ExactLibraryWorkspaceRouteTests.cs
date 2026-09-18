@@ -76,12 +76,28 @@ public sealed class ExactLibraryWorkspaceRouteTests
         Assert.True(
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options,
-                out _));
+                out ExactLibraryApiInspectionRequest? exactRequest));
+        Assert.Equal(Version, exactRequest.PackageVersion);
+        Assert.True(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    PackagePath = $"{PackageId}@1.0",
+                },
+                out ExactLibraryApiInspectionRequest? normalizedRequest));
+        Assert.Equal("1.0.0", normalizedRequest.PackageVersion);
         Assert.False(
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
                     PackagePath = PackageId,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    PackagePath = $"{PackageId}@1.0.0..2.0.0",
                 },
                 out _));
         Assert.False(

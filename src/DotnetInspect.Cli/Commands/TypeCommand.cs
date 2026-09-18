@@ -16,6 +16,7 @@ using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Planning;
+using NuGet.Versioning;
 using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspect.Cli.Commands;
@@ -161,17 +162,20 @@ public static class TypeCommand
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
 
-        try
+        if (!options.EnvelopeOutput)
         {
-            if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
-                return prefixBrowseExitCode;
-            if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
-                return findIfMissExitCode;
-        }
-        catch (Exception ex)
-        {
-            CommandError.Write(ex);
-            return 1;
+            try
+            {
+                if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                    return prefixBrowseExitCode;
+                if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                    return findIfMissExitCode;
+            }
+            catch (Exception ex)
+            {
+                CommandError.Write(ex);
+                return 1;
+            }
         }
 
         if (resolvedSource is null
@@ -830,7 +834,10 @@ public static class TypeCommand
         (string packageId, string? version) =
             PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
-            || string.IsNullOrWhiteSpace(version))
+            || string.IsNullOrWhiteSpace(version)
+            || !NuGetVersion.TryParse(
+                version,
+                out NuGetVersion? parsedVersion))
         {
             return false;
         }
@@ -839,7 +846,7 @@ public static class TypeCommand
         {
             request = new ExactLibraryApiInspectionRequest(
                 packageId,
-                version,
+                parsedVersion.ToNormalizedString(),
                 options.Tfm!,
                 options.AssemblyPath!);
             return true;
