@@ -740,7 +740,11 @@ public static class MemberCommand
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null && effectiveOptions.ShowDocs)
-                    SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
+                    await CompiledDocumentationEnricher.EnrichAsync(
+                        [apiType],
+                        source,
+                        loaded,
+                        effectiveOptions);
             }
 
             if (apiDllPath != null
