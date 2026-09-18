@@ -496,7 +496,7 @@ internal static class LibraryMetadataService
                 inspection.SourceFiles = await SourceFileCollector.CollectAsync(
                     service,
                     path,
-                    browsableUrls: options.BrowsableUrls,
+                    preferRenderedUrls: options.PreferRenderedUrls,
                     typeFilter: options.TypeFilter);
             }
 

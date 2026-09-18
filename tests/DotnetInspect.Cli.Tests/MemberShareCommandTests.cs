@@ -367,8 +367,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--json")]
-    [InlineData("--raw")]
-    [InlineData("--blob")]
+    [InlineData("--prefer-rendered-urls")]
     [InlineData("--count")]
     [InlineData("-S", "Signature")]
     [InlineData("--all")]
