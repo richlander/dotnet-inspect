@@ -461,7 +461,9 @@ considers all package manifest groups by default; add
 `dependency-target=<TFM>` to select one applicable dependency group instead.
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
-dependency under the same scope:
+dependency under the same scope. Use
+`depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
+against the ecosystem's registered exact packages and package prefixes:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
@@ -472,6 +474,8 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 ```
 
 Add `--where "key=value"` to select product-owned Package Query terms, with one

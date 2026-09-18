@@ -427,15 +427,17 @@ claim to prove that boundary. The browser owner separately gates
 evaluated direct MSBuild `ProjectReference` items for every inspect-web
 production project. For each project whose declared graph can reach the catalog
 facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
-`DotnetInspect.Web.Interop.Catalog` is the sole permitted project and compiled
-assembly reference. The compiled check rejects host source that consumes the
-catalog through the transitive host-to-catalog-facade project graph. Public
-demo identities are runtime-valued properties rather than compile-time
-constants, and the same gate rejects public literal fields before relying on
-the compiled reference: a supported source use therefore cannot erase the
-catalog dependency through constant inlining.
-`DotnetInspect.Web.Core`, the host and sibling export facades, and every other
-inspect-web production project reject both a declared edge and a compiled
+`DotnetInspect.Web.Interop.Catalog` and `DotnetInspect.Web.Interop.Package` are
+the permitted project and compiled assembly references. Catalog owns demos and
+Workspace registration; Package owns Package Activity and projects the
+resource-free package-population snapshot used by Package Query.
+The compiled check rejects host source that consumes the catalog through a
+transitive facade graph. Public demo identities are runtime-valued properties
+rather than compile-time constants, and the same gate rejects public literal
+fields before relying on the compiled reference: a supported source use
+therefore cannot erase the catalog dependency through constant inlining.
+`DotnetInspect.Web.Core`, the host, other sibling export facades, and every
+other inspect-web production project reject both a declared edge and a compiled
 catalog reference. Test projects and the focused
 `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
 catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
@@ -446,12 +448,16 @@ gate provide full coverage for the production dependency claim.
 currencies through their public owner-issued surfaces. Demo adoption adds a
 normal public reference from `DotnetInspector.Ecosystems` to
 `DotnetInspector.Queries` so application source can construct definition
-records and consume its `ProductDemoSourceBinding` and resolution surface.
+records, consume its `ProductDemoSourceBinding` and resolution surface, and
+project `PackageQueryEcosystemMembershipCatalog`. That immutable projection
+contains every canonical pack identity plus its exact package-set members and
+registered package prefixes; an empty population preserves the distinction
+between a known pack and a query-bound pack.
 Queries and all other lower assemblies still do not reference the ecosystem
 assembly or grant it `InternalsVisibleTo`. This direction preserves L1
 ownership: the application catalog supplies fixed inputs to the owner rather
 than reimplementing record validation, scenario resolution, section admission,
-or run-plan lowering.
+run-plan lowering, or package-membership inference.
 
 The non-friend front-end canary separately proves that discovery and selection
 require only the ecosystem assembly's public surface. No source-text or

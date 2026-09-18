@@ -184,6 +184,53 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void PackagePlan_BindsProductEcosystemMemberships()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Aspire.Hosting.PostgreSQL",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.DependsEcosystemTermKey,
+                        PortableQueryOperator.Equal,
+                        "ecosystem.aspire"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1,
+                includePrerelease: false));
+
+        Assert.True(accepted.Plan.RequiresManifest);
+    }
+
+    [Theory]
+    [InlineData(
+        "ecosystem.unknown",
+        PackageQueryRequestFailureReason.UnknownEcosystem)]
+    [InlineData(
+        "ecosystem.platform",
+        PackageQueryRequestFailureReason.EcosystemPackagePopulationUnavailable)]
+    public void PackagePlan_RejectsUnavailableProductEcosystemMemberships(
+        string ecosystemId,
+        PackageQueryRequestFailureReason expectedReason)
+    {
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.Package",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.DependsEcosystemTermKey,
+                        PortableQueryOperator.Equal,
+                        ecosystemId),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1,
+                includePrerelease: false));
+
+        Assert.Equal(expectedReason, rejected.Failure.Reason);
+        Assert.Equal(ecosystemId, rejected.Failure.EcosystemId);
+    }
+
+    [Fact]
     public void PackagePlan_UsesProductPortableInspectionTermBoundary()
     {
         PortableQueryTerm[] maximum = InspectionTerms(

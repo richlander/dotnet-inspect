@@ -125,6 +125,7 @@ The production inspection vocabulary is:
 | `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
 | `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
 | `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends-ecosystem` | canonical ecosystem ID | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
 | `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
@@ -147,6 +148,9 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 dotnet-inspect package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+
+dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
@@ -171,14 +175,31 @@ dependency. Without `dependency-target`, or with
 `all` is Package Query scope rather than a target-framework identity and is
 distinct from a manifest's real `any` group.
 
+`depends-ecosystem` accepts one canonical, case-sensitive
+`ecosystem.<name>` identity and matches a direct dependency against the
+Ecosystems owner's resource-free package-population declaration. Membership is
+the union of exact package-set members and registered package-ID prefixes,
+using NuGet package-ID comparison semantics; an exact registration takes
+evidence precedence when both rules match. Repeated ecosystem terms are
+independent conjunctions, so each named ecosystem must match at least one
+direct dependency in the selected scope.
+
+The CLI and Browser package-query facades inject the same immutable
+`PackageQueryEcosystemMembershipCatalog` projected from the application
+ecosystem catalog. A malformed identity, a valid but unknown identity, or a
+known ecosystem without exact-package or package-prefix membership is rejected
+before package-source work. The shared portable intent stores only the
+canonical term value, so Workspace Share packet formats do not change; a
+decoded plan must bind the application snapshot before execution.
+
 `dependency-target=<tfm>` canonicalizes the requested NuGet target and uses
 the dependency-group owner's compatible selection. The plan and evidence
 retain the requested target and selected manifest group separately. A selected
 empty group and a manifest with no dependency groups satisfy
 `dependencies=none`; no matching target framework does not. The target term
-requires at least one `depends` or `dependencies` term, applies to all such
-terms in the query, and does not traverse, resolve version ranges, or select
-package assets.
+requires at least one `depends`, `depends-ecosystem`, or `dependencies` term,
+applies to all such terms in the query, and does not traverse, resolve version
+ranges, or select package assets.
 
 ## Adaptive result section
 
@@ -214,6 +235,8 @@ count of whichever adaptive section rendered. It therefore supports the
 
 Matching dependency evidence identifies each declaration's manifest group,
 package ID, and declared range, subject to the bounded evidence preview.
+Ecosystem dependency evidence additionally identifies the canonical ecosystem
+and whether an exact package or package prefix established membership.
 
 Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
 Such a query defaults the candidate budget to 20 and cannot bypass the

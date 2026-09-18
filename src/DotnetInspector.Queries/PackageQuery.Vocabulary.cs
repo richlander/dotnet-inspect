@@ -57,6 +57,7 @@ internal enum PackageQueryPredicateKind
     NoDependencies,
     DependencyTarget,
     Depends,
+    DependsEcosystem,
     Downloads,
     Readme,
     Tool,
@@ -68,7 +69,8 @@ internal sealed record PackageQueryPredicate(
     PackageQueryPredicateKind Kind,
     string? Text = null,
     long Number = 0,
-    bool Flag = false)
+    bool Flag = false,
+    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null)
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat

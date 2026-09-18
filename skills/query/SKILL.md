@@ -211,6 +211,8 @@ dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -222,7 +224,10 @@ and product-authored evidence. Dependency predicates inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request
-traversal. `--take` bounds candidate work, while `-n` and `--rows` select final
+traversal. `depends-ecosystem=<ecosystem-id>` classifies direct dependencies
+against the registered exact packages and package prefixes for one canonical
+ecosystem; repeat it to require every named ecosystem. `--take` bounds
+candidate work, while `-n` and `--rows` select final
 matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
 execution: direct package rows use an effective candidate bound of N, while
 filtered queries scan until N matches or their default candidate bound.

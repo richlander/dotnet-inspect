@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
@@ -83,6 +84,7 @@ namespace DotnetInspect.Web.Interop.Package
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
+                EcosystemPackCatalog.PackageQueryMemberships,
                 terms,
                 maximumCandidates,
                 maximumMatches,

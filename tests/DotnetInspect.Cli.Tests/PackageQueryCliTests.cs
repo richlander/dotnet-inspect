@@ -37,6 +37,7 @@ public class PackageQueryCliTests
                 PackageQuery.DependenciesTermKey,
                 PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
+                PackageQuery.DependsEcosystemTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
                 PackageQuery.ToolTermKey,
@@ -78,6 +79,26 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void DependsEcosystemTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Aspire.Hosting.PostgreSQL",
+                ["depends-ecosystem=ecosystem.aspire"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.DependsEcosystemTermKey, term.Key);
+        Assert.Equal("ecosystem.aspire", term.Value);
     }
 
     [Theory]
@@ -250,10 +271,15 @@ public class PackageQueryCliTests
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
+    [InlineData("depends-ecosystem=Aspire", "term value is invalid")]
+    [InlineData("depends-ecosystem=ecosystem.unknown", "Unknown ecosystem")]
+    [InlineData(
+        "depends-ecosystem=ecosystem.platform",
+        "does not register a package population")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
-        "requires a depends or dependencies term")]
+        "requires a depends")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
