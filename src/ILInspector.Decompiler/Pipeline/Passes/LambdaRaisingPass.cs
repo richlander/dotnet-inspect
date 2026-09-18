@@ -264,6 +264,7 @@ public sealed class LambdaRaisingPass : IIrPass
             foreach (var store in captureStores)
                 store.Detach();
             alloc.Detach();
+            function.MarkLocalEliminated(slot);
         }
     }
 
