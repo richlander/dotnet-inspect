@@ -427,10 +427,18 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect package Markout@0.35.2 \
+  --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+For one package with exactly `Package files` selected, `-n`, `--tail`, and
+`--rows A..B` select complete path/size rows after archive extraction, file
+enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
+`--value`, and `--paths` observe the same selected rows; add `--lines` only to
+clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
@@ -439,10 +447,11 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
-scalar, including with `--json`; `--count --envelope` emits the complete
-population envelope with both the directed version Document and typed Count
-component. `--preview`, `--include-unlisted`, configured source options, and
-`--versions-with-feed` remain semantic population inputs.
+scalar, including with `--json`; `--count --envelope` makes that same integer
+the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
+the complete directed version Document. `--preview`, `--include-unlisted`,
+configured source options, and `--versions-with-feed` remain semantic
+population inputs.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before

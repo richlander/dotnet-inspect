@@ -1192,6 +1192,13 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (!TrySelectPackageFiles(
+                    result,
+                    options.PackageFileRowSelection))
+            {
+                return 1;
+            }
+
             if (!TrySelectPackageSourceLinkFiles(
                     result,
                     options.SourceLinkFileRowSelection))
@@ -1504,6 +1511,31 @@ public partial class PackageCommand
         }
 
         result.SourceFiles = [.. selected];
+        return true;
+    }
+
+    private static bool TrySelectPackageFiles(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                result.Files ?? [],
+                "Package files",
+                failure =>
+                    $"Package file row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<PackageFile> selected))
+        {
+            return false;
+        }
+
+        result.Files = [.. selected];
         return true;
     }
 }

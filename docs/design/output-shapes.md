@@ -49,7 +49,7 @@ columns, or rows.
 
 This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
-the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
+the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -217,14 +217,15 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, `package P@A..B --count --envelope` serializes the package
-version-population operation's complete envelope. Available Content contains
-the population Document and its requested typed Count component; it does not
-count envelope members, replace the Document with a scalar, or force a second
-inspection. Ordinary `--count`, including `--count --json`, projects that same
-component to the existing scalar output. A row window already bound into a
-semantic Count plan selects the counted population cohort; it is not an
-instruction to slice serialized JSON.
+For example, Count is a terminal semantic projection for package version
+populations rather than post-service output shaping. `package P@A..B
+--count --envelope` therefore serializes an `InspectionEnvelope<int>` whose
+Content is the owner-issued Count result. Ordinary `--count`, including
+`--count --json`, projects that same integer, so content-only JSON equals the
+envelope's Content subtree. Without Count, the population envelope retains the
+complete Document and no redundant Count property. A row window already bound
+into the semantic Count plan selects the counted population cohort; it is not
+an instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
@@ -261,7 +262,7 @@ Debug-only exception.
 The #6719 path has locked the CLI contract and adopted the common transport
 with type dependencies. Exercising Library API Diff as the second content kind
 remains. The wider CLI and Browser adoption remains in
-[the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
+[the operation/section production path](operation-command-and-subject-section-composition.md#production-adoption).
 
 The first production scenario is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`, target
@@ -477,7 +478,7 @@ Debug-only machine contract; its availability does not make it an ad-hoc dump.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
-Browser UI, History, or subject-owned command cutover. Those consumers reuse
+Browser UI, History, or Diff command/section cutover. Those consumers reuse
 this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff
