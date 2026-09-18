@@ -101,6 +101,7 @@ internal sealed record ClassicInverseTypeBinding(ImmutableArray<TypeRef> Argumen
             AmbiguousTypeFacts = Set(facts.AmbiguousTypeFacts, budget),
             EnumMembers = Map(facts.EnumMembers, budget),
             EnumUnderlyingTypes = Map(facts.EnumUnderlyingTypes, budget, bindValue: type => Type(type, budget)),
+            FlagsEnumTypes = Set(facts.FlagsEnumTypes, budget),
             CollectionInitializerTypes = Set(facts.CollectionInitializerTypes, budget),
             UnionTypes = Set(facts.UnionTypes, budget),
             ByRefLikeTypes = Set(facts.ByRefLikeTypes, budget),

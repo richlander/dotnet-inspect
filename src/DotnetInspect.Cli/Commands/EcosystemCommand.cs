@@ -61,8 +61,8 @@ public static class EcosystemCommand
         EcosystemSection[] sections = CreateSections(packs, focus, pruneSource);
         SectionCatalog<EcosystemDiscoveryModel> catalog = focus is null
             ? CatalogWide
-            : focus.Id == EcosystemPackIds.Platform
-                ? Platform
+            : focus.Id == EcosystemPackIds.Runtime
+                ? Runtime
                 : Focused;
         DocumentSchema schema = CreateSchema(sections);
         string[]? projectedColumns = ResolveProjectedColumns(options);
@@ -379,11 +379,11 @@ public static class EcosystemCommand
         sections.Add(CreateIntegrationsSection(scope, focus is null));
         sections.Add(CreateDemosSection(scope, focus is null));
 
-        // Only the platform ecosystem can answer which package identities a target subsumes, so
+        // Only the .NET Runtime ecosystem can answer which package identities a target subsumes, so
         // the section exists only when it is the focus. That also keeps its cost off every other
         // route: it is the one section here backed by an installed reference pack rather than a
         // compiled-in descriptor, and its rows are produced on demand.
-        if (focus is not null && focus.Id == EcosystemPackIds.Platform)
+        if (focus is not null && focus.Id == EcosystemPackIds.Runtime)
             sections.Add(CreatePruningSection(pruneSource));
 
         return [.. sections];
