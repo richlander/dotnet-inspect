@@ -64,6 +64,7 @@ internal static class OperationMemorySafetyContract
             LoadIndirect load => RendersAsPointerDereference(load.Address),
             StoreIndirect store => RendersAsPointerDereference(store.Address),
             PointerElementCompoundAssignment => true,
+            PointerCompoundAssignment => true,
             InitObject init => RendersAsPointerDereference(init.Address),
             LocalFunctionInvocation invocation =>
                 callerUsesUpdatedRules && invocation.RequiresUnsafe
