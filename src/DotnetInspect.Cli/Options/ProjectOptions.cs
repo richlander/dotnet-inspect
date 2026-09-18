@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -56,6 +57,8 @@ public record ProjectOptions : IProjectionOptions
     public bool Count { get; init; }
 
     public RowWindow? Rows { get; init; }
+
+    public RowSelectionIntent<string>? RowSelection { get; init; }
 
     public bool Verbose { get; init; }
 }

@@ -91,33 +91,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? TypeFilter { get; init; }
 
-    /// <summary>
-    /// MethodDef token + IL offset parameter for coordinate-scoped sections.
-    /// </summary>
-    public string? ILOffsetParameter { get; init; }
-
-    /// <summary>
-    /// The coordinate came from the focus-first Library Coordinate child.
-    /// </summary>
-    internal bool IsCoordinateCommand { get; init; }
-
-    /// <summary>
-    /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
-    /// </summary>
-    public string? HeapParameter { get; init; }
+    /// <summary>The typed request admitted by the Library Coordinate child.</summary>
+    internal LibraryCoordinateRequest? CoordinateRequest { get; init; }
 
     /// <summary>The metadata root selected for every <c>@Metadata</c> operation.</summary>
     public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
-
-    /// <summary>
-    /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
-    /// </summary>
-    public string? ILOffsetsPath { get; init; }
-
-    /// <summary>
-    /// Pre-admitted coordinate population for the focus-first file mode.
-    /// </summary>
-    internal ILCoordinatePopulation? ILCoordinatePopulation { get; init; }
 
     /// <summary>
     /// Semantic selection over the ordered coordinate-file rows.

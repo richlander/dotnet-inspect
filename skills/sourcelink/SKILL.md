@@ -34,11 +34,20 @@ for source path rows.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files"
+dnx dotnet-inspect -y -- package Newtonsoft.Json@13.0.3 \
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
 dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
+
+For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
+`--rows A..B` select complete library/type/URL rows after every selected
+library has completed SourceLink collection and the optional `--type` filter
+has run. Count, structured formats, `--urls`, and `--bare` consume those same
+rows. Use `--lines` only when you intentionally want to clip rendered text.
+The multi-section `@SourceLink` document is not one file-row sequence.
 
 ## Fetch PDB source
 

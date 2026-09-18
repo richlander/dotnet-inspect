@@ -1,4 +1,26 @@
+using ILInspector.Metadata;
+
 namespace DotnetInspect.Cli.Models;
+
+internal abstract record LibraryCoordinateRequest
+{
+    internal sealed record IlPoint(
+        string Value,
+        int MethodToken,
+        int ILOffset)
+        : LibraryCoordinateRequest;
+
+    internal sealed record HeapPoint(
+        string Value,
+        HeapKind Heap,
+        int Address)
+        : LibraryCoordinateRequest;
+
+    internal sealed record FilePopulation(
+        string Path,
+        ILCoordinatePopulation? Population)
+        : LibraryCoordinateRequest;
+}
 
 internal sealed record ILCoordinatePopulation(
     IReadOnlyList<ILCoordinatePopulationRecord> Records);
@@ -8,7 +30,9 @@ internal abstract record ILCoordinatePopulationRecord(int LineNumber)
     internal sealed record Coordinate(
         int LineNumber,
         string Value,
-        string? Label)
+        string? Label,
+        int MethodToken,
+        int ILOffset)
         : ILCoordinatePopulationRecord(LineNumber);
 
     internal sealed record Malformed(

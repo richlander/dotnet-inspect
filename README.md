@@ -426,8 +426,15 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect package Newtonsoft.Json@13.0.3 \
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
+`--rows A..B` select complete library/type/URL rows after SourceLink collection
+and `--type` filtering. Count, table, TSV, JSONL, JSON, `--urls`, and `--bare`
+observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
@@ -765,6 +772,7 @@ generation, action, and authority identities are omitted.
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills -n 1 --tail
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
@@ -779,7 +787,12 @@ directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
 `AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
-inventories; bare `-S` retains the focused `Skills` overview.
+inventories; bare `-S` retains the focused `Skills` overview. With exactly one
+document section selected, `-n`, `--tail`, and `--rows A..B` select complete
+document rows before Count, structured output, projection, or print/bare
+lowering. Add `--lines` only to clip rendered text. Multi-section `@Project`
+output retains its independent section row sets and rendered-line `-n`
+fallback.
 
 ### Types, members, and source
 

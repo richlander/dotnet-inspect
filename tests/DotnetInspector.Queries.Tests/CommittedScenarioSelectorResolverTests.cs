@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
 using ILInspector.Metadata;
@@ -609,6 +610,128 @@ public sealed class CommittedScenarioSelectorResolverTests
     }
 
     [Fact]
+    public async Task Resolve_QueryLibraryScopeRetainsExactOccurrenceLibraries()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Package.A");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library"));
+        CommittedScenarioDefinitionSet definitions =
+            DefinitionsWithLibraryScope("Navigation.Library");
+
+        CommittedScenarioSelectorResolution resolved =
+            Assert.IsType<
+                CommittedScenarioSelectorResolutionResult.Resolved>(
+                    CommittedScenarioSelectorResolver.Resolve(
+                        definitions,
+                        workspace.Identity,
+                        scope,
+                        [new("package", package)])).Resolution;
+
+        var packageState =
+            Assert.IsType<ResolvedCommittedPackageViewState>(
+                resolved.ActiveState);
+        Assert.Same(
+            package.Libraries[0],
+            Assert.Single(packageState.Libraries));
+    }
+
+    [Fact]
+    public async Task Resolve_QueryLibraryScopeMatchesAlternateIdentityCasing()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Package.A");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library"));
+        CommittedScenarioDefinitionSet definitions =
+            DefinitionsWithLibraryScope("navigation.library");
+
+        CommittedScenarioSelectorResolution resolved =
+            Assert.IsType<
+                CommittedScenarioSelectorResolutionResult.Resolved>(
+                    CommittedScenarioSelectorResolver.Resolve(
+                        definitions,
+                        workspace.Identity,
+                        scope,
+                        [new("package", package)])).Resolution;
+
+        var packageState =
+            Assert.IsType<ResolvedCommittedPackageViewState>(
+                resolved.ActiveState);
+        Assert.Same(
+            package.Libraries[0],
+            Assert.Single(packageState.Libraries));
+    }
+
+    [Theory]
+    [InlineData(
+        false,
+        CommittedSelectorResolutionFailureKind.LibraryMissing)]
+    [InlineData(
+        true,
+        CommittedSelectorResolutionFailureKind.LibraryAmbiguous)]
+    public async Task Resolve_QueryLibraryScopeCardinalityFailuresAreTyped(
+        bool ambiguous,
+        CommittedSelectorResolutionFailureKind expected)
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding = ambiguous
+            ? NavigationSnapshotTestData.BindingWithAssemblyImages(
+                "Package.A",
+                "net11.0",
+                (
+                    "First",
+                    File.ReadAllBytes(
+                        typeof(InspectionWorkspace).Assembly.Location)),
+                (
+                    "Second",
+                    File.ReadAllBytes(
+                        typeof(ApiType).Assembly.Location)))
+            : NavigationSnapshotTestData.Binding("Package.A");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(workspace, binding);
+        NavigationSnapshotTestData.LibrarySurface[] surfaces = ambiguous
+            ?
+            [
+                NavigationSnapshotTestData.Surface("Navigation.Library"),
+                NavigationSnapshotTestData.Surface("Navigation.Library"),
+            ]
+            :
+            [
+                NavigationSnapshotTestData.Surface("Other.Library"),
+            ];
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                surfaces);
+        CommittedScenarioDefinitionSet definitions =
+            DefinitionsWithLibraryScope("Navigation.Library");
+
+        AssertFailure(
+            CommittedScenarioSelectorResolver.Resolve(
+                definitions,
+                workspace.Identity,
+                scope,
+                [new("package", package)]),
+            expected);
+    }
+
+    [Fact]
     public async Task Resolve_IncompleteTypeInventoryIsNotReportedAsMissing()
     {
         await using var workspace = new InspectionWorkspace();
@@ -937,6 +1060,81 @@ public sealed class CommittedScenarioSelectorResolverTests
                 InspectionDefinitionSchema.Version2,
                 "view",
                 states));
+        registry.Add(
+            new ScenarioDefinition(
+                InspectionDefinitionSchema.Version2,
+                "scenario",
+                workspace: "workspace",
+                context: "context",
+                view: "view",
+                navigation: "navigation"));
+        return Assert.IsType<
+            InspectionDefinitionScenarioPreparationResult.Version2>(
+                registry.PrepareScenario("scenario")).Definitions;
+    }
+
+    private static CommittedScenarioDefinitionSet
+        DefinitionsWithLibraryScope(string libraryName)
+    {
+        var descriptor = new PortableQueryDefinitionDescriptor<string>(
+            "test-query/v1",
+            "test-query",
+            PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required),
+            static (_, _, _) =>
+                new PortableQueryDefinitionResolution<string>.Accepted(
+                    "bound"));
+        var registry = new InspectionDefinitionRegistry();
+        registry.AddQueryDescriptor(descriptor);
+        registry.Add(
+            new WorkspaceDefinition(
+                InspectionDefinitionSchema.Version2,
+                "workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "context",
+                        members:
+                        [
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                "Package.A",
+                                "1.0.0",
+                                "net11.0"),
+                        ]),
+                ]));
+        registry.Add(
+            new CommittedNavigationDefinition(
+                InspectionDefinitionSchema.Version2,
+                "navigation",
+                [PackageTab("package", "Package.A")],
+                focus: "package"));
+        registry.Add(
+            new CommittedQueryDefinition(
+                InspectionDefinitionSchema.Version2,
+                "query",
+                PortableQueryIdentity.Create(
+                    descriptor.QueryId,
+                    PortableQueryIntent.Create([], [], [], []),
+                    TestContext.Current.CancellationToken)));
+        registry.Add(
+            new CommittedViewDefinition(
+                InspectionDefinitionSchema.Version2,
+                "view",
+                [
+                    new CommittedViewStateDefinition(
+                        null,
+                        new PortableSubjectRequest.Workspace()),
+                    new CommittedViewStateDefinition(
+                        "package",
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        "package.overview",
+                        ["query"],
+                        [Library(libraryName)]),
+                ]));
         registry.Add(
             new ScenarioDefinition(
                 InspectionDefinitionSchema.Version2,

@@ -1100,6 +1100,74 @@ public class MemberIdentityValueEqualityTests
 
     [Fact]
     public void
+        MethodDefinitionMap_AttributedCallUsesPhysicalGenericScope()
+    {
+        TypeRef owner =
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Target`1");
+        TypeRef constructed = TypeRef.GenericInstance(
+            owner,
+            [TypeRef.MethodGenericParameter(0)]);
+        var target = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var projectedCaller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Caller"),
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000002,
+            true);
+        MethodIdentity physicalCaller =
+            projectedCaller with
+            {
+                Name = "<Call>g__Local|0_0",
+                MetadataToken = 0x06000003,
+                GenericArity = 1,
+                GenericParameterNames = ["T"],
+            };
+        var call = new DirectCall(
+            projectedCaller,
+            new MemberRef(
+                constructed,
+                "M",
+                [],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call)
+        {
+            EvidenceMethod = physicalCaller,
+        };
+
+        Assert.Equal(
+            target.MetadataToken,
+            MethodDefinitionMap.Create(
+                    [
+                        target,
+                        projectedCaller,
+                        physicalCaller,
+                    ])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void
         MethodDefinitionMap_LiteralPlusSegmentPreservesDeclaredArity()
     {
         MetadataTypeDefinitionName exactName =
@@ -1693,6 +1761,10 @@ public class MemberIdentityValueEqualityTests
         {
             RequiredParameterCount = 2,
         };
+        MethodIdentity invalidGenericDeclaration = first with
+        {
+            HasInvalidGenericParameterDeclaration = true,
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
@@ -1704,6 +1776,7 @@ public class MemberIdentityValueEqualityTests
         Assert.NotEqual(first, differentDuplicates);
         Assert.NotEqual(first, differentHeader);
         Assert.NotEqual(first, differentRequiredCount);
+        Assert.NotEqual(first, invalidGenericDeclaration);
     }
 
     [Fact]

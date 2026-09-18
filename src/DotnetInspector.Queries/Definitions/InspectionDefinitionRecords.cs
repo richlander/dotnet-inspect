@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Immutable;
+using DotnetInspector.PortableQueries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -118,17 +119,17 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
                 "Workspace registrations require schema version 3 or 4.",
                 nameof(registrations));
         }
-        if (schemaVersion is InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4)
+        if (schemaVersion == InspectionDefinitionSchema.Version4)
         {
             if (frozenContexts.Count == 0 && frozenRegistrations.Count == 0)
             {
                 throw new ArgumentException(
-                    $"A schema-version-{schemaVersion} workspace definition requires at least one context or registration.",
+                    "A schema-version-4 workspace definition requires at least one context or registration.",
                     nameof(contexts));
             }
         }
-        else if (frozenContexts.Count == 0)
+        else if (schemaVersion != InspectionDefinitionSchema.Version3
+            && frozenContexts.Count == 0)
         {
             throw new ArgumentException(
                 "A workspace definition requires at least one context.",
@@ -246,6 +247,339 @@ public sealed record QueryDefinition : InspectionDefinitionRecord
 
     /// <summary>Optional product query identity; reserved for preset-input validation.</summary>
     public string? QueryId { get; }
+}
+
+/// <summary>
+/// A schema-version-2-through-4 query preset with one canonical portable identity.
+/// </summary>
+public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
+{
+    public CommittedQueryDefinition(
+        int schemaVersion,
+        string id,
+        PortableQueryIdentity identity)
+        : base(schemaVersion, id)
+    {
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(schemaVersion),
+                schemaVersion,
+                "CommittedQueryDefinition requires schema version 2, 3, or 4.");
+        }
+
+        Identity = identity ?? throw new ArgumentNullException(nameof(identity));
+        if (string.IsNullOrWhiteSpace(identity.Vocabulary))
+        {
+            throw new ArgumentException(
+                "A committed query requires a nonblank vocabulary identity.",
+                nameof(identity));
+        }
+        Intent = PortableQueryPayloadCodec.Decode(identity.Payload);
+    }
+
+    public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Query;
+
+    public PortableQueryIdentity Identity { get; }
+
+    public PortableQueryIntent Intent { get; }
+
+    public string QueryId => Identity.Vocabulary;
+
+    public string Payload => Identity.Payload;
+}
+
+public enum PortableQueryInputRequirement
+{
+    Forbidden = 0,
+    Optional = 1,
+    Required = 2,
+}
+
+/// <summary>
+/// Structural inputs one portable query purpose accepts from its attachment.
+/// </summary>
+public sealed class PortableQueryDefinitionInputs
+{
+    private PortableQueryDefinitionInputs(
+        bool coordinateFreePrimary,
+        IReadOnlyList<PortableSubjectRequestKind> subjectKinds,
+        IReadOnlyList<string> facetIds,
+        PortableQueryInputRequirement stateCoordinate,
+        PortableQueryInputRequirement selectedContext,
+        PortableQueryInputRequirement stateLibraryScope)
+    {
+        CoordinateFreePrimary = coordinateFreePrimary;
+        SubjectKinds = subjectKinds;
+        FacetIds = facetIds;
+        StateCoordinate = stateCoordinate;
+        SelectedContext = selectedContext;
+        StateLibraryScope = stateLibraryScope;
+    }
+
+    public bool CoordinateFreePrimary { get; }
+
+    public IReadOnlyList<PortableSubjectRequestKind> SubjectKinds { get; }
+
+    public IReadOnlyList<string> FacetIds { get; }
+
+    public PortableQueryInputRequirement StateCoordinate { get; }
+
+    public PortableQueryInputRequirement SelectedContext { get; }
+
+    public PortableQueryInputRequirement StateLibraryScope { get; }
+
+    public static PortableQueryDefinitionInputs CoordinateFree() =>
+        new(
+            coordinateFreePrimary: true,
+            [],
+            [],
+            PortableQueryInputRequirement.Forbidden,
+            PortableQueryInputRequirement.Forbidden,
+            PortableQueryInputRequirement.Forbidden);
+
+    public static PortableQueryDefinitionInputs StateBound(
+        IReadOnlyList<PortableSubjectRequestKind> subjectKinds,
+        IReadOnlyList<string> facetIds,
+        PortableQueryInputRequirement stateCoordinate,
+        PortableQueryInputRequirement selectedContext,
+        PortableQueryInputRequirement stateLibraryScope)
+    {
+        IReadOnlyList<PortableSubjectRequestKind> frozenSubjects =
+            DefinitionCollections.Freeze(subjectKinds);
+        IReadOnlyList<string> frozenFacets =
+            FreezeOrderedValues(facetIds, nameof(facetIds));
+        if (frozenSubjects.Count == 0)
+        {
+            throw new ArgumentException(
+                "A state-bound query descriptor requires at least one subject kind.",
+                nameof(subjectKinds));
+        }
+        if (frozenSubjects.Any(static kind => !Enum.IsDefined(kind)))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(subjectKinds),
+                "A state-bound query descriptor requires defined subject kinds.");
+        }
+        if (frozenSubjects.Distinct().Count() != frozenSubjects.Count)
+        {
+            throw new ArgumentException(
+                "A state-bound query descriptor requires unique subject kinds.",
+                nameof(subjectKinds));
+        }
+        if (frozenFacets.Count == 0)
+        {
+            throw new ArgumentException(
+                "A state-bound query descriptor requires at least one facet id.",
+                nameof(facetIds));
+        }
+        if (!Enum.IsDefined(stateCoordinate))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(stateCoordinate),
+                stateCoordinate,
+                "A state-bound query descriptor requires a defined coordinate requirement.");
+        }
+        if (!Enum.IsDefined(selectedContext))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectedContext),
+                selectedContext,
+                "A state-bound query descriptor requires a defined selected-context requirement.");
+        }
+        if (!Enum.IsDefined(stateLibraryScope))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(stateLibraryScope),
+                stateLibraryScope,
+                "A state-bound query descriptor requires a defined Library-scope requirement.");
+        }
+
+        return new(
+            coordinateFreePrimary: false,
+            frozenSubjects,
+            frozenFacets,
+            stateCoordinate,
+            selectedContext,
+            stateLibraryScope);
+    }
+
+    private static IReadOnlyList<string> FreezeOrderedValues(
+        IReadOnlyList<string> values,
+        string paramName)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        IReadOnlyList<string> frozen = DefinitionCollections.Freeze(values);
+        string? previous = null;
+        foreach (string value in frozen)
+        {
+            DefinitionText.Require(value, paramName);
+            if (previous is not null
+                && string.CompareOrdinal(previous, value) >= 0)
+            {
+                throw new ArgumentException(
+                    $"{paramName} must contain unique values in ascending ordinal order.",
+                    paramName);
+            }
+
+            previous = value;
+        }
+
+        return frozen;
+    }
+}
+
+public abstract record PortableQueryDefinitionResolution<TPlan>
+{
+    private protected PortableQueryDefinitionResolution()
+    {
+    }
+
+    public sealed record Accepted(TPlan Plan)
+        : PortableQueryDefinitionResolution<TPlan>;
+
+    public sealed record Rejected
+        : PortableQueryDefinitionResolution<TPlan>
+    {
+        public Rejected(string message)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(message);
+            Message = message;
+        }
+
+        public string Message { get; }
+    }
+}
+
+/// <summary>
+/// Structural values supplied to one query attachment after descriptor input
+/// admission.
+/// </summary>
+public sealed class PortableQueryDefinitionAttachment
+{
+    internal PortableQueryDefinitionAttachment(
+        PortableSubjectRequestKind? subjectKind,
+        string? facetId,
+        DefinitionMemberCoordinate? stateCoordinate,
+        WorkspaceContextDefinition? selectedContext,
+        IReadOnlyList<PortableLibraryIdentity>? stateLibraryScope)
+    {
+        SubjectKind = subjectKind;
+        FacetId = facetId;
+        StateCoordinate = stateCoordinate;
+        SelectedContext = selectedContext;
+        StateLibraryScope = DefinitionCollections.Freeze(stateLibraryScope);
+    }
+
+    public PortableSubjectRequestKind? SubjectKind { get; }
+
+    public string? FacetId { get; }
+
+    public DefinitionMemberCoordinate? StateCoordinate { get; }
+
+    public WorkspaceContextDefinition? SelectedContext { get; }
+
+    public IReadOnlyList<PortableLibraryIdentity> StateLibraryScope { get; }
+}
+
+/// <summary>
+/// Owner-issued portable query purpose, structural inputs, and typed binder.
+/// </summary>
+public abstract class PortableQueryDefinitionDescriptor
+{
+    private protected PortableQueryDefinitionDescriptor(
+        string queryId,
+        string purpose,
+        PortableQueryDefinitionInputs inputs)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
+        QueryId = queryId;
+        Purpose = purpose;
+        Inputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
+    }
+
+    public string QueryId { get; }
+
+    public string Purpose { get; }
+
+    public PortableQueryDefinitionInputs Inputs { get; }
+
+    internal abstract BoundCommittedQuery Bind(
+        CommittedQueryDefinition definition,
+        PortableQueryDefinitionAttachment attachment,
+        CancellationToken cancellationToken);
+}
+
+public sealed class PortableQueryDefinitionDescriptor<TPlan>
+    : PortableQueryDefinitionDescriptor
+{
+    private readonly Func<
+        PortableQueryIntent,
+        PortableQueryDefinitionAttachment,
+        CancellationToken,
+        PortableQueryDefinitionResolution<TPlan>> _resolve;
+
+    public PortableQueryDefinitionDescriptor(
+        string queryId,
+        string purpose,
+        PortableQueryDefinitionInputs inputs,
+        Func<
+            PortableQueryIntent,
+            PortableQueryDefinitionAttachment,
+            CancellationToken,
+            PortableQueryDefinitionResolution<TPlan>> resolve)
+        : base(queryId, purpose, inputs)
+    {
+        _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+    }
+
+    internal override BoundCommittedQuery Bind(
+        CommittedQueryDefinition definition,
+        PortableQueryDefinitionAttachment attachment,
+        CancellationToken cancellationToken) =>
+        _resolve(definition.Intent, attachment, cancellationToken) switch
+        {
+            PortableQueryDefinitionResolution<TPlan>.Accepted accepted =>
+                new BoundCommittedQuery<TPlan>(
+                    definition,
+                    this,
+                    attachment,
+                    accepted.Plan),
+            PortableQueryDefinitionResolution<TPlan>.Rejected rejected =>
+                throw new InspectionDefinitionException(
+                    $"Query '{definition.Id}' was rejected by vocabulary "
+                        + $"'{QueryId}': {rejected.Message}"),
+            _ => throw new InvalidOperationException(
+                "Unknown portable query definition resolution."),
+        };
+}
+
+public abstract record BoundCommittedQuery(
+    CommittedQueryDefinition Definition,
+    PortableQueryDefinitionDescriptor Descriptor,
+    PortableQueryDefinitionAttachment Attachment);
+
+public sealed record BoundCommittedQuery<TPlan>
+    : BoundCommittedQuery
+{
+    public BoundCommittedQuery(
+        CommittedQueryDefinition definition,
+        PortableQueryDefinitionDescriptor<TPlan> descriptor,
+        PortableQueryDefinitionAttachment attachment,
+        TPlan plan)
+        : base(definition, descriptor, attachment)
+    {
+        TypedDescriptor = descriptor;
+        Plan = plan;
+    }
+
+    public PortableQueryDefinitionDescriptor<TPlan> TypedDescriptor { get; }
+
+    public TPlan Plan { get; }
 }
 
 /// <summary>A named view preset: portable type/member selectors and facet ids.</summary>
@@ -702,7 +1036,7 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CommittedViewStateDefinition> States { get; }
 }
 
-/// <summary>One query-free schema-version-2-through-4 committed state.</summary>
+/// <summary>One schema-version-2-through-4 committed state.</summary>
 public sealed record CommittedViewStateDefinition
 {
     public CommittedViewStateDefinition(
@@ -726,10 +1060,20 @@ public sealed record CommittedViewStateDefinition
                 "An exact committed facet requires an explicit subject.",
                 nameof(facet));
         }
-        if (Queries.Count != 0 && Facet is null)
+        bool coordinateFreeCandidate =
+            Navigation is null
+            && subject is PortableSubjectRequest.Workspace
+            && context is null
+            && Facet is null
+            && Queries.Count == 1
+            && Libraries.Count == 0;
+        if (Queries.Count != 0
+            && Facet is null
+            && !coordinateFreeCandidate)
         {
             throw new ArgumentException(
-                "Committed query references require an exact facet.",
+                "Committed query references require an exact facet unless "
+                    + "the state is a coordinate-free primary-query candidate.",
                 nameof(queries));
         }
         if (Libraries.Count != 0 && Queries.Count == 0)
@@ -837,14 +1181,26 @@ public sealed record CommittedViewStateDefinition
     {
         IReadOnlyList<PortableLibraryIdentity> frozen =
             DefinitionCollections.Freeze(values);
-        for (int index = 1; index < frozen.Count; index++)
+        var semanticIdentities = new HashSet<AssemblyReferenceIdentity>(
+            frozen.Count,
+            AssemblyReferenceIdentity.EquivalentComparer);
+        for (int index = 0; index < frozen.Count; index++)
         {
-            if (PortableLibraryIdentityComparer.Instance.Compare(
+            if (index > 0
+                && PortableLibraryIdentityComparer.Instance.Compare(
                     frozen[index - 1],
                     frozen[index]) >= 0)
             {
                 throw new ArgumentException(
                     "libraries must contain unique identities in canonical order.",
+                    nameof(values));
+            }
+            if (!semanticIdentities.Add(
+                PortableLibraryIdentityComparer.ToMetadataIdentity(
+                    frozen[index])))
+            {
+                throw new ArgumentException(
+                    "libraries must not contain semantically equivalent identities.",
                     nameof(values));
             }
         }
@@ -1170,7 +1526,7 @@ public sealed record PortableLibraryIdentity
     }
 }
 
-file sealed class PortableLibraryIdentityComparer
+internal sealed class PortableLibraryIdentityComparer
     : IComparer<PortableLibraryIdentity>
 {
     public static PortableLibraryIdentityComparer Instance { get; } = new();
@@ -1223,6 +1579,14 @@ file sealed class PortableLibraryIdentityComparer
         x is null
             ? y is null ? 0 : -1
             : y is null ? 1 : string.CompareOrdinal(x, y);
+
+    public static AssemblyReferenceIdentity ToMetadataIdentity(
+        PortableLibraryIdentity identity) =>
+        new(
+            identity.Name,
+            System.Version.Parse(identity.Version),
+            identity.Culture,
+            identity.PublicKeyToken);
 }
 
 /// <summary>One acquisition coordinate in definition JSON.</summary>
