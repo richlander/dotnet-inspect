@@ -572,6 +572,11 @@ additional asset selection. For example, `lib/net10.0/Foo.dll` contributes
 An entry for another framework does not contribute, and an explicit `_._`
 empty-group marker is not content.
 
+Folder names are package-authored, sink-bound text. A host-neutral projection
+carries each name as `InertString` under `TextPolicy.Field`; structured formats
+retain the collection as an array rather than collapsing it into presentation
+text.
+
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a
 RID-specific implementation, its package-entry length is the Library payload

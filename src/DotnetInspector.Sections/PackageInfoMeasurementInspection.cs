@@ -29,7 +29,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
-        IReadOnlyList<string>? selectedTargetFrameworkFolders,
+        IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -61,7 +61,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
-        IReadOnlyList<string>? selectedTargetFrameworkFolders,
+        IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -111,7 +111,7 @@ public sealed record PackageInfoMeasurements
         long? compressedPackageBytes,
         string? selectedTargetFramework,
         int? availableTargetFrameworkCount,
-        IReadOnlyList<string>? selectedTargetFrameworkFolders,
+        IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
         InertString? detail,
@@ -124,8 +124,13 @@ public sealed record PackageInfoMeasurements
             && availableTargetFrameworkCount.HasValue
             && selectedTargetFrameworkFolders is not null
             && selectedTargetFrameworkFolders.All(
-                static folder => !string.IsNullOrWhiteSpace(folder))
+                static folder =>
+                    !string.IsNullOrWhiteSpace(folder.ToString())
+                    && InertString.IsPermitted(
+                        TextPolicy.Field,
+                        folder.ToString()))
             && selectedTargetFrameworkFolders
+                .Select(static folder => folder.ToString())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count() == selectedTargetFrameworkFolders.Count
             && selectedLibraryPayloadBytes.HasValue
@@ -194,7 +199,7 @@ public sealed record PackageInfoMeasurements
 
     public int? AvailableTargetFrameworkCount { get; }
 
-    public IReadOnlyList<string>? SelectedTargetFrameworkFolders { get; }
+    public IReadOnlyList<InertString>? SelectedTargetFrameworkFolders { get; }
 
     public long? SelectedLibraryPayloadBytes { get; }
 
@@ -343,7 +348,10 @@ public static class PackageInfoMeasurementInspection
             measurements.CompressedPackageBytes,
             measurements.SelectedTargetFramework,
             measurements.AvailableTargetFrameworkCount,
-            measurements.SelectedTargetFrameworkFolders,
+            measurements.SelectedTargetFrameworkFolders
+                .Select(static folder =>
+                    new InertString(TextPolicy.Field, folder))
+                .ToArray(),
             measurements.SelectedLibraryPayloadBytes,
             measurements.SelectedLibraryCount,
             detail: null,

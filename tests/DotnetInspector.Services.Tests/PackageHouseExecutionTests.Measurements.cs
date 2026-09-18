@@ -12,9 +12,11 @@ public sealed partial class PackageHouseExecutionTests
     [Fact]
     public async Task PackageInfoEnvelopeRetainsMeasuredSelectionCorrespondence()
     {
+        const string UnsafeFolder = "HOSTILE\u202EMARKER";
         byte[] archive = TestPackageArchive.CreateWithContent(
             ($"lib/net10.0/{MaterializedPackageId}.dll", new byte[13]),
             ("build/net10.0/Package.targets", new byte[3]),
+            ($"{UnsafeFolder}/net10.0/data.bin", new byte[5]),
             ("lib/net8.0/Legacy.dll", new byte[17]));
         var content = new InMemoryPackageContent(
             archive,
@@ -41,8 +43,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
         Assert.Equal(
-            ["build", "lib"],
-            measurements.SelectedTargetFrameworkFolders);
+            ["build", @"HOSTILE\u202EMARKER", "lib"],
+            measurements.SelectedTargetFrameworkFolders!
+                .Select(static folder => folder.ToString()));
         Assert.Equal(13, measurements.SelectedLibraryPayloadBytes);
         Assert.Equal(1, measurements.SelectedLibraryCount);
         Assert.Same(
@@ -59,9 +62,11 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementJsonContext.Default
                 .InspectionEnvelopePackageInfoMeasurements);
         Assert.Contains(
-            "\"selectedTargetFrameworkFolders\":[\"build\",\"lib\"]",
+            "\"selectedTargetFrameworkFolders\":"
+                + "[\"build\",\"HOSTILE\\\\u202EMARKER\",\"lib\"]",
             json,
             StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', json);
         InspectionEnvelope<PackageInfoMeasurements> roundTripped =
             JsonSerializer.Deserialize(
                 json,
