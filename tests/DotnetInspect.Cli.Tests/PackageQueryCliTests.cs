@@ -860,6 +860,45 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task DataDiscovery_UsesAuthoredCategoryBeforeAlphabeticalSections()
+    {
+        var catalog = await Run(
+            "package",
+            "query",
+            "-D",
+            "--table");
+        var category = await Run(
+            "package",
+            "query",
+            "-D",
+            SectionCategoryNames.Query,
+            "--table");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Empty(catalog.Error);
+        int categoryIndex = catalog.Output.IndexOf(
+            SectionCategoryNames.Query,
+            StringComparison.Ordinal);
+        int packagesIndex = catalog.Output.IndexOf(
+            PackageProfileSections.Packages,
+            StringComparison.Ordinal);
+        int summaryIndex = catalog.Output.IndexOf(
+            PackageQuerySections.QuerySummaryName,
+            StringComparison.Ordinal);
+        Assert.True(categoryIndex >= 0);
+        Assert.True(categoryIndex < packagesIndex);
+        Assert.True(packagesIndex < summaryIndex);
+        Assert.DoesNotContain("@All", catalog.Output);
+        Assert.DoesNotContain("@Default", catalog.Output);
+        Assert.DoesNotContain("@Hidden", catalog.Output);
+
+        Assert.Equal(0, category.ExitCode);
+        Assert.Empty(category.Error);
+        Assert.Contains(PackageProfileSections.Packages, category.Output);
+        Assert.Contains(PackageQuerySections.QuerySummaryName, category.Output);
+    }
+
+    [Fact]
     public async Task SemanticHeadRunsAfterAllCandidatesAndKeepsOnePackagePerRow()
     {
         using var source = Source(out var fixture);
@@ -1069,6 +1108,41 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task ExplicitQueryCategory_ComposesSectionsAlphabetically()
+    {
+        using var source = Source(out _);
+        var options = OptionsForInput(
+            "Contoso.Second*",
+            ["depends=Dependency.One"]) with
+        {
+            JsonOutput = true,
+            Tabular = false,
+            IncludeSections =
+            [
+                PackageQuerySections.QuerySummaryName,
+                PackageProfileSections.Packages,
+            ],
+        };
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(options, source, null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        int packagesIndex = result.Output.IndexOf(
+            "\"packages\"",
+            StringComparison.Ordinal);
+        int summaryIndex = result.Output.IndexOf(
+            "\"query_summary\"",
+            StringComparison.Ordinal);
+        Assert.True(packagesIndex >= 0);
+        Assert.True(packagesIndex < summaryIndex);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Single(json.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.Single(
+            json.RootElement.GetProperty("query_summary").EnumerateArray());
+    }
+
+    [Fact]
     public async Task QuerySummary_DistinguishesMissingAndFilteredPackages()
     {
         using var source = Source(out _);
@@ -1132,8 +1206,11 @@ public class PackageQueryCliTests
             filteredSummary.GetProperty("matches").GetString());
     }
 
-    [Fact]
-    public async Task CountRejectsQuerySummarySelectionBeforeAcquisition()
+    [Theory]
+    [InlineData(PackageQuerySections.QuerySummaryName)]
+    [InlineData(SectionCategoryNames.Query)]
+    public async Task CountRejectsNonPackageSelectionBeforeAcquisition(
+        string selection)
     {
         var result = await Run(
             "package",
@@ -1141,7 +1218,7 @@ public class PackageQueryCliTests
             "Contoso.*",
             "--count",
             "-S",
-            "Query Summary");
+            selection);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -1414,6 +1491,24 @@ public class PackageQueryCliTests
                 .GetProperty("packages")
                 .EnumerateArray());
         Assert.Contains("Package Query completion", result.Error);
+    }
+
+    [Fact]
+    public async Task TabularOutputRejectsQueryCategoryBeforeAcquisition()
+    {
+        var result = await Run(
+            "package",
+            "query",
+            "Contoso.*",
+            "--tsv",
+            "-S",
+            SectionCategoryNames.Query);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--table, --tsv, and --jsonl display one section at a time",
+            result.Error);
     }
 
     [Fact]
