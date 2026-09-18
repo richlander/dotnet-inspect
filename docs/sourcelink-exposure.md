@@ -79,6 +79,14 @@ availability result, not a second network pass. All four package sections are
 rooted in `@SourceLink`; the legacy `Source Files` spelling still resolves for
 the file listing. `type` still spells its equivalent `Source Files`.
 
+For one ordinary package with exactly `SourceLink: Files` selected, `-n`,
+`--tail`, and `--rows A..B` select complete library/type/URL rows after all
+selected libraries have completed SourceLink collection and any `--type`
+filter has run. Count, row formats, complete JSON, URL projection, and bare
+output consume the same selected rows. `--lines` explicitly clips rendered
+text instead. The broader `@SourceLink` document and multiple-package output
+remain separate surfaces rather than being treated as one file-row sequence.
+
 Effective discovery never executes the unbounded availability or integrity
 queries merely to list these package sections.
 

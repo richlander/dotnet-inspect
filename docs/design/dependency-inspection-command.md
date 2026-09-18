@@ -11,8 +11,10 @@ tracked by steps 5 and 8 of
 [#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
 selected-Type workflow to `type graph`, moves the heterogeneous asset-root
 workflow to `graph dependencies`, and then retires `depends`.
-The Debug service-evidence enrichment is proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+The host-neutral dependency settlement operation and ordinary CLI adoption are
+implemented under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
+sidecar serialization and Browser/Wasm adoption remain proposed.
 
 ## Owner and claim
 
@@ -151,10 +153,16 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The Debug service-evidence adopter in #7117 is shared host-neutral work despite
-this command's CLI presentation ownership. It composes the existing Package
-Dependency Evidence outcome without moving its normalization contract.
-It is the third slice of the diagnostic-sidecar composition tracked by
+The dependency service adopter in #7117 is shared host-neutral work despite
+this command's CLI presentation ownership. `DependencyInspectionOperation`
+now settles the selected-plan `DependencyInspectionContent` and ordinary
+`InspectionEnvelope<DependencyInspectionContent>`, and its enriched entry
+point composes the existing Package Dependency Evidence outcome without moving
+its normalization contract.
+The CLI supplies acquired owner-issued results to that operation and retains
+only acquisition, graph-row shaping, labels, section composition, and
+rendering. Debug sidecar publication is the third slice of the
+diagnostic-sidecar composition tracked by
 [#7293](https://github.com/richlander/dotnet-inspect/issues/7293), consuming
 the generic attachment contract and CLI sidecar transport without redefining
 either owner.
@@ -554,13 +562,20 @@ section selection and row shaping
 Markdown / tree / Mermaid / table / TSV / JSONL / JSON / count
 ```
 
-The implementation now retains its semantic selected-plan value as
-owner-issued `DependencyInspectionContent` while the existing CLI projection
-continues to own section membership, graph rows, row windows, display
-ordering, and rendering. This extraction is not a new dependency-semantics
-model. The Content value carries references to or copies of owner-issued
-identities and evidence plus dependency-inspection occurrence identities,
-graph endpoint indices, and stable semantic ordering.
+The host-neutral `DependencyInspectionOperation` now settles the semantic
+selected-plan value as owner-issued `DependencyInspectionContent` and returns
+it in `InspectionEnvelope<DependencyInspectionContent>`. Its request contains
+the already-acquired Package Dependency Evidence outcome, explicit root inputs,
+graph, pruning, and typed host-adapted failures. The operation owns occurrence
+association, phase projection, declaration-to-restored-edge joins, plan-relative
+graph, traversal, pruning, and failure inclusion, and aggregate completion.
+Producer values for an unselected traversal or pruning phase do not enter
+Content even if a host adapter supplies them. The CLI projection consumes that
+envelope and continues to own section membership, graph rows, row windows,
+display ordering, and rendering. This extraction is not a new dependency-
+semantics model. The Content value carries references to or copies of owner-
+issued identities and evidence plus dependency-inspection occurrence
+identities, graph endpoint indices, and stable semantic ordering.
 
 Package candidate, source failure, authority failure, manifest failure,
 restored-traversal failure, and pruning-result Content use closed portable
@@ -720,8 +735,11 @@ demonstration that diagnostic registration disappears from retail compilation.
 
 ## Debug service-evidence enrichment
 
-**Status:** proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+**Status:** partially implemented under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
+host-neutral ordinary and enriched settlement entry points and ordinary CLI
+cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
+remain proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -756,9 +774,9 @@ baseline consumer to understand `TEvidence`.
 ### Concrete evidence value
 
 The typed Content, evidence Document, root-occurrence currency,
-same-execution association, and closed generated serialization are
-implemented. The complete evidence capture request and host adoption remain
-proposed.
+same-execution association, selected-plan settlement operation, and ordinary
+CLI consumption, and closed generated serialization are implemented. Generated
+sidecar serialization and Browser/Wasm adoption remain proposed.
 
 The dependency service issues one named settled Document:
 
@@ -838,15 +856,17 @@ capture remains visible in `PackageInputs` and does not reinterpret an
 otherwise equivalent baseline. Producers shared by both plans retain their
 ordinary failure meaning.
 
-For equivalent ordinary inputs and baseline plans, extracting `Inspection`
-from the enriched result yields equal Content, Share, and Diagnostics.
-Rendering or serialization consumes the settled values and never reopens an
-archive, assets file, package source, or traversal.
+For one settled operation request and baseline plan, ordinary and enriched
+execution yield equal Content, Share, and Diagnostics. This is not a
+cross-owner structural-equality contract for independently reconstructed
+Package Dependency Evidence or dependency graphs. Rendering or serialization
+consumes the settled values and never reopens an archive, assets file, package
+source, or traversal.
 
 ### Thin Debug views and Browser adoption
 
-After replacement coverage exists, the four diagnostic sections remain useful
-Debug views but stop owning duplicated production:
+The four diagnostic sections remain useful Debug views but no longer own
+duplicated semantic production:
 
 - `Dependency Groups`, `Restored Packages`, and `Restored Edges` project
   `PackageInputs` through the retained owner-issued identities;
@@ -911,11 +931,15 @@ pathological fixtures. They cover:
   collections, plus rejection of noncanonical framework and portable producer
   identities;
 - exact admitted and failed occurrence association, including mixed root kinds
-  and a package-prefix failure without an explicit occurrence;
+  and a package-prefix failure without an explicit occurrence, while rejecting
+  an unassociated failure for a non-prefix request;
 - complete empty, partial, unavailable, failed, and bounded/truncated Package
   Dependency Evidence outcomes;
 - equal extracted baselines for ordinary and enriched execution, including an
-  evidence-only producer failure;
+  evidence-only producer failure and complete envelope equality for one
+  settled request;
+- selected-plan exclusion of graph, traversal, pruning, and their failures
+  when a host adapter supplies values for an unselected phase;
 - one execution, detached lifetime, and serialization without acquisition or
   recapture; and
 - exact `asset-dependencies` version `1` framing for baseline and enriched

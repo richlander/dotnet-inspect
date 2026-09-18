@@ -100,6 +100,13 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
+        var commandArgs = new PackageOptionsParser.PackageCommandArgs(
+            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            contentOption, frontmatterOption, bodyOption,
+            tfmOption, typeFilterOption, versionOption,
+            opts.Lines, opts.TailLines, outOption, pathMatchOption,
+            skipEmptyOption, opts.NoHeaders);
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -109,7 +116,11 @@ public static class PackageCommandDefinitions
             packageCommand,
             validateLegacyRowWindow: result =>
                 !result.GetValue(versionsOption)
-                && !result.GetValue(versionsWithFeedOption));
+                && !result.GetValue(versionsWithFeedOption)
+                && !PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
         opts.AddPrintOptionTo(packageCommand);
@@ -201,7 +212,11 @@ public static class PackageCommandDefinitions
                         packageReference,
                         out _,
                         out string? rangeError)
-                    && rangeError is null),
+                    && rangeError is null)
+                || PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -220,13 +235,6 @@ public static class PackageCommandDefinitions
                 packageCommand,
                 packageNameArg));
 
-        var commandArgs = new PackageOptionsParser.PackageCommandArgs(
-            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
-            contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption,
-            opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;
 
         CliOptionValueValidation.RegisterCapacity(
@@ -344,7 +352,7 @@ public static class PackageCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Minified JSON (use with --json)"
+            Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
         queryCommand.Options.Add(takeOption);
@@ -370,11 +378,41 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.Select);
         queryCommand.Options.Add(opts.Tree);
         opts.AddNuGetOptionsTo(queryCommand);
+        opts.AddEnvelopeOptionTo(
+            queryCommand,
+            opts.Limit,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Count,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Select);
+        queryCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption) is { Implicit: false }
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires package query --json or --envelope.");
+            }
+            if (result.GetValue(opts.Json)
+                && result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is not { Implicit: false })
+            {
+                result.AddError(
+                    "--tree with package query --json requires schema discovery.");
+            }
+        });
 
         queryCommand.SetAction(async (parseResult, ct) =>
         {
             var acceptedParentOptions = new HashSet<Option>
             {
+                opts.Envelope,
                 opts.Json,
                 opts.Markdown,
                 opts.Table,
@@ -436,7 +474,19 @@ public static class PackageCommandDefinitions
             }
 
             string[]? discover = opts.ParseDiscover(parseResult);
-            OutputFormat format = opts.ResolveFormat(parseResult);
+            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+            OutputFormat format =
+                envelopeOutput
+                    ? OutputFormat.Json
+                    : opts.ResolveFormat(parseResult);
+            if (format == OutputFormat.Json
+                && parseResult.GetValue(opts.Tree)
+                && discover is null)
+            {
+                CommandError.Write(
+                    "--tree with package query --json requires schema discovery.");
+                return 1;
+            }
             string? libraryLiteral =
                 parseResult.GetValue(libraryLiteralOption);
             string? inheritedTfm =
@@ -551,10 +601,12 @@ public static class PackageCommandDefinitions
             {
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = format == OutputFormat.Json,
+                EnvelopeOutput = envelopeOutput,
                 CompactJson = parseResult.GetValue(compactOption),
-                Tabular = opts.ResolveTabular(parseResult),
-                Tsv = opts.ResolveTsv(parseResult),
-                Jsonl = opts.ResolveJsonl(parseResult),
+                Tabular =
+                    !envelopeOutput && opts.ResolveTabular(parseResult),
+                Tsv = !envelopeOutput && opts.ResolveTsv(parseResult),
+                Jsonl = !envelopeOutput && opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),

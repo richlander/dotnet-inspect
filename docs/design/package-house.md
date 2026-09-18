@@ -583,6 +583,22 @@ The completed projection is resource-free and retains the acquisition and
 selection receipts that establish its package generation and policy
 correspondence.
 
+The host-neutral Package Info inspection lowers that typed projection into one
+`InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
+size, selected framework, available-framework count, selected payload size,
+selected Library count, and typed non-success state. The in-process content
+also retains the resource-free measurement outcome so the acquisition
+generation and compile-selection receipt remain available without retaining
+package content. Hosts consume these fields rather than reselecting assets or
+deriving measurements from extracted paths.
+
+CLI configured-source Package Info acquisition requests the compile realization
+as part of its existing package acquisition, so measurement does not download a
+second archive. A direct local-file or offline legacy extraction has no
+PackageHouse realization and must not manufacture one; it may report the
+archive size already established by that input path, but it does not report
+House-selected slice fields.
+
 An operation that wants multiple framework slices issues separately associated
 package-local selections and reports them as separate projections. It does not
 merge incompatible slices into one selected universe. The coordinator for that

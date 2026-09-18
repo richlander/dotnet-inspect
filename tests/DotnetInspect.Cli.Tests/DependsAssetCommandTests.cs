@@ -62,7 +62,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public void AssetProjectionPublishesItsSettledSemanticContentAndEvidence()
+    public void AssetProjectionPreservesTheOperationEnvelope()
     {
         var summary = new DependencyInspectionSummary(
             DependencyInspectionRootSetCompletion.Complete,
@@ -79,48 +79,59 @@ public sealed class DependsAssetCommandTests
             IsPrefixRootSet: false,
             PackagePrefix: null);
         var graph = new DependencyGraphDocument([], [], [], [], []);
-        var root = new DependsRootRow(
-            occurrence: 1,
+        var contentRoot = new DependencyInspectionRoot(
+            new DependencyRootOccurrenceIdentity(1),
             DependencyInspectionRootKind.Library,
             new InertString(TextPolicy.Field, "example.dll"),
-            source: "Path",
             DependencyInspectionRootState.Admitted,
-            identityKind: null,
-            identity: null,
+            GraphIdentity: null,
             DependencyInspectionTraversalCompletion.NotRequested,
             DependencyInspectionEvidenceAvailability.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested,
             DependencyInspectionSelectionStatus.NotRequested,
             DependencyInspectionEvidenceAvailability.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested);
-        PackageDependencyEvidenceOutcome outcome =
-            PackageDependencyEvidenceQuery.Execute(
-                new PackageDependencyEvidenceRequest([], []));
-        var evidence = new DependencyInspectionEvidenceDocument(
-            outcome,
-            [],
-            []);
-
-        var projection = new DependsAssetProjection(
+        var content = new DependencyInspectionContent(
             summary,
             graph,
+            [contentRoot],
+            [],
+            [],
+            []);
+        var inspection = new InspectionEnvelope<DependencyInspectionContent>(
+            content,
+            new InspectionShare.NonProjectable(
+                "dependencies",
+                "Test inspection."));
+        var root = new DependsRootRow(
+            contentRoot,
+            source: "Path",
+            identityKind: null,
+            identity: null);
+
+        var projection = new DependsAssetProjection(
+            inspection,
+            content.Summary,
+            content.Graph,
             GraphRows: [],
             [root],
-            Dependencies: [],
-            Pruning: [],
+            content.Dependencies,
+            content.Pruning,
             RestoredEdges: [],
-            Failures: [],
+            content.Failures,
             DependencyGroups: [],
             RestoredPackages: [],
-            evidence);
+            Evidence: null);
 
-        Assert.Same(summary, projection.Content.Summary);
-        Assert.Same(graph, projection.Content.Graph);
-        Assert.Same(root.Content, Assert.Single(projection.Content.Roots));
+        Assert.Same(inspection, projection.Inspection);
+        Assert.Same(content, projection.Content);
+        Assert.Same(summary, projection.Summary);
+        Assert.Same(graph, projection.Graph);
+        Assert.Same(contentRoot, Assert.Single(projection.Content.Roots));
         Assert.Equal(
             new DependencyRootOccurrenceIdentity(1),
             Assert.Single(projection.Content.Roots).Identity);
-        Assert.Same(evidence, projection.Evidence);
+        Assert.Null(projection.Evidence);
         Assert.Empty(projection.Content.Dependencies);
         Assert.Empty(projection.Content.Pruning);
         Assert.Empty(projection.Content.Failures);
@@ -156,46 +167,41 @@ public sealed class DependsAssetCommandTests
                 },
             ],
             []);
-        var projection = new DependsAssetProjection(
-            new DependencyInspectionSummary(
-                DependencyInspectionRootSetCompletion.Complete,
-                RequestedRoots: 0,
-                AdmittedRoots: 0,
-                FailedRoots: 0,
-                DependencyInspectionTraversalCompletion.Complete,
-                RequestedDepth: null,
-                GraphNodes: 0,
-                GraphEdges: 0,
-                DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                DependencyInspectionEvidencePhaseCompletion.NotRequested,
-                DependencyInspectionPruningSummary.NotRequested,
-                IsPrefixRootSet: false,
-                PackagePrefix: null),
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest([], []));
+        var request = new DependencyInspectionOperationRequest(
+            new DependencyInspectionPlan(
+                Declarations: false,
+                RestoredRelationships: false,
+                Traversal: true,
+                Pruning: false,
+                RequestedFramework: null,
+                RequestedDepth: null),
+            requestedRoots: 0,
+            isPrefixRootSet: false,
+            outcome,
+            admittedRootOccurrences: [],
+            failedRootOccurrences: [],
+            roots: [],
             graph,
-            GraphRows: [],
-            Roots: [],
-            Dependencies: [],
-            Pruning: [],
-            RestoredEdges: [],
-            Failures: [],
-            DependencyGroups: [],
-            RestoredPackages: [],
-            new DependencyInspectionEvidenceDocument(
-                PackageDependencyEvidenceQuery.Execute(
-                    new PackageDependencyEvidenceRequest([], [])),
-                [],
-                []));
+            additionalFailures: null,
+            pruning: null,
+            pruningFailures: null,
+            DependencyInspectionPruningSummary.NotRequested);
+        DependencyInspectionContent content =
+            DependencyInspectionOperation.Execute(request).Content;
 
-        Assert.Single(projection.Graph.PackageProjections[0].RuntimeDiagnostics);
+        Assert.Single(graph.PackageProjections[0].RuntimeDiagnostics);
         Assert.Empty(
-            projection.Content.Graph.PackageProjections[0]
+            content.Graph.PackageProjections[0]
                 .RuntimeDiagnostics);
         Assert.Single(
-            projection.Content.Graph.PackageProjections[0].Diagnostics);
+            content.Graph.PackageProjections[0].Diagnostics);
     }
 
     [Fact]
-    public void AssetProjectionDetachesLivePackageSourcesFromContent()
+    public void DependencyOperationDetachesLivePackageSourcesFromContent()
     {
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
@@ -283,20 +289,6 @@ public sealed class DependsAssetCommandTests
                     Diagnostics: []),
             ],
             []);
-        var summary = new DependencyInspectionSummary(
-            DependencyInspectionRootSetCompletion.Partial,
-            RequestedRoots: 1,
-            AdmittedRoots: 0,
-            FailedRoots: 1,
-            DependencyInspectionTraversalCompletion.Complete,
-            RequestedDepth: null,
-            GraphNodes: 0,
-            GraphEdges: 0,
-            DependencyInspectionEvidencePhaseCompletion.NotApplicable,
-            DependencyInspectionEvidencePhaseCompletion.NotApplicable,
-            DependencyInspectionPruningSummary.NotRequested,
-            IsPrefixRootSet: true,
-            outcome.RootSet.PackagePrefixCompletion);
         var pruning = new DependencyInspectionPruning(
             RootOccurrence: 1,
             rootIdentity,
@@ -318,51 +310,56 @@ public sealed class DependsAssetCommandTests
             applicability,
             CandidateOutcome: null,
             Result: null);
-        var projectedFailure = new DependencyInspectionFailure.Evidence(
-            new DependencyEvidenceFailureRow(
-                DependencyEvidenceFailurePhase.PackageProfile,
-                PackageProfileFailureKind.SearchContract.ToString(),
-                PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
-                RootIndex: null,
-                RootIdentity: null,
-                Group: null,
-                GroupIndex: null,
-                liveSource,
-                Subject: null,
-                PackageId: "example.bad",
-                PackageVersion: "1.0.0",
-                SourceLabel: liveSource.ProducerDisplay,
-                new InertString(TextPolicy.Prose, "Search failed"),
-                Occurrences: 1));
-        var projection = new DependsAssetProjection(
-            summary,
+        var request = new DependencyInspectionOperationRequest(
+            new DependencyInspectionPlan(
+                Declarations: false,
+                RestoredRelationships: false,
+                Traversal: true,
+                Pruning: true,
+                RequestedFramework: null,
+                RequestedDepth: null),
+            requestedRoots: 1,
+            isPrefixRootSet: true,
+            outcome,
+            admittedRootOccurrences: [],
+            failedRootOccurrences: [null],
+            roots: [],
             graph,
-            GraphRows: [],
-            Roots: [],
-            Dependencies: [],
-            [pruning],
-            RestoredEdges: [],
-            [projectedFailure],
-            DependencyGroups: [],
-            RestoredPackages: [],
-            new DependencyInspectionEvidenceDocument(outcome, [], [null]));
+            additionalFailures: null,
+            pruning: [pruning],
+            pruningFailures: null,
+            new DependencyInspectionPruningSummary(
+                DependencyInspectionPruningCompletion.Complete,
+                Roots: 1,
+                Declarations: 1,
+                Evaluated: 0,
+                Delegated: 0,
+                Retained: 0,
+                NotEvaluated: 1,
+                SourceBounded: 0,
+                Failed: 0));
+        EvidenceInspectionEnvelope<
+            DependencyInspectionContent,
+            DependencyInspectionEvidenceDocument> enriched =
+            DependencyInspectionOperation.ExecuteWithEvidence(request);
+        DependencyInspectionContent content = enriched.Inspection.Content;
 
         Assert.True(
-            projection.Evidence.PackageInputs.RootSet
+            enriched.Evidence.PackageInputs.RootSet
                 .PackagePrefixCompletion!.Source
                 .MatchesRuntimeAssociation(source.Source.Association));
         Assert.False(
-            projection.Content.Summary.PackagePrefix!.Source
+            content.Summary.PackagePrefix!.Source
                 .MatchesRuntimeAssociation(source.Source.Association));
-        Assert.False(GraphContentSource(projection.Content.Graph)
+        Assert.False(GraphContentSource(content.Graph)
             .MatchesRuntimeAssociation(source.Source.Association));
         Assert.False(
             Assert.IsType<DependencyInspectionFailure.Evidence>(
-                    Assert.Single(projection.Content.Failures))
+                    Assert.Single(content.Failures))
                 .Value.Source!
                 .MatchesRuntimeAssociation(source.Source.Association));
         Assert.False(
-            RootContentSource(Assert.Single(projection.Content.Pruning)
+            RootContentSource(Assert.Single(content.Pruning)
                     .Applicability.Root)
                 .MatchesRuntimeAssociation(source.Source.Association));
 
@@ -1680,58 +1677,6 @@ public sealed class DependsAssetCommandTests
             expected,
             DependsCommand.IsFailedPrefixTruncation(reason));
 
-    [Theory]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        true)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        1,
-        0,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        1,
-        true,
-        PackageSearchTruncationReason.RequestedLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.SourcePageLimit,
-        false)]
-    [InlineData(
-        PackageDependencyEvidenceRootSetCompletion.Incomplete,
-        0,
-        0,
-        true,
-        PackageSearchTruncationReason.ClientPageLimit,
-        false)]
-    public void PackagePrefixRootSetCompletion_OnlyRequestedLimitIsSuccessful(
-        PackageDependencyEvidenceRootSetCompletion completion,
-        int rejectedRootCount,
-        int failedRootCount,
-        bool isTruncated,
-        PackageSearchTruncationReason truncationReason,
-        bool expected) =>
-        Assert.Equal(
-            expected,
-            DependsCommand.IsCompleteCommandRootSet(
-                completion,
-                rejectedRootCount,
-                failedRootCount,
-                isTruncated,
-                truncationReason));
-
     [Fact]
     public async Task FailedSibling_RetainsUsableRootAndReturnsNonzero()
     {
@@ -1787,8 +1732,33 @@ public sealed class DependsAssetCommandTests
         Assert.True(
             document.RootElement.GetProperty("dependencies")
                 .GetArrayLength() > 0);
+        int expectedCount =
+            document.RootElement.GetProperty("dependencies").GetArrayLength();
         Assert.Single(
             document.RootElement.GetProperty("failures").EnumerateArray());
+
+        (int countExit, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--library",
+                malformed,
+                "--project",
+                AssetsFixture,
+                "-S",
+                "Dependencies",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExit);
+        Assert.Equal(
+            expectedCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            countOutput.Trim());
+        Assert.Contains(
+            "typed failure",
+            countError,
+            StringComparison.Ordinal);
     }
 
     [Fact]

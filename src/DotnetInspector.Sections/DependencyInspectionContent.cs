@@ -323,4 +323,58 @@ public sealed record DependencyInspectionContent(
 
     public ImmutableArray<DependencyInspectionFailure> Failures { get; init; } =
         Failures.IsDefault ? [] : Failures;
+
+    public bool Equals(DependencyInspectionContent? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && Summary == other.Summary
+        && Graph == other.Graph
+        && DependencyValueEquality.SequenceEqual(Roots, other.Roots)
+        && DependencyValueEquality.SequenceEqual(
+            Dependencies,
+            other.Dependencies)
+        && DependencyValueEquality.SequenceEqual(Pruning, other.Pruning)
+        && DependencyValueEquality.SequenceEqual(Failures, other.Failures);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Summary);
+        hash.Add(Graph);
+        DependencyValueEquality.AddSequenceHashCode(ref hash, Roots);
+        DependencyValueEquality.AddSequenceHashCode(
+            ref hash,
+            Dependencies);
+        DependencyValueEquality.AddSequenceHashCode(ref hash, Pruning);
+        DependencyValueEquality.AddSequenceHashCode(ref hash, Failures);
+        return hash.ToHashCode();
+    }
+}
+
+internal static class DependencyValueEquality
+{
+    internal static bool SequenceEqual<T>(
+        ImmutableArray<T> left,
+        ImmutableArray<T> right)
+    {
+        if (left.IsDefault || right.IsDefault)
+            return left.IsDefault && right.IsDefault;
+
+        return left.SequenceEqual(right, EqualityComparer<T>.Default);
+    }
+
+    internal static void AddSequenceHashCode<T>(
+        ref HashCode hash,
+        ImmutableArray<T> values)
+    {
+        if (values.IsDefault)
+        {
+            hash.Add(0);
+            return;
+        }
+
+        hash.Add(values.Length);
+        foreach (T value in values)
+            hash.Add(value, EqualityComparer<T>.Default);
+    }
 }

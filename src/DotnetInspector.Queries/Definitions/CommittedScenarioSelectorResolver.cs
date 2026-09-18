@@ -123,18 +123,29 @@ public sealed class ResolvedCommittedPackageViewState :
         CommittedViewStateDefinition definition,
         NavigationTabDefinition tab,
         NavigationPackageEvaluation package,
+        ImmutableArray<NavigationLibraryEvaluation> libraries,
         NavigationInitialization initialization)
         : base(definition, initialization)
     {
         ArgumentNullException.ThrowIfNull(tab);
         ArgumentNullException.ThrowIfNull(package);
+        if (libraries.IsDefault
+            || libraries.Any(static library => library is null))
+        {
+            throw new ArgumentException(
+                "Resolved query Library scope must be initialized.",
+                nameof(libraries));
+        }
         Tab = tab;
         Package = package;
+        Libraries = libraries;
     }
 
     public NavigationTabDefinition Tab { get; }
 
     public NavigationPackageEvaluation Package { get; }
+
+    public ImmutableArray<NavigationLibraryEvaluation> Libraries { get; }
 }
 
 /// <summary>
@@ -156,7 +167,7 @@ public sealed class ResolvedCommittedDormantViewState :
 }
 
 /// <summary>
-/// Exact resolved state for one schema-version-2-or-3 scenario composition.
+/// Exact resolved state for one schema-version-2-through-4 scenario composition.
 /// </summary>
 public sealed class CommittedScenarioSelectorResolution
 {
@@ -417,11 +428,23 @@ public static class CommittedScenarioSelectorResolver
                 return new CommittedScenarioSelectorResolutionResult.Failed(
                     failure!);
             }
+            if (!TryResolveLibraries(
+                    stateDefinition.Libraries,
+                    package,
+                    stateIndex,
+                    tab.Id,
+                    out ImmutableArray<NavigationLibraryEvaluation> libraries,
+                    out failure))
+            {
+                return new CommittedScenarioSelectorResolutionResult.Failed(
+                    failure!);
+            }
 
             var resolved = new ResolvedCommittedPackageViewState(
                 stateDefinition,
                 tab,
                 package,
+                libraries,
                 initialization!);
             states.Add(resolved);
             if (navigation.Focus == tab.Id)
@@ -636,6 +659,61 @@ public static class CommittedScenarioSelectorResolver
             librarySubject,
             typeSubject,
             memberSubject);
+        return true;
+    }
+
+    private static bool TryResolveLibraries(
+        IReadOnlyList<PortableLibraryIdentity> requests,
+        NavigationPackageEvaluation package,
+        int stateIndex,
+        string navigationId,
+        out ImmutableArray<NavigationLibraryEvaluation> libraries,
+        out CommittedSelectorResolutionFailure? failure)
+    {
+        if (requests.Count == 0)
+        {
+            libraries = [];
+            failure = null;
+            return true;
+        }
+
+        var resolved =
+            ImmutableArray.CreateBuilder<NavigationLibraryEvaluation>(
+                requests.Count);
+        foreach (PortableLibraryIdentity request in requests)
+        {
+            AssemblyReferenceIdentity metadataIdentity =
+                ToMetadataIdentity(request);
+            NavigationLibraryEvaluation[] matches =
+            [
+                .. package.Libraries.Where(
+                    library =>
+                        metadataIdentity.IsEquivalentTo(
+                            library.Library.Participant.Assembly.Identity)),
+            ];
+            if (matches.Length != 1)
+            {
+                libraries = default;
+                failure = Failure(
+                    matches.Length == 0
+                        ? CommittedSelectorResolutionFailureKind.LibraryMissing
+                        : CommittedSelectorResolutionFailureKind.LibraryAmbiguous,
+                    stateIndex,
+                    navigationId,
+                    matches.Length == 0
+                        ? $"Navigation row '{navigationId}' query Library scope "
+                            + "matched no acquired Library in its Package occurrence."
+                        : $"Navigation row '{navigationId}' query Library scope "
+                            + $"matched {matches.Length} acquired Libraries in its "
+                            + "Package occurrence.");
+                return false;
+            }
+
+            resolved.Add(matches[0]);
+        }
+
+        libraries = resolved.MoveToImmutable();
+        failure = null;
         return true;
     }
 

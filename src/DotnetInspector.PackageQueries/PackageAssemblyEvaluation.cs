@@ -141,6 +141,7 @@ public abstract record PackageAssemblyFailureReason
 
     public sealed record NotAssembly(
         PackageAssemblyImageAdmissionStage AdmissionStage,
+        [property: JsonPropertyName("nonAssemblyKind")]
         ArtifactNonAssemblyKind Kind)
         : PackageAssemblyFailureReason(PackageAssemblyFailureStage.ImageAdmission);
 
@@ -277,6 +278,8 @@ public abstract record PackageAssemblyEvaluationOutcome
             : base(context.Subject, context) => Receipt = receipt;
 
         public StringLiteralUsePatternReceipt Receipt { get; }
+
+        [JsonPropertyName("noMatchKind")]
         public PackageAssemblyNoMatchKind Kind => PackageAssemblyNoMatchKind.SemanticallyConfirmed;
     }
 
