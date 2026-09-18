@@ -151,17 +151,15 @@ public static class DiffHistoryInspector
         }
 
         var matches =
-            new List<(
-                PackageVersionCellApiFindingSet FindingSet,
-                FindingInspection<ApiMemberHandle>.Complete Inspection)>();
+            new List<PackageVersionCellApiFindingSet>();
         var failures = new List<string>();
         foreach (PackageVersionCellApiFindingSet findingSet
             in api.Findings)
         {
             switch (findingSet.Members.Value)
             {
-                case FindingInspection<ApiMemberHandle>.Complete complete:
-                    matches.Add((findingSet, complete));
+                case FindingInspection<ApiMemberHandle>.Complete:
+                    matches.Add(findingSet);
                     break;
                 case FindingInspection<ApiMemberHandle>.Absent:
                     break;
@@ -203,7 +201,7 @@ public static class DiffHistoryInspector
             ImmutableArray<DiffHistoryResolvedAssembly> assemblies =
             [
                 .. matches.Select(static match =>
-                    Resolve(match.FindingSet.Assembly.Subject)),
+                    Resolve(match.Assembly.Subject)),
             ];
             var inspection =
                 new FindingInspection<ApiMemberHandle>.Failed(
@@ -223,15 +221,15 @@ public static class DiffHistoryInspector
                 ComparisonSurface: null);
         }
 
-        PackageVersionCellApiFindingSet match =
-            matches[0].FindingSet;
-        FindingInspection<ApiMemberHandle>.Complete selectedInspection =
-            matches[0].Inspection;
-        ApiSurface? comparisonSurface =
-            selectedInspection.Findings.All(static finding =>
-                finding.Payload.Member.SignatureDecodeStatus is null)
-                ? match.Assembly.Value.Surface
-                : null;
+        PackageVersionCellApiFindingSet match = matches[0];
+        ApiSurface comparisonSurface =
+            match.Assembly.Value.Surface;
+        IEnumerable<ApiSurfaceInspectionFailure> contextualFailures =
+            api.Surfaces.Assemblies.Assemblies
+                .OfType<
+                    AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(static participant =>
+                    participant.Value.InspectionFailures);
         return new(
             new(
                 cell.Address,
@@ -241,7 +239,12 @@ public static class DiffHistoryInspector
                 new DiffHistoryApiMemberSubjectResolution.Resolved(
                     Resolve(match.Assembly.Subject)),
                 participants: participants),
-            comparisonSurface);
+            MetadataFindings.IsApiMemberComparisonComplete(
+                comparisonSurface,
+                request.ApiInspection.TypeFullName,
+                contextualFailures)
+                    ? comparisonSurface
+                    : null);
     }
 
     static EvaluatedApiMembers Failed(

@@ -317,18 +317,77 @@ public static class DiffHistoryInspection
         static int? RequiredPrefix(
             RowSelectionIntent<string> selection)
         {
-            if (selection.Operations.Count == 0)
-                return null;
-
-            RowSelectionIntentOperation<string> first =
-                selection.Operations[0];
-            return first.Kind switch
+            long offset = 0;
+            long? maximumLength = null;
+            long required = 0;
+            foreach (RowSelectionIntentOperation<string> operation
+                in selection.Operations)
             {
-                RowSelectionStageKind.Head => first.Count,
-                RowSelectionStageKind.Window when first.End is int end =>
-                    end,
-                _ => null,
-            };
+                switch (operation.Kind)
+                {
+                    case RowSelectionStageKind.Head:
+                    case RowSelectionStageKind.Tail:
+                        maximumLength = Math.Min(
+                            maximumLength ?? operation.Count,
+                            operation.Count);
+                        break;
+                    case RowSelectionStageKind.Window:
+                        int start = operation.Start ?? 1;
+                        if (operation.End is int end)
+                        {
+                            if (maximumLength is long maximum
+                                && maximum < end)
+                            {
+                                return AsPrefix(
+                                    Math.Max(
+                                        required,
+                                        offset + maximum));
+                            }
+
+                            required = Math.Max(
+                                required,
+                                offset + end);
+                            maximumLength = end - start + 1;
+                            offset = 0;
+                            break;
+                        }
+                        if (operation.Start is null)
+                            break;
+                        if (maximumLength is long bounded
+                            && bounded < start)
+                        {
+                            return AsPrefix(
+                                Math.Max(
+                                    required,
+                                    offset + bounded));
+                        }
+
+                        offset += start - 1;
+                        if (maximumLength is long length)
+                            maximumLength = length - start + 1;
+                        required = Math.Max(
+                            required,
+                            offset + 1);
+                        break;
+                    case RowSelectionStageKind.Top:
+                        return null;
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown row-selection stage kind.");
+                }
+            }
+
+            return maximumLength is long maximumPrefix
+                ? AsPrefix(
+                    Math.Max(
+                        required,
+                        offset + maximumPrefix))
+                : null;
         }
+
+        static int? AsPrefix(long value) =>
+            value <= int.MaxValue
+                ? (int)value
+                : null;
     }
 }

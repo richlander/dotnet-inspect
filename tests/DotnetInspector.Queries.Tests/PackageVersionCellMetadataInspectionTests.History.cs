@@ -383,6 +383,83 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        HistoryCountPotentiallyCoveringFailuresRemainSourceInsufficient()
+    {
+        byte[] image =
+            AssemblyContextStructuralCloneRetrievalQueryTests
+                .BuildMalformedTypeNameAssembly(
+                    malformedTypes: 1);
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.IncompleteHistory",
+                "1.0.0",
+                "2.0.0");
+        IPackageContent[] contents =
+        [
+            population[0].Content(
+                ($"lib/{Framework}/IncompleteHistory.dll", image)),
+            population[1].Content(
+                ($"lib/{Framework}/IncompleteHistory.dll", image)),
+        ];
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            return population[position].Realize(
+                execution,
+                contents[position]);
+        });
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "N.Fixture")),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.All(
+            document.Evaluations,
+            static evaluation =>
+            {
+                Assert.IsType<
+                    FindingInspection<ApiMemberHandle>.Complete>(
+                        evaluation.Inspection.Value);
+                Assert.Contains(
+                    evaluation.Participants,
+                    static participant =>
+                        participant
+                            is DiffHistoryApiParticipantEvidence
+                                .Available
+                            {
+                                InspectionFailures.IsEmpty: false,
+                            });
+            });
+        DiffHistoryChangedVersionAssessment<ApiMemberHandle> assessment =
+            Assert.Single(document.ChangedVersionAssessments);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Failed,
+            assessment.State);
+        Assert.IsType<FindingComparison<ApiMemberHandle>.Failed>(
+            assessment.Comparison!.Value);
+        var source = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Failed,
+            Assert.Single(source.Sources)
+                .Evidence.FirstUnestablishedAssessment!.State);
+    }
+
+    [Fact]
+    public async Task
         HistoryCountRetainsSparseFailureBesideUsableDocument()
     {
         ImmutableArray<CellFixture> population =
@@ -434,14 +511,15 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
-        HistoryCountUsesProvenHeadAndWindowPrefixesButNotEarlierUnknowns()
+        HistoryCountUsesProvenComposedPrefixesButNotEarlierUnknowns()
     {
         ImmutableArray<CellFixture> population =
             CellFixture.CreatePopulation(
                 "Contoso.History",
                 "1.0.0",
                 "2.0.0",
-                "3.0.0");
+                "3.0.0",
+                "4.0.0");
         byte[] firstImage =
             File.ReadAllBytes(FixtureCatalog.DiffV1.AssemblyPath());
         byte[] secondImage =
@@ -449,7 +527,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var lateFailure = new SettlementExecutor(execution =>
         {
             int position = execution.Cell.Address.Position;
-            if (position == 2)
+            if (position == 3)
             {
                 return new PackageHouseSettlement.ResourceFree(
                     new PackageHouseResult.Rejected(
@@ -462,7 +540,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 execution,
                 fixture.Content(
                     ($"lib/{Framework}/DiffFixtureSample.dll",
-                        position == 0 ? firstImage : secondImage)));
+                        position % 2 == 0
+                            ? firstImage
+                            : secondImage)));
         });
         RowSelectionIntent<string> headOne =
             RowSelectionIntent<string>.Create(
@@ -470,9 +550,40 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         RowSelectionIntent<string> windowOne =
             RowSelectionIntent<string>.Create(
                 [RowSelectionIntentOperation<string>.Window(1, 1)]);
+        RowSelectionIntent<string> identityThenHeadOne =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>
+                        .Window(null, null),
+                    RowSelectionIntentOperation<string>.Head(1),
+                ]);
+        RowSelectionIntent<string> headTwoThenHeadOne =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(2),
+                    RowSelectionIntentOperation<string>.Head(1),
+                ]);
+        RowSelectionIntent<string> suffixThenHeadOne =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>
+                        .Window(2, null),
+                    RowSelectionIntentOperation<string>.Head(1),
+                ]);
+        RowSelectionIntent<string> tailOne =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Tail(1)]);
 
         foreach (RowSelectionIntent<string> selection
-            in new[] { headOne, windowOne })
+            in new[]
+            {
+                headOne,
+                windowOne,
+                identityThenHeadOne,
+                headTwoThenHeadOne,
+                suffixThenHeadOne,
+                tailOne,
+            })
         {
             InspectionEnvelope<DiffHistoryOutcome> prefixEnvelope =
                 await DiffHistoryInspection.InspectApiMembersAsync(
@@ -490,6 +601,49 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                             prefixEnvelope.Content).Count);
             Assert.Equal(1, Assert.Single(prefixCompleted.Counts).Value);
         }
+
+        RowSelectionIntent<string> boundedStrictFailure =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(1),
+                    RowSelectionIntentOperation<string>.Window(1, 2),
+                ]);
+        InspectionEnvelope<DiffHistoryOutcome> semanticEnvelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType),
+                    boundedStrictFailure),
+                lateFailure,
+                TestContext.Current.CancellationToken);
+        var semantic = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Semantic>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        semanticEnvelope.Content).Count);
+        Assert.Equal(2, semantic.StageNumber);
+        Assert.Equal(2, semantic.RequiredPosition);
+        Assert.Equal(1, semantic.AvailableCount);
+
+        RowSelectionIntent<string> unboundedSuffix =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Window(2, null)]);
+        InspectionEnvelope<DiffHistoryOutcome> unboundedEnvelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType),
+                    unboundedSuffix),
+                lateFailure,
+                TestContext.Current.CancellationToken);
+        var unbounded = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        unboundedEnvelope.Content).Count);
+        Assert.Null(
+            Assert.Single(unbounded.Sources)
+                .Evidence.RequiredChangedVersionPrefix);
 
         var earlyFailure = new SettlementExecutor(execution =>
         {
@@ -1107,4 +1261,5 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             new DiffHistoryCountRequest(
                 DiffHistoryCountCohort.ChangedVersions,
                 rowSelection));
+
 }
