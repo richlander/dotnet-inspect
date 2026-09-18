@@ -32,7 +32,7 @@ public class InspectionResultView
     [
         new("Version", static view => view.Version),
         new("Type", static view => view.PackageType),
-        new("Package Size", static view =>
+        new("Package Size (compressed)", static view =>
             view.PackageSizeBytes.HasValue
                 ? new ByteSizeFormatter().Format(view.PackageSizeBytes.Value)
                 : null),

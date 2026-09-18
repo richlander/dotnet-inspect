@@ -821,7 +821,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             string output = MarkoutSerializer.Serialize(
                 new InspectionResultView(inspection),
                 InspectionContext.Default);
-            Assert.Contains("| Package Size |", output);
+            Assert.Contains("| Package Size (compressed) |", output);
             Assert.Contains("| Selected TFM | net11.0 |", output);
             Assert.Contains("| TFM Count | 1 |", output);
             Assert.Contains("| Selected-TFM Size | 17 B |", output);

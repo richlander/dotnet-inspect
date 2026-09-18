@@ -65,7 +65,7 @@ dotnet-inspect package System.CommandLine@2.0.3 -S "Package Info"
 ## Package Info
 | Field | Value |
 Version
-Package Size
+Package Size (compressed)
 Selected TFM
 TFM Count
 Selected-TFM Size
