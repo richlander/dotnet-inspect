@@ -8,6 +8,7 @@ src/DotnetInspector.DependencyManifests
 src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.DocumentationHouse.Packages
+src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.Libraries
