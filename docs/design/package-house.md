@@ -67,7 +67,12 @@ Online ordinary `package Package --versions` queries consume a separate shared
 `PackageVersionListingInspection` envelope over PackageHouse listing
 settlement. The House result preserves authoritative or partial Package Source
 discovery, while the inspection detaches version rows, source rows, typed
-failures, and diagnostics for CLI projection. Raw listing may publish
+failures, and diagnostics for CLI projection. Online exact pinned queries also
+consume this detached listing, request prerelease and unlisted evidence, and
+apply their existing exact NuGet match over its rows. A matching pin remains
+usable with visible partial-source diagnostics; a missing pin is not declared
+absent when a configured authority failed, except when the failure concerns
+listing state rather than version existence. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
@@ -78,8 +83,8 @@ the same detached listing while retaining Browser-owned predecessor policy.
 receipt, requested progress, and explicit prerelease boundary, while the
 existing latest-settlement, source-failure, listing, rendering, and
 `BrowserPackageVersionInventoryTests` cases preserve neighboring behavior.
-This is payload-free adoption: CLI pinned queries, offline behavior, and
-package-content/Workspace adoption remain separate slices.
+This is payload-free adoption: offline behavior and package-content/Workspace
+adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
