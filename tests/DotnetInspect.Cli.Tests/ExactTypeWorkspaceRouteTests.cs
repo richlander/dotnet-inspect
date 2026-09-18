@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -294,6 +295,96 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("rows")]
+    [InlineData("columns")]
+    [InlineData("fields")]
+    [InlineData("discover")]
+    [InlineData("schema")]
+    public async Task WorkspaceRoutePresentationOptionsPreserveShare(
+        string presentation)
+    {
+        var store = await CachedStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiType).FullName,
+            ShareFormat = WorkspaceShareFormat.Packet,
+            TipLevel = TipLevel.Quiet,
+        };
+        options = WithPresentation(options, presentation);
+
+        (int baselineExitCode, string baselineOutput, _) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options with { ShareFormat = null },
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(baselineExitCode, exitCode);
+        Assert.Equal(
+            string.IsNullOrEmpty(baselineOutput),
+            string.IsNullOrEmpty(output));
+        Assert.DoesNotContain(
+            "--share is not projectable",
+            error,
+            StringComparison.Ordinal);
+        string[] errorLines = error.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(
+            errorLines.Length > 0
+                && errorLines[^1].StartsWith(
+                    "ey",
+                    StringComparison.Ordinal),
+            $"Expected the derived packet as the final stderr line:{Environment.NewLine}{error}");
+        string derivedPacket = errorLines[^1];
+        WorkspaceSharePacket derived =
+            WorkspaceSharePacketCodec.Decode(
+                derivedPacket,
+                TestContext.Current.CancellationToken);
+        Assert.Equal("type.api", derived.ViewStates[1].Facet);
+    }
+
+    [Theory]
+    [InlineData("count")]
+    [InlineData("rows")]
+    [InlineData("columns")]
+    [InlineData("fields")]
+    [InlineData("discover")]
+    [InlineData("schema")]
+    public void WorkspaceShareChoiceAllowsPresentationOptions(
+        string presentation)
+    {
+        TypeOptions options = WithPresentation(
+            new TypeOptions
+            {
+                ShareFormat = WorkspaceShareFormat.Packet,
+            },
+            presentation);
+
+        TypeCommand.WorkspaceTypeShareChoice choice =
+            TypeCommand.WorkspaceTypeShareChoice.From(options);
+
+        Assert.Null(choice.Refusal);
+        Assert.Equal("type.api", choice.Facet?.Value);
+    }
+
     [Fact]
     public async Task WorkspaceRoutePreservesAssemblyBackedTypeSections()
     {
@@ -369,6 +460,66 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Contains(
             "static",
             output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspaceRoutePreservesStreamBackedXmlDocumentation()
+    {
+        const string summary =
+            "Documentation retained from stream-backed Package content.";
+        byte[] xml = Encoding.UTF8.GetBytes(
+            $"""
+            <?xml version="1.0"?>
+            <doc>
+              <assembly>
+                <name>ILInspector.Metadata</name>
+              </assembly>
+              <members>
+                <member name="T:ILInspector.Metadata.ApiTypeShape">
+                  <summary>{summary}</summary>
+                </member>
+              </members>
+            </doc>
+            """);
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)),
+            ($"lib/{Framework}/ILInspector.Metadata.xml", xml));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiTypeShape).FullName,
+            ShowDocs = true,
+            Verbosity = Verbosity.Normal,
+            Format = OutputFormat.Markdown,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(summary, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Compiled XML documentation",
+            error,
             StringComparison.Ordinal);
     }
 
@@ -786,6 +937,21 @@ public sealed class ExactTypeWorkspaceRouteTests
             TestContext.Current.CancellationToken);
         return store;
     }
+
+    static TypeOptions WithPresentation(
+        TypeOptions options,
+        string presentation) =>
+        presentation switch
+        {
+            "count" => options with { Count = true },
+            "rows" => options with { Rows = RowWindow.Head(1) },
+            "columns" => options with { Columns = ["Name"] },
+            "fields" => options with { Fields = ["Name"] },
+            "discover" => options with { Discover = [] },
+            "schema" => options with { Discover = [], Schema = true },
+            _ => throw new InvalidOperationException(
+                $"Unknown presentation option '{presentation}'."),
+        };
 
     static WorkspaceContextLoadOptions LoadOptions(
         HttpClient client,

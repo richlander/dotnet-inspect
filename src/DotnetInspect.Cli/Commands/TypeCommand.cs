@@ -169,6 +169,21 @@ public static class TypeCommand
             return 1;
         }
 
+        if (resolvedSource is null
+            && loadedSurface is null
+            && options.WorkspacePacket is not null
+            && options.ShareFormat is not null
+            && options.Discover is not null
+            && !options.EffectiveDiscovery)
+        {
+            return await ExecuteWorkspaceExactTypeAsync(
+                options,
+                plan,
+                exactTypeCapabilities
+                    ?? CreateWorkspaceContextLoadOptions(options),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         // Shared preamble: section validation, discovery, verbosity promotion
         var (preamble, error) =
             ApiCommand.RunPreamble(options, plan);
@@ -1435,6 +1450,8 @@ public static class TypeCommand
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable
     {
+        const long MaximumCompiledDocumentationBytes = 8 * 1024 * 1024;
+
         WorkspaceTypeAssemblyPath(
             string value,
             string? temporaryDirectory)
@@ -1468,6 +1485,22 @@ public static class TypeCommand
                 using Stream input = target.Assembly.OpenRead();
                 using FileStream output = File.Create(path);
                 input.CopyTo(output);
+                if (target.OpenCompiledDocumentation is { } openDocumentation)
+                {
+                    using Stream? documentation =
+                        openDocumentation(
+                            MaximumCompiledDocumentationBytes);
+                    if (documentation is not null)
+                    {
+                        using FileStream documentationOutput =
+                            File.Create(
+                                Path.ChangeExtension(path, ".xml"));
+                        CopyBounded(
+                            documentation,
+                            documentationOutput,
+                            MaximumCompiledDocumentationBytes);
+                    }
+                }
                 return new WorkspaceTypeAssemblyPath(
                     path,
                     temporaryDirectory);
@@ -1476,6 +1509,28 @@ public static class TypeCommand
             {
                 TryDeleteTemporaryDirectory(temporaryDirectory);
                 throw;
+            }
+        }
+
+        static void CopyBounded(
+            Stream input,
+            Stream output,
+            long maximumBytes)
+        {
+            byte[] buffer = GC.AllocateUninitializedArray<byte>(81920);
+            long total = 0;
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
+            {
+                total += read;
+                if (total > maximumBytes)
+                {
+                    throw new InvalidDataException(
+                        "Compiled XML documentation exceeds the configured "
+                            + "byte limit.");
+                }
+
+                output.Write(buffer, 0, read);
             }
         }
 
@@ -1497,9 +1552,9 @@ public static class TypeCommand
         }
     }
 
-    sealed record WorkspaceTypeShareChoice(
-    ViewFacetId? Facet,
-    InspectionShare.NonProjectable? Refusal)
+    internal sealed record WorkspaceTypeShareChoice(
+        ViewFacetId? Facet,
+        InspectionShare.NonProjectable? Refusal)
     {
         internal static WorkspaceTypeShareChoice From(
             TypeOptions options)
@@ -1512,11 +1567,8 @@ public static class TypeCommand
                 || options.KindFilter.Count != 0
                 || options.UnsafeOnly
                 || options.Limit is not null
-                || options.HasSectionQuery
-                || options.Discover is not null
-                || options.Schema
-                || options.Count
-                || options.Rows is not null
+                || options.Select is { Length: > 0 }
+                || options.SelectDefault
                 || options.PerformanceTriage.HasFilters
                 || options.BodyKindQuery.HasFilter
                 || options.CloneCandidateQuery.HasPredicates)
@@ -1525,9 +1577,9 @@ public static class TypeCommand
                     Facet: null,
                     new InspectionShare.NonProjectable(
                         "type/query",
-                        "The requested Type filtering, section, discovery, "
-                            + "or row selection has no portable Workspace "
-                            + "query representation."));
+                        "The requested Type filtering or section selection "
+                            + "has no portable Workspace query "
+                            + "representation."));
             }
 
             return new(new ViewFacetId("type.api"), Refusal: null);

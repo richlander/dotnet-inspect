@@ -43,7 +43,14 @@ public sealed record SelectedContextExactTypeLiveTarget(
     AssemblyBindingOccurrence Occurrence,
     IAssemblyBindingPolicy BindingPolicy,
     string? AssemblyPath,
-    string? PackageExtractPath);
+    string? PackageExtractPath)
+{
+    /// <summary>
+    /// Opens the selected Package compile asset's XML companion within the
+    /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
+    /// </summary>
+    public Func<long, Stream?>? OpenCompiledDocumentation { get; init; }
+}
 
 /// <summary>
 /// Exact Type content plus the owner-issued defining source identities needed
@@ -251,6 +258,10 @@ public static class SelectedContextExactTypeInspectionOperation
                         selected.BindingPolicy,
                         selected.AssemblyPath,
                         selected.PackageExtractPath)
+                    {
+                        OpenCompiledDocumentation =
+                            selected.OpenCompiledDocumentation,
+                    }
                     : throw new InvalidOperationException(
                         "An available selected-context exact Type requires "
                             + "one live inspection target.")

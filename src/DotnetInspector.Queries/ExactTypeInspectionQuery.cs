@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -361,7 +362,8 @@ internal sealed record ExactTypeInspectionTarget(
     AssemblyBindingOccurrence Occurrence,
     IAssemblyBindingPolicy BindingPolicy,
     string? AssemblyPath,
-    string? PackageExtractPath);
+    string? PackageExtractPath,
+    Func<long, Stream?>? OpenCompiledDocumentation);
 
 internal sealed record ExactTypeInspectionExecution(
     ExactTypeInspectionResult Result,
@@ -956,8 +958,9 @@ internal static class ExactTypeInspectionQuery
             terminal.Type);
         (
             string? assemblyPath,
-            string? packageExtractPath) =
-            MaterializedPaths(
+            string? packageExtractPath,
+            Func<long, Stream?>? openCompiledDocumentation) =
+            MaterializedContent(
                 loaded,
                 supplier.Participant);
         selectedTarget?.Invoke(
@@ -967,7 +970,8 @@ internal static class ExactTypeInspectionQuery
                 terminal.Occurrence,
                 supplier.Participant.BindingPolicy,
                 assemblyPath,
-                packageExtractPath));
+                packageExtractPath,
+                openCompiledDocumentation));
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
             requestedType,
@@ -1002,8 +1006,11 @@ internal static class ExactTypeInspectionQuery
         }
     }
 
-    static (string? AssemblyPath, string? PackageExtractPath)
-        MaterializedPaths(
+    static (
+        string? AssemblyPath,
+        string? PackageExtractPath,
+        Func<long, Stream?>? OpenCompiledDocumentation)
+        MaterializedContent(
             WorkspaceContextLoadOutcome.Loaded loaded,
             AssemblyContextParticipant participant)
     {
@@ -1015,7 +1022,10 @@ internal static class ExactTypeInspectionQuery
                     AssetPath: { } assetPath,
                 })
         {
-            return (assemblyPath, packageExtractPath);
+            return (
+                assemblyPath,
+                packageExtractPath,
+                OpenCompiledDocumentation: null);
         }
 
         WorkspaceContextMember? member =
@@ -1026,13 +1036,17 @@ internal static class ExactTypeInspectionQuery
         if (member?.Realized
                 is not RealizedMemberCoordinate.Package package)
         {
-            return (assemblyPath, packageExtractPath);
+            return (
+                assemblyPath,
+                packageExtractPath,
+                OpenCompiledDocumentation: null);
         }
 
         PackageRootBinding? root =
             loaded.PackageRoots.SingleOrDefault(candidate =>
                 candidate.Coordinate == package);
-        packageExtractPath = root?.Root.Content.RootPath;
+        IPackageContent? content = root?.Root.Content;
+        packageExtractPath = content?.RootPath;
         if (packageExtractPath is not null)
         {
             assemblyPath = Path.GetFullPath(
@@ -1043,7 +1057,23 @@ internal static class ExactTypeInspectionQuery
                         Path.DirectorySeparatorChar)));
         }
 
-        return (assemblyPath, packageExtractPath);
+        string documentationAssetPath =
+            Path.ChangeExtension(assetPath, ".xml")
+                .Replace('\\', '/');
+        Func<long, Stream?>? openCompiledDocumentation =
+            content is null
+                ? null
+                : maximumBytes =>
+                    content.TryOpenEntry(
+                        documentationAssetPath,
+                        maximumBytes,
+                        out Stream? stream)
+                            ? stream
+                            : null;
+        return (
+            assemblyPath,
+            packageExtractPath,
+            openCompiledDocumentation);
     }
 
     static ImmutableArray<AssemblyContextParticipant> PackageParticipants(
