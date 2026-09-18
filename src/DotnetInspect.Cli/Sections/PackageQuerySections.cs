@@ -10,12 +10,21 @@ public static class PackageQuerySections
 {
     public const string QuerySummaryName = "Query Summary";
 
+    public static string[] BareSelectSectionNames { get; } =
+    [
+        PackageProfileSections.Packages,
+    ];
+
     public static SectionCatalog<PackageQueryView> Catalog { get; } =
         new SectionPipeline<PackageQueryView>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
             .Add<PackageRows>()
             .Add<QuerySummary>()
+            .AddBaseCategory(
+                SectionCategoryNames.Query,
+                PackageProfileSections.Packages,
+                QuerySummaryName)
             .Compile();
 
     public static DocumentSchema CreateSchema() =>

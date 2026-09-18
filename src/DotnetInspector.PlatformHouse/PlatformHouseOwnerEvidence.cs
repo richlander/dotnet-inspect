@@ -1,3 +1,5 @@
+using DotnetInspector.Platforms;
+
 namespace DotnetInspector.PlatformHouse;
 
 /// <summary>
@@ -35,6 +37,38 @@ public sealed class PlatformRoutePrerequisitesEvidence<TPrerequisites>
 
     public TPrerequisites Value { get; }
     public PlatformRoutePrerequisitesIdentity Identity { get; }
+}
+
+/// <summary>
+/// Resource-free applicable-platform route for one exact assembly-reference
+/// operation.
+/// </summary>
+public sealed class PlatformAssemblyReferenceRoute
+{
+    public PlatformAssemblyReferenceRoute(
+        PlatformMetadataRequestIdentity request,
+        PlatformFamilyTarget target,
+        PlatformHouseRequestOrigin origin,
+        PlatformSourcePlanIdentity sourcePlan,
+        PlatformSourcePolicyGeneration sourcePolicy)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(origin);
+        ArgumentNullException.ThrowIfNull(sourcePlan);
+        ArgumentNullException.ThrowIfNull(sourcePolicy);
+        Request = request;
+        Target = target;
+        Origin = origin;
+        SourcePlan = sourcePlan;
+        SourcePolicy = sourcePolicy;
+    }
+
+    public PlatformMetadataRequestIdentity Request { get; }
+    public PlatformFamilyTarget Target { get; }
+    public PlatformHouseRequestOrigin Origin { get; }
+    public PlatformSourcePlanIdentity SourcePlan { get; }
+    public PlatformSourcePolicyGeneration SourcePolicy { get; }
 }
 
 /// <summary>

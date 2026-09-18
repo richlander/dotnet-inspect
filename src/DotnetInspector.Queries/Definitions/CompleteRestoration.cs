@@ -539,6 +539,54 @@ public static class CompleteRestorationPreparation
         var request = new CompleteRestorationRequestBasis.DefinitionInput(
             scenarioId,
             registry.Records.ToArray());
+        return FromDefinition(
+            registry,
+            request,
+            authority,
+            cancellationToken);
+    }
+
+    public static CompleteRestorationPreparationResult FromDefinition(
+        CompleteRestorationRequestBasis.DefinitionInput request,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authority);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+
+        var registry = new InspectionDefinitionRegistry();
+        try
+        {
+            foreach (InspectionDefinitionRecord record in request.Records)
+                registry.Add(record);
+        }
+        catch (InspectionDefinitionException failure)
+        {
+            return NonCurrent(authority, request)
+                ?? new CompleteRestorationPreparationResult.Failed(
+                    authority.Identity,
+                    request,
+                    new CompleteRestorationFailure.InvalidDefinitionSet(
+                        failure.Message));
+        }
+
+        return FromDefinition(
+            registry,
+            request,
+            authority,
+            cancellationToken);
+    }
+
+    private static CompleteRestorationPreparationResult FromDefinition(
+        InspectionDefinitionRegistry registry,
+        CompleteRestorationRequestBasis.DefinitionInput request,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken)
+    {
         if (NonCurrent(authority, request) is { } unavailable)
             return unavailable;
         if (cancellationToken.IsCancellationRequested)
@@ -547,7 +595,7 @@ public static class CompleteRestorationPreparation
         InspectionDefinitionScenarioPreparationResult prepared;
         try
         {
-            prepared = registry.PrepareScenario(scenarioId);
+            prepared = registry.PrepareScenario(request.ScenarioId);
         }
         catch (InspectionDefinitionException failure)
         {

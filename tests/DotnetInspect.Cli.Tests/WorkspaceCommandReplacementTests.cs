@@ -191,6 +191,25 @@ public sealed partial class WorkspaceCommandTests
         Assert.Contains(diagnostic, result.Error);
     }
 
+    [Theory]
+    [InlineData("--rows 1", "--json --envelope", "inventory")]
+    [InlineData("--rows 1", "--share packet", "inventory")]
+    [InlineData("--rows ..1", "--json --envelope", "has no start row")]
+    [InlineData("-n 1", "--json --envelope", "Rendered-line selection")]
+    [InlineData("-n 1 --tail", "--json --envelope", "Rendered-line selection")]
+    public async Task Replacement_RowControlsDoNotUseInventorySelection(
+        string selection, string output, string diagnostic)
+    {
+        var result = await RunCliAsync([
+            "workspace", "--packet", ReplacementPacket(),
+            "--replace-package", "1", "--to-version", "12.1.2",
+            .. output.Split(' '), .. selection.Split(' ')]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(diagnostic, result.Error, StringComparison.Ordinal);
+    }
+
     static string ReplacementPacket(string subject = "type", string facet = "type.metadata")
     {
         string json = $$$"""

@@ -160,7 +160,6 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     [InlineData("IgnoreReadOnlyFields")]
     [InlineData("IgnoreReadOnlyProperties")]
     [InlineData("IncludeFields")]
-    [InlineData("UseStringEnumConverter")]
     public void EnabledWireShapingBooleanOptionIsUnsupported(string name)
     {
         JsonWireNamingPolicy? policy = ReadPolicy(
@@ -168,6 +167,45 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
                 metadata => BooleanValue(metadata, name, value: true)));
 
         Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+    }
+
+    [Fact]
+    public void StringEnumConversionIsRetainedAsSupportedWireShaping()
+    {
+        (
+            JsonWireNamingPolicy? policy,
+            JsonWireIgnoreCondition ignoreCondition,
+            bool useStringEnumConverter) = ReadWireOptions(
+                BuildSingleRow(
+                    metadata => BooleanValue(
+                        metadata,
+                        "UseStringEnumConverter",
+                        value: true)));
+
+        Assert.Equal(JsonWireNamingPolicy.None, policy);
+        Assert.Equal(JsonWireIgnoreCondition.Never, ignoreCondition);
+        Assert.True(useStringEnumConverter);
+    }
+
+    [Fact]
+    public void NullOmissionIsRetainedAsSupportedWireShaping()
+    {
+        (
+            JsonWireNamingPolicy? policy,
+            JsonWireIgnoreCondition ignoreCondition,
+            bool useStringEnumConverter) = ReadWireOptions(
+                BuildSingleRow(
+                    metadata => EnumValue(
+                        metadata,
+                        "DefaultIgnoreCondition",
+                        "System.Text.Json.Serialization.JsonIgnoreCondition",
+                        value: (int)JsonWireIgnoreCondition.WhenWritingNull)));
+
+        Assert.Equal(JsonWireNamingPolicy.None, policy);
+        Assert.Equal(
+            JsonWireIgnoreCondition.WhenWritingNull,
+            ignoreCondition);
+        Assert.False(useStringEnumConverter);
     }
 
     [Fact]
@@ -305,6 +343,31 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
                 type.GetCustomAttributes(),
                 out JsonWireNamingPolicy? policy));
         return policy;
+    }
+
+    static (
+        JsonWireNamingPolicy? Policy,
+        JsonWireIgnoreCondition DefaultIgnoreCondition,
+        bool UseStringEnumConverter) ReadWireOptions(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.True(
+            AttributeReader.TryGetJsonSourceGenerationWireOptions(
+                reader,
+                type.GetCustomAttributes(),
+                out JsonWireNamingPolicy? policy,
+                out _,
+                out JsonWireIgnoreCondition defaultIgnoreCondition,
+                out bool useStringEnumConverter));
+        return (
+            policy,
+            defaultIgnoreCondition,
+            useStringEnumConverter);
     }
 
     static byte[] BuildImage(int first, int? second = null)

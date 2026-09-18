@@ -630,8 +630,9 @@ proof obligations:
 
 - every non-trivial raise should have an obvious claim, discriminator, and
   failure mode;
-- exact identity checks should live in substrate predicates (`MemberIdentity`,
-  `GeneratedCodeIdentity`, `PlaceIdentity`) rather than name/string folklore;
+- reusable exact identity checks should live in substrate predicates
+  (`MemberIdentity`, `GeneratedCodeIdentity`, `PlaceIdentity`) rather than
+  name/string folklore;
 - matcher breadth should be justified by positive fixtures and bounded by
   one-discriminator negative fixtures;
 - comments should explain why an IL shape proves a source idiom, not narrate what

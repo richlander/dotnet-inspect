@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -54,6 +55,7 @@ public sealed record WorkspaceOptions
     public bool IncludePrerelease { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
+    internal RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
