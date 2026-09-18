@@ -231,19 +231,17 @@ static class SharedGuardSwitchFixture
     };
 
     public static bool IsIgnoredThroughRef(
-        GuardedSwitchExpressionKind other,
-        ref GuardedSwitchExpressionKind kind)
+        ArrayOffsetAlgorithm other,
+        ref ArrayOffsetAlgorithm value)
     {
         bool result;
-        if (other == GuardedSwitchExpressionKind.Unknown)
+        if (other == 0)
             goto WhenTrue;
-        switch (kind)
+        switch ((int)value - 24)
         {
-            case GuardedSwitchExpressionKind.Enum:
-            case GuardedSwitchExpressionKind.Error:
-            case GuardedSwitchExpressionKind.Module:
-            case GuardedSwitchExpressionKind.TypeParameter:
-            case GuardedSwitchExpressionKind.Submission:
+            case 0:
+            case 2:
+            case 4:
                 goto WhenTrue;
             default:
                 goto WhenFalse;
@@ -258,20 +256,18 @@ static class SharedGuardSwitchFixture
     }
 
     public static bool IsIgnoredThroughArray(
-        GuardedSwitchExpressionKind other,
-        GuardedSwitchExpressionKind[] kinds,
+        ArrayOffsetAlgorithm other,
+        ArrayOffsetAlgorithm[] values,
         int index)
     {
         bool result;
-        if (other == GuardedSwitchExpressionKind.Unknown)
+        if (other == 0)
             goto WhenTrue;
-        switch (kinds[index])
+        switch ((int)values[index] - 24)
         {
-            case GuardedSwitchExpressionKind.Enum:
-            case GuardedSwitchExpressionKind.Error:
-            case GuardedSwitchExpressionKind.Module:
-            case GuardedSwitchExpressionKind.TypeParameter:
-            case GuardedSwitchExpressionKind.Submission:
+            case 0:
+            case 2:
+            case 4:
                 goto WhenTrue;
             default:
                 goto WhenFalse;
@@ -456,15 +452,31 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Theory]
-    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughRef))]
-    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughArray))]
+    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughRef), false)]
+    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughArray), true)]
     public void CompilerProducedGuardOverDifferentIndirectEnumPlace_RemainsFlat(
-        string methodName)
+        string methodName,
+        bool isArrayElement)
     {
-        var function = Import(methodName);
-        Assert.Single(function.Descendants.OfType<SwitchBranch>());
-        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var boundary = Import(methodName);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is SwitchRaisingPass)
+                break;
+            pass.Run(boundary, PassContext.None);
+        }
+        boundary.CheckInvariant();
 
+        var branch = Assert.Single(boundary.Descendants.OfType<SwitchBranch>());
+        Assert.Single(boundary.Descendants.OfType<ConditionalBranch>());
+        Assert.Single(Assert.IsType<Block>(branch.Parent).Children);
+        var selector = Assert.IsType<Binary>(branch.Value);
+        if (isArrayElement)
+            Assert.IsType<LoadElement>(selector.Left);
+        else
+            Assert.IsType<LoadIndirect>(selector.Left);
+
+        var function = Import(methodName);
         var result = CSharpPrinter.PrintRaised(function);
 
         Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Diagnostics));
