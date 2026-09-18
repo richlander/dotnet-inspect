@@ -3259,6 +3259,67 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void StructuralDiffDocument_RejectsPriorProjectionMethodologyBeforeReplay()
+    {
+        const string text = "return;\nIL_0000: ret";
+        var source = Source();
+        var original = new AnnotatedSourceDocument(
+            text,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "ReturnStatement",
+                    SourceLineKind.CSharp,
+                    [new(0, 7)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0])),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new(8, 12)],
+                    0),
+            ],
+            [],
+            [
+                new AnnotatedSourceFact(
+                    0,
+                    "test.fact",
+                    "Evidence",
+                    AnnotationConditionality.Always,
+                    null,
+                    0,
+                    AnnotatedSourceFactOrigin.Body),
+            ],
+            [new AnnotatedSourceTarget(0, 0)],
+            source);
+        var current = CSharpStructuralDiffDocument.Create(original, original);
+        var priorProjection = new AnnotatedSourceDocument(
+            current.Before.Text,
+            current.Before.Nodes,
+            current.Before.Regions,
+            [],
+            [],
+            current.Before.Source);
+
+        Assert.NotEqual(current.Before, priorProjection);
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CSharpStructuralDiffDocument(
+                CSharpStructuralDiffDocument.CurrentSchemaVersion,
+                2,
+                current.Correspondence,
+                priorProjection,
+                priorProjection,
+                current.Rows,
+                current.Fidelity));
+
+        Assert.Equal("MethodologyVersion", error.ParamName);
+        Assert.Contains(
+            "Structural diff methodology version is unsupported.",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StructuralDiffDocument_RejectsMalformedFidelityNote()
     {
         var document = TrustedDocument(

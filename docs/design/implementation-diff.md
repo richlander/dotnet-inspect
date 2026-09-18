@@ -174,6 +174,12 @@ identity through each projection's explicit map. It never reconstructs that
 identity from text, spans, ordering, or equal document-local ids. This keeps
 the artifact product-issued rather than accepting caller-authored mappings,
 projections, or rows.
+Projection or correspondence changes that alter replayed artifact content
+increment the artifact methodology version.
+`StructuralDiffDocument_RejectsPriorProjectionMethodologyBeforeReplay` gates
+that a version-2 artifact whose C# projection omitted facts and targets is
+rejected by the explicit methodology boundary before replay equality can
+misclassify it as tampering.
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedCorrespondence`
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedProjection`,
 and
