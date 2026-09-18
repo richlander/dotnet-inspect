@@ -43,9 +43,11 @@ After packages, the GitHub release, production, and CoreCLR all succeed, comment
 on the successor tracker with the released version, release URL, and full
 shipped SHA. State that changes at or before that commit shipped in the
 completed release and later changes remain candidates for the successor.
-Listing individual entries that crossed the issue boundary is optional. Close
-the outgoing tracker only after posting this boundary. A retry retains the same
-trackers and must not claim success early.
+Before closing the outgoing tracker, copy or link every still-eligible entry
+whose implementation is not an ancestor of the shipped SHA to the successor;
+preserve the original entry. Listing successor entries that actually shipped
+in the completed release is optional. A retry retains the same trackers and
+must not claim success early.
 
 ## Collect the release evidence
 

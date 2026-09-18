@@ -153,9 +153,13 @@ Prepare the notes and hand off intake as follows:
 5. After every coordinated release surface succeeds, comment on the successor
    tracker with the released version, release URL, and full shipped SHA. State
    that changes at or before that commit shipped in the completed release and
-   later changes remain candidates for the successor. Naming individual entries
-   that crossed the issue boundary is optional.
-6. Close the outgoing tracker only after that successor-boundary comment exists.
+   later changes remain candidates for the successor.
+6. Before closing the outgoing tracker, copy or link every still-eligible entry
+   whose implementation is not an ancestor of the shipped SHA to the successor.
+   Preserve the original entry. Naming successor-tracker entries that actually
+   shipped in the completed release is optional.
+7. Close the outgoing tracker only after the boundary comment and required
+   carry-forward entries exist on the successor.
 
 Publication retries retain the same tracker handoff and release boundary. Do
 not create another successor or post a successful boundary until the coordinated
