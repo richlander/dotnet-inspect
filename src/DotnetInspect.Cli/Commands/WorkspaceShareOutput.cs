@@ -51,6 +51,29 @@ internal static class WorkspaceShareOutput
         }
     }
 
+    internal static int WriteScalar(
+        InspectionShare share,
+        WorkspaceShareFormat format)
+    {
+        switch (share)
+        {
+            case InspectionShare.Available available:
+                Console.WriteLine(
+                    format == WorkspaceShareFormat.Url
+                        ? available.FullUrl
+                        : available.Packet);
+                return 0;
+            case InspectionShare.NonProjectable nonProjectable:
+                CommandError.Write(
+                    $"--share is not projectable at {nonProjectable.Path}: "
+                        + nonProjectable.Reason);
+                return 1;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown inspection Share outcome.");
+        }
+    }
+
     private sealed class DeferredSideOutput : IDisposable
     {
         private readonly DeferredSideOutput? _previous = DeferredOutput.Value;
