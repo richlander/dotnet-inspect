@@ -139,6 +139,12 @@ internal static class PackageInspector
             result.RepositoryCommit = nuspec.RepositoryCommit;
             result.License = nuspec.License;
             result.LicenseUrl = nuspec.LicenseUrl;
+            result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
+                {
+                    Kind: PackageLicenseDeclarationKind.File,
+                } license
+                    ? license.Value
+                    : null;
             result.PackageTypes = nuspec.PackageTypes;
             result.IsToolPackage = nuspec.IsToolPackage;
             result.ReadmeFile = nuspec.ReadmeFile;

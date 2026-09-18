@@ -3776,6 +3776,21 @@ kbd {
 }
 .query-row-head h2 { margin: 0; font: 600 14px var(--mono); }
 .query-row-version { color: var(--dim); font: 11px var(--mono); }
+.query-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.query-answer {
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font: 11px var(--mono);
+}
 .query-tier {
   flex: none;
   padding: 2px 7px;

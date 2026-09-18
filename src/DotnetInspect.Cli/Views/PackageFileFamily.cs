@@ -24,6 +24,7 @@ public static class PackageFileFamily
         // picked (README.md, then PACKAGE.md, then the declared readme), so the priority
         // chain lives in one place rather than being restated as a predicate here.
         (PackageSections.FilesReadme, static file => file.IsReadme),
+        (PackageSections.FilesLicenses, static file => file.IsLicense),
         (PackageSections.FilesSkills, IsSkillDocument),
     ];
 
