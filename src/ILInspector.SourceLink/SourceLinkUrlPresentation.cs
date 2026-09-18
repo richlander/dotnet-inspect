@@ -8,7 +8,10 @@ public static class SourceLinkUrlPresentation
     {
         if (SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
         {
-            return browseUrl;
+            return new UriBuilder(browseUrl)
+            {
+                Fragment = new Uri(url, UriKind.Absolute).Fragment
+            }.Uri.AbsoluteUri;
         }
 
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri)

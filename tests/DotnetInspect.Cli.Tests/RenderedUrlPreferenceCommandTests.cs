@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.Text;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class CoordinateRenderedUrlTests
+public sealed class RenderedUrlPreferenceCommandTests
 {
     const string RepositoryPath =
         "richlander/dotnet-inspect/0cdbe500d11cb77ae7fb3c8612a5ba7bcc83ff86/src/ILInspector.SourceLink/SourceLinkService.cs";
@@ -24,6 +24,7 @@ public sealed class CoordinateRenderedUrlTests
     [InlineData(RawOrigin, RawOrigin, Rendered)]
     [InlineData(RawRoute, RawRoute, Rendered)]
     [InlineData(Unmapped, Unmapped, Unmapped)]
+    [InlineData(RawOrigin + "#section", RawOrigin, Rendered)]
     [InlineData(RawRoute + "?plain=1#section", RawRoute + "?plain=1", Rendered + "?plain=1")]
     [InlineData(Unmapped + "?plain=1#section", Unmapped + "?plain=1", Unmapped + "?plain=1")]
     [InlineData(RawRoute + "#L999", RawRoute, Rendered)]
@@ -61,6 +62,52 @@ public sealed class CoordinateRenderedUrlTests
                 Assert.Equal(
                     $"{(preferRendered ? renderedUrl : fetchableUrl)}#L{location.Line}",
                     output.Trim());
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(RawOrigin, Rendered)]
+    [InlineData(RawRoute, Rendered)]
+    [InlineData(Unmapped, Unmapped)]
+    public async Task SourceUrls_PreserveAuthoredFragment(
+        string sourceUrl,
+        string renderedUrl)
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("source-url-");
+        try
+        {
+            string assemblyPath = Path.Combine(directory.FullName, "CoordinateUrlFixture.dll");
+            WriteFixture(assemblyPath, sourceUrl + "#section");
+            string[][] commands =
+            [
+                ["type", "CoordinateUrlFixture", "--library", assemblyPath, "-S", "Source Files"],
+                ["member", "CoordinateUrlFixture", "Echo:1", "--library", assemblyPath, "-S", "Source Locations"],
+                ["library", assemblyPath, "-S", "SourceLink: Files"],
+            ];
+            foreach (string[] command in commands)
+            {
+                foreach (bool preferRendered in new[] { false, true })
+                {
+                    string[] arguments =
+                    [
+                        .. command, "--urls", "--tips", "q",
+                        .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
+                    ];
+                    var root = CommandLineBuilder.CreateRootCommand();
+                    var (exit, output, error) = await ConsoleCapture.RunAsync(
+                        () => CommandLineBuilder.InvokeAsync(root.Parse(arguments), arguments));
+
+                    Assert.Equal(0, exit);
+                    Assert.Empty(error);
+                    Assert.Equal(
+                        $"{(preferRendered ? renderedUrl : sourceUrl)}#section",
+                        output.Trim());
+                }
             }
         }
         finally

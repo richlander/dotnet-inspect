@@ -104,14 +104,7 @@ internal static class SourceFileCollector
     private static string? SelectUrl(
         SourceLinkResolver.TypeSourceDocument info,
         bool preferRenderedUrls)
-        => SelectUrl(info.GitHubBrowseUrl, info.SourceUrl, preferRenderedUrls);
-
-    private static string? SelectUrl(string? browseUrl, string? rawUrl, bool preferRenderedUrls)
-    {
-        if (!preferRenderedUrls)
-            return rawUrl;
-
-        var url = browseUrl ?? rawUrl;
-        return url == null ? null : GitHubUrlResolver.ConvertRawToBlobUrl(url);
-    }
+        => preferRenderedUrls && info.SourceUrl is { } url
+            ? GitHubUrlResolver.ConvertRawToBlobUrl(url)
+            : info.SourceUrl;
 }

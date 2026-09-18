@@ -1433,7 +1433,9 @@ Conversion is provider-aware. GitHub raw-content URLs use the existing
 SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can
 select its `/blob/` view. An unknown provider or unsupported URL stays unchanged:
 the presence of `/raw/` elsewhere in a URL does not authorize rewriting it.
-This preference does not add network probes or new provider support.
+General source URL presentation preserves an authored fragment across either
+supported GitHub form. This preference does not add network probes or new
+provider support and does not broaden provenance attribution.
 Coordinate source-line locators replace any existing fragment on the selected
 URL; composing the locator preserves that URL's path and query.
 
@@ -1452,6 +1454,10 @@ Real evidence uses `Newtonsoft.Json@13.0.3` source links and this repository's
 source URL. PR-fast CLI parsing and service URL-conversion tests cover unknown
 providers and literal `/raw/` path segments; focused package/member/library
 source-output tests cover the production preference and unchanged default.
+`SourceUrls_PreserveAuthoredFragment` covers type/member/library output across
+both supported GitHub forms and an unknown provider under both preferences;
+`SupportedGitHubSource_PreservesAuthoredFragment` covers general, line-range,
+and escaped fragments in the shared mapping.
 `CoordinateUrls_ApplyPreferenceAndPreserveLine` covers production coordinate
 output for both GitHub forms, the default, replacement of existing fragments
 with line locators, preserved queries, and unknown providers.

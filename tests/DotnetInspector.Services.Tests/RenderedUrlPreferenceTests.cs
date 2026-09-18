@@ -17,6 +17,25 @@ public class RenderedUrlPreferenceTests
             GitHubUrlResolver.ConvertRawToBlobUrl(url));
     }
 
+    [Theory]
+    [InlineData("#section")]
+    [InlineData("#L12-L20")]
+    [InlineData("#section%20two")]
+    public void SupportedGitHubSource_PreservesAuthoredFragment(string fragment)
+    {
+        string[] sourceUrls =
+        [
+            $"https://raw.githubusercontent.com/richlander/dotnet-inspect/{Revision}/{SourcePath}",
+            $"https://github.com/richlander/dotnet-inspect/raw/{Revision}/{SourcePath}",
+        ];
+        foreach (string url in sourceUrls)
+        {
+            Assert.Equal(
+                $"https://github.com/richlander/dotnet-inspect/blob/{Revision}/{SourcePath}{fragment}",
+                GitHubUrlResolver.ConvertRawToBlobUrl(url + fragment));
+        }
+    }
+
     [Fact]
     public void GitHubRawRoute_PreservesFilePathQueryAndFragment()
     {
@@ -33,6 +52,7 @@ public class RenderedUrlPreferenceTests
     [InlineData("https://github.com/richlander/dotnet-inspect/blob/main/docs/raw/example.md")]
     [InlineData("https://github.com/richlander/dotnet-inspect/issues/1?path=/raw/Source.cs")]
     [InlineData("https://raw.githubusercontent.com/richlander/dotnet-inspect/main/docs/raw/example.md")]
+    [InlineData("https://raw.githubusercontent.com/richlander/dotnet-inspect/" + Revision + "/" + SourcePath + "?plain=1#section")]
     public void UnsupportedMapping_PreservesOriginalUrl(string url)
     {
         Assert.Equal(url, GitHubUrlResolver.ConvertRawToBlobUrl(url));
