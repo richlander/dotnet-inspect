@@ -354,12 +354,7 @@ public static class InspectionCommandDefinitions
 
     public static Command CreateLibraryCommand(SharedOptions opts)
     {
-        var assemblyCommand = new Command(
-            "library",
-            "Inspect a .NET library file")
-        {
-            TreatUnmatchedTokensAsErrors = true
-        };
+        var assemblyCommand = new Command("library", "Inspect a .NET library file");
 
         var assemblyPathArg = new Argument<string?>("source")
         {
@@ -424,8 +419,11 @@ public static class InspectionCommandDefinitions
         {
             var source = parseResult.GetValue(assemblyPathArg);
             if (source?.StartsWith(
-                    '-',
-                    StringComparison.Ordinal) == true)
+                    "-",
+                    StringComparison.Ordinal) == true
+                && CliArgumentOwnership.FindDeclaredOption(
+                    parseResult.CommandResult,
+                    source) is null)
             {
                 CommandError.Write(
                     $"Unrecognized option '{source}'.");
