@@ -140,13 +140,16 @@ public sealed class MethodBodyInspectionSession
                 "Method-body inspection requires a path-backed assembly.",
                 nameof(assembly));
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        return new(
-            Analysis.LibraryBodyIndex.Open(
-                assemblyPath,
+        Analysis.LibraryBodyAnalysisRequest request =
+            Analysis.LibraryBodyAnalysisRequest.Create(
                 features,
-                resolver,
                 bodyScope,
-                bodyTypeScope),
+                bodyTypeScope);
+        return new(
+            Analysis.LibraryBodyAnalysisService.AnalyzePath(
+                assemblyPath,
+                request,
+                resolver),
             assembly,
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
@@ -175,14 +178,17 @@ public sealed class MethodBodyInspectionSession
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        Analysis.LibraryBodyAnalysisRequest request =
+            Analysis.LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope);
         return new(
-            Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
+            Analysis.LibraryBodyAnalysisService.AnalyzeImage(
                 assemblyPath,
                 image,
-                features,
-                resolver,
-                bodyScope,
-                bodyTypeScope),
+                request,
+                resolver),
             assembly
                 ?? ResolvedAssemblyReference.CreateFromPath(
                     assemblyPath,

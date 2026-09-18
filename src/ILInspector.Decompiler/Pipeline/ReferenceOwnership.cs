@@ -24,6 +24,64 @@ public static class ReferenceOwnership
         return targets;
     }
 
+    internal static bool RewriteWouldInvalidateLabels(
+        IrFunction function,
+        IReadOnlyList<IrNode> bodyStatements,
+        IReadOnlyList<IrNode> removedStatements)
+    {
+        var bodyLabels = bodyStatements
+            .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+            .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(node => node.SourceOffset)
+            .ToHashSet();
+        var removedLabels = removedStatements
+            .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+            .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(node => node.SourceOffset)
+            .ToHashSet();
+        if (bodyLabels.Count == 0 && removedLabels.Count == 0)
+            return false;
+
+        foreach (var transfer in function.DescendantsOutsideNestedFunctions)
+        {
+            bool transferMovesIntoBody = bodyStatements.Any(
+                statement => IsInside(transfer, statement));
+            bool transferIsRemoved = removedStatements.Any(
+                statement => IsInside(transfer, statement));
+
+            foreach (int targetOffset in TransferTargets(transfer))
+            {
+                if (!transferIsRemoved
+                    && ((!transferMovesIntoBody && bodyLabels.Contains(targetOffset))
+                        || removedLabels.Contains(targetOffset)))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static IEnumerable<int> TransferTargets(IrNode node)
+    {
+        switch (node)
+        {
+            case Branch branch:
+                yield return branch.TargetOffset;
+                break;
+            case ConditionalBranch conditional:
+                yield return conditional.TargetOffset;
+                break;
+            case SwitchBranch switchBranch:
+                foreach (int target in switchBranch.TargetOffsets)
+                    yield return target;
+                break;
+            case Leave leave:
+                yield return leave.TargetOffset;
+                break;
+        }
+    }
+
     public static bool IsInside(IrNode node, IrNode root)
     {
         for (var current = node; current is not null; current = current.Parent)
