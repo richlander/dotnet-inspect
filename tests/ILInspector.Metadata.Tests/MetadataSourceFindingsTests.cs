@@ -357,13 +357,46 @@ public sealed class MetadataSourceFindingsTests
 
         Assert.EndsWith(
             Path.Combine("Generated", "OrderedType.Z.cs"),
-            source.SourceFilePath,
+            source.Documents[0].FilePath,
             StringComparison.Ordinal);
-        var additional = Assert.Single(source.AdditionalSourceFiles);
+        Assert.Equal(2, source.Documents.Length);
         Assert.EndsWith(
             Path.Combine("Generated", "OrderedType.A.cs"),
-            additional.FilePath,
+            source.Documents[1].FilePath,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypeSourceResolution_RealPartialTypeReturnsUniformDocumentEvidence()
+    {
+        using var service = SourceLinkService.Open(typeof(SourceLinkService).Assembly.Location);
+        var mapping = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            service.ResolveTypeSource(typeof(SourceLinkService).FullName!));
+        var raw = Assert.Single(service.Context.EnumerateTypeDocuments(),
+            type => type.DefinitionName == mapping.Type);
+
+        Assert.Equal(typeof(SourceLinkService).Namespace, mapping.Type.Namespace);
+        Assert.Equal([nameof(SourceLinkService)], mapping.Type.Segments);
+        Assert.True(mapping.Documents.Length > 1);
+        Assert.Equal(
+            raw.Documents.Select(document => document.FilePath).Distinct(StringComparer.Ordinal),
+            mapping.Documents.Select(document => document.FilePath));
+        Assert.Contains(mapping.Documents, document =>
+            Path.GetFileName(document.FilePath) == "SourceLinkService.cs");
+        Assert.Contains(mapping.Documents, document =>
+            Path.GetFileName(document.FilePath) == "SourceLinkService.SourceContent.cs");
+        var census = service.GetTrackedFiles();
+        foreach (var document in mapping.Documents)
+        {
+            var tracked = Assert.Single(census, item => item.FilePath == document.FilePath);
+            Assert.Equal(tracked.ResolvedUrl, document.SourceUrl);
+            Assert.NotNull(document.GitHubBrowseUrl);
+            Assert.Equal(tracked.Checksum, document.Checksum);
+            Assert.NotEmpty(document.Checksum!);
+            Assert.Equal(tracked.ChecksumAlgorithm, document.ChecksumAlgorithm);
+            Assert.Equal(SourceLinkResolver.SourceResolutionMethod.SourceLink,
+                document.ResolutionMethod);
+        }
     }
 
     [Fact]
@@ -400,14 +433,14 @@ public sealed class MetadataSourceFindingsTests
 
         Assert.EndsWith(
             "TypeCaseCollision.Upper.cs",
-            upper.SourceFilePath,
+            Assert.Single(upper.Documents).FilePath,
             StringComparison.Ordinal);
         Assert.EndsWith(
             "TypeCaseCollision.Lower.cs",
-            lower.SourceFilePath,
+            Assert.Single(lower.Documents).FilePath,
             StringComparison.Ordinal);
-        Assert.Empty(upper.AdditionalSourceFiles);
-        Assert.Empty(lower.AdditionalSourceFiles);
+        Assert.Equal(upperName, upper.Type);
+        Assert.Equal(lowerName, lower.Type);
     }
 
     [Fact]
@@ -429,15 +462,15 @@ public sealed class MetadataSourceFindingsTests
 
         var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
             resolver.ResolveTypeSource(name));
+        var document = Assert.Single(source.Documents);
 
         Assert.EndsWith(
             "CorrelatedSourceCollision/Definitions.cs",
-            source.SourceFilePath,
+            document.FilePath,
             StringComparison.Ordinal);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.SourceLink,
-            source.ResolutionMethod);
-        Assert.Empty(source.AdditionalSourceFiles);
+            document.ResolutionMethod);
     }
 
     [Fact]
@@ -457,15 +490,15 @@ public sealed class MetadataSourceFindingsTests
 
         var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
             resolver.ResolveTypeSource(name));
+        var document = Assert.Single(source.Documents);
 
         Assert.EndsWith(
             nameof(BodylessSourceFixture) + ".cs",
-            source.SourceFilePath,
+            document.FilePath,
             StringComparison.Ordinal);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.Inferred,
-            source.ResolutionMethod);
-        Assert.Empty(source.AdditionalSourceFiles);
+            document.ResolutionMethod);
     }
 
     [Fact]
@@ -522,19 +555,19 @@ public sealed class MetadataSourceFindingsTests
                     [typeName]))
             .Name;
 
-        var exact = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
-            resolver.ResolveTypeSource(name));
-        var legacy = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
-            resolver.ResolveTypeSource($"{typeNamespace}.{typeName}"));
+        var exact = Assert.Single(Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(name)).Documents);
+        var legacy = Assert.Single(Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource($"{typeNamespace}.{typeName}")).Documents);
 
         Assert.EndsWith(
             "BodylessSourceFixture.vb",
-            exact.SourceFilePath,
+            exact.FilePath,
             StringComparison.Ordinal);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.Inferred,
             exact.ResolutionMethod);
-        Assert.Equal(exact.SourceFilePath, legacy.SourceFilePath);
+        Assert.Equal(exact.FilePath, legacy.FilePath);
         Assert.Equal(exact.SourceUrl, legacy.SourceUrl);
         Assert.Equal(exact.ResolutionMethod, legacy.ResolutionMethod);
         Assert.Equal(exact.Checksum, legacy.Checksum);

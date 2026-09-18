@@ -4,6 +4,7 @@ import test from "node:test";
 import type {
   BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffResult,
+  InspectionShare,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   createLibraryApiDiffCoordinator,
@@ -13,6 +14,7 @@ import {
   type LibraryApiDiffStateHost,
 } from "../src/library-api-diff.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
+import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 const appSource = readFileSync(
   new URL("../src/dotnet-inspect.ts", import.meta.url),
@@ -137,10 +139,11 @@ function succeeded(
 function inspection(
   content: unknown = { outcome: "available", document: {} },
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
-  const share = {
+  const share: InspectionShare = {
     kind: "nonProjectable",
     path: "comparison/endpoints",
-    reason: "Ordered endpoints are not shareable.",
+    reason: metadataInertStringFixture(
+      "Ordered endpoints are not shareable."),
     fullUrl: null,
     packet: null,
   };

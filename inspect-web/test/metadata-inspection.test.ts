@@ -16,6 +16,7 @@ import type {
   ExplorerTableData,
   HeapListingData,
 } from "../src/metadata-viewer.ts";
+import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
@@ -59,8 +60,12 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         isComplete: true,
       },
       share: {
+        kind: "nonProjectable",
         fullUrl: null,
         packet: null,
+        path: "exact-type",
+        reason: metadataInertStringFixture(
+          "Fixture exact-type inspection is not shareable."),
       },
       diagnostics: [],
     },
@@ -89,8 +94,12 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         },
       },
       share: {
+        kind: "nonProjectable",
         fullUrl: null,
         packet: null,
+        path: "type-dependencies",
+        reason: metadataInertStringFixture(
+          "Fixture dependency inspection is not shareable."),
       },
       diagnostics: [],
     },

@@ -100,7 +100,10 @@ internal static class JsExportSurfaceLoader
                     error,
                     out IReadOnlyDictionary<
                         ApiTypeReferenceIdentity,
-                        ApiType> referencedTypeDefinitions))
+                        ApiType> referencedTypeDefinitions,
+                    out IReadOnlyDictionary<
+                        ApiType,
+                        LibraryBodyIndex> referencedBodyIndexes))
             {
                 return false;
             }
@@ -108,7 +111,8 @@ internal static class JsExportSurfaceLoader
             surface = JsExportSurfaceBuilder.Build(
                 apiSurface,
                 bodyIndex,
-                referencedTypeDefinitions);
+                referencedTypeDefinitions,
+                referencedBodyIndexes);
             return true;
         }
         catch (UnsupportedJsExportSurfaceException ex)
@@ -134,13 +138,16 @@ internal static class JsExportSurfaceLoader
         string toolName,
         TextWriter error,
         out IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            definitions)
+            definitions,
+        out IReadOnlyDictionary<ApiType, LibraryBodyIndex> bodyIndexes)
     {
         var byIdentity =
             new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+        var bodiesByType = new Dictionary<ApiType, LibraryBodyIndex>();
         if (searchLocations.Count == 0)
         {
             definitions = byIdentity;
+            bodyIndexes = bodiesByType;
             return true;
         }
 
@@ -171,6 +178,8 @@ internal static class JsExportSurfaceLoader
                         + location);
                 definitions =
                     new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+                bodyIndexes =
+                    new Dictionary<ApiType, LibraryBodyIndex>();
                 return false;
             }
         }
@@ -186,14 +195,12 @@ internal static class JsExportSurfaceLoader
             }
 
             ApiSurface dependencySurface;
+            ImmutableArray<byte> dependencyImage;
             try
             {
-                using var stream = File.Open(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read);
-                using var image = new PEReader(stream);
+                dependencyImage =
+                    ImmutableArray.CreateRange(File.ReadAllBytes(path));
+                using var image = new PEReader(dependencyImage);
                 dependencySurface =
                     ApiSurfaceExtractor.Extract(image, includeAll: true);
             }
@@ -218,6 +225,16 @@ internal static class JsExportSurfaceLoader
                 continue;
             }
 
+            LibraryBodyIndex? dependencyBodyIndex =
+                dependencySurface.Types.Any(type =>
+                    type.BaseType
+                        == "System.Text.Json.Serialization.JsonSerializerContext")
+                    ? LibraryBodyIndex.OpenFromPrefetchedImage(
+                        path,
+                        dependencyImage,
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow)
+                    : null;
             foreach (ApiType type in dependencySurface.Types)
             {
                 var typeIdentity = new ApiTypeReferenceIdentity(
@@ -232,14 +249,19 @@ internal static class JsExportSurfaceLoader
                             + $"for '{typeIdentity}'.");
                     definitions =
                         new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+                    bodyIndexes =
+                        new Dictionary<ApiType, LibraryBodyIndex>();
                     return false;
                 }
 
                 byIdentity[typeIdentity] = type;
+                if (dependencyBodyIndex is not null)
+                    bodiesByType[type] = dependencyBodyIndex;
             }
         }
 
         definitions = byIdentity;
+        bodyIndexes = bodiesByType;
         return true;
     }
 }
