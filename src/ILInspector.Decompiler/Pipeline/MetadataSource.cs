@@ -623,6 +623,7 @@ public sealed class MetadataSource : IDisposable
     volatile Dictionary<TypeRef, TypeShape>? _shapes;
     Dictionary<TypeRef, IReadOnlyDictionary<long, string>>? _enumMembers;
     Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
+    HashSet<TypeRef>? _flagsEnumTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
     HashSet<TypeRef>? _interfaces;
     HashSet<TypeRef>? _genericDefinitions;
@@ -1135,6 +1136,21 @@ public sealed class MetadataSource : IDisposable
         return CrossAssembly.ResolveEnumFacts(type)?.UnderlyingType;
     }
 
+    internal bool ResolveEnumIsFlags(TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+            return false;
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
+        {
+            EnsureTypeMaps();
+            return _flagsEnumTypes!.Contains(type);
+        }
+        return CrossAssembly.ResolveEnumFacts(type)?.IsFlags == true;
+    }
+
     readonly object _mapLock = new();
 
     void EnsureTypeMaps()
@@ -1148,6 +1164,7 @@ public sealed class MetadataSource : IDisposable
             var shapes = new Dictionary<TypeRef, TypeShape>();
         var enums = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>();
         var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
+        var flagsEnumTypes = new HashSet<TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
         var interfaces = new HashSet<TypeRef>();
         var genericDefinitions = new HashSet<TypeRef>();
@@ -1190,11 +1207,14 @@ public sealed class MetadataSource : IDisposable
                 {
                     enums[key] = facts.Members;
                     enumUnderlyingTypes[key] = facts.UnderlyingType;
+                    if (facts.IsFlags)
+                        flagsEnumTypes.Add(key);
                 }
             }
         }
         _enumMembers = enums;
         _enumUnderlyingTypes = enumUnderlyingTypes;
+        _flagsEnumTypes = flagsEnumTypes;
         _baseTypes = bases;
         _interfaces = interfaces;
         _genericDefinitions = genericDefinitions;
