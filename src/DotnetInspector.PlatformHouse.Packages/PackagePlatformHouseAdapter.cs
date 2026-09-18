@@ -155,7 +155,11 @@ public sealed class PackagePlatformHouseAdapter
                     request, PlatformSourceFacet.Reference, exact,
                     "The House work allowance does not permit reference realization.", incomplete: true));
             bool includeCompiledXmlDocumentation =
-                realize.ContentDemand.HasFlag(
+                request.Operation is PlatformHouseOperation.Realize
+                {
+                    ContentDemand: var contentDemand,
+                }
+                && contentDemand.HasFlag(
                     PlatformLibraryContentDemand
                         .CompiledXmlDocumentation);
             if (includeCompiledXmlDocumentation

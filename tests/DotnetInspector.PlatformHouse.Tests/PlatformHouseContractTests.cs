@@ -183,6 +183,48 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void
+        CompiledXmlContentDemandRequiresOneLibraryReferenceView()
+    {
+        PlatformLibraryContentDemand demand =
+            PlatformLibraryContentDemand
+                .CompiledXmlDocumentation;
+        AssemblyReferenceIdentity identity =
+            new(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null);
+
+        var operation = new PlatformHouseOperation.Realize(
+            new PlatformPopulationDemand.Library(
+                new PlatformLibraryDemand.Assembly(identity)),
+            PlatformViewDemand.ReferenceAndImplementation,
+            demand);
+
+        Assert.Equal(demand, operation.ContentDemand);
+        Assert.Equal(
+            demand,
+            Assert.IsType<
+                    PlatformHouseOperationSnapshot.Realize>(
+                        operation.Snapshot)
+                .ContentDemand);
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand
+                    .CompletePopulation(),
+                PlatformViewDemand.Reference,
+                demand));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(
+                        identity)),
+                PlatformViewDemand.Implementation,
+                demand));
+    }
+
+    [Fact]
     public void RequestSnapshot_OmitsCancellationAndLiveOwnerInputs()
     {
         var live = new TestRoutePrerequisites();
