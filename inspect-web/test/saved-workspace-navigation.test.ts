@@ -316,8 +316,6 @@ function harness() {
     queryPackageVersions: async pkg => ({
       versions: [pkg.version],
       currentVersionInsertionIndex: 0,
-      previousVersion: null,
-      previousVersionUnavailableReason: null,
     }),
     updatePackageVersionSelect: () => {},
   });

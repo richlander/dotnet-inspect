@@ -215,9 +215,12 @@ the tool's own query vocabulary. It exposes the identities and configured
 knowledge that many queries join against; it is not another relation-specific
 artifact-inspection verb.
 
-For this exploration, assume the standalone `extensions`, `implements`, and
-`depends` commands are removed after replacement coverage is demonstrated.
-Preserve their useful workflows, not their command tokens.
+Retain the broad `diff`, `graph`, and `depends` operations at the top level
+under
+[Operation Commands and Subject Sections](operation-command-and-subject-section-composition.md).
+After replacement coverage is demonstrated, standalone relation-specific
+commands such as `extensions` and `implements` may retire. Preserve their useful
+workflows and evidence, not necessarily their command tokens.
 
 | Surface | Target role |
 | --- | --- |
@@ -225,10 +228,12 @@ Preserve their useful workflows, not their command tokens.
 | `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
 | `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
-| Subject `graph` children | Local single-seed topology over the already selected Package, Library, Type, or Member. |
+| Operation-backed subject sections | Curated Diff, Graph, or Depends invocations over the already selected Package, Library, Type, or Member, using the same host-neutral operation as the top-level command. |
 | Subject shortcut flags | High-value entry points such as `--depends` select the subject's direct-evidence section preset, rather than starting traversal or another resolver. |
-| Top-level `graph` | Host graph questions that do not begin with one selected local subject. InspectionGraph-backed modes construct or reopen a Workspace, including a canonical packet, and may be Type- or Package-oriented. `graph dependencies` separately preserves the Dependency-owned heterogeneous asset-root workflow. |
-| Removed verbs | Extension and implementer discovery move to subject sections. The selected-Type dependency workflow moves to `type graph`; heterogeneous asset roots move to `graph dependencies`. Ecosystem catalog discovery stays on `ecosystem`. |
+| Top-level `graph` | Identity-preserving topology over one or more seeds, explicit participants, or a reopened Workspace. |
+| Top-level `depends` | Dependency-specific direct evidence or rooted hierarchy over selected subjects and heterogeneous roots. |
+| Top-level `diff` | Two-endpoint or population comparison whose correspondence and result remain Diff-owned. |
+| Removed verbs | Extension and implementer discovery move to subject sections and queries after parity. Ecosystem catalog discovery stays on `ecosystem`; semantic Integration evidence remains available through Integration and Relations views. |
 
 The ecosystem identity is a product-level join key between catalog knowledge,
 registered candidate contributions and Integration associations. `aspire`
@@ -247,25 +252,16 @@ section-backed workflow. Its underlying sections remain discoverable and
 queryable through the ordinary system. A shortcut must not become the only
 way to access its evidence.
 
-Conversely, forcing multi-root dependency or peer-graph questions through an
-arbitrary fake subject would make the subject model worse. Removing `depends`
-therefore requires the current positional-Type workflow to reach parity under
-the Dependency-backed `type graph` relationship family and the asset workflow
-to reach parity under `graph dependencies`; neither replacement alone permits
-retirement.
+Conversely, forcing multi-root dependency, comparison, or peer-graph questions
+through an arbitrary fake subject would make the subject model worse. The
+top-level operations remain available whether or not an equivalent
+subject-first section exists.
 
-The same boundary applies when top-level Graph has only one seed: if the
-request constructs or reopens a Workspace, Graph remains the operation-first
-surface. A subject `graph` child forms only the owner-defined local scope around
-the already selected subject. Both paths consume the same typed graph request
-and retain the same relationship directions and physical evidence.
-
-Root placement is a command-grammar statement, not a universal execution
-substrate. `graph dependencies` has no selected local subject, but it retains
-the Dependency owner's typed asset roots, traversal, failures, and sectioned
-result rather than constructing a Workspace or converting to an Inspection
-Graph. The former positional-Type mode instead begins with a selected local
-subject and is counted in the `type graph` adoption.
+The same boundary applies when top-level Graph has only one seed: operation
+placement does not depend on cardinality. A subject section is the
+subject-first entrance; top-level Graph is the operation-first entrance. Both
+consume the same typed Graph request and retain the same relationship
+directions and physical evidence.
 
 ## Worked example: replace the verbs, keep the workflows
 
@@ -380,15 +376,15 @@ dotnet-inspect depends --package Aspire.Hosting.Redis@13.5.3 \
 dotnet-inspect depends --package Aspire.Hosting.Redis@13.5.3 \
   --tfm net8.0 --depth 2 --tree
 
-# After: the same package, selecting direct evidence or local Graph topology.
+# After: the same package, selecting direct evidence or a rooted Depends view.
 dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
   --tfm net8.0 -S Dependencies
-dotnet-inspect package graph Aspire.Hosting.Redis@13.5.3 \
-  --tfm net8.0 --depth 2 --tree
+dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
+  --tfm net8.0 -S "Dependency Hierarchy" --depth 2 --tree
 ```
 
 The declaration view retains requested version ranges and target groups. The
-graph retains owner-resolved endpoints, paths and partial failures; it must
+hierarchy retains owner-resolved endpoints, paths and partial failures; it must
 not relabel a version constraint as a resolved version. The replacement
 consumes the existing dependency evidence/traversal result, not a new
 package-specific approximation.
@@ -420,21 +416,21 @@ Existing focused names such as `Dependencies`, `References` and `Calls`
 remain useful. Category adoption cross-lists the relevant sections rather than
 requiring another producer. The shortcut retains their direct evidence
 semantics; it never starts package, assembly-reference, type-hierarchy, or call
-traversal. Use `package graph`, `library graph`, `type graph`, or
-`member graph` with explicit depth controls when topology is the question.
-Graph documents are not automatically added to either one-hop subject
-category.
+traversal. Select an operation-backed section such as `Dependency Hierarchy`,
+`Dependency Graph`, `Type Hierarchy`, or `Call Graph` when traversal or
+topology is the question. Those sections are not automatically added to either
+one-hop subject category.
 
 The exact counterpart of each `--depends` request is the same command with
 `-S @Dependencies`. Selecting that preset on a package still avoids transitive
-acquisition. The separate Graph route remains visible in discovery rather than
-being hidden behind the convenient flag.
+acquisition. Operation-backed hierarchy and Graph sections remain visible in
+discovery rather than being hidden behind the convenient flag.
 
 ### Preserve the multi-root case
 
 There is no honest single package or type for a restored project, a nuspec and
-a provider package taken together. A candidate replacement uses the existing
-graph host with a dependency preset:
+a provider package taken together. The top-level Depends operation retains
+that heterogeneous root set:
 
 ```console
 # Before.
@@ -443,11 +439,11 @@ dotnet-inspect depends \
   --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
   -S "Dependency Graph,Dependencies,Failures" --depth 2
 
-# After: proposed section-backed root-set mode.
-dotnet-inspect graph dependencies \
+# Target: retained operation with explicit section selection.
+dotnet-inspect depends \
   --project ./AppHost/AppHost.csproj --nuspec ./artifacts/App.nuspec \
   --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
-  -S "Dependency Graph,Dependencies,Failures" --depth 2
+  -S "Dependency Hierarchy,Dependencies,Failures" --depth 2
 ```
 
 This is a traversal, not the induced-set semantics of `graph integrations`.
@@ -460,10 +456,10 @@ remain a failed root beside usable package evidence; no implicit restore or
 build occurs.
 
 The [Dependency inspection command owner](dependency-inspection-command.md)
-currently places this operation under `depends`. Adopting the new entry point
-belongs there; this worked example does not override its admission, traversal
-or evidence contracts. If this mode cannot preserve them, removing `depends`
-is blocked. Moving only its easy single-root cases is not retirement parity.
+retains its admission, traversal, evidence, and failure contracts. The
+forward-looking section name follows
+[#7628](https://github.com/richlander/dotnet-inspect/issues/7628); this worked
+example does not rename the current product section.
 
 ### Shortcuts remain part of the section system
 
@@ -476,8 +472,8 @@ dotnet-inspect type -D @Relations
 dotnet-inspect type -Q Extensions
 dotnet-inspect library -Q Integration
 dotnet-inspect ecosystem aspire -D
-dotnet-inspect graph dependencies -D
-dotnet-inspect graph dependencies -Q "Dependency Graph"
+dotnet-inspect depends -D
+dotnet-inspect depends -Q "Dependency Hierarchy"
 ```
 
 These are separate discovery requests, not `-Q` combined with execution.
@@ -994,12 +990,12 @@ Its overlap with `@Relations` is section cross-listing, not a second query
 implementation. The complete proposed preset for each subject is the union
 of the two middle columns:
 
-| Subject | In both `@Relations` and `@Dependencies` | In `@Dependencies` only | Graph route |
+| Subject | In both `@Relations` and `@Dependencies` | In `@Dependencies` only | Operation-backed section |
 | --- | --- | --- | --- |
-| Package | `Dependencies` | None | `package graph` owns bounded package topology. |
-| Library | `References` | None | `library graph` owns resolved reference topology. |
-| Type | `Baseclass`, `Interfaces` | None | `type graph` owns base-type/interface hierarchy topology. |
-| Member | `Calls` | None | `member graph` owns transitive call topology; `Callers` belongs only to `@Relations`. |
+| Package | `Dependencies` | None | A Dependency hierarchy section invokes Depends; a Dependency graph section invokes Graph. |
+| Library | `References` | None | A Reference hierarchy section invokes Depends; a Reference graph section invokes Graph. |
+| Type | `Baseclass`, `Interfaces` | None | `Type Hierarchy` invokes Graph over base-type and interface topology. |
+| Member | `Calls` | None | `Call Graph` invokes Graph over transitive call topology; `Callers` belongs only to `@Relations`. |
 
 Both categories therefore remain direct evidence views. Selecting
 `@Dependencies` never requests a Graph document or transitive acquisition.
@@ -1189,10 +1185,10 @@ traversal options.
 | `Dependencies`, `References` | No new predicates; describe the owning evidence view's adopted bindings, or explicitly report no query operators. | None |
 | `Calls`, `Callers` | No new predicates; describe the owning call view's adopted bindings, or explicitly report no query operators. | None; do not imply a callee-signature join. |
 
-Graph children retain their owners' discovery contracts; this design does not
-invent `--where` bindings for Graph-document columns. Where a known section has
-no adopted operators, a named request such as `type -Q Implementers` still
-identifies the section and explicitly says
+Operation-backed Graph sections retain the Graph owner's discovery contracts;
+this design does not invent `--where` bindings for Graph-document columns.
+Where a known section has no adopted operators, a named request such as
+`type -Q Implementers` still identifies the section and explicitly says
 **no query operators**. An unknown section remains an error. Bare `-Q` lists
 only query-capable sections, under the existing discovery contract.
 
@@ -1280,7 +1276,7 @@ map, not a specification of the participating components' internals.
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. [Local-throw evidence](analysis-local-throw-evidence.md) owns member/type/site associations and visible evidence limits. Existing [throw counts and constructed-exception signals](graph-signal-annotations.md#exception-risk) are not that projection. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
-| Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the current combined operation and its two target routes; adopt direct subject presets, the selected-Type `type graph` family, and the heterogeneous asset-root `graph dependencies` entry before retiring `depends`. Existing package/restored-project evidence and traversal owners remain unchanged. |
+| Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the retained top-level Depends operation, direct evidence, rooted hierarchy, and heterogeneous asset roots. Subject sections adopt curated Depends or Graph invocations without retiring `depends`; existing package/restored-project evidence and traversal owners remain unchanged. |
 | Language patterns | A focused producer must own candidate identity, checked shape and applicability limits before pattern rows can enter the view. |
 | Graph / Relations composition | [Graph documents](inspection-graph-document.md) and [modes](inspection-graph-modes.md) retain canonical endpoints/occurrences; this owner selects and composes evidence relative to the focused subject and population. |
 | Presentation / hosts | [Output shapes](output-shapes.md) lower one typed row set; CLI and browser consume shared results and coverage rather than inferring relations from text. The [query-discovery owner](progressive-disclosure.md#query-discovery) must adopt section-specific result-unit and shortcut disclosure from the same accepted bindings. |
@@ -1396,9 +1392,9 @@ unreviewable changes inside a nominal slice.
 | 11 | Shared Subject Relations query composition over adopted producers, including local-throw matching and member-versus-edge conjunction semantics. |
 | 12 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
 | 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
-| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, selected-Type and asset-root Dependency replacement routes, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
+| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, subject-backed Depends/Graph views, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph design #7624](https://github.com/richlander/dotnet-inspect/issues/7624) and the operation/section placement in [#7623](https://github.com/richlander/dotnet-inspect/issues/7623). |
 | 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
-| 16 | Retire `extensions`, `implements`, `depends` and the observed-currency `Integrations` section after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 16 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, and disclosure parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 14 and website adoption step 15; neither is optional
 for this shared substrate. Step 16 is part of completion. Producers may ship
@@ -1430,10 +1426,10 @@ the named adoption gates run in Release:
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected direct producers, evidence, errors, and output without requesting Graph traversal. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
-| Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Neither category requests Graph traversal; Package, Library, Type, and Member topology begins only through the matching `graph` child. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
+| Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Neither category requests Graph traversal; Package, Library, Type, and Member topology begins only through an operation-backed Graph section or an explicit top-level Graph request. Equivalent subject-first and operation-first requests preserve the same typed Graph request and result. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
 | Section query discovery | Named and category `-Q` report actual per-section bindings, result units and accepted shortcut expansions without target acquisition or producer work. Return filtering keeps member rows in Find, return edges in Relations and classified return edges in Integration; it does not retain unrelated edges or switch an explicit view. Unsupported categories/bindings fail visibly, and known sections without operators say so. |
 | Predicate composition | Mixed flags/`--where` and their expanded forms agree regardless of order. Span-family OR remains inside the AND with a string return; repeated signature shapes match one member, duplicate constraints do not duplicate evidence, contradictory return predicates give an honestly scoped empty result, and invalid bindings fail visibly. |
-| Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
+| Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds before those relation-specific commands disappear. Retained top-level Depends and operation-backed subject sections preserve declarations, traversal, unresolved targets, partial failures, exit status, and formats; equivalent requests produce equivalent semantic results, and adopting a subject section does not retire `depends`. |
 
 Use the smallest real-asset and boundary fixtures proving these outcomes.
 Do not harden trusted internal callers as though they were adversaries.

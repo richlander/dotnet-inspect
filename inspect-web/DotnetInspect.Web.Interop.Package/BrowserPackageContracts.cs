@@ -1138,7 +1138,9 @@ public enum BrowserPackageGraphIdentityRole
 public sealed record BrowserPackageVersions(
     string[] Versions,
     int CurrentVersionInsertionIndex,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? PreviousVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? PreviousVersionUnavailableReason);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

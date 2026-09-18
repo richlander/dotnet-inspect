@@ -347,6 +347,25 @@ public sealed record MethodRef(
                 return true;
         return false;
     }
+
+    internal bool TryGetVerifiedOutLocal(
+        int parameterIndex,
+        IrExpression argument,
+        out int local)
+    {
+        local = -1;
+        if (ParameterRefKindsFacts != ParameterRefKindFacts.Known
+            || parameterIndex < 0
+            || parameterIndex >= ParameterRefKinds.Length
+            || ParameterRefKinds[parameterIndex] != ArgumentRefKind.Out
+            || argument is not LoadLocalAddress address)
+        {
+            return false;
+        }
+
+        local = address.Index;
+        return true;
+    }
 }
 
 /// <summary>Compiler fixed-buffer source-field metadata decoded from <c>FixedBufferAttribute</c>.</summary>
