@@ -24,7 +24,6 @@ const inventory = (): BrowserPackageVersions => ({
   versions: ["2.0.0", "1.0.0"],
   currentVersionInsertionIndex: 0,
   previousVersion: "1.0.0",
-  previousVersionUnavailableReason: null,
 });
 
 const source = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
@@ -80,8 +79,7 @@ for (const [current, insertionIndex, returned, reason, expected] of [
     const value: BrowserPackageVersions = {
       versions: [...returned],
       currentVersionInsertionIndex: insertionIndex,
-      previousVersion: null,
-      previousVersionUnavailableReason: reason,
+      ...(reason === null ? {} : { previousVersionUnavailableReason: reason }),
     };
     const h = harness({ queryPackageVersions: async () => value });
     h.current.version = current;
