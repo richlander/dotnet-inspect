@@ -3043,6 +3043,43 @@ public partial class CommandExecutionTests
             selected.GetProperty("id").GetString());
     }
 
+    [Fact]
+    public async Task Member_FactsProjectedJson_RejectsUnavailableWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--rows", "999..999", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires fact row 999",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_FactsProjectedJson_DeduplicatesEquivalentSelectors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts,Facts", "--json",
+            "--columns", "Id", "-n", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Single(
+            document.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+    }
+
     [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]

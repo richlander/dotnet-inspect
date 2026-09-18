@@ -548,7 +548,11 @@ public static class ApiCommandDefinitions
             return false;
         }
 
-        string[]? selectors = opts.ParseSelect(parseResult);
+        string[] selectors =
+        [
+            .. (opts.ParseSelect(parseResult) ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
         return selectors is [var selector]
             && selector.Equals(
                 SectionNames.Facts,

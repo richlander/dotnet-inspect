@@ -1876,6 +1876,35 @@ public partial class CommandExecutionTests
                     | StringSplitOptions.TrimEntries));
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task LibraryCoordinateCommand_InferredLinesComposeWithRows(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--rows",
+            "1..1",
+            "-n",
+            "1",
+            direction,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
     [Fact]
     public async Task LibraryCoordinateCommand_UsesPackageRelativeLibrary()
     {

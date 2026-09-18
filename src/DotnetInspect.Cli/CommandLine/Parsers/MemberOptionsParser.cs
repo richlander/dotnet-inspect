@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Options;
-using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -370,9 +369,6 @@ public static class MemberOptionsParser
             return new VersionError(rowSelectionError!);
         }
 
-        RowWindow? rows =
-            CliSemanticRowSelection.ToRowWindow(rowSelection)
-            ?? opts.ParseRows(parseResult);
         var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
             parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
         var projectValues = parseResult.GetValue(args.ProjectOption) ?? [];
@@ -685,7 +681,10 @@ public static class MemberOptionsParser
             FieldsExplicitlySet =
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
-            Rows = rows,
+            Rows = rowSelection is null
+                ? opts.ParseRows(parseResult)
+                : null,
+            FactsRowSelection = rowSelection,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

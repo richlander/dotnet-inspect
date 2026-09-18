@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
@@ -331,6 +332,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }

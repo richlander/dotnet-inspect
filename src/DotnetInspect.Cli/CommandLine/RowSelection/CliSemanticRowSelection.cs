@@ -6,36 +6,6 @@ namespace DotnetInspect.Cli.CommandLine;
 
 internal static class CliSemanticRowSelection
 {
-    public static RowWindow? ToRowWindow(
-        RowSelectionIntent<string>? intent)
-    {
-        if (intent is not { Operations.Count: > 0 })
-            return null;
-
-        if (intent.Operations.Count != 1)
-        {
-            throw new InvalidOperationException(
-                "A render-time row window requires exactly one selection operation.");
-        }
-
-        RowSelectionIntentOperation<string> operation =
-            intent.Operations[0];
-        return operation.Kind switch
-        {
-            RowSelectionStageKind.Head =>
-                RowWindow.Head(operation.Count),
-            RowSelectionStageKind.Tail =>
-                RowWindow.Tail(operation.Count),
-            RowSelectionStageKind.Window =>
-                RowWindow.Range(
-                    operation.Start ?? 1,
-                    operation.End),
-            _ => throw new InvalidOperationException(
-                $"A render-time row window does not support "
-                + $"'{operation.Kind}'."),
-        };
-    }
-
     public static bool TrySelectOrApplyLegacy<T>(
         RowSelectionIntent<string>? intent,
         RowWindow? legacyWindow,
