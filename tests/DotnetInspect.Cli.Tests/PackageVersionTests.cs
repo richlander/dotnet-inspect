@@ -173,7 +173,7 @@ public class PackageVersionTests
             "Authoritative",
             document.GetProperty("completeness").GetString());
         Assert.True(document.GetProperty("versions").GetArrayLength() > 1);
-        Assert.Equal(JsonValueKind.Null, content.GetProperty("count").ValueKind);
+        Assert.False(content.TryGetProperty("count", out _));
         Assert.Equal(
             "nonProjectable",
             root.GetProperty("share").GetProperty("kind").GetString());
@@ -181,7 +181,7 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task Versions_CountSupportsScalarJsonAndCompleteEnvelope()
+    public async Task Versions_CountSupportsScalarJsonAndScalarEnvelope()
     {
         var scalar = await RunAppAsync(
             "package",
@@ -227,21 +227,17 @@ public class PackageVersionTests
         Assert.Equal(0, envelope.Exit);
         Assert.Empty(envelope.Error);
         using JsonDocument json = JsonDocument.Parse(envelope.Output);
-        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(
+            "package-version-count",
+            json.RootElement.GetProperty("result_kind").GetString());
         Assert.Equal(
             count,
-            content.GetProperty("document")
-                .GetProperty("versions").GetArrayLength());
-        JsonElement countOutcome = content.GetProperty("count");
+            json.RootElement.GetProperty("content").GetInt32());
         Assert.Equal(
-            "completed",
-            countOutcome.GetProperty("kind").GetString());
-        Assert.Equal(
-            "Versions",
-            countOutcome.GetProperty("result").GetProperty("cohort").GetString());
-        Assert.Equal(
-            count,
-            countOutcome.GetProperty("result").GetProperty("value").GetInt32());
+            "nonProjectable",
+            json.RootElement.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Empty(
+            json.RootElement.GetProperty("diagnostics").EnumerateArray());
         Assert.Equal((0, "1", ""), (
             selectedScalar.Exit,
             selectedScalar.Output.Trim(),
@@ -250,17 +246,9 @@ public class PackageVersionTests
         Assert.Empty(selectedEnvelope.Error);
         using JsonDocument selectedJson =
             JsonDocument.Parse(selectedEnvelope.Output);
-        JsonElement selectedContent =
-            selectedJson.RootElement.GetProperty("content");
-        Assert.Equal(
-            count,
-            selectedContent.GetProperty("document")
-                .GetProperty("versions").GetArrayLength());
         Assert.Equal(
             1,
-            selectedContent.GetProperty("count")
-                .GetProperty("result")
-                .GetProperty("value").GetInt32());
+            selectedJson.RootElement.GetProperty("content").GetInt32());
     }
 
     [Fact]

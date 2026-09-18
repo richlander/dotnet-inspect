@@ -67,7 +67,7 @@ Online ordinary `package Package --versions` queries consume a separate shared
 `PackageVersionListingInspection` envelope over PackageHouse listing
 settlement. The House result preserves authoritative or partial Package Source
 discovery, while the inspection detaches version rows, source rows, typed
-failures, Count, and diagnostics for CLI projection. Raw listing may publish
+failures, and diagnostics for CLI projection. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the planned second host adopter under
@@ -338,17 +338,19 @@ cancellation produces no result.
 `PackageVersionListingInspection` projects the House result into
 `InspectionEnvelope<PackageVersionListingOutcome>`. Available Content retains
 the normalized request, authoritative-or-partial completeness, ordered
-deduplicated version rows, per-authority source rows, and optional semantic
-Count. Typed non-success retains inert reason text, operation timeout, and
-credential-safe authority failures. Available source failures become ordered
-diagnostics rather than disappearing or invalidating usable raw rows.
+deduplicated version rows, and per-authority source rows. Typed non-success
+retains inert reason text, operation timeout, and credential-safe authority
+failures. Available source failures become ordered diagnostics rather than
+disappearing or invalidating usable raw rows.
 
 CLI `package Package --versions`, `--versions-with-feed`,
 `--include-unlisted`, and Count are the first production adopter. Existing
-human, JSON, JSONL, and TSV output remains a host projection; explicit
-`--envelope` publishes the complete detached Content. Row and display limits
-shape only the CLI projection, while envelope Content remains complete; Count
-applies the already-bound semantic row selection to its requested cohort.
+human, JSON, JSONL, and TSV output remains a host projection. Explicit
+`--envelope` publishes the complete detached listing Content. Count is a
+terminal projection over the selected version or version/source collection:
+ordinary `--count` and `--count --json` emit the scalar, while `--count
+--envelope` makes the same scalar the Content of an
+`InspectionEnvelope<int>`. Listing Content has no redundant Count property.
 
 The second planned adopter is Inspect Web's
 `BrowserPackageVersionInventory`, which will consume the same House listing

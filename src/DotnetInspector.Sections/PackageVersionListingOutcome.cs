@@ -14,9 +14,7 @@ public abstract record PackageVersionListingOutcome
 {
     private protected PackageVersionListingOutcome() { }
 
-    public sealed record Listed(
-        PackageVersionListingDocument Document,
-        PackageVersionPopulationCountOutcome? Count)
+    public sealed record Listed(PackageVersionListingDocument Document)
         : PackageVersionListingOutcome;
 
     public sealed record NotAvailable(PackageVersionListingFailure Failure)

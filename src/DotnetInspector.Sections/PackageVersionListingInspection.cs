@@ -17,8 +17,7 @@ public static class PackageVersionListingInspection
             PackageHouse house,
             PackageSourceOperationLease sourceOperation,
             bool includePrerelease = false,
-            bool includeUnlisted = false,
-            PackageVersionPopulationCountRequest? countRequest = null)
+            bool includeUnlisted = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(house);
@@ -63,7 +62,7 @@ public static class PackageVersionListingInspection
                     includeUnlisted),
                 sourceOperation).ConfigureAwait(false);
         return Envelope(
-            Project(request, listing, countRequest),
+            Project(request, listing),
             listing is PackageHouseVersionListingResult.Available
                 ? listing.Evidence.Failures
                     .OfType<PackageHouseFailure.Authority>()
@@ -76,8 +75,7 @@ public static class PackageVersionListingInspection
 
     private static PackageVersionListingOutcome Project(
         PackageVersionListingRequest request,
-        PackageHouseVersionListingResult listing,
-        PackageVersionPopulationCountRequest? countRequest)
+        PackageHouseVersionListingResult listing)
     {
         if (listing is PackageHouseVersionListingResult.Available available)
         {
@@ -92,14 +90,7 @@ public static class PackageVersionListingInspection
                     : PackageVersionListingCompleteness.Partial,
                 [.. discovery.Listings],
                 [.. discovery.SourceListings]);
-            return new PackageVersionListingOutcome.Listed(
-                document,
-                countRequest is null
-                    ? null
-                    : PackageVersionCountProjection.Count(
-                        document.Versions,
-                        document.SourceListings,
-                        countRequest));
+            return new PackageVersionListingOutcome.Listed(document);
         }
 
         (PackageVersionListingFailureKind kind, InertString reason) =
@@ -135,6 +126,44 @@ public static class PackageVersionListingInspection
                 reason,
                 listing.Evidence.HasOperationTimeout,
                 failures));
+    }
+
+    /// <summary>Reduces one available listing to its requested Count result.</summary>
+    public static PackageVersionPopulationCountOutcome Count(
+        PackageVersionListingDocument document,
+        PackageVersionPopulationCountRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(request);
+        return PackageVersionCountProjection.Count(
+            document.Versions,
+            document.SourceListings,
+            request);
+    }
+
+    /// <summary>
+    /// Projects a completed listing Count as scalar Content while preserving
+    /// diagnostics from the same settled listing.
+    /// </summary>
+    public static InspectionEnvelope<int> ProjectCountEnvelope(
+        InspectionEnvelope<PackageVersionListingOutcome> listing,
+        PackageVersionPopulationCountOutcome.Completed count)
+    {
+        ArgumentNullException.ThrowIfNull(listing);
+        ArgumentNullException.ThrowIfNull(count);
+        if (listing.Content is not PackageVersionListingOutcome.Listed)
+        {
+            throw new ArgumentException(
+                "A Count envelope requires an available package version listing.",
+                nameof(listing));
+        }
+
+        return new(
+            count.Result.Value,
+            new InspectionShare.NonProjectable(
+                "package-version-count/share",
+                "Package version Count does not yet have a canonical Workspace Share projection."),
+            listing.Diagnostics);
     }
 
     private static InspectionEnvelope<PackageVersionListingOutcome> Envelope(

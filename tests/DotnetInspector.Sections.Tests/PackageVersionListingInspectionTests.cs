@@ -10,7 +10,7 @@ public sealed class PackageVersionListingInspectionTests
     private const string PackageId = "System.Text.Json";
 
     [Fact]
-    public async Task ListingPreservesRequestRowsSourcesAndRequestedCount()
+    public async Task ListingPreservesRequestRowsAndSources()
     {
         InspectionEnvelope<PackageVersionListingOutcome> envelope =
             await ListAsync(
@@ -23,8 +23,6 @@ public sealed class PackageVersionListingInspectionTests
                         ]),
                 ],
                 includeUnlisted: true,
-                countRequest: new(
-                    PackageVersionPopulationCountCohort.Versions),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
@@ -41,10 +39,6 @@ public sealed class PackageVersionListingInspectionTests
         Assert.Equal(
             ["1.1.0", "1.0.0"],
             listed.Document.SourceListings.Select(row => row.Version));
-        Assert.Equal(
-            2,
-            Assert.IsType<PackageVersionPopulationCountOutcome.Completed>(
-                listed.Count).Result.Value);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
 
@@ -61,7 +55,7 @@ public sealed class PackageVersionListingInspectionTests
     }
 
     [Fact]
-    public async Task CountAppliesSelectionWithoutClippingListingDocument()
+    public async Task CountProjectsScalarEnvelopeFromListingDocument()
     {
         RowSelectionIntent<string> selection =
             RowSelectionIntent<string>.Create(
@@ -76,9 +70,6 @@ public sealed class PackageVersionListingInspectionTests
                             ("2.0.0", true),
                         ]),
                 ],
-                countRequest: new(
-                    PackageVersionPopulationCountCohort.Versions,
-                    selection),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
@@ -86,10 +77,25 @@ public sealed class PackageVersionListingInspectionTests
             Assert.IsType<PackageVersionListingOutcome.Listed>(
                 envelope.Content);
         Assert.Equal(3, listed.Document.Versions.Length);
+        var completed =
+            Assert.IsType<PackageVersionPopulationCountOutcome.Completed>(
+                PackageVersionListingInspection.Count(
+                    listed.Document,
+                    new(
+                        PackageVersionPopulationCountCohort.Versions,
+                        selection)));
+        InspectionEnvelope<int> countEnvelope =
+            PackageVersionListingInspection.ProjectCountEnvelope(
+                envelope,
+                completed);
         Assert.Equal(
             1,
-            Assert.IsType<PackageVersionPopulationCountOutcome.Completed>(
-                listed.Count).Result.Value);
+            countEnvelope.Content);
+        Assert.Equal(
+            "package-version-count/share",
+            Assert.IsType<InspectionShare.NonProjectable>(
+                countEnvelope.Share).Path);
+        Assert.Equal(envelope.Diagnostics, countEnvelope.Diagnostics);
     }
 
     [Fact]
@@ -179,7 +185,6 @@ public sealed class PackageVersionListingInspectionTests
         VersionSourceBehavior[] behaviors,
         bool includePrerelease = false,
         bool includeUnlisted = false,
-        PackageVersionPopulationCountRequest? countRequest = null,
         CancellationToken cancellationToken = default)
     {
         PackageSource[] sources =
@@ -227,8 +232,7 @@ public sealed class PackageVersionListingInspectionTests
                 new PackageHouse(authorization),
                 operation,
                 includePrerelease,
-                includeUnlisted,
-                countRequest);
+                includeUnlisted);
         }
         finally
         {

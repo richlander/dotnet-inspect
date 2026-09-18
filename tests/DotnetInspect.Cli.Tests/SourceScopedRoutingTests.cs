@@ -1111,7 +1111,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task PackageVersionListing_EnvelopeRetainsPartialEvidenceAndCount()
+    public async Task PackageVersionListing_CountEnvelopeRetainsPartialDiagnostics()
     {
         string packageName = $"PartialVersionEnvelope{Guid.NewGuid():N}";
 
@@ -1139,20 +1139,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
         using JsonDocument json = JsonDocument.Parse(output);
         JsonElement root = json.RootElement;
         Assert.Equal(
-            "package-version-listing",
+            "package-version-count",
             root.GetProperty("result_kind").GetString());
-        JsonElement content = root.GetProperty("content");
-        Assert.Equal("available", content.GetProperty("kind").GetString());
-        JsonElement document = content.GetProperty("document");
-        Assert.Equal(
-            "Partial",
-            document.GetProperty("completeness").GetString());
-        Assert.Equal(2, document.GetProperty("versions").GetArrayLength());
-        Assert.Equal(
-            2,
-            content.GetProperty("count")
-                .GetProperty("result")
-                .GetProperty("value").GetInt32());
+        Assert.Equal(2, root.GetProperty("content").GetInt32());
         Assert.Single(root.GetProperty("diagnostics").EnumerateArray());
         Assert.DoesNotContain(
             requests,
@@ -1162,7 +1151,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task PackageVersionListing_EnvelopeRetainsSourceCountCohort()
+    public async Task PackageVersionListing_SourceCountEnvelopeContainsScalar()
     {
         string packageName = $"VersionFeedEnvelope{Guid.NewGuid():N}";
 
@@ -1183,18 +1172,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument json = JsonDocument.Parse(output);
-        JsonElement content = json.RootElement.GetProperty("content");
-        JsonElement document = content.GetProperty("document");
-        int sourceCount =
-            document.GetProperty("sourceListings").GetArrayLength();
-        Assert.Equal(2, sourceCount);
-        JsonElement count = content.GetProperty("count");
         Assert.Equal(
-            "SourceListings",
-            count.GetProperty("result").GetProperty("cohort").GetString());
-        Assert.Equal(
-            sourceCount,
-            count.GetProperty("result").GetProperty("value").GetInt32());
+            "package-version-count",
+            json.RootElement.GetProperty("result_kind").GetString());
+        Assert.Equal(2, json.RootElement.GetProperty("content").GetInt32());
         Assert.DoesNotContain(
             requests,
             request => request.EndsWith(
@@ -1235,6 +1216,37 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(
             "AuthenticationRequired",
             authorityFailure.GetProperty("kind").GetString());
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_CountEnvelopeRequiresScalarResult()
+    {
+        string packageName = $"FailedVersionCount{Guid.NewGuid():N}";
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "1.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--count",
+                    "--envelope",
+                    "--source",
+                    RefusedSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
         Assert.DoesNotContain(
             requests,
             request => request.EndsWith(
