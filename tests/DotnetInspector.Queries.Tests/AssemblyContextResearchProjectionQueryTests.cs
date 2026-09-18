@@ -143,6 +143,43 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public async Task MemberProjection_ProjectsMethodCostEvidenceWithoutSourceCoordinate()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                FindingEvidenceRequest(
+                    nameof(ResearchProjectionProbe.InvokeAllocationInLoop))));
+
+        AssemblyMemberFindingEvidence evidence = Assert.Single(
+            Assert.IsAssignableFrom<IReadOnlyList<AssemblyMemberFindingEvidence>>(
+                projection.FindingEvidence),
+            candidate =>
+                projection.Projection.SourceDocument!.Facts[candidate.FactId]
+                    .Descriptor == "cost.callee");
+        Assert.Equal(ResearchFindingEvidenceState.Method, evidence.State);
+        CallSiteCostEvidenceInput input =
+            Assert.Single(evidence.AggregateInputs);
+        Assert.Equal(
+            CallSiteCostEvidenceInputKind.AllocationInLoop,
+            input.Kind);
+        Assert.Null(input.Value);
+        Assert.Empty(evidence.Coordinates);
+        Assert.Null(evidence.SourceDocument);
+        Assert.Empty(evidence.NodeIds);
+        Assert.Null(evidence.UnavailableReason);
+        Assert.Contains(
+            projection.Projection.SourceDocumentFactIdentities!,
+            identity =>
+                identity.FactId == evidence.FactId
+                && identity.InstanceKey == evidence.InstanceKey);
+    }
+
+    [Fact]
     public async Task CalleeEvidenceCorrespondence_ReportsZeroAndAmbiguousNodes()
     {
         var policy = new RecordingBindingPolicy();
@@ -1000,6 +1037,17 @@ public static class ResearchProjectionProbe
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+
+    public static int InvokeAllocationInLoop(int count) =>
+        AllocationInLoop(count);
+
+    static int AllocationInLoop(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += new object().GetHashCode();
+        return total;
     }
 
     public static unsafe int InvokeFunctionPointer(
