@@ -78,9 +78,10 @@ public static class RouterCommandDefinition
                     CommandError.Write(error.Message);
                 return 1;
             }
-            if (PackageOptionsParser.Parse(sourceParseResult, opts, packageArgs)
-                    is PackageOptionsParser.UnrecognizedOption removedOption
-                && ArgumentPreprocessor.GetRemovedPackageOptionError(removedOption.Option)
+            if (PackageOptionsParser.GetUnrecognizedOption(
+                    sourceParseResult,
+                    packageArgs) is { } removedOption
+                && ArgumentPreprocessor.GetRemovedPackageOptionError(removedOption)
                     is { } removed)
             {
                 CommandError.Write(removed);

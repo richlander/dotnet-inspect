@@ -63,6 +63,12 @@ public static class PackageOptionsParser
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
 
+    internal static string? GetUnrecognizedOption(
+        ParseResult parseResult,
+        PackageCommandArgs args) =>
+        (parseResult.GetValue(args.PackageNameArg) ?? [])
+            .FirstOrDefault(argument => argument.StartsWith('-'));
+
     internal static int GetPositionalCapacity(
         ParseResult result,
         SharedOptions opts,
@@ -105,7 +111,7 @@ public static class PackageOptionsParser
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
 
         // Check for unrecognized options in positional args
-        var badOption = packageArgs.FirstOrDefault(a => a.StartsWith('-'));
+        var badOption = GetUnrecognizedOption(parseResult, args);
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
