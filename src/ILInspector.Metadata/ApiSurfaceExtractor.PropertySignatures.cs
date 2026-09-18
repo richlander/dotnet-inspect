@@ -278,16 +278,23 @@ public static partial class ApiSurfaceExtractor
                 beforeDecodeWork,
                 attributeMaterialize);
 
+        ReadOnlyByRefReturnMarker readOnlyByRefReturnMarker =
+            parameterAccessor.IsNil
+                ? ReadOnlyByRefReturnMarker.None
+                : ReadReadOnlyByRefReturnMarker(
+                    reader,
+                    paramHandles,
+                    attributeMaterialize);
+        bool isReadOnlyByRefReturn =
+            readOnlyByRefReturnMarker
+                is ReadOnlyByRefReturnMarker.Present
+            || HasReadOnlyByRefReturnModifier(treeSignature.ReturnType);
         var returnType = FormatMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         var canonicalReturnType = FormatCanonicalMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         IReadOnlyList<string>? xmlDocumentationParameterTypes =
             TryGetXmlDocumentationNames(
                 treeSignature.ParameterTypes,
@@ -442,8 +449,14 @@ public static partial class ApiSurfaceExtractor
                     beforeDecodeWork));
             string renderedType = parameterType.Render();
             string canonicalType = parameterType.RenderCanonical();
-            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
-                parameterInfos[i];
+            var (
+                _,
+                isParams,
+                refKind,
+                _,
+                hasDefault,
+                defaultValue,
+                attributes) = parameterInfos[i];
             bool isByRef =
                 renderedType.StartsWith("ref ", StringComparison.Ordinal);
             if (isByRef)
@@ -791,11 +804,16 @@ public static partial class ApiSurfaceExtractor
 
     static bool CustomModifiersAreRepresentable(
         TypeNode type,
-        bool requireReadOnlyByRefModifier)
+        ReadOnlyByRefModifierPolicy readOnlyByRefModifierPolicy)
     {
         if (!ContainsCustomModifier(type))
-            return !requireReadOnlyByRefModifier;
-        return requireReadOnlyByRefModifier
+        {
+            return readOnlyByRefModifierPolicy
+                is not ReadOnlyByRefModifierPolicy.Require;
+        }
+
+        return readOnlyByRefModifierPolicy
+                is not ReadOnlyByRefModifierPolicy.Reject
             && type is ModifiedTypeNode
             {
                 IsRequired: true,
@@ -804,6 +822,13 @@ public static partial class ApiSurfaceExtractor
             }
             && IsReadOnlyByRefModifier(modifier)
             && !ContainsCustomModifier(byRef.ElementType);
+    }
+
+    enum ReadOnlyByRefModifierPolicy
+    {
+        Reject,
+        Allow,
+        Require
     }
 
     static bool ContainsCustomModifier(TypeNode type) => type switch

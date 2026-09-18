@@ -1047,6 +1047,8 @@ public sealed class CSharpTypePrinter
             IsSealed = member.IsSealed,
             IsFinalizer = member.IsFinalizer,
             IsReadOnly = member.IsReadOnly,
+            ReadOnlyMarkerIsRepresentable =
+                member.ReadOnlyMarkerIsRepresentable,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,
             MemorySafety = member.MemorySafety,

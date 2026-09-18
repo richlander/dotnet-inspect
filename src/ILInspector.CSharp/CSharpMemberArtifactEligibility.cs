@@ -113,11 +113,24 @@ public static class CSharpMemberArtifactEligibility
         ApiType type,
         ApiMember member)
     {
-        if (!IsMethodLike(member)
-            || type.Kind is not ("class" or "struct"))
+        if (!IsMethodLike(member))
         {
             return true;
         }
+
+        if (member.ReadOnlyMarkerIsRepresentable == false
+            || member.IsReadOnly
+                && (member.ReadOnlyMarkerIsRepresentable != true
+                    || type.Kind != "struct"
+                    || type.IsStatic
+                    || member.Kind != "method"
+                    || member.IsStatic))
+        {
+            return false;
+        }
+
+        if (type.Kind is not ("class" or "struct"))
+            return true;
 
         bool hasProtectedAccessibility = member.Accessibility is
             "protected" or "protected internal" or "private protected";

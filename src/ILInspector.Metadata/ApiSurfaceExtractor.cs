@@ -1174,7 +1174,10 @@ public static partial class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
-                var (isExtensionMethod, isReadOnlyMethod) =
+                var (
+                    isExtensionMethod,
+                    isReadOnlyMethod,
+                    isReadOnlyMarkerRepresentable) =
                     AttributeReader.ReadMethodMarkerAttributes(
                         reader,
                         methodCustomAttributes,
@@ -1253,6 +1256,8 @@ public static partial class ApiSurfaceExtractor
                     IsSealed = modifiers.IsSealed,
                     IsFinalizer = isFinalizer,
                     IsReadOnly = isReadOnlyMethod,
+                    ReadOnlyMarkerIsRepresentable =
+                        isReadOnlyMarkerRepresentable,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded

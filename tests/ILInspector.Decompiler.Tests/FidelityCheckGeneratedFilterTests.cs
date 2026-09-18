@@ -246,6 +246,28 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableReadOnlyMethodsBeforeSampling()
+    {
+        string assemblyPath = CreateMethodReadOnlyMarkerFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            var target = Assert.Single(
+                selected,
+                target => target.Method != ".ctor");
+            Assert.Equal("ReadOnlyMethodStructFixture", target.Type);
+            Assert.Equal("Good", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnrepresentedSignatureCustomModifiersBeforeSampling()
     {
         string assemblyPath = CreateCustomModifiedSignatureFixture();
@@ -265,23 +287,30 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void SelectReturnToSenderTargets_IncludesRepresentedReadOnlyByRefModifiers()
+    public void SelectReturnToSenderTargets_IncludesCompilerRepresentedReadOnlyByRefModifiers()
     {
         string assemblyPath = CompileFixture("""
-            public static class ReadOnlyByRefFixture
+            public class ReadOnlyByRefFixture
             {
                 public static ref readonly int Read(in int value)
                     => ref value;
+
+                public virtual int VirtualIn(in int value)
+                    => value;
+
+                public virtual int VirtualReadOnly(ref readonly int value)
+                    => value;
             }
             """);
         try
         {
-            var target = Assert.Single(
-                FidelityCheck.SelectReturnToSenderTargets(
-                    [assemblyPath],
-                    cap: int.MaxValue));
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
 
-            Assert.Equal("Read", target.Method);
+            Assert.Contains(selected, target => target.Method == "Read");
+            Assert.Contains(selected, target => target.Method == "VirtualIn");
+            Assert.Contains(selected, target => target.Method == "VirtualReadOnly");
         }
         finally
         {
@@ -2942,6 +2971,8 @@ public class FidelityCheckGeneratedFilterTests
             typeof(object).Assembly);
         ModuleBuilder module = assembly.DefineDynamicModule(
             "CustomModifiedSignatures");
+        ConstructorInfo fakeReadOnlyConstructor =
+            DefineFakeReadOnlyAttribute(module);
         TypeBuilder modifierType = module.DefineType(
             "SignatureModifier",
             TypeAttributes.Public
@@ -2986,6 +3017,9 @@ public class FidelityCheckGeneratedFilterTests
         optionalModifiedReturnBody.Emit(OpCodes.Ldc_I4_1);
         optionalModifiedReturnBody.Emit(OpCodes.Ret);
 
+        ConstructorInfo readOnlyConstructor =
+            typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
+                .GetConstructor(Type.EmptyTypes)!;
         MethodBuilder alternateReadonlyReturn = fixtureType.DefineMethod(
             "AlternateReadonlyReturn",
             MethodAttributes.Public | MethodAttributes.Static);
@@ -3019,6 +3053,23 @@ public class FidelityCheckGeneratedFilterTests
             attributeOnlyReadonlyReturn.GetILGenerator();
         attributeOnlyReadonlyReturnBody.Emit(OpCodes.Ldnull);
         attributeOnlyReadonlyReturnBody.Emit(OpCodes.Throw);
+
+        MethodBuilder readonlyMarkerOnValueReturn =
+            fixtureType.DefineMethod(
+                "ReadonlyMarkerOnValueReturn",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                Type.EmptyTypes);
+        readonlyMarkerOnValueReturn.DefineParameter(
+                0,
+                ParameterAttributes.None,
+                null)
+            .SetCustomAttribute(
+                new CustomAttributeBuilder(readOnlyConstructor, []));
+        ILGenerator readonlyMarkerOnValueReturnBody =
+            readonlyMarkerOnValueReturn.GetILGenerator();
+        readonlyMarkerOnValueReturnBody.Emit(OpCodes.Ldc_I4_1);
+        readonlyMarkerOnValueReturnBody.Emit(OpCodes.Ret);
 
         MethodBuilder modifiedParameter = fixtureType.DefineMethod(
             "ModifiedParameter",
@@ -3054,10 +3105,238 @@ public class FidelityCheckGeneratedFilterTests
         modifiedInParameterBody.Emit(OpCodes.Ldc_I4_1);
         modifiedInParameterBody.Emit(OpCodes.Ret);
 
+        MethodBuilder additionalReadonlyModifier =
+            fixtureType.DefineMethod(
+                "AdditionalReadonlyModifier",
+                MethodAttributes.Public | MethodAttributes.Static);
+        additionalReadonlyModifier.SetSignature(
+            typeof(int),
+            null,
+            null,
+            [typeof(int).MakeByRefType()],
+            [[
+                typeof(System.Runtime.InteropServices.InAttribute),
+                modifierType
+            ]],
+            null);
+        additionalReadonlyModifier.DefineParameter(
+                1,
+                ParameterAttributes.In,
+                "value")
+            .SetCustomAttribute(
+                new CustomAttributeBuilder(
+                    typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
+                        .GetConstructor(Type.EmptyTypes)!,
+                    []));
+        ILGenerator additionalReadonlyModifierBody =
+            additionalReadonlyModifier.GetILGenerator();
+        additionalReadonlyModifierBody.Emit(OpCodes.Ldc_I4_1);
+        additionalReadonlyModifierBody.Emit(OpCodes.Ret);
+
+        MethodBuilder duplicateReadonlyMarker =
+            fixtureType.DefineMethod(
+                "DuplicateReadonlyMarker",
+                MethodAttributes.Public | MethodAttributes.Static);
+        duplicateReadonlyMarker.SetSignature(
+            typeof(int),
+            null,
+            null,
+            [typeof(int).MakeByRefType()],
+            [[typeof(System.Runtime.InteropServices.InAttribute)]],
+            null);
+        ParameterBuilder duplicateParameter =
+            duplicateReadonlyMarker.DefineParameter(
+                1,
+                ParameterAttributes.In,
+                "value");
+        duplicateParameter.SetCustomAttribute(
+            new CustomAttributeBuilder(readOnlyConstructor, []));
+        duplicateParameter.SetCustomAttribute(
+            new CustomAttributeBuilder(readOnlyConstructor, []));
+        ILGenerator duplicateReadonlyMarkerBody =
+            duplicateReadonlyMarker.GetILGenerator();
+        duplicateReadonlyMarkerBody.Emit(OpCodes.Ldc_I4_1);
+        duplicateReadonlyMarkerBody.Emit(OpCodes.Ret);
+
+        MethodBuilder malformedReadonlyMarker =
+            fixtureType.DefineMethod(
+                "MalformedReadonlyMarker",
+                MethodAttributes.Public | MethodAttributes.Static);
+        malformedReadonlyMarker.SetSignature(
+            typeof(int),
+            null,
+            null,
+            [typeof(int).MakeByRefType()],
+            [[typeof(System.Runtime.InteropServices.InAttribute)]],
+            null);
+        malformedReadonlyMarker.DefineParameter(
+                1,
+                ParameterAttributes.In,
+                "value")
+            .SetCustomAttribute(
+                readOnlyConstructor,
+                [0x01, 0x00]);
+        ILGenerator malformedReadonlyMarkerBody =
+            malformedReadonlyMarker.GetILGenerator();
+        malformedReadonlyMarkerBody.Emit(OpCodes.Ldc_I4_1);
+        malformedReadonlyMarkerBody.Emit(OpCodes.Ret);
+
+        DefineMalformedReadonlyReturn(
+            fixtureType,
+            "DuplicateReadonlyReturnMarker",
+            parameter =>
+            {
+                parameter.SetCustomAttribute(
+                    new CustomAttributeBuilder(readOnlyConstructor, []));
+                parameter.SetCustomAttribute(
+                    new CustomAttributeBuilder(readOnlyConstructor, []));
+            });
+        DefineMalformedReadonlyReturn(
+            fixtureType,
+            "MalformedReadonlyReturnMarker",
+            parameter => parameter.SetCustomAttribute(
+                readOnlyConstructor,
+                [0x01, 0x00]));
+        DefineMalformedReadonlyReturn(
+            fixtureType,
+            "ForgedReadonlyReturnMarker",
+            parameter => parameter.SetCustomAttribute(
+                new CustomAttributeBuilder(fakeReadOnlyConstructor, [])));
+
         modifierType.CreateType();
         fixtureType.CreateType();
         assembly.Save(path);
         return path;
+
+        static void DefineMalformedReadonlyReturn(
+            TypeBuilder type,
+            string name,
+            Action<ParameterBuilder> setMarker)
+        {
+            MethodBuilder method = type.DefineMethod(
+                name,
+                MethodAttributes.Public | MethodAttributes.Static);
+            method.SetSignature(
+                typeof(int).MakeByRefType(),
+                [typeof(System.Runtime.InteropServices.InAttribute)],
+                null,
+                Type.EmptyTypes,
+                null,
+                null);
+            setMarker(method.DefineParameter(
+                0,
+                ParameterAttributes.None,
+                null));
+            ILGenerator body = method.GetILGenerator();
+            body.Emit(OpCodes.Ldnull);
+            body.Emit(OpCodes.Throw);
+        }
+    }
+
+    static string CreateMethodReadOnlyMarkerFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "MethodReadOnlyMarkers.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("MethodReadOnlyMarkers"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "MethodReadOnlyMarkers");
+        ConstructorInfo fakeReadOnlyConstructor =
+            DefineFakeReadOnlyAttribute(module);
+        TypeBuilder classType = module.DefineType(
+            "ReadOnlyMethodClassFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder structType = module.DefineType(
+            "ReadOnlyMethodStructFixture",
+            TypeAttributes.Public
+                | TypeAttributes.Sealed
+                | TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        ConstructorInfo readOnlyConstructor =
+            typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
+                .GetConstructor(Type.EmptyTypes)!;
+        var readOnly = new CustomAttributeBuilder(
+            readOnlyConstructor,
+            []);
+
+        DefineMarkedMethod(
+            classType,
+            "ClassInstance",
+            MethodAttributes.Public,
+            readOnly);
+        DefineMarkedMethod(
+            classType,
+            "ClassStatic",
+            MethodAttributes.Public | MethodAttributes.Static,
+            readOnly);
+        DefineMarkedMethod(
+            structType,
+            "Good",
+            MethodAttributes.Public,
+            readOnly);
+        DefineMarkedMethod(
+            structType,
+            "Duplicate",
+            MethodAttributes.Public,
+            new CustomAttributeBuilder(readOnlyConstructor, []),
+            new CustomAttributeBuilder(readOnlyConstructor, []));
+        DefineRawMarkedMethod(
+            structType,
+            "Malformed",
+            readOnlyConstructor,
+            [0x01, 0x00]);
+        DefineMarkedMethod(
+            structType,
+            "Forged",
+            MethodAttributes.Public,
+            new CustomAttributeBuilder(fakeReadOnlyConstructor, []));
+
+        classType.CreateType();
+        structType.CreateType();
+        assembly.Save(path);
+        return path;
+
+        static void DefineMarkedMethod(
+            TypeBuilder type,
+            string name,
+            MethodAttributes attributes,
+            params CustomAttributeBuilder[] markers)
+        {
+            MethodBuilder method = type.DefineMethod(
+                name,
+                attributes,
+                typeof(int),
+                Type.EmptyTypes);
+            foreach (CustomAttributeBuilder marker in markers)
+                method.SetCustomAttribute(marker);
+            ILGenerator body = method.GetILGenerator();
+            body.Emit(OpCodes.Ldc_I4_1);
+            body.Emit(OpCodes.Ret);
+        }
+
+        static void DefineRawMarkedMethod(
+            TypeBuilder type,
+            string name,
+            ConstructorInfo markerConstructor,
+            byte[] markerBlob)
+        {
+            MethodBuilder method = type.DefineMethod(
+                name,
+                MethodAttributes.Public,
+                typeof(int),
+                Type.EmptyTypes);
+            method.SetCustomAttribute(markerConstructor, markerBlob);
+            ILGenerator body = method.GetILGenerator();
+            body.Emit(OpCodes.Ldc_I4_1);
+            body.Emit(OpCodes.Ret);
+        }
     }
 
     static string CreatePrivateScopeMemberFixture()
@@ -3982,6 +4261,31 @@ public class FidelityCheckGeneratedFilterTests
         ILGenerator body = method.GetILGenerator();
         body.Emit(OpCodes.Ldc_I4_1);
         body.Emit(OpCodes.Ret);
+    }
+
+    static ConstructorInfo DefineFakeReadOnlyAttribute(ModuleBuilder module)
+    {
+        TypeBuilder type = module.DefineType(
+            "System.Runtime.CompilerServices.IsReadOnlyAttribute",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Sealed,
+            typeof(Attribute));
+        ConstructorBuilder constructor = type.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            Type.EmptyTypes);
+        ILGenerator body = constructor.GetILGenerator();
+        body.Emit(OpCodes.Ldarg_0);
+        body.Emit(
+            OpCodes.Call,
+            typeof(Attribute).GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null)!);
+        body.Emit(OpCodes.Ret);
+        return type.CreateType()!.GetConstructor(Type.EmptyTypes)!;
     }
 
     static void DeleteFixture(string assemblyPath)

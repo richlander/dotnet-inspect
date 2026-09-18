@@ -1165,6 +1165,14 @@ public class ApiMember
     public bool? AccessibilityIsRepresentable { get; set; }
 
     /// <summary>
+    /// Whether this method's readonly marker has the exact compiler-recognized
+    /// attribute identity, constructor, value, and cardinality. Null means the
+    /// fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ReadOnlyMarkerIsRepresentable { get; set; }
+
+    /// <summary>
     /// Number of index parameters on a property. Null means older or
     /// hand-composed evidence could not prove the property is non-indexed.
     /// </summary>
