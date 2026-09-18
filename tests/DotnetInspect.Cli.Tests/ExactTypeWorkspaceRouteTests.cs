@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -52,7 +53,6 @@ public sealed class ExactTypeWorkspaceRouteTests
                             new UniformPackageSourceAuthorization([Source]),
                         PackageStore = store,
                     }));
-        Assert.Equal(0, exitCode);
         Assert.Equal(0, exitCode);
         Assert.Contains(
             "ILInspector.Metadata.ApiType",
@@ -291,6 +291,84 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Contains(
             "--share is not projectable at type/query",
             error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspaceRoutePreservesAssemblyBackedTypeSections()
+    {
+        var store = await CachedStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiType).FullName,
+            IncludeSections = ["Performance Triage"],
+            Format = OutputFormat.Markdown,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Performance Triage",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FileNotFound",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspaceRoutePreservesRichTypeMemberFacts()
+    {
+        var store = await CachedStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiTypeShape).FullName,
+            Verbosity = Verbosity.Normal,
+            Format = OutputFormat.Markdown,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, _) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "static",
+            output,
             StringComparison.Ordinal);
     }
 

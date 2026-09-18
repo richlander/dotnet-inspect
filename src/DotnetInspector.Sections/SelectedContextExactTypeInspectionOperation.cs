@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
@@ -32,14 +34,28 @@ public sealed record SelectedContextExactTypeSource
 }
 
 /// <summary>
-/// Exact Type content plus the owner-issued defining source identities needed
-/// by aggregate hosts.
+/// Live full Type inspection target valid while the paired Workspace
+/// realization operation remains admitted.
+/// </summary>
+public sealed record SelectedContextExactTypeLiveTarget(
+    ApiSurface Surface,
+    ApiType Type,
+    ResolvedAssemblyReference Assembly,
+    AssemblyBindingOccurrence Occurrence,
+    IAssemblyBindingPolicy BindingPolicy,
+    string? AssemblyPath,
+    string? PackageExtractPath);
+
+/// <summary>
+/// Exact Type content plus owner-issued defining source identities and an
+/// optional live target for hosts operating within the admitted realization.
 /// </summary>
 public sealed record SelectedContextExactTypeInspectionResult
 {
     public SelectedContextExactTypeInspectionResult(
         ExactTypeInspectionResult inspection,
-        ImmutableArray<SelectedContextExactTypeSource> definingSources)
+        ImmutableArray<SelectedContextExactTypeSource> definingSources,
+        SelectedContextExactTypeLiveTarget? liveTarget = null)
     {
         Inspection = inspection
             ?? throw new ArgumentNullException(nameof(inspection));
@@ -50,6 +66,7 @@ public sealed record SelectedContextExactTypeInspectionResult
                 : throw new ArgumentException(
                     "Defining sources must be an initialized immutable array.",
                     nameof(definingSources));
+        LiveTarget = liveTarget;
     }
 
     public ExactTypeInspectionResult Inspection { get; }
@@ -58,6 +75,13 @@ public sealed record SelectedContextExactTypeInspectionResult
     {
         get;
     }
+
+    /// <summary>
+    /// Full inspection state for in-process host rendering. This value is not
+    /// detached or serialized and remains valid only under the paired lease.
+    /// </summary>
+    [JsonIgnore]
+    public SelectedContextExactTypeLiveTarget? LiveTarget { get; }
 }
 
 /// <summary>
@@ -77,7 +101,8 @@ public static class SelectedContextExactTypeInspectionOperation
             request,
             projectionLimits: null,
             activation: null,
-            facet: null);
+            facet: null,
+            ApiSurfaceScope.PublicWithNonPublicTypes);
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         Execute(
@@ -93,7 +118,8 @@ public static class SelectedContextExactTypeInspectionOperation
             request,
             projectionLimits,
             activation: null,
-            facet: null);
+            facet: null,
+            ApiSurfaceScope.PublicWithNonPublicTypes);
     }
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -101,7 +127,9 @@ public static class SelectedContextExactTypeInspectionOperation
             WorkspaceRealizationOperationLease authority,
             CompleteWorkspaceActivation activation,
             SelectedContextExactTypeInspectionRequest request,
-            ViewFacetId? facet = null)
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
     {
         ArgumentNullException.ThrowIfNull(activation);
         if (activation.SelectedContext is not { } context)
@@ -127,7 +155,8 @@ public static class SelectedContextExactTypeInspectionOperation
             request,
             projectionLimits: null,
             activation,
-            facet);
+            facet,
+            scope);
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -137,7 +166,8 @@ public static class SelectedContextExactTypeInspectionOperation
             SelectedContextExactTypeInspectionRequest request,
             ApiSurfaceProjectionLimits? projectionLimits,
             CompleteWorkspaceActivation? activation,
-            ViewFacetId? facet)
+            ViewFacetId? facet,
+            ApiSurfaceScope scope)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
@@ -148,6 +178,7 @@ public static class SelectedContextExactTypeInspectionOperation
                 authority,
                 context,
                 request,
+                scope,
                 projectionLimits);
         ImmutableArray<ExactTypeDefiningSource> definingSources =
             execution.DefiningSources;
@@ -179,6 +210,21 @@ public static class SelectedContextExactTypeInspectionOperation
             definingSources = [];
         }
 
+        SelectedContextExactTypeLiveTarget? target =
+            inspection.IsAvailable
+                ? execution.Target is { } selected
+                    ? new(
+                        selected.Surface.Surface,
+                        selected.Type,
+                        selected.Occurrence.Assembly,
+                        selected.Occurrence,
+                        selected.BindingPolicy,
+                        selected.AssemblyPath,
+                        selected.PackageExtractPath)
+                    : throw new InvalidOperationException(
+                        "An available selected-context exact Type requires "
+                            + "one live inspection target.")
+                : null;
         var references = new TypeDeclarationLocatorReferenceProjection();
         ImmutableArray<SelectedContextExactTypeSource> projectedSources =
         [
@@ -193,7 +239,8 @@ public static class SelectedContextExactTypeInspectionOperation
         ];
         var content = new SelectedContextExactTypeInspectionResult(
             inspection,
-            projectedSources);
+            projectedSources,
+            target);
         InspectionShare share =
             new InspectionShare.NonProjectable(
                 "selected-context-exact-type/share",

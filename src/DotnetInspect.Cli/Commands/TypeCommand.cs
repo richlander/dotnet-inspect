@@ -1015,7 +1015,10 @@ public static class TypeCommand
                 restoration.Workspace,
                 new SelectedContextExactTypeInspectionRequest(
                     options.TypeName!),
-                shareChoice.Facet);
+                shareChoice.Facet,
+                options.IncludeAll
+                    ? ApiSurfaceScope.IncludeAll
+                    : ApiSurfaceScope.PublicWithNonPublicTypes);
         ExactTypeInspectionResult inspection =
             envelope.Content.Inspection;
         if (!inspection.IsAvailable)
@@ -1031,7 +1034,7 @@ public static class TypeCommand
         SelectedContextExactTypeSource source =
             AssertSingleDefiningSource(envelope.Content);
         int outputExitCode =
-            await ExecuteExactTypeResultAsync(
+            await ExecuteWorkspaceExactTypeResultAsync(
                 options with
                 {
                     WorkspacePacket = null,
@@ -1040,7 +1043,12 @@ public static class TypeCommand
                 plan,
                 inspection,
                 envelope.Diagnostics,
-                ExactTypeRenderSource.From(source)).ConfigureAwait(false);
+                ExactTypeRenderSource.From(source),
+                envelope.Content.LiveTarget
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires a "
+                            + "live inspection target."))
+                .ConfigureAwait(false);
         if (options.ShareFormat is not { } shareFormat)
             return outputExitCode;
 
@@ -1060,6 +1068,89 @@ public static class TypeCommand
             : throw new InvalidOperationException(
                 "An available selected-context exact Type requires one "
                     + "defining source.");
+
+    static async Task<int> ExecuteWorkspaceExactTypeResultAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ExactTypeInspectionResult result,
+        IEnumerable<InspectionDiagnostic> diagnostics,
+        ExactTypeRenderSource renderSource,
+        SelectedContextExactTypeLiveTarget target)
+    {
+        WriteExactTypeDiagnostics(diagnostics);
+
+        try
+        {
+            using WorkspaceTypeAssemblyPath assemblyPath =
+                WorkspaceTypeAssemblyPath.Create(target);
+            ApiSurface api = target.Surface;
+            api.Name = renderSource.Name;
+            api.Version = renderSource.Version;
+            api.Source = renderSource.Source;
+            api.Tfm = renderSource.TargetFramework;
+            api.Library =
+                target.Assembly.AssetFileName
+                ?? (target.AssemblyPath is { } materializedPath
+                    ? Path.GetFileName(materializedPath)
+                    : target.Assembly.Identity.Name + ".dll");
+
+            var sourceAssemblies =
+                new Dictionary<ApiType, ResolvedAssemblyReference>(
+                    ReferenceEqualityComparer.Instance)
+                {
+                    [target.Type] = target.Assembly,
+                };
+            var bindingContext = new SelectedTypeBindingContext(
+                target.Occurrence,
+                target.BindingPolicy);
+            var bindingContexts =
+                new Dictionary<ApiType, SelectedTypeBindingContext>(
+                    ReferenceEqualityComparer.Instance)
+                {
+                    [target.Type] = bindingContext,
+                };
+            var loaded = new ApiServices.LoadedApiSurface(
+                api,
+                assemblyPath.Value,
+                assemblyPath.Value,
+                sourceAssemblies,
+                RootBindingContext: bindingContext,
+                BindingContexts: bindingContexts);
+            var source = new ApiSourceResult(
+                SearchPath: assemblyPath.Value,
+                RuntimeAssemblyPath:
+                    renderSource.Source == SourceKind.Platform
+                        ? assemblyPath.Value
+                        : null,
+                PackageName: renderSource.PackageName,
+                PackageVersion: renderSource.PackageVersion,
+                ResolvedPackagePath: renderSource.ResolvedPackagePath,
+                PackageExtractPath: target.PackageExtractPath,
+                ApiSource: renderSource.Source,
+                ApiVersion: renderSource.Version,
+                PlatformFramework: renderSource.PlatformFramework,
+                SelectedTfm: renderSource.TargetFramework,
+                ProjectAssetsPath: null,
+                TempDir: null,
+                TypeName: target.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
+                Context: new CommandContext(options.Verbose));
+            int exitCode = await ExecuteCoreAsync(
+                options,
+                plan,
+                source,
+                loaded).ConfigureAwait(false);
+            return exitCode != 0 || !result.IsComplete
+                ? 1
+                : 0;
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+    }
 
     static WorkspaceContextLoadOptions CreateWorkspaceContextLoadOptions(
         TypeOptions options) =>
@@ -1328,6 +1419,70 @@ public static class TypeCommand
                     ResolvedPackagePath: null,
                     PlatformFramework: null),
             };
+        }
+    }
+
+    sealed class WorkspaceTypeAssemblyPath : IDisposable
+    {
+        WorkspaceTypeAssemblyPath(
+            string value,
+            string? temporaryDirectory)
+        {
+            Value = value;
+            _temporaryDirectory = temporaryDirectory;
+        }
+
+        readonly string? _temporaryDirectory;
+
+        internal string Value { get; }
+
+        internal static WorkspaceTypeAssemblyPath Create(
+            SelectedContextExactTypeLiveTarget target)
+        {
+            if (target.AssemblyPath is { } existing)
+            {
+                return new WorkspaceTypeAssemblyPath(
+                    Path.GetFullPath(existing),
+                    temporaryDirectory: null);
+            }
+
+            string temporaryDirectory =
+                Directory.CreateTempSubdirectory(
+                    "inspect-type-workspace").FullName;
+            string path = Path.Combine(
+                temporaryDirectory,
+                "selected.dll");
+            try
+            {
+                using Stream input = target.Assembly.OpenRead();
+                using FileStream output = File.Create(path);
+                input.CopyTo(output);
+                return new WorkspaceTypeAssemblyPath(
+                    path,
+                    temporaryDirectory);
+            }
+            catch
+            {
+                TryDeleteTemporaryDirectory(temporaryDirectory);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_temporaryDirectory is not null)
+                TryDeleteTemporaryDirectory(_temporaryDirectory);
+        }
+
+        static void TryDeleteTemporaryDirectory(string path)
+        {
+            try
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            catch
+            {
+            }
         }
     }
 
