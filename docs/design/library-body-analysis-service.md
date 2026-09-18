@@ -13,16 +13,20 @@ optimization-opportunity queries onto that boundary, and moved
 Those consumers established the service but retained `LibraryBodyIndex` as its
 only public result shape.
 
-The current migration phase breaks that compatibility pattern. Selected
-producers publish focused Analysis-owned result types, and each result type
-lands with a production query or section that consumes it. One service
-invocation may still coordinate several producers over one body acquisition;
-that does not make their answers one semantic type.
+The first typed-result migration breaks that compatibility pattern.
+`LibraryBodyAnalysisExecution` associates one receipt with independently named
+`LibrarySafetyAnalysisResult` and
+`LibraryImplementationProfileAnalysisResult` values. The Library Unsafe
+Evidence and Implementation Profiles queries consume those focused types
+directly. One service invocation may still coordinate several producers over
+one body acquisition; that does not make their answers one semantic type.
 
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
-attribution, and reuse of one detached index across requested sections.
+attribution, and reuse of one execution across requested sections. Migrated
+sections consume focused results from that execution; unmigrated sections
+request its lazy compatibility index.
 
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
@@ -70,8 +74,9 @@ exact path or caller-owned immutable image
        -> open operation-local PE and Metadata readers
        -> execute the selected Analysis producers
        -> construct owner-typed detached results
-       -> publish one execution receipt for shared identity, coverage,
-          diagnostics, and explicitly named result values
+       -> publish LibraryBodyAnalysisExecution
+          -> one receipt for shared identity, coverage, and diagnostics
+          -> explicitly named focused result values
   -> adopting query or section consumes only its focused result
   -> LibraryBodyIndex compatibility adapter serves unmigrated consumers
 ```
@@ -223,12 +228,10 @@ asks its query context for the service execution and passes the focused result
 to its typed query:
 
 ```csharp
-SafetyAnalysisResult safety = context.BodyAnalysis().Safety;
+LibrarySafetyAnalysisResult safety = context.BodyAnalysis().Safety;
 UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
 ```
 
-The concrete execution-publication API lands with that section migration; the
-example fixes the direction rather than pre-approving property names.
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
@@ -236,8 +239,9 @@ The cluster root-path query follows the same request/service shape for
 `MethodEvidence`; its existing section and CLI continue to own composition and
 presentation. `MethodBodyInspectionSession` similarly translates command
 capability and scope policy into one request, delegates path or
-prefetched-image execution to the service, and retains the returned detached
-compatibility index for the command.
+prefetched-image execution to the service, retains the returned execution for
+the command, and creates its detached compatibility index only when an
+unmigrated consumer requests it.
 
 ## Evidence
 
@@ -282,6 +286,13 @@ Each result-type migration additionally gates:
   separately reviewed correction; and
 - no public result type lands without its adopting production section or
   query.
+
+The first migration is gated by
+`LibraryBodyAnalysisExecutionTests`,
+`ImplementationProfilesQueryTests`,
+`UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
+`ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
+`MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`.
 
 ## Non-claims
 

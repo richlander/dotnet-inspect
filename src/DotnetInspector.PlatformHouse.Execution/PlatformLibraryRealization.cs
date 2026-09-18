@@ -383,6 +383,8 @@ public static class PlatformHouseLibraryRealizer
             PlatformViewDemand.Reference,
             reference,
             referenceLease,
+            compiledXmlDocumentation: null,
+            compiledXmlDocumentationLease: null,
             implementation: null,
             implementationLease: null,
             correspondence: null,
@@ -411,6 +413,8 @@ public static class PlatformHouseLibraryRealizer
             PlatformViewDemand.ReferenceAndImplementation,
             reference,
             referenceLease,
+            compiledXmlDocumentation: null,
+            compiledXmlDocumentationLease: null,
             implementation,
             implementationLease,
             correspondence,
@@ -435,17 +439,66 @@ public static class PlatformHouseLibraryRealizer
             PlatformViewDemand.Implementation,
             reference: null,
             referenceLease: null,
+            compiledXmlDocumentation: null,
+            compiledXmlDocumentationLease: null,
             implementation,
             implementationLease,
             declarationSurface,
             consumedWork,
             priorContributions);
 
+    internal static PlatformLibraryRealizationResult
+        RealizeReferenceWithCompanion(
+            PlatformHouseRequest request,
+            PlatformLibraryContentSelection reference,
+            ArtifactContentLease referenceLease,
+            ArtifactContentReference? compiledXmlDocumentation,
+            ArtifactContentLease? compiledXmlDocumentationLease,
+            PlatformHouseConsumedWork consumedWork) =>
+        Realize(
+            request,
+            PlatformViewDemand.Reference,
+            reference,
+            referenceLease,
+            compiledXmlDocumentation,
+            compiledXmlDocumentationLease,
+            implementation: null,
+            implementationLease: null,
+            correspondence: null,
+            consumedWork,
+            priorContributions: null);
+
+    internal static PlatformLibraryRealizationResult
+        RealizeReferenceAndImplementationWithCompanion(
+            PlatformHouseRequest request,
+            PlatformLibraryContentSelection reference,
+            ArtifactContentLease referenceLease,
+            PlatformLibraryContentSelection implementation,
+            ArtifactContentLease implementationLease,
+            ArtifactContentReference? compiledXmlDocumentation,
+            ArtifactContentLease? compiledXmlDocumentationLease,
+            PlatformLibraryViewCorrespondence correspondence,
+            PlatformHouseConsumedWork consumedWork) =>
+        Realize(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            reference,
+            referenceLease,
+            compiledXmlDocumentation,
+            compiledXmlDocumentationLease,
+            implementation,
+            implementationLease,
+            correspondence,
+            consumedWork,
+            priorContributions: null);
+
     static PlatformLibraryRealizationResult Realize(
         PlatformHouseRequest request,
         PlatformViewDemand expectedView,
         PlatformLibraryContentSelection? reference,
         ArtifactContentLease? referenceLease,
+        ArtifactContentReference? compiledXmlDocumentation,
+        ArtifactContentLease? compiledXmlDocumentationLease,
         PlatformLibraryContentSelection? implementation,
         ArtifactContentLease? implementationLease,
         PlatformLibraryViewCorrespondence? correspondence,
@@ -493,6 +546,18 @@ public static class PlatformHouseLibraryRealizer
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
                 "platform-library.invalid-content");
+        }
+        if (!ValidCompiledXmlDocumentation(
+                request,
+                reference,
+                compiledXmlDocumentation,
+                compiledXmlDocumentationLease))
+        {
+            return Rejected(
+                request,
+                consumedWork,
+                PlatformHouseRejectionKind.InvalidOwnerResult,
+                "platform-library.invalid-compiled-xml-content");
         }
         if (expectedView == PlatformViewDemand.Implementation
             && correspondence is null)
@@ -552,12 +617,24 @@ public static class PlatformHouseLibraryRealizer
                     api.AssemblyIdentity,
                     runtime?.Content,
                     runtime?.AssemblyIdentity);
+            LibraryCompanionCorrespondence[] companions =
+                compiledXmlDocumentation is null
+                    ? []
+                    :
+                    [
+                        new LibraryCompanionCorrespondence(
+                            compiledXmlDocumentation,
+                            LibraryContentRole
+                                .CompiledXmlDocumentation,
+                            api.Content),
+                    ];
             library = LibraryReference.CreateFromSource(
                 new ExactLibrarySourceCoordinate.Platform(
                     new PlatformLibraryPopulationDeclaration(
                         exact.Target.Family),
                     api.AssemblyIdentity),
-                assemblyCorrespondence);
+                assemblyCorrespondence,
+                companions);
 
             var settlements = new List<PlatformSourceSettlement>(
                 prior.Length + 2);
@@ -619,6 +696,14 @@ public static class PlatformHouseLibraryRealizer
                 children = runtime is null
                     ? [referenceLease!]
                     : [referenceLease!, implementationLease!];
+            }
+            if (compiledXmlDocumentationLease is not null)
+            {
+                children =
+                    [
+                        .. children,
+                        compiledXmlDocumentationLease,
+                    ];
             }
         }
         catch (ArgumentException)
@@ -703,6 +788,44 @@ public static class PlatformHouseLibraryRealizer
                 expectedFacet,
                 selection.Contribution.Capability)
             && ReferenceEquals(lease.Reference, selection.Content);
+    }
+
+    static bool ValidCompiledXmlDocumentation(
+        PlatformHouseRequest request,
+        PlatformLibraryContentSelection? reference,
+        ArtifactContentReference? documentation,
+        ArtifactContentLease? documentationLease)
+    {
+        if (documentation is null
+            || documentationLease is null)
+        {
+            return documentation is null
+                && documentationLease is null;
+        }
+        if (request.Operation
+                is not PlatformHouseOperation.Realize
+                {
+                    ContentDemand: var contentDemand,
+                }
+            || !contentDemand.HasFlag(
+                PlatformLibraryContentDemand
+                    .CompiledXmlDocumentation)
+            || reference is null
+            || documentation.Provenance
+                is not PlatformLibraryArtifactProvenance provenance)
+        {
+            return false;
+        }
+
+        return ReferenceEquals(
+                provenance.Contribution,
+                reference.Contribution)
+            && ReferenceEquals(
+                documentation.Generation,
+                reference.Content.Generation)
+            && ReferenceEquals(
+                documentationLease.Reference,
+                documentation);
     }
 
     static bool ValidCorrespondence(
