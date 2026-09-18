@@ -16,7 +16,13 @@ public sealed record LibraryBodyAnalysisReceipt(
 /// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
-    ImmutableArray<UnsafeEvidence> Evidence);
+    ImmutableArray<UnsafeEvidence> Evidence)
+{
+    /// <summary>Whether unsafe-evidence production participated in this execution.</summary>
+    public bool WasRequested =>
+        Receipt.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+}
 
 /// <summary>
 /// Objective implementation profiles and their supporting whole-library

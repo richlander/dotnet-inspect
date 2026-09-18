@@ -35,6 +35,13 @@ public static class UnsafeEvidenceQuery
 
         try
         {
+            if (!analysis.WasRequested)
+            {
+                throw new InvalidOperationException(
+                    "Unsafe evidence was not requested for this "
+                    + "Analysis execution.");
+            }
+
             return new UnsafeEvidenceResult.Available(
                 analysis.Evidence,
                 analysis.Receipt.Diagnostics);

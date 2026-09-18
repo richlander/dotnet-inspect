@@ -23,6 +23,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.False(
             execution.Safety.Evidence.IsDefault);
         Assert.True(
+            execution.Safety.WasRequested);
+        Assert.True(
             execution.ImplementationProfiles.WasRequested);
         Assert.True(
             execution.Receipt.Features.HasFlag(
@@ -39,6 +41,21 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.NotEmpty(
             execution.ImplementationProfiles
                 .OverloadRelationships);
+    }
+
+    [Fact]
+    public void ExecutePath_DoesNotProduceUnrequestedSafetyEvidence()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.None));
+
+        Assert.False(
+            execution.Safety.WasRequested);
+        Assert.Empty(
+            execution.Safety.Evidence);
     }
 
     [Fact]
