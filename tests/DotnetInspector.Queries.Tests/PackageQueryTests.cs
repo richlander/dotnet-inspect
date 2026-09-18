@@ -138,7 +138,6 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
-                ("depends-prefix", 210),
                 ("downloads", 300),
                 ("readme", 400),
                 ("tool", 500),
@@ -152,7 +151,6 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
-                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -199,16 +197,19 @@ public sealed class PackageQueryTests
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
-        PackageQueryTermDescriptor dependsPrefix =
+        PackageQueryTermDescriptor dependencies =
             PackageQuery.Terms.Single(term =>
-                term.Key == PackageQuery.DependsPrefixTermKey);
-        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, dependsPrefix.Tier);
+                term.Key == PackageQuery.DependenciesTermKey);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, dependencies.Tier);
         Assert.Equal(
-            PackageQueryTermControlKind.Toggle,
-            dependsPrefix.ControlKind);
+            PackageQueryTermControlKind.Choice,
+            dependencies.ControlKind);
         Assert.Equal(
-            ["true"],
-            dependsPrefix.Options.Select(option => option.Value));
+            ["none", "cross-prefix"],
+            dependencies.Options.Select(option => option.Value));
+        Assert.Equal(
+            "dependencies",
+            dependencies.SelectionGroupId);
         PackageQueryTermDescriptor dependencyTarget =
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DependencyTargetTermKey);
@@ -245,9 +246,9 @@ public sealed class PackageQueryTests
         "not/a/package",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
-        "depends-prefix",
+        "dependencies",
         PortableQueryOperator.Equal,
-        "false",
+        "other",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
         "dependency-target",
@@ -348,6 +349,15 @@ public sealed class PackageQueryTests
                     Term(
                         PackageQuery.DependencyTargetTermKey,
                         "net8.0"),
+                ])).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "none"),
+                    Term(PackageQuery.DependenciesTermKey, "CROSS-PREFIX"),
                 ])).Reason);
     }
 
@@ -640,7 +650,7 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DependsPrefixUsesFirstIdSegmentAndRetainsWitnesses()
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseFirstIdSegmentAndRetainWitnesses()
     {
         SearchResult[] candidates =
         [
@@ -678,7 +688,7 @@ public sealed class PackageQueryTests
                 "Microsoft.*",
                 terms:
                 [
-                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
                 ],
                 maximumCandidates: 2,
                 maximumMatches: null));
@@ -695,7 +705,7 @@ public sealed class PackageQueryTests
         PackageQueryEvidence evidence = Assert.Single(
             match.Evidence,
             candidate =>
-                candidate.Id == PackageQuery.DependsPrefixTermKey);
+                candidate.Id == PackageQuery.DependenciesTermKey);
         Assert.Equal(3, evidence.Summary!.Count);
         Assert.Equal(
             [
@@ -713,7 +723,7 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DependsPrefixUsesWholeIdWhenNoDotExists()
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseWholeIdWhenNoDotExists()
     {
         var source = SourceFor(
             Manifest(
@@ -731,7 +741,7 @@ public sealed class PackageQueryTests
                 "Polly*",
                 terms:
                 [
-                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
                 ],
                 maximumCandidates: 1,
                 maximumMatches: 1));
@@ -745,7 +755,7 @@ public sealed class PackageQueryTests
         PackageQueryEvidence evidence = Assert.Single(
             match.Evidence,
             candidate =>
-                candidate.Id == PackageQuery.DependsPrefixTermKey);
+                candidate.Id == PackageQuery.DependenciesTermKey);
 
         Assert.Equal(1, evidence.Summary!.Count);
         Assert.Equal(
@@ -754,7 +764,7 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DependsPrefixUsesSelectedDependencyTarget()
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseSelectedDependencyTarget()
     {
         var source = SourceFor(
             Manifest(
@@ -774,7 +784,7 @@ public sealed class PackageQueryTests
                 "Azure.Identity*",
                 terms:
                 [
-                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
                     Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
                 ],
                 maximumCandidates: 1,
@@ -792,7 +802,7 @@ public sealed class PackageQueryTests
                 "Azure.Identity*",
                 terms:
                 [
-                    Term(PackageQuery.DependsPrefixTermKey, "true"),
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
                     Term(PackageQuery.DependencyTargetTermKey, "net8.0"),
                 ],
                 maximumCandidates: 1,
@@ -806,7 +816,7 @@ public sealed class PackageQueryTests
         Assert.Contains(
             "net8.0: Microsoft.Identity.Client 4.77.0",
             net8Match.Evidence.Single(evidence =>
-                evidence.Id == PackageQuery.DependsPrefixTermKey).Value,
+                evidence.Id == PackageQuery.DependenciesTermKey).Value,
             StringComparison.Ordinal);
     }
 

@@ -334,16 +334,22 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Catalog_ProjectsDependsPrefixAsNuspecPreset()
+    public void Catalog_ProjectsDependenciesAsStableNuspecPresets()
     {
+        BrowserPackageQueryPresetDescriptor[] dependencyPresets =
+            BrowserPackageQueryOperations.Catalog().Presets
+                .Where(candidate =>
+                    candidate.Key == PackageQuery.DependenciesTermKey)
+                .ToArray();
+        Assert.Equal(
+            ["none", "cross-prefix"],
+            dependencyPresets.Select(candidate => candidate.Value));
+
         BrowserPackageQueryPresetDescriptor preset =
-            Assert.Single(
-                BrowserPackageQueryOperations.Catalog().Presets,
-                candidate =>
-                    candidate.Key == PackageQuery.DependsPrefixTermKey);
+            dependencyPresets[1];
 
         Assert.Equal("eq", preset.Operator);
-        Assert.Equal("true", preset.Value);
+        Assert.Equal("cross-prefix", preset.Value);
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.Nuspec,
             preset.Tier);

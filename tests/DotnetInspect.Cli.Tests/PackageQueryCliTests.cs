@@ -37,7 +37,6 @@ public class PackageQueryCliTests
                 PackageQuery.DependenciesTermKey,
                 PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
-                PackageQuery.DependsPrefixTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
                 PackageQuery.ToolTermKey,
@@ -49,6 +48,10 @@ public class PackageQueryCliTests
             ["v1", "v2"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.ToolFormatTermKey).Values);
+        Assert.Equal(
+            ["none", "cross-prefix"],
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.DependenciesTermKey).Values);
     }
 
     [Fact]
@@ -82,12 +85,12 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public void DependsPrefixTerm_LowersToTheProductPlan()
+    public void CrossPrefixDependenciesTerm_LowersToTheProductPlan()
     {
         Assert.True(
             PackageQueryOptions.TryCreate(
                 "Azure.*",
-                ["depends-prefix=true"],
+                ["dependencies=cross-prefix"],
                 nuspecOnly: true,
                 take: null,
                 rowSelection: null,
@@ -97,9 +100,9 @@ public class PackageQueryCliTests
             error.ToString());
 
         PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
-        Assert.Equal(PackageQuery.DependsPrefixTermKey, term.Key);
+        Assert.Equal(PackageQuery.DependenciesTermKey, term.Key);
         Assert.Equal(PortableQueryOperator.Equal, term.Operator);
-        Assert.Equal("true", term.Value);
+        Assert.Equal("cross-prefix", term.Value);
         Assert.True(options.Plan.RequiresManifest);
         Assert.False(options.Plan.RequiresPackageContent);
     }
@@ -273,12 +276,13 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "support equality")]
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
+    [InlineData("depends-prefix=Microsoft.Extensions", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
-    [InlineData("depends-prefix=false", "term value is invalid")]
+    [InlineData("dependencies=other", "term value is invalid")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
-        "requires a depends, depends-prefix, or dependencies term")]
+        "requires a depends or dependencies term")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
@@ -580,12 +584,12 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task DependsPrefixTerm_UsesManifestEvidenceWithoutPackageContent()
+    public async Task CrossPrefixDependenciesTerm_UsesManifestEvidenceWithoutPackageContent()
     {
         using var source = Source(out var fixture);
         var result = await ConsoleCapture.RunAsync(() =>
             PackageQueryCommand.ExecuteAsync(
-                Options("depends-prefix=true"),
+                Options("dependencies=cross-prefix"),
                 source,
                 null));
 

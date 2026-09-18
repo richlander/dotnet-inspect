@@ -46,8 +46,9 @@ Package-content evaluation is product-gated to at most 20 candidates.
 canary.
 
 CLI and Browser now consume the same first production vocabulary:
-`dependencies=none`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `depends-prefix=true`, `downloads=10k|100k|1m`,
+`dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
+`depends=<package-id>`,
+`downloads=10k|100k|1m`,
 `readme=true`,
 `tool=true`, `tool-format=v1|v2`, and `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
@@ -123,10 +124,9 @@ The production inspection vocabulary is:
 
 | Term | Value | Tier | Meaning |
 | --- | --- | --- | --- |
-| `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
+| `dependencies` | `none` or `cross-prefix` | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
 | `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
-| `depends-prefix` | `true` | nuspec | A direct dependency in the selected scope has a different first dot-delimited package-ID segment |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
 | `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
@@ -178,11 +178,11 @@ the dependency-group owner's compatible selection. The plan and evidence
 retain the requested target and selected manifest group separately. A selected
 empty group and a manifest with no dependency groups satisfy
 `dependencies=none`; no matching target framework does not. The target term
-requires at least one `depends`, `depends-prefix`, or `dependencies` term,
+requires at least one `depends` or `dependencies` term,
 applies to all such terms in the query, and does not traverse, resolve version
 ranges, or select package assets.
 
-`depends-prefix=true` derives each package's comparison segment from the text
+`dependencies=cross-prefix` derives each package's comparison segment from the text
 before its first dot, or from the complete ID when no dot is present. It matches
 when the selected dependency scope contains at least one direct declaration
 whose segment differs under case-insensitive NuGet package-ID comparison.
@@ -192,6 +192,11 @@ query population prefix, traverse dependencies, resolve version ranges, inspect
 owners, or acquire package content. `Azure.Core` is a motivating real package:
 its `Azure.*` declarations remain inside the segment while `Microsoft.*`
 declarations are cross-prefix.
+
+`depends-prefix` is not defined by this slice. That spelling remains available
+for a future absolute query such as `depends-prefix=Microsoft.Extensions`,
+which asks a different question from the candidate-relative
+`dependencies=cross-prefix` classification.
 
 ## Adaptive result section
 

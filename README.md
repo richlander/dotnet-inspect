@@ -474,13 +474,13 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
-Use `depends-prefix=true` to find packages with a direct dependency from a
+Use `dependencies=cross-prefix` to find packages with a direct dependency from a
 different first dot-delimited package-ID segment. It uses the same
 `dependency-target` scope and remains nuspec-only:
 
 ```bash
 dotnet-inspect package query 'Azure.*' \
-  --where "depends-prefix=true"
+  --where "dependencies=cross-prefix"
 ```
 
 Add `--where "key=value"` to select product-owned Package Query terms, with one

@@ -55,9 +55,9 @@ internal enum PackageQueryPredicateKind
     Prefix,
     Prerelease,
     NoDependencies,
+    CrossPrefixDependencies,
     DependencyTarget,
     Depends,
-    DependsPrefix,
     Downloads,
     Readme,
     Tool,
@@ -123,6 +123,7 @@ internal sealed class PackageQueryVocabulary
     internal const string VocabularyIdentity = "package-query/v1";
     internal const string PopulationFamily = "population";
     internal const string PrereleaseFamily = "prerelease";
+    internal const string DependenciesFamily = "dependencies";
     internal const string DependencyTargetFamily = "dependency-target";
     internal const string DownloadsFamily = "downloads";
     internal const string ToolFormatFamily = "tool-format";

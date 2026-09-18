@@ -132,7 +132,7 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.IncompatibleTerms =>
             "The selected package-query terms cannot be combined.",
         PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
-            "dependency-target requires a depends, depends-prefix, or dependencies term.",
+            "dependency-target requires a depends or dependencies term.",
         PackageQueryRequestFailureReason.RequiredPopulationMissing =>
             "Package Query requires exactly one package or prefix population term.",
         PackageQueryRequestFailureReason.RequiredPrereleaseMissing =>
@@ -215,8 +215,8 @@ public sealed class PackageQueryPlan
     internal bool HasDependencyPredicate =>
         BoundTerms.Any(term =>
             term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
-                or PackageQueryPredicateKind.Depends
-                or PackageQueryPredicateKind.DependsPrefix);
+                or PackageQueryPredicateKind.CrossPrefixDependencies
+                or PackageQueryPredicateKind.Depends);
     internal bool HasExplicitDependencyTarget =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
@@ -431,7 +431,6 @@ public static partial class PackageQuery
     public const string DependencyTargetTermKey = "dependency-target";
     public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
-    public const string DependsPrefixTermKey = "depends-prefix";
     public const string DownloadsTermKey = "downloads";
     public const string ReadmeTermKey = "readme";
     public const string ToolTermKey = "tool";
@@ -500,21 +499,26 @@ public static partial class PackageQuery
         new(
             DependenciesTermKey,
             "dependencies",
-            "Matches packages with no dependencies in the selected dependency scope.",
+            "Matches dependency absence or package-ID boundary in the selected scope.",
             100,
             PackageQueryAcquisitionTier.Nuspec,
             EqualityOperator,
             "closed value",
             "none",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Toggle)
+            PackageQueryTermControlKind.Choice)
         {
+            SelectionGroupId = PackageQueryVocabulary.DependenciesFamily,
             Options =
             [
                 new(
                     "none",
                     "no dependencies",
                     "The selected dependency scope declares no dependencies."),
+                new(
+                    "cross-prefix",
+                    "cross-prefix dependency",
+                    "The selected dependency scope declares a package from another first dot-delimited ID segment."),
             ],
         },
         new(
@@ -543,26 +547,6 @@ public static partial class PackageQuery
             "Microsoft.Extensions.DependencyInjection",
             PackageQueryTermRole.Inspection,
             PackageQueryTermControlKind.Input),
-        new(
-            DependsPrefixTermKey,
-            "cross-prefix dependency",
-            "Matches a direct dependency whose first dot-delimited package-ID segment differs from the package.",
-            210,
-            PackageQueryAcquisitionTier.Nuspec,
-            EqualityOperator,
-            "boolean",
-            "true",
-            PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Toggle)
-        {
-            Options =
-            [
-                new(
-                    "true",
-                    "cross-prefix dependency",
-                    "The selected dependency scope declares a package from another first dot-delimited ID segment."),
-            ],
-        },
         new(
             DownloadsTermKey,
             "downloads",
@@ -678,8 +662,6 @@ public static partial class PackageQuery
         Key(DependenciesTermKey, BindDependencies),
         Key(DependencyTargetTermKey, BindDependencyTarget),
         Key(DependsTermKey, BindDepends),
-        Key(DependsPrefixTermKey, static (op, value) =>
-            BindBoolean(op, value, PackageQueryPredicateKind.DependsPrefix)),
         Key(DownloadsTermKey, BindDownloads),
         Key(ReadmeTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Readme)),
@@ -809,13 +791,22 @@ public static partial class PackageQuery
 
     private static PortableQueryBinding<PackageQueryPredicate> BindDependencies(
         PortableQueryOperator @operator,
-        string value) =>
-        @operator == PortableQueryOperator.Equal
-        && value.Equals("none", StringComparison.OrdinalIgnoreCase)
-            ? PortableQueryBinding<PackageQueryPredicate>.Bound(
+        string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        return value.ToLowerInvariant() switch
+        {
+            "none" => PortableQueryBinding<PackageQueryPredicate>.Bound(
                 "dependencies:none",
-                new(PackageQueryPredicateKind.NoDependencies))
-            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+                new(PackageQueryPredicateKind.NoDependencies)),
+            "cross-prefix" =>
+                PortableQueryBinding<PackageQueryPredicate>.Bound(
+                    "dependencies:cross-prefix",
+                    new(PackageQueryPredicateKind.CrossPrefixDependencies)),
+            _ => PortableQueryBinding<PackageQueryPredicate>.Rejected,
+        };
+    }
 
     private static PortableQueryBinding<PackageQueryPredicate> BindDepends(
         PortableQueryOperator @operator,
@@ -928,11 +919,11 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Prefix => PrefixTermKey,
             PackageQueryPredicateKind.Prerelease => PrereleaseTermKey,
             PackageQueryPredicateKind.NoDependencies => DependenciesTermKey,
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                DependenciesTermKey,
             PackageQueryPredicateKind.DependencyTarget =>
                 DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
-            PackageQueryPredicateKind.DependsPrefix =>
-                DependsPrefixTermKey,
             PackageQueryPredicateKind.Downloads => DownloadsTermKey,
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
             PackageQueryPredicateKind.Tool => ToolTermKey,
@@ -1493,8 +1484,8 @@ public static partial class PackageQuery
                     ?? throw new InvalidOperationException(
                         "Dependency matching requires one dependency selection."))
                     .Length > 0,
-            PackageQueryPredicateKind.DependsPrefix =>
-                MatchingDependencyPrefixes(
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                MatchingCrossPrefixDependencies(
                     match,
                     dependencySelection
                     ?? throw new InvalidOperationException(
@@ -1594,7 +1585,7 @@ public static partial class PackageQuery
                             dependency))),
         ];
 
-    static PackageQueryDependencyMatch[] MatchingDependencyPrefixes(
+    static PackageQueryDependencyMatch[] MatchingCrossPrefixDependencies(
         PackageQueryPackage package,
         PackageQueryDependencySelection selection) =>
         [
@@ -1781,8 +1772,8 @@ public static partial class PackageQuery
                         StringComparer.Ordinal),
                     "dependency declaration",
                     "dependency declarations"),
-            PackageQueryPredicateKind.DependsPrefix =>
-                DescribeDependencyPrefixes(
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                DescribeCrossPrefixDependencies(
                     package,
                     dependencySelection
                     ?? throw new InvalidOperationException(
@@ -1824,12 +1815,12 @@ public static partial class PackageQuery
         };
     }
 
-    static PackageQueryTermEvidence DescribeDependencyPrefixes(
+    static PackageQueryTermEvidence DescribeCrossPrefixDependencies(
         PackageQueryPackage package,
         PackageQueryDependencySelection selection)
     {
         PackageQueryDependencyMatch[] matches =
-            MatchingDependencyPrefixes(package, selection);
+            MatchingCrossPrefixDependencies(package, selection);
         PackageQueryEvidenceSummary summary =
             SummarizeDependencyMatches(matches);
         PackageQueryTermEvidence declarations =

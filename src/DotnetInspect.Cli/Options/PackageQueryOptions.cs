@@ -63,7 +63,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
-        + "depends-prefix=true matches a dependency from another first ID segment; "
+        + "dependencies=cross-prefix matches a dependency from another first ID segment; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
