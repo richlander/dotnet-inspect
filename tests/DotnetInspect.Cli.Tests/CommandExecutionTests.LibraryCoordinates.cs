@@ -27,11 +27,11 @@ public partial class CommandExecutionTests
 {
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetFlag_ImplicitlySelectsSection()
+    public async Task LibraryCoordinateCommand_ImplicitlySelectsSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -46,7 +46,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateCommand_BareLocalRequestMatchesLegacyILOffset()
+    public async Task LibraryCoordinateCommand_BareLocalRequestRendersMemberContext()
     {
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -54,14 +54,7 @@ public partial class CommandExecutionTests
             ILOpCode.Callvirt);
         string coordinate = $"0x{token:X8}+0x{callOffset:X}";
 
-        var legacy = await RunAppAsync(
-            "library",
-            TestAssemblyPath,
-            "--il-offset",
-            coordinate,
-            "--tips",
-            "q");
-        var child = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "library",
             "coordinate",
             coordinate,
@@ -70,16 +63,17 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(legacy.Exit, child.Exit);
-        Assert.Equal(legacy.Output, child.Output);
-        Assert.Equal(legacy.Error, child.Error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Context: Member", output);
+        Assert.Contains(nameof(SemanticFactsFixture.AllSignals), output);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_BareCountSelectsRenderedLines(
-        bool beforeSubcommand)
+            bool beforeSubcommand)
     {
         string[] args =
             beforeSubcommand
@@ -114,7 +108,7 @@ public partial class CommandExecutionTests
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_ExplicitLinesAcceptsCountPlacement(
-        bool beforeSubcommand)
+            bool beforeSubcommand)
     {
         string[] args =
             beforeSubcommand
@@ -149,7 +143,7 @@ public partial class CommandExecutionTests
     [InlineData("--head")]
     [InlineData("--tail")]
     public async Task LibraryCoordinateCommand_InferredLinesComposeWithRows(
-        string direction)
+            string direction)
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
@@ -454,61 +448,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateCommand_TreeDiscoveryMatchesLegacyILOffset()
+    public async Task LibraryCoordinateCommand_TreeDiscoveryDoesNotRequireLibraryAcquisition()
     {
-        var legacy = await RunAppAsync(
-            "library",
-            "--il-offset",
-            "0x06000001+0x0",
-            "-D",
-            "--schema",
-            "--tree",
-            "--tips",
-            "q");
-        var child = await RunAppAsync(
-            "library",
-            "coordinate",
-            "0x06000001+0x0",
-            "-D",
-            "--schema",
-            "--tree",
-            "--tips",
-            "q");
-
-        Assert.Equal(legacy.Exit, child.Exit);
-        Assert.Equal(legacy.Output, child.Output);
-        Assert.Equal(legacy.Error, child.Error);
-    }
-
-    [Theory]
-    [InlineData("--il-offset", "not-a-coordinate")]
-    [InlineData("--il-offsets", "/definitely/missing-coordinate-file.txt")]
-    [InlineData("--heap", "#Strings:0x1a4")]
-    public async Task LibraryCoordinateCommand_RejectsParentCoordinateModesBeforeAcquisition(
-        string parentOption,
-        string parentValue)
-    {
-        string missingLibrary = Path.Combine(
-            Path.GetTempPath(),
-            $"missing-coordinate-library-{Guid.NewGuid():N}.dll");
-
         var (exit, output, error) = await RunAppAsync(
             "library",
-            parentOption,
-            parentValue,
             "coordinate",
             "0x06000001+0x0",
-            "--library",
-            missingLibrary,
+            "-D",
+            "--schema",
+            "--tree",
             "--tips",
             "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            $"{parentOption} cannot be combined with library coordinate",
-            error);
-        Assert.DoesNotContain(missingLibrary, error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context", output);
+        Assert.Contains("Source Location", output);
     }
 
     [Fact]
@@ -588,8 +543,8 @@ public partial class CommandExecutionTests
     [InlineData("--package=", "--package")]
     [InlineData("--extract-resources:", "--extract-resources")]
     public async Task LibraryCoordinateCommand_RejectsInlineEmptyParentValueBeforeAcquisition(
-        string parentOption,
-        string diagnosticOption)
+            string parentOption,
+            string diagnosticOption)
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
@@ -666,6 +621,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, parent.Exit);
         Assert.Contains("coordinate", parent.Output);
+        Assert.DoesNotContain("--il-offset", parent.Output);
+        Assert.DoesNotContain("--il-offsets", parent.Output);
+        Assert.DoesNotContain("--heap", parent.Output);
         Assert.Empty(parent.Error);
         Assert.Equal(0, child.Exit);
         Assert.Contains("<coordinate>", child.Output);
@@ -731,8 +689,8 @@ public partial class CommandExecutionTests
     [InlineData("--tsv")]
     [InlineData("--json")]
     [InlineData("--jsonl")]
-    public async Task LibraryCoordinateCommand_FileMatchesLegacyForValidCoordinates(
-        string format)
+    public async Task LibraryCoordinateCommand_FileSupportsEveryTabularFormat(
+            string format)
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -746,15 +704,7 @@ public partial class CommandExecutionTests
             TestContext.Current.CancellationToken);
         try
         {
-            var legacy = await RunAppAsync(
-                "library",
-                TestAssemblyPath,
-                "--il-offsets",
-                path,
-                format,
-                "--tips",
-                "q");
-            var child = await RunAppAsync(
+            var (exit, output, error) = await RunAppAsync(
                 "library",
                 "coordinate",
                 "--file",
@@ -765,9 +715,9 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(legacy.Exit, child.Exit);
-            Assert.Equal(legacy.Output, child.Output);
-            Assert.Equal(legacy.Error, child.Error);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.NotEmpty(output);
         }
         finally
         {
@@ -911,51 +861,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_LegacyFileKeepsMalformedRowsFirst()
-    {
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            $"coords-{Guid.NewGuid():N}.txt");
-        await File.WriteAllTextAsync(
-            path,
-            """
-            first 0x06000001+0x1
-            malformed record
-            last 0x06000002+0x0
-            """,
-            TestContext.Current.CancellationToken);
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "library",
-                TestAssemblyPath,
-                "--il-offsets",
-                path,
-                "--json",
-                "--tips",
-                "q");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(error);
-            using var document = JsonDocument.Parse(output);
-            JsonElement[] rows = document.RootElement
-                .GetProperty("rows")
-                .EnumerateArray()
-                .ToArray();
-            Assert.Equal(3, rows.Length);
-            Assert.Equal(
-                $"{path}:2",
-                rows[0].GetProperty("label").GetString());
-            Assert.Equal("first", rows[1].GetProperty("label").GetString());
-            Assert.Equal("last", rows[2].GetProperty("label").GetString());
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
     public async Task LibraryCoordinateCommand_FileWindowsSourceRecordOrder()
     {
         var path = Path.Combine(
@@ -1015,7 +920,7 @@ public partial class CommandExecutionTests
     [InlineData(false)]
     [InlineData(true)]
     public async Task LibraryCoordinateCommand_FileBareLimitSelectsRows(
-        bool beforeSubcommand)
+            bool beforeSubcommand)
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -1110,46 +1015,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task LibraryCommand_LegacyFileUsesCoordinatePopulationLimit()
-    {
-        string coordinatePath = Path.Combine(
-            Path.GetTempPath(),
-            $"coords-{Guid.NewGuid():N}.txt");
-        await File.WriteAllLinesAsync(
-            coordinatePath,
-            Enumerable
-                .Range(
-                    1,
-                    ILOffsetQuery.MaximumCoordinatePopulation + 1)
-                .Select(index => $"malformed-{index}"),
-            TestContext.Current.CancellationToken);
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "library",
-                TestAssemblyPath,
-                "--il-offsets",
-                coordinatePath,
-                "--tips",
-                "q");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("1,024-record limit", error);
-            Assert.Contains(
-                $"{coordinatePath}:1025",
-                error,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(coordinatePath);
-        }
-    }
-
-    [Fact]
-    public async Task LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput()
+    [Theory]
+    [InlineData("--schema")]
+    [InlineData("Context: Member")]
+    [InlineData("@Context")]
+    public async Task LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput(
+            string discovery)
     {
         string missingCoordinates = Path.Combine(
             Path.GetTempPath(),
@@ -1166,8 +1037,7 @@ public partial class CommandExecutionTests
             "--library",
             missingLibrary,
             "-D",
-            "--schema",
-            "--tree",
+            discovery,
             "--tips",
             "q");
 
@@ -1179,7 +1049,466 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput()
+    {
+        string missingCoordinates = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-coordinates-{Guid.NewGuid():N}.txt");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "--file",
+            missingCoordinates,
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "Context: Member",
+            "--effective",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Coordinate file not found", error);
+        Assert.Contains(missingCoordinates, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryPreservesFailureDetails()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            "0x06FFFFFF+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "@Context",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("0x06FFFFFF+0x0", error);
+            Assert.Contains("Could not resolve member context", error);
+            Assert.Contains("MethodDef row", error);
+            Assert.DoesNotContain(": could not resolve.", error);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Theory]
+    [InlineData("0x06000001+0x0", "Context: Member")]
+    [InlineData("#Strings:0x1", "@Context")]
+    public async Task LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary(
+            string coordinate,
+            string discovery)
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-library-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            coordinate,
+            "--library",
+            missingLibrary,
+            "-D",
+            discovery,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+        Assert.DoesNotContain(missingLibrary, output);
+    }
+
+    [Theory]
+    [InlineData("Context: Member", "Member")]
+    [InlineData("@Context", "Context: Member")]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery(
+            string discovery,
+            string expected)
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            "0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                discovery,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(expected, output);
+            Assert.DoesNotContain("## IL Coordinates", output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                "0x06000001+0x0",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) =
+                await RunAppAsync(
+                    "library",
+                    "coordinate",
+                    "--file",
+                    coordinatePath,
+                    "--platform",
+                    "System.Text.Json",
+                    "-D",
+                    "@Context",
+                    "--effective",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain(
+                "Context: Callsite",
+                singleOutput,
+                StringComparison.Ordinal);
+
+            await File.WriteAllLinesAsync(
+                coordinatePath,
+                ["0x06000001+0x0", "0x06000001+0x1"],
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) =
+                await RunAppAsync(
+                    "library",
+                    "coordinate",
+                    "--file",
+                    coordinatePath,
+                    "--platform",
+                    "System.Text.Json",
+                    "-D",
+                    "@Context",
+                    "--effective",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains(
+                "Context: Callsite",
+                unionOutput,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(
+            coordinatePath,
+            ["0x06000001+0x2", "0x06000001+0x0"],
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "@Context",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Context: Member", output);
+            Assert.Contains("Context: Instruction", output);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCoordinateCommand_FileEffectiveDiscoveryRejectsOffsetOutsideMethodExtent()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            "0x06000001+0x7FFFFFFF",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "@Context",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "outside the decoded method body",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields()
+    {
+        var (token, offset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{token:X8}+0x{offset:X}",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Instruction",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Operand Token | field |", output);
+            Assert.DoesNotContain("| Branch Targets | field |", output);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersListFields()
+    {
+        int catchToken = typeof(ILOffsetExceptionFixture)
+            .GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!
+            .MetadataToken;
+        int filterToken = typeof(ILOffsetExceptionFixture)
+            .GetMethod(nameof(ILOffsetExceptionFixture.FilteredCatch))!
+            .MetadataToken;
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{catchToken:X8}+0x1",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Exception",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain("| Filter Range | column |", singleOutput);
+
+            await File.AppendAllTextAsync(
+                coordinatePath,
+                $"{Environment.NewLine}0x{filterToken:X8}+0x1",
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Exception",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains("| Filter Range | column |", unionOutput);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields()
+    {
+        var (syncToken, syncOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (asyncToken, asyncOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AsyncVirtualDispatch),
+            ILOpCode.Call);
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x{syncToken:X8}+0x{syncOffset:X}",
+                TestContext.Current.CancellationToken);
+            var (singleExit, singleOutput, singleError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Member",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, singleExit);
+            Assert.Empty(singleError);
+            Assert.DoesNotContain("| Async | field |", singleOutput);
+
+            await File.AppendAllTextAsync(
+                coordinatePath,
+                $"{Environment.NewLine}0x{asyncToken:X8}+0x{asyncOffset:X}",
+                TestContext.Current.CancellationToken);
+            var (unionExit, unionOutput, unionError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                "Context: Member",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, unionExit);
+            Assert.Empty(unionError);
+            Assert.Contains("| Async | field |", unionOutput);
+
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x06000001+0x0{Environment.NewLine}0x06000001+0x1",
+                TestContext.Current.CancellationToken);
+            var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "Context: Source Location",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, sourceExit);
+            Assert.Empty(sourceError);
+            Assert.Contains("| Matched Offset | field |", sourceOutput);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileRendersCoordinateSummary()
     {
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -1200,7 +1529,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1221,24 +1551,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    public async Task LibraryCoordinateCommand_FileRejectsMissingFileBeforeLibraryAcquisition()
+    {
+        string missingCoordinatesPath =
+            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.txt");
+        string missingLibraryPath =
+            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "--file",
+            missingCoordinatesPath,
+            "--library",
+            missingLibraryPath,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Coordinate file not found: {missingCoordinatesPath}",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(missingLibraryPath, error);
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates()
     {
         string tempDir = Directory.CreateTempSubdirectory(
             "library-descriptor-direct-").FullName;
         string malformedPath = Path.Combine(tempDir, "Malformed.dll");
-        string missingCoordinatesPath =
-            Path.Combine(tempDir, "missing-coordinates.txt");
+        string coordinatesPath =
+            Path.Combine(tempDir, "coordinates.txt");
         try
         {
             WriteTruncatedMetadataTableAssembly(
                 TestAssemblyPath,
                 malformedPath);
+            await File.WriteAllTextAsync(
+                coordinatesPath,
+                "0x06000001+0x0\n",
+                TestContext.Current.CancellationToken);
 
             var (exit, output, error) = await RunAppAsync(
                 "library",
+                "coordinate",
+                "--file",
+                coordinatesPath,
+                "--library",
                 malformedPath,
-                "--il-offsets",
-                missingCoordinatesPath,
                 "--tips",
                 "q");
 
@@ -1249,7 +1612,6 @@ public partial class CommandExecutionTests
                 "selected managed assembly contains invalid metadata",
                 error,
                 StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("IL offsets file not found", error);
         }
         finally
         {
@@ -1258,7 +1620,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    public async Task LibraryCoordinateCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates()
     {
         string tempDir = Directory.CreateTempSubdirectory(
             "library-descriptor-package-").FullName;
@@ -1275,17 +1637,23 @@ public partial class CommandExecutionTests
             tempDir,
             "Malformed.Package.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(content, packagePath);
-        string missingCoordinatesPath =
-            Path.Combine(tempDir, "missing-coordinates.txt");
+        string coordinatesPath =
+            Path.Combine(tempDir, "coordinates.txt");
         try
         {
+            await File.WriteAllTextAsync(
+                coordinatesPath,
+                "0x06000001+0x0\n",
+                TestContext.Current.CancellationToken);
             var (exit, output, error) = await RunAppAsync(
                 "library",
-                "Malformed.dll",
+                "coordinate",
+                "--file",
+                coordinatesPath,
                 "--package",
                 packagePath,
-                "--il-offsets",
-                missingCoordinatesPath,
+                "--library",
+                "Malformed.dll",
                 "--tips",
                 "q");
 
@@ -1296,7 +1664,6 @@ public partial class CommandExecutionTests
                 "selected managed assembly contains invalid metadata",
                 error,
                 StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("IL offsets file not found", error);
         }
         finally
         {
@@ -1305,7 +1672,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates()
+    public async Task LibraryCoordinateCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates()
     {
         string? originalDotnetRoot =
             Environment.GetEnvironmentVariable("DOTNET_ROOT");
@@ -1324,21 +1691,26 @@ public partial class CommandExecutionTests
         WriteTruncatedMetadataTableAssembly(
             TestAssemblyPath,
             malformedPath);
-        string missingCoordinatesPath =
-            Path.Combine(tempDir, "missing-coordinates.txt");
+        string coordinatesPath =
+            Path.Combine(tempDir, "coordinates.txt");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_ROOT", tempDir);
+            await File.WriteAllTextAsync(
+                coordinatesPath,
+                "0x06000001+0x0\n",
+                TestContext.Current.CancellationToken);
             var (exit, output, error) = await RunAppAsync(
                 "library",
+                "coordinate",
+                "--file",
+                coordinatesPath,
                 "--platform",
                 "Malformed.Platform",
                 "--framework",
                 "runtime",
                 "--version",
                 Version,
-                "--il-offsets",
-                missingCoordinatesPath,
                 "--tips",
                 "q");
 
@@ -1349,7 +1721,6 @@ public partial class CommandExecutionTests
                 "selected managed assembly contains invalid metadata",
                 error,
                 StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("IL offsets file not found", error);
         }
         finally
         {
@@ -1361,7 +1732,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
+    public async Task LibraryCoordinateCommand_FilePrefersExactOperationIdentity()
     {
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -1388,7 +1759,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--json", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1412,7 +1784,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
+    public async Task LibraryCoordinateCommand_FileRejectsBadCoordinateLine()
     {
         var (token, callOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
@@ -1428,7 +1800,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(error);
@@ -1444,14 +1817,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetsFile_JsonUsesSnakeCaseEnvelope()
+    public async Task LibraryCoordinateCommand_FileJsonUsesSnakeCaseEnvelope()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path, "sample 0x06000001+0x1", TestContext.Current.CancellationToken);
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--json", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--json", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1467,11 +1841,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SourceLocationSectionSelector_UsesFlagParameter()
+    public async Task LibraryCoordinateCommand_SourceLocationSectionSelectorUsesCoordinate()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json",
+            "-S", "Context: Source Location", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1487,8 +1862,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LegacyILOffsetSectionSelector_ResolvesSourceLocation()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "IL Offset", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "IL Offset", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1505,7 +1880,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("IL coordinate sections require --il-offset", error);
+        Assert.Contains(
+            "IL coordinate sections require library coordinate",
+            error);
     }
 
     [Fact]
@@ -1517,7 +1894,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("IL coordinate sections require --il-offset", error);
+        Assert.Contains(
+            "IL coordinate sections require library coordinate",
+            error);
     }
 
     [Fact]
@@ -1530,7 +1909,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Library Info", output);
         Assert.DoesNotContain("## Context: Member", output);
-        Assert.DoesNotContain("IL coordinate sections require --il-offset", error);
+        Assert.DoesNotContain(
+            "IL coordinate sections require library coordinate",
+            error);
     }
 
     [Fact]
@@ -1539,8 +1920,8 @@ public partial class CommandExecutionTests
         var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
             "library", "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
         var (withExit, withOutput, withError) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-D", "--table", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
 
         Assert.Equal(0, withoutExit);
         Assert.Equal(0, withExit);
@@ -1558,8 +1939,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Context: Instruction", withOutput);
 
         var (contextExit, contextOutput, contextError) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-D", "@Context", "--table", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-D", "@Context", "--table", "--tips", "q");
         Assert.Equal(0, contextExit);
         Assert.Empty(contextError);
         Assert.Contains("Context: Source Location", contextOutput);
@@ -1571,8 +1952,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetMemberContext_RendersMemberFacts()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Member", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1589,8 +1970,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetMemberContext_ValueProjectsType()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Member", "--fields", "Type", "--value", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--fields", "Type", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1601,8 +1982,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetInstructionContext_RendersInstructionFacts()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Instruction", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1618,8 +1999,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetInstructionContext_ValueProjectsOpcode()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Instruction", "--fields", "Opcode", "--value", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--fields", "Opcode", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1630,8 +2011,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetInstructionContext_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Context: Instruction", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x2",
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1642,8 +2023,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetBareReport_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x2",
+            "--platform", "System.Text.Json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1654,8 +2035,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetMemberContext_AllowsNonInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Context: Member", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x2",
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1669,8 +2050,8 @@ public partial class CommandExecutionTests
     {
         var token = typeof(ILOffsetFloatFixture).GetMethod(nameof(ILOffsetFloatFixture.FloatConstant))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Instruction", "--fields", "Operand", "--value", "--tips", "q");
+            "library", "coordinate", $"0x{token:X}+0x0",
+            "--library", TestAssemblyPath, "-S", "Context: Instruction", "--fields", "Operand", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1682,8 +2063,8 @@ public partial class CommandExecutionTests
     {
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x1", "-S", "Context: Exception", "--tips", "q");
+            "library", "coordinate", $"0x{token:X}+0x1",
+            "--library", TestAssemblyPath, "-S", "Context: Exception", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1698,8 +2079,8 @@ public partial class CommandExecutionTests
     {
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x1", "-S", "Context: Exception", "--fields", "Clause", "--value", "--tips", "q");
+            "library", "coordinate", $"0x{token:X}+0x1",
+            "--library", TestAssemblyPath, "-S", "Context: Exception", "--fields", "Clause", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1710,8 +2091,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetCallsiteContext_RendersCallsite()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x1", "-S", "Context: Callsite", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x1",
+            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1727,8 +2108,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetCallsiteContext_ValueProjectsCallee()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x1", "-S", "Context: Callsite", "--fields", "Callee", "--value", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x1",
+            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--fields", "Callee", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1739,8 +2120,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetReturnAddressContext_RendersPreviousCall()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x6", "-S", "Context: Return Address", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x6",
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1755,8 +2136,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetReturnAddressContext_ValueProjectsCallOffset()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x6", "-S", "Context: Return Address", "--fields", "Call Offset", "--value", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x6",
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--fields", "Call Offset", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1767,8 +2148,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetReturnAddressContext_RequiresInstructionBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Context: Return Address", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x2",
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1780,8 +2161,8 @@ public partial class CommandExecutionTests
     {
         var token = typeof(ILOffsetFunctionPointerFixture).GetMethod(nameof(ILOffsetFunctionPointerFixture.CreateDelegate))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x10", "-S", "Context: Return Address", "--tips", "q");
+            "library", "coordinate", $"0x{token:X}+0x10",
+            "--library", TestAssemblyPath, "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1794,8 +2175,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetCount_ReturnsSingletonLocationCount()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--count", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1806,14 +2187,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetContextCountsUseTypedRows()
     {
         var scalar = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0",
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json",
             "-S", "Context: Member",
             "--fields", "Type", "--rows", "2..2",
             "--count", "--tips", "q");
         var map = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0",
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json",
             "-S", "Context: Member,Context: Instruction",
             "--count", "--json", "--tips", "q");
 
@@ -1834,8 +2215,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetCountPreservesProjectionKind()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0",
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json",
             "-S", "Context: Member,Performance: Boxing",
             "--columns", "Member",
             "--count", "--json", "--tips", "q");
@@ -1856,8 +2237,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetCountPreservesStructuralWildcard()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0",
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json",
             "-S", "Context: Member",
             "--columns", "*",
             "--count", "--tips", "q");
@@ -1883,13 +2264,13 @@ public partial class CommandExecutionTests
         string coordinate = $"0x{method.MetadataToken:X}+0x{offset:X}";
 
         var scalar = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", coordinate,
+            "library", "coordinate", coordinate,
+            "--library", TestAssemblyPath,
             "-S", "Context: Exception",
             "--count", "--tips", "q");
         var windowed = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", coordinate,
+            "library", "coordinate", coordinate,
+            "--library", TestAssemblyPath,
             "-S", "Context: Exception",
             "--rows", "2..2",
             "--count", "--tips", "q");
@@ -1909,8 +2290,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetValue_ProjectsResolvedLine()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--fields", "Line", "--value", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--fields", "Line", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1921,8 +2302,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetPrint_PrintsResolvedSourceLine()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--print", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1934,8 +2315,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetPrintJsonArray_EmitsPrintableDocument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--print", "--json-array", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--print", "--json-array", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1945,13 +2326,12 @@ public partial class CommandExecutionTests
         Assert.Contains("CharToHexLookup", output);
     }
 
-
     [Fact]
     public async Task LibraryCommand_IlOffsetCountRejectsPrint()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--count", "--print", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Context: Source Location", "--count", "--print", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1992,14 +2372,16 @@ public partial class CommandExecutionTests
             "-S", "Context: Source Location", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("IL coordinate sections require --il-offset", error);
+        Assert.Contains(
+            "IL coordinate sections require library coordinate",
+            error);
     }
 
     [Theory]
     [InlineData("@Context")]
     [InlineData("Context:*")]
     public async Task LibraryCommand_IlOffsetOnlySelectionWithoutValue_DoesNotBecomeDefaultView(
-        string selector)
+            string selector)
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
@@ -2007,7 +2389,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("IL coordinate sections require --il-offset", error);
+        Assert.Contains(
+            "IL coordinate sections require library coordinate",
+            error);
     }
 
     [Fact]
@@ -2018,7 +2402,9 @@ public partial class CommandExecutionTests
             "-S", "Context: Source Location:0x06000001+0x0", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("IL offset parameters belong in --il-offset", error);
+        Assert.Contains(
+            "IL coordinate parameters belong in the coordinate argument",
+            error);
     }
 
     [Fact]
@@ -2037,29 +2423,12 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetFlag_ErrorsWhenSelectedSectionsExcludeILOffset()
     {
         var (exit, _, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Library Info", "--tips", "q");
+            "library", "coordinate", "0x06000001+0x0",
+            "--platform", "System.Text.Json", "-S", "Library Info", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("--il-offset requires an IL coordinate section", error);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_DiscoveryDoesNotBypassILOffsetBatchRejection()
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-        var missingCoordinatesPath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.txt");
-
-        var (exit, output, error) = await RunAppAsync(
-            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
-            "-D", "--il-offsets", missingCoordinatesPath, "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--tfm all", error);
-        Assert.Contains("--il-offsets", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "library coordinate requires an IL coordinate section",
+            error);
     }
 }

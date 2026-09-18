@@ -56,6 +56,12 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
+                    StructuralViewIdentity.LibraryCoordinate,
+                    "library coordinate",
+                    "coordinate",
+                    ImmutableArray.Create(
+                        InspectionCatalogIdentity.Library)),
+                (
                     StructuralViewIdentity.Type,
                     TypeCommand.Name,
                     "type",
@@ -97,16 +103,33 @@ public sealed class InspectionPlanningTests
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.DirectLibrary,
                     InspectionCatalogIdentity.Library));
+        StructuralSchemaProjection coordinate =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.LibraryCoordinate,
+                    InspectionCatalogIdentity.Library));
 
         Assert.Contains(
             SectionNames.PerformanceBoxing,
             packageLibrary.Schema.SectionNames);
-        Assert.Contains(
+        Assert.DoesNotContain(
             SectionNames.ILOffset,
+            directLibrary.Schema.SectionNames);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Heap,
             directLibrary.Schema.SectionNames);
         Assert.Contains(
             SectionNames.BodyShapes,
             directLibrary.Schema.SectionNames);
+        Assert.Contains(
+            SectionNames.ILOffset,
+            coordinate.Schema.SectionNames);
+        Assert.Contains(
+            MetadataSectionNames.Heap,
+            coordinate.Schema.SectionNames);
+        Assert.DoesNotContain(
+            SectionNames.BodyShapes,
+            coordinate.Schema.SectionNames);
         Assert.DoesNotContain(
             SectionNames.ILOffset,
             packageLibrary.Schema.SectionNames);
