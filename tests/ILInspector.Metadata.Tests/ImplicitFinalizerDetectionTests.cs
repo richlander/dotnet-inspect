@@ -195,6 +195,40 @@ public class ImplicitFinalizerDetectionTests
     }
 
     [Fact]
+    public void OrdinaryMethods_DoNotRescanMethodImplementationsForFinalizerDetection()
+    {
+        const int methodCount = 64;
+        string namePrefix = new('M', 1_020);
+        MethodSpec[] methods = Enumerable.Range(0, methodCount)
+            .Select(index => new MethodSpec(
+                $"{namePrefix}{index:D4}",
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                VoidNullary,
+                ExplicitObjectFinalizeOverride: true,
+                UseMemberReferenceBody: true))
+            .ToArray();
+        using var stream = new MemoryStream(
+            BuildImage(new TypeSpec("Handle", BaseKind.Object, methods)));
+        using var peReader = new PEReader(stream);
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 64,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: 1_000,
+                    maxRetainedTextCharacters: 1_000_000)));
+
+        Assert.Equal(
+            methodCount,
+            Assert.Single(extracted.Surface.Types).Members.Count);
+    }
+
+    [Fact]
     public void ImplicitOverride_WalksPastReuseSlotBase_IsClassifiedAsFinalizer()
     {
         // VbBase overrides object.Finalize (reuse-slot); VbDerived overrides again.
@@ -324,7 +358,21 @@ public class ImplicitFinalizerDetectionTests
         byte[]? ExplicitObjectFinalizeSignature = null,
         bool UseMemberReferenceBody = false);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
+    sealed record TypeSpec(
+        string Name,
+        BaseKind Base,
+        IReadOnlyList<MethodSpec> Methods,
+        string? Namespace = null)
+    {
+        public TypeSpec(
+            string name,
+            BaseKind @base,
+            MethodSpec method,
+            string? Namespace = null)
+            : this(name, @base, [method], Namespace)
+        {
+        }
+    }
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
@@ -402,41 +450,43 @@ public class ImplicitFinalizerDetectionTests
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(methodRow));
             defHandles[types[i].Name] = handle;
-            methodRow++;
+            methodRow += types[i].Methods.Count;
         }
 
         foreach (var type in types)
         {
-            var spec = type.Method;
-            MethodDefinitionHandle method =
-                metadata.AddMethodDefinition(
-                spec.Attributes,
-                MethodImplAttributes.IL,
-                metadata.GetOrAddString(spec.Name),
-                metadata.GetOrAddBlob(spec.Signature),
-                bodyOffset,
-                parameterList: MetadataTokens.ParameterHandle(1));
-            if (spec.ExplicitObjectFinalizeOverride)
+            foreach (var spec in type.Methods)
             {
-                MemberReferenceHandle objectFinalize =
-                    metadata.AddMemberReference(
-                        objectRef,
-                        metadata.GetOrAddString("Finalize"),
-                        metadata.GetOrAddBlob(
-                            spec.ExplicitObjectFinalizeSignature
-                                ?? VoidNullary));
-                EntityHandle implementationBody = method;
-                if (spec.UseMemberReferenceBody)
-                {
-                    implementationBody = metadata.AddMemberReference(
-                        defHandles[type.Name],
+                MethodDefinitionHandle method =
+                    metadata.AddMethodDefinition(
+                        spec.Attributes,
+                        MethodImplAttributes.IL,
                         metadata.GetOrAddString(spec.Name),
-                        metadata.GetOrAddBlob(spec.Signature));
+                        metadata.GetOrAddBlob(spec.Signature),
+                        bodyOffset,
+                        parameterList: MetadataTokens.ParameterHandle(1));
+                if (spec.ExplicitObjectFinalizeOverride)
+                {
+                    MemberReferenceHandle objectFinalize =
+                        metadata.AddMemberReference(
+                            objectRef,
+                            metadata.GetOrAddString("Finalize"),
+                            metadata.GetOrAddBlob(
+                                spec.ExplicitObjectFinalizeSignature
+                                    ?? VoidNullary));
+                    EntityHandle implementationBody = method;
+                    if (spec.UseMemberReferenceBody)
+                    {
+                        implementationBody = metadata.AddMemberReference(
+                            defHandles[type.Name],
+                            metadata.GetOrAddString(spec.Name),
+                            metadata.GetOrAddBlob(spec.Signature));
+                    }
+                    metadata.AddMethodImplementation(
+                        defHandles[type.Name],
+                        implementationBody,
+                        objectFinalize);
                 }
-                metadata.AddMethodImplementation(
-                    defHandles[type.Name],
-                    implementationBody,
-                    objectFinalize);
             }
         }
 

@@ -1203,17 +1203,19 @@ public static partial class ApiSurfaceExtractor
                 //     with NO MethodImpl — it reuses the inherited object.Finalize
                 //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
                 //     that slot roots at `System.Object` over metadata alone.
+                // Keep the declaration-shape check before the per-type MethodImpl
+                // scan so ordinary methods stay off that path.
                 var isFinalizer = apiType.Kind == "class"
                     && (objectFinalizeOverrides.Contains(methodHandle)
-                        || !HasMethodImplementationBody(
+                        || IsImplicitObjectFinalizeOverride(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            observeDecodeWork)
+                        && !HasMethodImplementationBody(
                             reader,
                             typeDef,
                             methodHandle,
-                            method,
-                            observeDecodeWork)
-                        && IsImplicitObjectFinalizeOverride(
-                            reader,
-                            typeDefHandle,
                             method,
                             observeDecodeWork));
                 var modifiers = ApiMethodModifiers.FromAttributes(
