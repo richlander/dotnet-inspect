@@ -405,8 +405,8 @@ function harness() {
   const workspaceLocation = createWorkspaceLocationPersistence({
     current: () => location,
     decode,
-    encode: json => {
-      encoded.push(JSON.parse(json));
+    encode: shareState => {
+      encoded.push(structuredClone(shareState));
       return controls.encodeResult;
     },
     push: (url, entryState) => {

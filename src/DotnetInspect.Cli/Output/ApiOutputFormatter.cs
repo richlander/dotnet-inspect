@@ -561,11 +561,11 @@ public static class ApiOutputFormatter
             Package = showProvenance ? packageName : null,
             Version = showProvenance ? packageVersion : null,
             Source = showProvenance ? apiSource : null,
-            SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            SourceUrl = SelectSourceUrl(type.SourceUrl, options.PreferRenderedUrls),
             SourceFilePath = type.SourceFilePath,
             SourceChecksum = type.SourceChecksum,
             SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
-            AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),
+            AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.PreferRenderedUrls),
             Tfm = showProvenance ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
@@ -1150,7 +1150,7 @@ public static class ApiOutputFormatter
                 member.SourceFilePath is null ? null : MarkoutInline.Code(member.SourceFilePath),
                 member.SourceLineNumber,
                 endLine,
-                SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
+                SelectSourceUrl(member.SourceUrl, options.PreferRenderedUrls))
             {
                 FilePath = member.SourceFilePath,
                 Checksum = member.SourceChecksum,
@@ -1161,19 +1161,19 @@ public static class ApiOutputFormatter
         view.SourceLocationRows = rows;
     }
 
-    private static string? SelectSourceUrl(string? url, bool browsableUrls)
-        => browsableUrls && url != null
+    private static string? SelectSourceUrl(string? url, bool preferRenderedUrls)
+        => preferRenderedUrls && url != null
             ? GitHubUrlResolver.ConvertRawToBlobUrl(url)
             : url;
 
     private static List<PartialSourceFileInfo> SelectSourceFiles(
         List<PartialSourceFileInfo> files,
-        bool browsableUrls)
-        => browsableUrls
+        bool preferRenderedUrls)
+        => preferRenderedUrls
             ? files.Select(file => new PartialSourceFileInfo
             {
                 FilePath = file.FilePath,
-                SourceUrl = SelectSourceUrl(file.SourceUrl, browsableUrls),
+                SourceUrl = SelectSourceUrl(file.SourceUrl, preferRenderedUrls),
                 GitHubBrowseUrl = file.GitHubBrowseUrl,
                 SourceChecksum = file.SourceChecksum,
                 SourceChecksumAlgorithm = file.SourceChecksumAlgorithm,

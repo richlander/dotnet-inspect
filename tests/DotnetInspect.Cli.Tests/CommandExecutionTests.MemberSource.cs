@@ -2064,11 +2064,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceLocations_BlobUrls_RendersBrowserUrls()
+    public async Task Member_SourceLocations_PreferRenderedUrls_RendersBrowserUrls()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2077,11 +2077,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceLocations_RawOverridesBlob()
+    public async Task Member_SourceLocations_DefaultUsesFetchableUrls()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--blob", "--raw", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
