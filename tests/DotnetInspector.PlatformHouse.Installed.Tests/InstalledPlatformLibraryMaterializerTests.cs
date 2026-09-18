@@ -737,6 +737,83 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
+        InstalledEmptyReferenceDocumentation_RemainsExactPlatformCandidate()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string referencePath = FindReferenceAssembly(
+            "System.Text.Json.dll");
+        string referencePack = hive.CreateReferencePack();
+        hive.CopyAssembly(referencePack, referencePath);
+        File.WriteAllBytes(
+            Path.Combine(
+                referencePack,
+                "System.Text.Json.xml"),
+            []);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = Request(
+            adapter,
+            ReadIdentity(referencePath),
+            PlatformViewDemand.Reference,
+            cancellationToken,
+            includeCompiledXmlDocumentation: true);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        InstalledReferenceLibrary sourceLibrary =
+            Assert.Single(reference.Value.Libraries);
+        Assert.Equal(
+            0,
+            Assert.IsType<InstalledReferenceDocumentation>(
+                    sourceLibrary.Documentation)
+                .ContentLength);
+        var completed = Assert.IsType<
+            InstalledPlatformLibraryMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeReferenceAsync(
+                        request,
+                        reference,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 1,
+                            bytes:
+                                sourceLibrary
+                                    .TotalContentLength,
+                            xmlDocuments: 1)));
+        try
+        {
+            LibraryReference library =
+                completed.Library.Value.Reference;
+            CompiledXmlContribution contribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Library.Receipt,
+                        Subject(completed.Library));
+
+            Assert.Equal(
+                CompiledXmlContributionKind.Candidate,
+                contribution.Kind);
+            using LibraryOperationLease operation = Issued(
+                completed.Library.Owner,
+                library);
+            Assert.Equal(
+                0,
+                operation.Snapshot(
+                    contribution.CompiledXmlContent!,
+                    static (view, _) => view.Content.Length,
+                    cancellationToken));
+        }
+        finally
+        {
+            await completed.Library.Owner.DisposeAsync();
+            await completed.Artifacts.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task
         RequestedMissingReferenceDocumentation_IsAuthoritativelyAbsent()
     {
         CancellationToken cancellationToken =

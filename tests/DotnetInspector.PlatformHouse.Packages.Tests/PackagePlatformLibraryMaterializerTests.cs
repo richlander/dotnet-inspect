@@ -1062,6 +1062,80 @@ public sealed class PackagePlatformLibraryMaterializerTests
     }
 
     [Fact]
+    public async Task
+        InMemoryEmptyReferenceDocumentation_RemainsExactPlatformCandidate()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] referenceImage = await File.ReadAllBytesAsync(
+            FindReferenceAsset("System.Text.Json.dll"),
+            cancellationToken);
+        await using PackagePlatformTestEnvironment environment =
+            Environment(
+                referenceImage,
+                referenceDocumentation: []);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(referenceImage),
+            PlatformViewDemand.Reference,
+            cancellationToken,
+            includeCompiledXmlDocumentation: true);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        PackageReferenceLibrary sourceLibrary =
+            Assert.Single(reference.Value.Libraries);
+        Assert.Equal(
+            0,
+            Assert.IsType<PackageReferenceDocumentation>(
+                    sourceLibrary.Documentation)
+                .ContentLength);
+        var completed = Assert.IsType<
+            PackagePlatformLibraryMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+        try
+        {
+            LibraryReference library =
+                completed.Library.Value.Reference;
+            CompiledXmlContribution contribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Library.Receipt,
+                        Subject(completed.Library));
+
+            Assert.Equal(
+                CompiledXmlContributionKind.Candidate,
+                contribution.Kind);
+            using LibraryOperationLease operation = Issued(
+                completed.Library.Owner,
+                library);
+            Assert.Equal(
+                0,
+                operation.Snapshot(
+                    contribution.CompiledXmlContent!,
+                    static (view, _) => view.Content.Length,
+                    cancellationToken));
+        }
+        finally
+        {
+            await completed.Library.Owner.DisposeAsync();
+            await completed.Artifacts.DisposeAsync();
+        }
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
     public async Task PackageImplementationOnly_AssignsBothRoles()
     {
         CancellationToken cancellationToken =
