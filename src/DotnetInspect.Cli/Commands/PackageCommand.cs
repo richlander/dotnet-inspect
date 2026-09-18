@@ -239,11 +239,7 @@ public partial class PackageCommand
             }
 
             string? packageLens = options.ListVersions
-                ? options.ForceLatest
-                    ? "--latest-version"
-                    : options.ListVersionsWithFeed
-                        ? "--versions-with-feed"
-                        : "--versions"
+                ? GetVersionQueryLens(options)
                 : options.ListLayout
                     ? "--layout"
                     : options.ListTfms
@@ -711,7 +707,7 @@ public partial class PackageCommand
                 }
                 if (LensProjection.TryProject(
                         options,
-                        "--latest-version",
+                        GetVersionQueryLens(options),
                         visibleLatest.Count,
                         out var latestProjectionExit,
                         VersionListingColumns(options)))
