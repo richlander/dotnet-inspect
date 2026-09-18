@@ -13,6 +13,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
@@ -1744,6 +1745,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SourceLinkFiles_RealPartialTypeProjectsDefaultFirst()
+    {
+        string assemblyPath = typeof(SourceLinkService).Assembly.Location;
+        using var sourceLink = SourceLinkService.Open(assemblyPath);
+        SourceLinkResolver.TypeSourceInfo mapping =
+            Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+                sourceLink.ResolveTypeSource(
+                    typeof(SourceLinkService).FullName!));
+        SourceLinkResolver.TypeSourceDocument defaultDocument =
+            Assert.IsType<SourceLinkResolver.TypeSourceDocument>(
+                TypeSourceDocumentSelection.SelectDefault(mapping));
+
+        List<SourceFileInfo> rows =
+            await SourceFileCollector.CollectAsync(
+                sourceLink,
+                assemblyPath,
+                typeFilter: typeof(SourceLinkService).FullName);
+
+        Assert.Equal(mapping.Documents.Length, rows.Count);
+        Assert.Equal(defaultDocument.SourceUrl, rows[0].Url);
+        Assert.Equal(
+            mapping.Documents
+                .Where(document => !ReferenceEquals(
+                    document,
+                    defaultDocument))
+                .Select(document => document.SourceUrl),
+            rows.Skip(1).Select(row => row.Url));
+    }
+
+    [Fact]
     public async Task LibraryCoordinateFile_CountCountsCoordinateRows()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
@@ -2077,10 +2108,15 @@ public partial class CommandExecutionTests
     {
         const string Secret = "sup3rs3cret";
         var sourceInfo = new ILInspector.SourceLink.SourceLinkResolver.TypeSourceInfo(
-            $"/hostile/{Secret}/Source.cs",
-            $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
-            LineNumber: 42,
-            GitHubBrowseUrl: null);
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("Example", ["Source"]))
+                .Name,
+            [
+                new(
+                    $"/hostile/{Secret}/Source.cs",
+                    $"https://user:{Secret}@source.example/F/auth/{Secret}/Source.cs?sig={Secret}#{Secret}",
+                    GitHubBrowseUrl: null),
+            ]);
         var apiType = new ApiType { Name = "Source" };
 
         var (_, error) = await ConsoleCapture.RunAsync(async () =>
@@ -2107,13 +2143,88 @@ public partial class CommandExecutionTests
                 new VerboseLogger(enabled: true));
         });
 
-        Assert.Contains("Source (SourceLink) resolved at line 42.", error);
+        Assert.Contains("Source (SourceLink) resolved.", error);
         Assert.Contains("Fetching SourceLink source.", error);
         Assert.Contains("Found type documentation.", error);
         Assert.Contains("Merged additional type documentation.", error);
         Assert.DoesNotContain(Secret, error, StringComparison.Ordinal);
         Assert.DoesNotContain("source.example", error, StringComparison.Ordinal);
         Assert.DoesNotContain("/hostile/", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SourceEnrichment_RealPartialTypeProjectsEvidenceWithoutFetching()
+    {
+        using var sourceLink =
+            SourceLinkService.Open(typeof(SourceLinkService).Assembly.Location);
+        SourceLinkResolver.TypeSourceInfo nativeMapping =
+            Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+                sourceLink.ResolveTypeSource(
+                    typeof(SourceLinkService).FullName!));
+        SourceLinkResolver.TypeSourceDocument defaultDocument =
+            Assert.IsType<SourceLinkResolver.TypeSourceDocument>(
+                TypeSourceDocumentSelection.SelectDefault(nativeMapping));
+        SourceLinkResolver.TypeSourceInfo mapping = nativeMapping with
+        {
+            Documents =
+            [
+                .. nativeMapping.Documents.Where(document => !ReferenceEquals(
+                    document,
+                    defaultDocument)),
+                defaultDocument,
+            ],
+        };
+        Assert.Same(defaultDocument, mapping.Documents[^1]);
+        var apiType = new ApiType { Name = nameof(SourceLinkService) };
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => SourceEnricher.ApplySourceInfoAsync(
+                apiType,
+                mapping,
+                new ApiOptions(),
+                new VerboseLogger(enabled: true)));
+
+        Assert.Equal(defaultDocument.FilePath, apiType.SourceFilePath);
+        Assert.Equal(defaultDocument.SourceUrl, apiType.SourceUrl);
+        Assert.Equal(defaultDocument.GitHubBrowseUrl, apiType.GitHubBrowseUrl);
+        Assert.Null(apiType.SourceLineNumber);
+        Assert.Equal(
+            defaultDocument.ResolutionMethod.ToString(),
+            apiType.SourceResolution);
+        Assert.Equal(defaultDocument.Checksum, apiType.SourceChecksum);
+        Assert.Equal(
+            defaultDocument.ChecksumAlgorithm,
+            apiType.SourceChecksumAlgorithm);
+
+        SourceLinkResolver.TypeSourceDocument[] remaining =
+        [
+            .. mapping.Documents.Where(document => !ReferenceEquals(
+                document,
+                defaultDocument)),
+        ];
+        Assert.Equal(remaining.Length, apiType.AdditionalSourceFiles.Count);
+        for (int i = 0; i < remaining.Length; i++)
+        {
+            Assert.Equal(
+                remaining[i].FilePath,
+                apiType.AdditionalSourceFiles[i].FilePath);
+            Assert.Equal(
+                remaining[i].SourceUrl,
+                apiType.AdditionalSourceFiles[i].SourceUrl);
+            Assert.Equal(
+                remaining[i].GitHubBrowseUrl,
+                apiType.AdditionalSourceFiles[i].GitHubBrowseUrl);
+            Assert.Equal(
+                remaining[i].Checksum,
+                apiType.AdditionalSourceFiles[i].SourceChecksum);
+            Assert.Equal(
+                remaining[i].ChecksumAlgorithm,
+                apiType.AdditionalSourceFiles[i].SourceChecksumAlgorithm);
+        }
+        Assert.DoesNotContain("Fetching SourceLink source.", error);
+        Assert.Contains(
+            $"Source ({defaultDocument.ResolutionMethod}) resolved.",
+            error);
     }
 
     [Fact]

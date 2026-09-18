@@ -654,9 +654,9 @@ public sealed class GeneratedJsExportAuthenticationTests
     }
 
     /// <summary>
-    /// The shared generator loader must read the assembly once and hand the
-    /// same immutable image to metadata extraction and to body analysis. Two
-    /// reads let a metadata surface be composed with bodies from different
+    /// The shared generator loader must read the root assembly once and hand
+    /// the same immutable image to metadata extraction and to body analysis.
+    /// Two reads let a metadata surface be composed with bodies from different
     /// content that shares an MVID and token layout, which no downstream gate
     /// can detect.
     /// </summary>
@@ -670,7 +670,9 @@ public sealed class GeneratedJsExportAuthenticationTests
         DirectCall read = Assert.Single(
             loaderBodies.DirectCalls,
             call => call.Callee.Name == "ReadAllBytes"
-                && call.Callee.DeclaringType.Name == "File");
+                && call.Callee.DeclaringType.Name == "File"
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
         DirectCall metadataReader = Assert.Single(
             loaderBodies.DirectCalls,
             call => call.Kind == CallKind.NewObject
