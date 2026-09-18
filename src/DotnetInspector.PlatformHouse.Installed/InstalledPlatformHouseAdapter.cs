@@ -1,5 +1,6 @@
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformHouse.Installed;
 
@@ -197,8 +198,9 @@ public sealed class InstalledPlatformHouseAdapter
                 "The installed reference capability is not authorized by the House source plan.");
         }
 
-        if (request.Operation is not PlatformHouseOperation.Realize realize
-            || realize.View is PlatformViewDemand.Implementation)
+        if (!TryGetReferencePopulation(
+                request.Operation,
+                out PlatformPopulationDemand? housePopulation))
         {
             return RejectRealization(
                 request,
@@ -216,7 +218,7 @@ public sealed class InstalledPlatformHouseAdapter
                 "The House work budget does not permit installed reference realization.");
         }
 
-        if (realize.Population is PlatformPopulationDemand.Library
+        if (housePopulation is PlatformPopulationDemand.Library
             {
                 Value: PlatformLibraryDemand.PlatformLibrary
             })
@@ -228,7 +230,7 @@ public sealed class InstalledPlatformHouseAdapter
         }
 
         InstalledReferencePopulationDemand population =
-            realize.Population switch
+            housePopulation switch
             {
                 PlatformPopulationDemand.Library
                 {
@@ -274,6 +276,7 @@ public sealed class InstalledPlatformHouseAdapter
         return ProjectRealization(
             request,
             exact.Target,
+            housePopulation,
             ownerOutcome);
     }
 
@@ -471,6 +474,7 @@ public sealed class InstalledPlatformHouseAdapter
         ProjectRealization(
             PlatformHouseRequest request,
             PlatformFamilyTarget? exactTarget,
+            PlatformPopulationDemand population,
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization> outcome)
     {
@@ -493,8 +497,7 @@ public sealed class InstalledPlatformHouseAdapter
                                     "Successful realization requires an exact target."),
                             PlatformSourceCoordinateIdentity.Create(
                                 CoordinateName(succeeded.Value.Coordinate)),
-                            ((PlatformHouseOperationSnapshot.Realize)
-                                request.Snapshot.Operation).Population,
+                            population,
                             PlatformSourceContributionCompleteness
                                 .Authoritative)),
             InstalledPlatformSourceOutcome<
@@ -550,6 +553,33 @@ public sealed class InstalledPlatformHouseAdapter
                 InstalledReferenceRealization>.NotSucceeded(
                     diagnostic,
                     contribution);
+    }
+
+    static bool TryGetReferencePopulation(
+        PlatformHouseOperation operation,
+        out PlatformPopulationDemand? population)
+    {
+        switch (operation)
+        {
+            case PlatformHouseOperation.Realize realize
+                when realize.View
+                    is not PlatformViewDemand.Implementation:
+                population = realize.Population;
+                return true;
+            case PlatformHouseOperation.ResolveAssemblyReference
+                {
+                    RequiredView: PlatformViewDemand.Reference,
+                    Request.Target:
+                        AssemblyBindingTarget.AssemblyReference target,
+                }:
+                population = new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(
+                        target.Identity));
+                return true;
+            default:
+                population = null;
+                return false;
+        }
     }
 
     InstalledPlatformHouseResult<InstalledImplementationRealization>

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -111,6 +112,40 @@ public sealed class PackageAssemblySemanticQueryOutputTests
         Assert.Equal(result.RootRequest, decoded);
 
         PackageQueryOptions options = Options();
+        var json = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options with
+                    {
+                        JsonOutput = true,
+                        CompactJson = true,
+                    },
+                    options.LibraryLiteralPlan!,
+                    envelope)));
+        var envelopeOutput = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options with
+                    {
+                        EnvelopeOutput = true,
+                        CompactJson = true,
+                    },
+                    options.LibraryLiteralPlan!,
+                    envelope)));
+        Assert.Equal(1, json.ExitCode);
+        Assert.Equal(1, envelopeOutput.ExitCode);
+        using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelopeOutput.Output);
+        JsonElement envelopeRoot = envelopeDocument.RootElement;
+        Assert.Equal(
+            "package-assembly-semantic-query",
+            envelopeRoot.GetProperty("result_kind").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                contentDocument.RootElement,
+                envelopeRoot.GetProperty("content")));
+
         var markdown = await ConsoleCapture.RunAsync(() =>
         {
             PackageQueryCommand.WriteLibraryLiteralOutput(view, options);
@@ -225,6 +260,27 @@ public sealed class PackageAssemblySemanticQueryOutputTests
             nameof(NuGetOperationTimeoutException),
             result.Error,
             StringComparison.Ordinal);
+
+        var envelopeResult = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(
+                PackageQueryCommand.CompleteLibraryLiteralExecution(
+                    options with { EnvelopeOutput = true },
+                    options.LibraryLiteralPlan!,
+                    envelope)));
+        Assert.Equal(1, envelopeResult.ExitCode);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelopeResult.Output);
+        Assert.Equal(
+            "package-assembly-semantic-query",
+            envelopeDocument.RootElement
+                .GetProperty("result_kind")
+                .GetString());
+        Assert.True(
+            envelopeDocument.RootElement
+                .GetProperty("content")
+                .GetProperty("completion")
+                .GetProperty("isOperationDeadlineExpired")
+                .GetBoolean());
     }
 
     private static PackageQueryOptions Options(

@@ -207,6 +207,7 @@ const result: AnnotatedSourceResult = {
   viewerCatalog: sampleViewerCatalog,
   findingEvidenceDocuments: [],
   findingEvidence: [],
+  callRelationships: [],
   provenance: inertStringFixture("decompiled from IL"),
   contextLimitation: null,
 };
@@ -1087,9 +1088,14 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         available: false,
         unavailableReason: "NotProjected",
       },
+      callRelationships: {
+        available: false,
+        unavailableReason: "NotProjected",
+      },
     },
     findingEvidenceDocuments: [],
     findingEvidence: [],
+    callRelationships: [],
     provenance: inertStringFixture("mixed media"),
     contextLimitation: null,
   };
@@ -1116,6 +1122,7 @@ test("source text is escaped while source actions and chrome remain separate", (
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],
+    callRelationships: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };

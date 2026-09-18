@@ -12,6 +12,34 @@ namespace ILInspector.Decompiler.Tests;
 // cast the integer to the enum structurally.
 public class EnumCastPrinterTests
 {
+    [Fact]
+    public void ExternalEnumKeywordMember_IsEscapedAndCompiles()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalKeywordConstant));
+
+        Assert.Contains("return ExternalKeyword.@default;", body);
+        AssertCompiles(
+            "public static ExternalKeyword M()",
+            body,
+            "public enum ExternalKeyword { @default = 1 }");
+    }
+
+    [Fact]
+    public void UnspellableEnumMemberName_UsesCastAndCompiles()
+    {
+        string body = RenderKnownEnumReturnConstant(
+            1,
+            TypeRef.CoreLib("System", "Int32"),
+            "Bad-Name");
+
+        Assert.Contains("return (Tiny)1;", body);
+        Assert.DoesNotContain("Bad-Name", body);
+        AssertCompiles(
+            "public static Tiny M()",
+            body,
+            "public enum Tiny { Other = 2 }");
+    }
+
     // #3011: an enum-typed value shifted has no predefined C# shift operator
     // (CS0019); the printer reinterprets the enum left operand to its underlying
     // integer so the shift type-checks and the shr/shr.un opcode round-trips.
@@ -945,7 +973,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void EnumConstantConditionalArms_IntoCrossAssemblyEnum_CastsEachArm()
+    public void EnumConstantConditionalArms_IntoUnresolvedCrossAssemblyEnum_CastsEachArm()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumConditional));
 
@@ -956,7 +984,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void BitwiseCompound_IntoCrossAssemblyFlagsEnum_CastsRightOperand()
+    public void BitwiseCompound_IntoUnresolvedCrossAssemblyFlagsEnum_CastsRightOperand()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumFlagsCompound));
 
@@ -988,7 +1016,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void EnumCoalesce_IntoCrossAssemblyEnum_CastsFallback()
+    public void EnumCoalesce_IntoUnresolvedCrossAssemblyEnum_CastsFallback()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumCoalesce));
 
@@ -1430,7 +1458,10 @@ public class EnumCastPrinterTests
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 
-    static string RenderKnownEnumReturnConstant(int value, TypeRef underlying)
+    static string RenderKnownEnumReturnConstant(
+        int value,
+        TypeRef underlying,
+        string? memberName = null)
     {
         var enumType = TypeRef.Definition("synthetic", "", "Tiny");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -1443,6 +1474,12 @@ public class EnumCastPrinterTests
         {
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
             EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = underlying },
+            EnumMembers = memberName is null
+                ? new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()
+                : new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+                {
+                    [enumType] = new Dictionary<long, string> { [value] = memberName },
+                },
         };
 
         return CSharpPrinter.Print(function).Output!.Trim();
