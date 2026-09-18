@@ -55,6 +55,11 @@ public sealed class AnnotatedSourceFindingProvenanceTests
         Assert.Equal(
             declared,
             documented.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            declared,
+            ResearchFactRegistry.MemberCensusWithCallRelationships
+                .DescriptorIds
+                .Order(StringComparer.Ordinal));
     }
 
     static string DescriptorId(string row)

@@ -36,12 +36,15 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataContext _context;
     readonly ConcurrentDictionary<TypeResolutionCoordinates, ValueTypeHint> _valueTypeCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, TypeShapeKind> _shapeCache = new();
+    readonly ConcurrentDictionary<TypeResolutionCoordinates, EnumFactsResolution> _enumFactsCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
     readonly ConcurrentDictionary<(MethodFactCacheIdentity Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface, AssemblyReferenceIdentity? InterfaceAssembly), MetadataFactState> _interfaceCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
+
+    readonly record struct EnumFactsResolution(EnumMetadataFacts? Facts);
 
     public CrossAssemblyTypeResolver(
         MetadataReader selfReader,
@@ -1443,6 +1446,39 @@ internal sealed class CrossAssemblyTypeResolver
             return cached;
         var shape = ClassifyShapeCore(type);
         return _shapeCache.GetOrAdd(coordinates, shape);
+    }
+
+    internal EnumMetadataFacts? ResolveEnumFacts(TypeRef type)
+    {
+        if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates)
+            || IsSelf(type))
+        {
+            return null;
+        }
+        if (_enumFactsCache.TryGetValue(coordinates, out var cached))
+            return cached.Facts;
+
+        var resolved = new EnumFactsResolution(ResolveEnumFactsCore(type));
+        return _enumFactsCache.GetOrAdd(coordinates, resolved).Facts;
+    }
+
+    EnumMetadataFacts? ResolveEnumFactsCore(TypeRef type)
+    {
+        try
+        {
+            if (Locate(type) is not { } definition
+                || _context.Open(definition, out var handle) is not { } assembly)
+            {
+                return null;
+            }
+
+            var typeDefinition = assembly.Reader.GetTypeDefinition(handle);
+            return EnumMetadataFactReader.Read(assembly.Reader, typeDefinition);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     TypeShapeKind ClassifyShapeCore(TypeRef type)

@@ -85,6 +85,10 @@ export const sampleViewerCatalog = {
     available: false,
     unavailableReason: "NotProjected",
   },
+  callRelationships: {
+    available: false,
+    unavailableReason: "NotProjected",
+  },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;
 
 export const csharpOnlyEmptyViewerCatalog = {
@@ -97,6 +101,10 @@ export const csharpOnlyEmptyViewerCatalog = {
     unavailableReason: "NotProjected",
   },
   destinations: {
+    available: false,
+    unavailableReason: "NotProjected",
+  },
+  callRelationships: {
     available: false,
     unavailableReason: "NotProjected",
   },

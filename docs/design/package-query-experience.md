@@ -114,6 +114,14 @@ requires a nonempty operand, retains the exact `(key, operator, value)` triple,
 and starts a replacement query only when the package input is nonblank.
 Draft and active-term editor values survive unrelated rerenders and mode
 switches; they remain separate from executable request terms until Apply.
+Every Package Query text editor retains its live DOM value, caret or selection
+range, and selection direction when an unrelated full or streamed render
+replaces the control. Restoration targets only the same logical editor; if a
+mode switch removes it, fallback focus never receives the removed editor's
+value or selection. Native input-method composition remains in the live
+control, defers unrelated full or streamed replacement rendering, and
+publishes the committed value on `compositionend` before the latest deferred
+render resumes.
 Cancel discards a draft, Remove discards the corresponding active editor with
 its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID

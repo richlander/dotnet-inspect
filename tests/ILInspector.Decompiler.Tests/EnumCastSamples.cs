@@ -7,6 +7,10 @@ namespace ILInspector.Decompiler.Tests;
 // must cast structurally.
 public static class EnumCastSamples
 {
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalKeyword
+        ExternalKeywordConstant()
+        => ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalKeyword.@default;
+
     // #3011: an enum-typed value shifted (`>>`/`<<`) has no predefined C# shift
     // operator (CS0019), though the IL shifts the enum's underlying integer. The
     // identity `(long)`/`(uint)`/`(ulong)` cast the source carried leaves no IL

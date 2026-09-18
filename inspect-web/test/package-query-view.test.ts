@@ -16,6 +16,10 @@ import {
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
+  createPackageQueryRenderScheduler,
+  packageQueryEditorCompositionActive,
+} from "../src/package-query-editor-lifecycle.ts";
+import {
   appendFailure,
   appendProgress,
   appendRows,
@@ -1471,10 +1475,12 @@ test("query text controls preserve selection across a full render", () => {
     "package-query-library-tfm",
   ]) {
     const active = new FakeElement({}, id);
+    active.value = `${id}-live`;
     active.selectionStart = 3;
     active.selectionEnd = 8;
     active.selectionDirection = "backward";
     const replacement = new FakeElement({}, id);
+    replacement.value = `${id}-rendered`;
     const root = new FakeRoot(active);
     root.add(`#${id}`, replacement);
     // Test fake implements the Document and ParentNode subset consumed by the helpers.
@@ -1485,8 +1491,51 @@ test("query text controls preserve selection across a full render", () => {
     restorePackageQueryFocus(documentRoot, snapshot);
 
     assert.equal(replacement.focusCount, 1);
+    assert.equal(replacement.value, `${id}-live`);
     assert.deepEqual(replacement.selectionRange, [3, 8]);
     assert.equal(replacement.selectionDirection, "backward");
+  }
+});
+
+test("term editors preserve live values and backward selections across a full render", () => {
+  const cases = [
+    {
+      active: new FakeElement({
+        queryTermIndex: "1",
+        queryTermControl: "value",
+      }),
+      selector: "[data-query-term-control]",
+      replacement: new FakeElement({
+        queryTermIndex: "1",
+        queryTermControl: "value",
+      }),
+    },
+    {
+      active: new FakeElement({ queryTermDraftControl: "value" }),
+      selector: "[data-query-term-draft-control]",
+      replacement: new FakeElement({ queryTermDraftControl: "value" }),
+    },
+  ];
+
+  for (const scenario of cases) {
+    scenario.active.value = "Microsoft.Extensions.Hosting";
+    scenario.active.selectionStart = 10;
+    scenario.active.selectionEnd = 20;
+    scenario.active.selectionDirection = "backward";
+    scenario.replacement.value = "rendered-state";
+    const root = new FakeRoot(scenario.active);
+    root.add(scenario.selector, scenario.replacement);
+    const documentRoot = fakeDom.document(root);
+
+    const snapshot = capturePackageQueryFocus(documentRoot);
+    const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+    assert.equal(restoration, "restored");
+    assert.equal(
+      scenario.replacement.value,
+      "Microsoft.Extensions.Hosting");
+    assert.deepEqual(scenario.replacement.selectionRange, [10, 20]);
+    assert.equal(scenario.replacement.selectionDirection, "backward");
   }
 });
 
@@ -1566,6 +1615,28 @@ test("semantic editor snapshots never modify a fallback control", () => {
 
   assert.equal(restoration, "fallback");
   assert.equal(prefix.value, "Contoso.Package");
+  assert.equal(prefix.selectionRange, null);
+});
+
+test("removed term editor snapshots never modify the prefix fallback", () => {
+  const active = new FakeElement({
+    queryTermIndex: "0",
+    queryTermControl: "value",
+  });
+  active.value = "Unapplied.Dependency";
+  active.selectionStart = 3;
+  active.selectionEnd = 9;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.*";
+  const root = new FakeRoot(active);
+  root.add("#package-query-prefix", prefix);
+  const documentRoot = fakeDom.document(root);
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(prefix.value, "Contoso.*");
   assert.equal(prefix.selectionRange, null);
 });
 
@@ -1680,6 +1751,208 @@ test("bindPackageQueryView defers library-literal updates during composition", (
 
   literal.dispatch("compositionend");
   assert.deepEqual(calls, [["日本", "net10.0"]]);
+});
+
+test("bindPackageQueryView defers term updates and render resumption during composition", () => {
+  const value = new FakeElement();
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const form = new FakeElement({ queryTermForm: "0" });
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  const root = new FakeRoot(value);
+  root.add("[data-query-term-form]", form);
+  const calls: string[] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryLiteralInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermEdit: (index, termOperator, termValue) =>
+      calls.push(`edit:${index}:${termOperator}:${termValue}`),
+    onEditorCompositionEnd: () => calls.push("resume"),
+  });
+
+  value.value = "に";
+  value.dispatch("input", fakeDom.event({ isComposing: true }));
+  assert.equal(
+    packageQueryEditorCompositionActive(fakeDom.document(root)),
+    true);
+  assert.deepEqual(calls, []);
+
+  value.value = "日本";
+  value.dispatch("compositionend");
+
+  assert.equal(
+    packageQueryEditorCompositionActive(fakeDom.document(root)),
+    false);
+  assert.deepEqual(calls, ["edit:0:eq:日本", "resume"]);
+});
+
+test("bindPackageQueryView ignores an unpaired term compositionend", () => {
+  const value = new FakeElement();
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const form = new FakeElement({ queryTermForm: "0" });
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  const root = new FakeRoot(value);
+  root.add("[data-query-term-form]", form);
+  const calls: string[] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryLiteralInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermEdit: () => calls.push("edit"),
+    onEditorCompositionEnd: () => calls.push("resume"),
+  });
+
+  value.dispatch("compositionend");
+
+  assert.deepEqual(calls, []);
+});
+
+test("Package Query rendering resumes once after composition settles", () => {
+  let frameCallback: (() => void) | null = null;
+  let composing = true;
+  let open = true;
+  let streamRenderCount = 0;
+  let fullRenderCount = 0;
+  const cancelled: number[] = [];
+  const scheduler = createPackageQueryRenderScheduler({
+    requestFrame: callback => {
+      assert.equal(frameCallback, null);
+      frameCallback = callback;
+      return 7;
+    },
+    cancelFrame: handle => {
+      cancelled.push(handle);
+      frameCallback = null;
+    },
+    shouldRender: () => open,
+    compositionActive: () => composing,
+    renderStream: () => streamRenderCount++,
+    renderFull: () => fullRenderCount++,
+  });
+  const runFrame = () => {
+    const callback = frameCallback;
+    assert.notEqual(callback, null);
+    frameCallback = null;
+    callback?.();
+  };
+
+  scheduler.scheduleStream();
+  runFrame();
+  assert.equal(streamRenderCount, 0);
+
+  scheduler.scheduleStream();
+  assert.equal(frameCallback, null);
+
+  scheduler.cancel();
+  composing = false;
+  scheduler.scheduleStream();
+  runFrame();
+  assert.equal(streamRenderCount, 1);
+
+  composing = true;
+  scheduler.scheduleStream();
+  runFrame();
+  assert.equal(streamRenderCount, 1);
+
+  composing = false;
+  scheduler.resume();
+  assert.notEqual(frameCallback, null);
+  runFrame();
+  assert.equal(streamRenderCount, 2);
+
+  scheduler.resume();
+  assert.equal(frameCallback, null);
+
+  scheduler.scheduleStream();
+  scheduler.cancel();
+  assert.deepEqual(cancelled, [7]);
+  assert.equal(frameCallback, null);
+
+  open = false;
+  scheduler.scheduleStream();
+  runFrame();
+  assert.equal(streamRenderCount, 2);
+  assert.equal(fullRenderCount, 0);
+});
+
+test("Package Query full rendering supersedes stream work and defers during composition", () => {
+  let frameCallback: (() => void) | null = null;
+  let composing = true;
+  let open = true;
+  let streamRenderCount = 0;
+  let fullRenderCount = 0;
+  const cancelled: number[] = [];
+  const scheduler = createPackageQueryRenderScheduler({
+    requestFrame: callback => {
+      assert.equal(frameCallback, null);
+      frameCallback = callback;
+      return 11;
+    },
+    cancelFrame: handle => {
+      cancelled.push(handle);
+      frameCallback = null;
+    },
+    shouldRender: () => open,
+    compositionActive: () => composing,
+    renderStream: () => streamRenderCount++,
+    renderFull: () => fullRenderCount++,
+  });
+
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.deepEqual(cancelled, [11]);
+  assert.equal(frameCallback, null);
+  assert.equal(fullRenderCount, 0);
+
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.equal(frameCallback, null);
+  assert.equal(fullRenderCount, 0);
+
+  composing = false;
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+  assert.equal(streamRenderCount, 0);
+
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+
+  composing = true;
+  scheduler.renderFull();
+  open = false;
+  composing = false;
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+
+  open = true;
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.deepEqual(cancelled, [11, 11]);
+  assert.equal(fullRenderCount, 2);
+
+  open = false;
+  scheduler.renderFull();
+  assert.equal(fullRenderCount, 2);
 });
 
 test("bindPackageQueryView applies exact term values and keeps empty drafts idle", () => {

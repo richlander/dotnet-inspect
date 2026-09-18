@@ -411,20 +411,10 @@ public static class InstalledPlatformLibraryMaterializer
                 return false;
             }
 
-            var provenance =
-                new InstalledReferenceArtifactProvenance(
-                    reference.Value.Generation,
-                    reference.Value.Coordinate,
-                    library!.FileName,
-                    library.Identity);
             prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        reference.Contribution,
-                    provenance,
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+                CreateReferenceItem(
+                    reference,
+                    library!));
         }
 
         if (implementation is not null)
@@ -515,22 +505,31 @@ public static class InstalledPlatformLibraryMaterializer
             if (!identities.Add(library.Identity))
                 return false;
             prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        reference.Contribution,
-                    new InstalledReferenceArtifactProvenance(
-                        reference.Value.Generation,
-                        reference.Value.Coordinate,
-                        library.FileName,
-                        library.Identity),
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+                CreateReferenceItem(
+                    reference,
+                    library));
         }
 
         items = prepared;
         return true;
     }
+
+    internal static PlatformLibraryArtifactMaterializationItem
+        CreateReferenceItem(
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded reference,
+            InstalledReferenceLibrary library) =>
+        new(
+            (PlatformSourceContribution.Realization)
+                reference.Contribution,
+            new InstalledReferenceArtifactProvenance(
+                reference.Value.Generation,
+                reference.Value.Coordinate,
+                library.FileName,
+                library.Identity),
+            library.Identity,
+            library.ContentLength,
+            _ => library.OpenRead());
 
     static bool TryPrepareImplementationPopulation(
         PlatformHouseRequest request,

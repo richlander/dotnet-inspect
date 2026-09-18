@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
@@ -706,6 +707,26 @@ public static partial class PackageQuery
     ]);
 
     public static string VocabularyIdentity => Vocabulary.Identity;
+
+    public static PortableQueryDefinitionDescriptor<PackageQueryPlan>
+        DefinitionDescriptor { get; } =
+        new(
+            VocabularyIdentity,
+            "package-query",
+            PortableQueryDefinitionInputs.CoordinateFree(),
+            static (intent, _, cancellationToken) =>
+                ResolveIntent(intent, cancellationToken) switch
+                {
+                    PackageQueryPlanResult.Accepted accepted =>
+                        new PortableQueryDefinitionResolution<
+                            PackageQueryPlan>.Accepted(accepted.Plan),
+                    PackageQueryPlanResult.Rejected rejected =>
+                        new PortableQueryDefinitionResolution<
+                            PackageQueryPlan>.Rejected(
+                                rejected.Failure.Message),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Package Query plan result."),
+                });
 
     internal static PackageQueryTermDescriptor Descriptor(string key) =>
         TermsByKey[key];

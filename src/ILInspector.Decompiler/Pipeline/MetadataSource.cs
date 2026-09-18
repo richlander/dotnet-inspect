@@ -1100,24 +1100,39 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// The named members of a same-assembly enum, as value → name (every
-    /// underlying integer width normalized to <see cref="long"/>). Null for a
-    /// non-enum or cross-assembly type. Aliases keep the first declared name.
+    /// The named members of an enum, as value → name (every underlying integer
+    /// width normalized to <see cref="long"/>). External definitions resolve
+    /// through the provenance-aware cross-assembly seam. Aliases keep the first
+    /// declared name.
     /// </summary>
     internal IReadOnlyDictionary<long, string>? ResolveEnumMembers(TypeRef type)
     {
         if (type.Kind != TypeRefKind.Definition)
             return null;
-        EnsureTypeMaps();
-        return _enumMembers!.GetValueOrDefault(type);
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
+        {
+            EnsureTypeMaps();
+            return _enumMembers!.GetValueOrDefault(type);
+        }
+        return CrossAssembly.ResolveEnumFacts(type)?.Members;
     }
 
     internal TypeRef? ResolveEnumUnderlyingType(TypeRef type)
     {
         if (type.Kind != TypeRefKind.Definition)
             return null;
-        EnsureTypeMaps();
-        return _enumUnderlyingTypes!.GetValueOrDefault(type);
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
+        {
+            EnsureTypeMaps();
+            return _enumUnderlyingTypes!.GetValueOrDefault(type);
+        }
+        return CrossAssembly.ResolveEnumFacts(type)?.UnderlyingType;
     }
 
     readonly object _mapLock = new();
@@ -1171,9 +1186,11 @@ public sealed class MetadataSource : IDisposable
             interfaceImpls[key] = impls;
             if (shape == TypeShape.Enum)
             {
-                enums[key] = BuildEnumMembers(typeDef);
-                if (ResolveEnumUnderlyingType(typeDef, scope) is { } underlying)
-                    enumUnderlyingTypes[key] = underlying;
+                if (EnumMetadataFactReader.Read(Reader, typeDef) is { } facts)
+                {
+                    enums[key] = facts.Members;
+                    enumUnderlyingTypes[key] = facts.UnderlyingType;
+                }
             }
         }
         _enumMembers = enums;
@@ -1437,60 +1454,6 @@ public sealed class MetadataSource : IDisposable
                 return fromB;
         }
         return null;
-    }
-
-    Dictionary<long, string> BuildEnumMembers(TypeDefinition enumType)
-    {
-        var members = new Dictionary<long, string>();
-        foreach (var fieldHandle in enumType.GetFields())
-        {
-            var field = Reader.GetFieldDefinition(fieldHandle);
-            // The named constants are the literal static fields; the special
-            // instance value__ field carries no default value and is skipped.
-            if ((field.Attributes & System.Reflection.FieldAttributes.Literal) == 0)
-                continue;
-            if (ReadConstant(field.GetDefaultValue()) is { } value)
-                members.TryAdd(value, Reader.GetString(field.Name));
-        }
-        return members;
-    }
-
-    TypeRef? ResolveEnumUnderlyingType(TypeDefinition enumType, GenericScope scope)
-    {
-        foreach (var fieldHandle in enumType.GetFields())
-        {
-            var field = Reader.GetFieldDefinition(fieldHandle);
-            if (Reader.GetString(field.Name) == "value__")
-                return GuardedDecode.FieldType(Reader, field, scope);
-        }
-        return null;
-    }
-
-    long? ReadConstant(ConstantHandle handle)
-    {
-        if (handle.IsNil)
-            return null;
-        var constant = Reader.GetConstant(handle);
-        var blob = Reader.GetBlobReader(constant.Value);
-        // The lookup key is the member's ldc.i4 form widened from int, so a
-        // 32-bit unsigned value with the high bit set must be keyed by its
-        // signed-int reinterpretation (UInt32 0x80000000 -> int -2147483648),
-        // or it would never match. 64-bit enums emit ldc.i8 and are not retyped
-        // by the int-only constant pass, so their true long value is fine.
-        return constant.TypeCode switch
-        {
-            ConstantTypeCode.SByte => blob.ReadSByte(),
-            ConstantTypeCode.Byte => blob.ReadByte(),
-            ConstantTypeCode.Int16 => blob.ReadInt16(),
-            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
-            ConstantTypeCode.Int32 => blob.ReadInt32(),
-            ConstantTypeCode.UInt32 => unchecked((int)blob.ReadUInt32()),
-            ConstantTypeCode.Int64 => blob.ReadInt64(),
-            ConstantTypeCode.UInt64 => unchecked((long)blob.ReadUInt64()),
-            ConstantTypeCode.Char => blob.ReadChar(),
-            ConstantTypeCode.Boolean => blob.ReadBoolean() ? 1L : 0L,
-            _ => null,
-        };
     }
 
     TypeShape ClassifyShape(TypeDefinition typeDef)
