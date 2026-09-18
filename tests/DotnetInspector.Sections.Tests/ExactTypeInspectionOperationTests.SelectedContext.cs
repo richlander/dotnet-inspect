@@ -1,0 +1,310 @@
+using System.Reflection;
+
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
+using NuGetFetch;
+
+namespace DotnetInspector.Sections.Tests;
+
+public sealed partial class ExactTypeInspectionOperationTests
+{
+    const string HostingPackageId = "Microsoft.Extensions.Hosting";
+    const string LoggingPackageId =
+        "Microsoft.Extensions.Logging.Abstractions";
+
+    [Fact]
+    public async Task SelectedContext_ResolvesTypeFromNonFirstPackageMember()
+    {
+        const string typeName = "Microsoft.Extensions.Logging.ILogger";
+        var store = new InMemoryPackageStore();
+        await CommitPackageAsync(
+            store,
+            HostingPackageId,
+            ("lib/net11.0/Microsoft.Extensions.Hosting.dll",
+                BuildAssembly(
+                    "Microsoft.Extensions.Hosting",
+                    "Microsoft.Extensions.Hosting.Host",
+                    typeof(IDisposable))));
+        await CommitPackageAsync(
+            store,
+            LoggingPackageId,
+            ("lib/net11.0/Microsoft.Extensions.Logging.Abstractions.dll",
+                BuildAssembly(
+                    "Microsoft.Extensions.Logging.Abstractions",
+                    typeName,
+                    typeof(IAsyncDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input = SelectedContextInput(
+            HostingPackageId,
+            LoggingPackageId);
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceDeclarationContext context) =
+            await PrepareSelectedContextCandidateAsync(
+                coordinator,
+                input,
+                LoadOptions(client, store));
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.Execute(
+                authority,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName));
+
+        ExactTypeInspectionResult inspection = envelope.Content.Inspection;
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            inspection.Outcome);
+        Assert.Equal(typeName, inspection.Type?.FullName);
+        Assert.Contains(
+            typeof(IAsyncDisposable).FullName!,
+            inspection.Type!.Interfaces);
+        SelectedContextExactTypeSource source =
+            Assert.Single(envelope.Content.DefiningSources);
+        var package =
+            Assert.IsType<
+                TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
+                    source.Library);
+        Assert.Equal(
+            LoggingPackageId.ToLowerInvariant(),
+            package.Package.PackageId);
+        Assert.Equal(
+            "Microsoft.Extensions.Logging.Abstractions",
+            package.LibraryIdentity.Name);
+        Assert.Equal(0, source.Observation.ContextOrder);
+        Assert.Equal(1, source.Observation.MemberOrder);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+    }
+
+    [Fact]
+    public async Task SelectedContext_AmbiguityRetainsEveryDefiningLibrary()
+    {
+        const string typeName = "Shared.Ambiguous";
+        var store = new InMemoryPackageStore();
+        await CommitPackageAsync(
+            store,
+            HostingPackageId,
+            ("lib/net11.0/First.dll",
+                BuildAssembly(
+                    "First",
+                    typeName,
+                    typeof(IDisposable))));
+        await CommitPackageAsync(
+            store,
+            LoggingPackageId,
+            ("lib/net11.0/Second.dll",
+                BuildAssembly(
+                    "Second",
+                    typeName,
+                    typeof(IAsyncDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input = SelectedContextInput(
+            HostingPackageId,
+            LoggingPackageId);
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceDeclarationContext context) =
+            await PrepareSelectedContextCandidateAsync(
+                coordinator,
+                input,
+                LoadOptions(client, store));
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.Execute(
+                authority,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName));
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Ambiguous,
+            envelope.Content.Inspection.Outcome);
+        Assert.Equal(
+            [
+                HostingPackageId.ToLowerInvariant(),
+                LoggingPackageId.ToLowerInvariant(),
+            ],
+            envelope.Content.DefiningSources.Select(source =>
+                Assert.IsType<
+                    TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
+                        source.Library)
+                    .Package.PackageId));
+        Assert.Equal(
+            [0, 1],
+            envelope.Content.DefiningSources.Select(
+                source => source.Observation.MemberOrder));
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.ambiguous");
+    }
+
+    [Fact]
+    public async Task SelectedContext_AmbiguityRetainsDistinctTypesInOneLibrary()
+    {
+        var store = new InMemoryPackageStore();
+        await CommitPackageAsync(
+            store,
+            LoggingPackageId,
+            ("lib/net11.0/Collisions.dll",
+                BuildAssembly(
+                    "Collisions",
+                    ("First.Widget", typeof(IDisposable)),
+                    ("Second.Widget", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input =
+            SelectedContextInput(LoggingPackageId);
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceDeclarationContext context) =
+            await PrepareSelectedContextCandidateAsync(
+                coordinator,
+                input,
+                LoadOptions(client, store));
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.Execute(
+                authority,
+                context,
+                new SelectedContextExactTypeInspectionRequest("Widget"));
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Ambiguous,
+            envelope.Content.Inspection.Outcome);
+        Assert.Equal(
+            ["First", "Second"],
+            envelope.Content.DefiningSources.Select(
+                source => source.Type.Namespace));
+        Assert.All(
+            envelope.Content.DefiningSources,
+            source => Assert.Equal(0, source.Observation.MemberOrder));
+    }
+
+    [Fact]
+    public void SelectedContextEnvelope_CarriesNoLiveAuthorityOrContent()
+    {
+        var visited = new HashSet<Type>();
+        Visit(typeof(
+            InspectionEnvelope<SelectedContextExactTypeInspectionResult>));
+
+        void Visit(Type type)
+        {
+            if (!visited.Add(type)
+                || type.IsPrimitive
+                || type.IsEnum
+                || type == typeof(string)
+                || type == typeof(Guid)
+                || type == typeof(Version))
+            {
+                return;
+            }
+
+            Assert.False(typeof(Stream).IsAssignableFrom(type));
+            Assert.False(typeof(Delegate).IsAssignableFrom(type));
+            Assert.False(typeof(InspectionWorkspace).IsAssignableFrom(type));
+            Assert.False(
+                typeof(WorkspaceRealizationOperationLease)
+                    .IsAssignableFrom(type));
+            Assert.False(
+                typeof(AssemblyContextGroup).IsAssignableFrom(type));
+            Assert.False(type.IsByRefLike);
+            foreach (Type argument in type.GetGenericArguments())
+                Visit(argument);
+            foreach (PropertyInfo property in type.GetProperties(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                Assert.DoesNotContain(
+                    "Path",
+                    property.Name,
+                    StringComparison.OrdinalIgnoreCase);
+                Visit(property.PropertyType);
+            }
+        }
+    }
+
+    static WorkspaceContextInput SelectedContextInput(
+        params string[] packageIds) =>
+        new()
+        {
+            Framework = Framework,
+            Members =
+            [
+                .. packageIds.Select(packageId =>
+                    WorkspaceMemberCoordinate.Package(
+                        packageId,
+                        Version)),
+            ],
+        };
+
+    static async Task CommitPackageAsync(
+        InMemoryPackageStore store,
+        string packageId,
+        params (string EntryPath, byte[] Content)[] entries)
+    {
+        byte[] package = Archive(entries);
+        await store.CommitAsync(
+            packageId,
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            new MemoryStream(package),
+            TestContext.Current.CancellationToken);
+    }
+
+    static async Task<(
+        WorkspaceRealizationCandidate Candidate,
+        WorkspaceDeclarationContext Context)>
+        PrepareSelectedContextCandidateAsync(
+            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceContextInput input,
+            WorkspaceContextLoadOptions options)
+    {
+        WorkspaceRealizationCandidate candidate =
+            Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    new WorkspacePlan([], [input]),
+                    TestContext.Current.CancellationToken))
+            .Candidate;
+        WorkspaceDeclarationContext context;
+        using (WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction())
+        {
+            context =
+                await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                    construction.Workspace,
+                    input,
+                    options,
+                    TestContext.Current.CancellationToken);
+        }
+
+        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(
+            context.ContextLoadOutcome);
+        return (candidate, context);
+    }
+
+    static async Task ActivateAsync(
+        WorkspaceRealizationCoordinator coordinator,
+        WorkspaceRealizationCandidate candidate)
+    {
+        Assert.IsType<WorkspaceRealizationCandidateCompletionResult.Ready>(
+            await coordinator.CompleteCandidateAsync(
+                candidate,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<WorkspaceRealizationCutoverResult.Activated>(
+            coordinator.CutOver(candidate));
+    }
+
+    static async Task<WorkspaceRealizationOperationLease> AdmitAsync(
+        WorkspaceRealizationCoordinator coordinator) =>
+        Assert.IsType<WorkspaceRealizationOperationAdmission.Admitted>(
+            await coordinator.EnterOperationAsync(
+                TestContext.Current.CancellationToken))
+        .Lease;
+}
