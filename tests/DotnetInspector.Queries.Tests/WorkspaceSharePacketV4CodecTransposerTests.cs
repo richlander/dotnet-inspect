@@ -10,6 +10,9 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
     private const string RegistrationOnlyJson =
         """{"f":4,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
 
+    private const string AvaloniaQueryJson =
+        """{"f":4,"t":[["Avalonia","12.1.2","net8.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"q":[["type-query/v1",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"member","l":["Avalonia.Base","12.1.2.0",null,"c8d484a7012f9a8b"],"y":"Avalonia.Data.MultiBinding","s":"M:Avalonia.Data.MultiBinding.#ctor()"},"u":{"k":"type"},"f":"type.metadata","q":[0],"l":[["Avalonia.Base","12.1.2.0",null,"c8d484a7012f9a8b"]]}]}""";
+
     [Fact]
     public void AvaloniaVersion4RecordJson_PreservesStructuredTypeAndMemberPath()
     {
@@ -110,6 +113,79 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
         Assert.True(projection.Succeeded);
         Assert.Equal(WorkspaceSharePacketCodec.Format4Version, roundTripped.FormatVersion);
         Assert.Equal(AvaloniaJson, WorkspaceSharePacketCodec.SerializeJson(roundTripped));
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(roundTripped));
+    }
+
+    [Fact]
+    public void AvaloniaTypeQueryState_PacketRecordsPacket_IsByteIdentical()
+    {
+        var descriptor = new PortableQueryDefinitionDescriptor<string>(
+            "type-query/v1",
+            "type-query",
+            PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Type],
+                ["type.metadata"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required),
+            static (_, _, _) =>
+                new PortableQueryDefinitionResolution<string>.Accepted(
+                    "bound"));
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            AvaloniaQueryJson,
+            TestContext.Current.CancellationToken);
+
+        CommittedScenarioDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet,
+                [descriptor],
+                TestContext.Current.CancellationToken);
+        var binding = Assert.IsType<BoundCommittedQuery<string>>(
+            Assert.Single(definitions.QueryBindings));
+        CommittedQueryDefinition query = Assert.Single(definitions.Queries);
+        CommittedViewStateDefinition state = definitions.View!.States[1];
+
+        Assert.Equal(InspectionDefinitionSchema.Version4, query.SchemaVersion);
+        Assert.Equal("bound", binding.Plan);
+        Assert.Equal(
+            PortableSubjectRequestKind.Type,
+            binding.Attachment.SubjectKind);
+        Assert.Equal("type.metadata", binding.Attachment.FacetId);
+        Assert.Equal(
+            definitions.Navigation!.Tabs[0].Coordinate,
+            binding.Attachment.StateCoordinate);
+        Assert.Same(
+            definitions.Workspace!.Contexts[0],
+            binding.Attachment.SelectedContext);
+        Assert.Equal(
+            state.Libraries,
+            binding.Attachment.StateLibraryScope);
+        Assert.Equal(["q0"], state.Queries);
+        Assert.Equal(
+            "Avalonia.Base",
+            Assert.Single(state.Libraries).Name);
+        Assert.Equal(
+            query.Identity,
+            Assert.IsType<CommittedQueryDefinition>(
+                InspectionDefinitionJson.Parse(
+                    InspectionDefinitionJson.Serialize(query))).Identity);
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken);
+        WorkspaceSharePacket roundTripped =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+
+        Assert.True(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Format4Version,
+            roundTripped.FormatVersion);
+        Assert.Equal(
+            AvaloniaQueryJson,
+            WorkspaceSharePacketCodec.SerializeJson(roundTripped));
         Assert.Equal(
             WorkspaceSharePacketCodec.Encode(packet),
             WorkspaceSharePacketCodec.Encode(roundTripped));
@@ -310,7 +386,7 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
     }
 
     [Fact]
-    public void Version4_MixedPeerVersionsAndQueriesRemainUnsupported()
+    public void Version4_MixedPeerVersionsAndEmptyQueryTablesAreRejected()
     {
         var registry = new InspectionDefinitionRegistry();
         registry.Add(new WorkspaceDefinition(
@@ -374,7 +450,7 @@ public sealed class WorkspaceSharePacketV4CodecTransposerTests
                     queryJson,
                     TestContext.Current.CancellationToken));
         Assert.Equal(
-            WorkspaceSharePacketFailureKind.UnsupportedFormat,
+            WorkspaceSharePacketFailureKind.InvalidShape,
             exception.Kind);
     }
 }

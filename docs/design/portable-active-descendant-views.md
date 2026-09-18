@@ -10,11 +10,13 @@
 > and independently of an exact inspector request versus recommendation.
 
 Format-4 construction, managed projection, exact selector resolution and
-complete restoration are implemented, with the Release gates below.
-CLI and Browser capture/transport adoption remain **unverified**. The
-schema/packet 2/3 active-subject vocabulary remains Workspace and Package.
-Retained Library, Type and Member selectors already exist; they do not make
-those nodes active.
+complete restoration are implemented, with the Release gates below. The #6971
+query-adoption slice adds schema-version-4 query records and format-4
+state-bound query and Library-scope projection without changing this
+extension's subject contract. CLI and Browser capture/transport adoption
+remain **unverified**. The schema/packet 2/3 active-subject vocabulary remains
+Workspace and Package. Retained Library, Type and Member selectors already
+exist; they do not make those nodes active.
 
 The basis is the existing
 [complete committed-view contract](workspace-definitions.md#complete-committed-views).
@@ -117,10 +119,9 @@ respective meanings. An older-format subject object containing a new tag is
 invalid for that format, not an implicit upgrade.
 
 The version-3 query-only attachment defined under #6971 remains separately
-owned by its existing Definitions contract. This extension does not change
-query semantics or require query-bearing implementation as a hidden
-prerequisite: the initial version-4 adoption may remain query-free, with the
-same explicit unsupported-query outcome until query adoption exists.
+owned by its existing Definitions contract and is not admitted by version 4.
+Version 4 otherwise inherits version 3's state-bound query and Library-scope
+composition unchanged; #6971 supplies that query-bearing implementation.
 
 The long-form subject still contains exactly `kind`; the packet counterpart
 still contains exactly `k`. Both add the exact lower-case values `library`,
@@ -224,7 +225,8 @@ the #7061 continuity initiative. The #7475 branch has **four steps**:
 1. Lock this format-4 Definitions contract.
 2. Implement version-4 records and managed codec/transposition, exact node
    resolution, and complete restoration together with the shared outcome
-   gates. Leave unsupported query state explicit.
+   gates. The initial slice left query state unsupported; #6971 adds the
+   inherited state-bound query composition.
 3. Adopt format-4 capture and replay in the CLI packet-context noun paths
    under #7379, consumed by portable replacement #7466.
 4. Adopt the same managed boundary in Browser/Wasm capture, transport and
@@ -255,8 +257,9 @@ renderShare(result.share);
 renderDiagnostics(result.diagnostics);
 ```
 
-The shared Release gates are `WorkspaceSharePacketV4CodecTransposerTests`
-and the `Version4_*` cases in `CompleteRestorationExecutionTests`.
+The shared Release gates are `WorkspaceSharePacketV4CodecTransposerTests`,
+including the format-4 state-bound query round trip, and the `Version4_*`
+cases in `CompleteRestorationExecutionTests`.
 The latter exercise the public consumer assembly, product-owned selector
 resolution and complete unpublished-Workspace restoration, from both packets
 and definitions. The Avalonia activation cases measured above two seconds and

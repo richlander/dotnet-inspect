@@ -15,6 +15,13 @@ public sealed class InspectionDefinitionRegistry
 {
     private readonly Dictionary<(InspectionDefinitionKind Kind, string Id), InspectionDefinitionRecord> _records =
         new();
+    private readonly Dictionary<string, PortableQueryDefinitionDescriptor>
+        _queryDescriptors = new(StringComparer.Ordinal);
+
+    public InspectionDefinitionRegistry()
+    {
+        AddQueryDescriptor(PackageQuery.DefinitionDescriptor);
+    }
 
     /// <summary>
     /// Snapshot of registered records. Enumeration is isolated from later <see cref="Add"/> calls.
@@ -43,6 +50,17 @@ public sealed class InspectionDefinitionRegistry
     public void AddJson(string json) => Add(InspectionDefinitionJson.Parse(json));
 
     public void AddJson(ReadOnlyMemory<byte> utf8Json) => Add(InspectionDefinitionJson.Parse(utf8Json));
+
+    public void AddQueryDescriptor(
+        PortableQueryDefinitionDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (!_queryDescriptors.TryAdd(descriptor.QueryId, descriptor))
+        {
+            throw new InspectionDefinitionException(
+                $"Duplicate portable query descriptor '{descriptor.QueryId}'.");
+        }
+    }
 
     public bool TryGet<TRecord>(string id, [NotNullWhen(true)] out TRecord? record)
         where TRecord : InspectionDefinitionRecord
@@ -105,20 +123,42 @@ public sealed class InspectionDefinitionRegistry
     /// </summary>
     public InspectionDefinitionScenarioPreparationResult PrepareScenario(
         string scenarioId) =>
-        PrepareScenario(
+        PrepareScenarioCore(
             scenarioId,
-            NavigationTargetMatchMode.InheritOmitted);
+            NavigationTargetMatchMode.InheritOmitted,
+            CancellationToken.None);
 
     internal InspectionDefinitionScenarioPreparationResult
-        PreparePacketScenario(string scenarioId) =>
-        PrepareScenario(
-            scenarioId,
-            NavigationTargetMatchMode.Exact);
-
-    private InspectionDefinitionScenarioPreparationResult PrepareScenario(
+        PrepareScenarioWithCancellation(
         string scenarioId,
-        NavigationTargetMatchMode targetMatchMode)
+        CancellationToken cancellationToken) =>
+        PrepareScenarioCore(
+            scenarioId,
+            NavigationTargetMatchMode.InheritOmitted,
+            cancellationToken);
+
+    internal InspectionDefinitionScenarioPreparationResult PreparePacketScenario(
+        string scenarioId) =>
+        PrepareScenarioCore(
+            scenarioId,
+            NavigationTargetMatchMode.Exact,
+            CancellationToken.None);
+
+    internal InspectionDefinitionScenarioPreparationResult
+        PreparePacketScenarioWithCancellation(
+        string scenarioId,
+        CancellationToken cancellationToken) =>
+        PrepareScenarioCore(
+            scenarioId,
+            NavigationTargetMatchMode.Exact,
+            cancellationToken);
+
+    private InspectionDefinitionScenarioPreparationResult PrepareScenarioCore(
+        string scenarioId,
+        NavigationTargetMatchMode targetMatchMode,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
         if (!TryGet<ScenarioDefinition>(scenarioId, out var scenario))
         {
@@ -137,7 +177,10 @@ public sealed class InspectionDefinitionRegistry
             or InspectionDefinitionSchema.Version4)
         {
             CommittedScenarioDefinitionSet committed =
-                CreateCommittedScenario(records, targetMatchMode);
+                CreateCommittedScenario(
+                    records,
+                    targetMatchMode,
+                    cancellationToken);
             ValidateNavigationSources(
                 records.Workspace as WorkspaceDefinition,
                 records.Navigation,
@@ -272,6 +315,11 @@ public sealed class InspectionDefinitionRegistry
             scenario.Navigation,
             scenario,
             "navigation");
+        InspectionDefinitionRecord? view = ResolveOptional(
+            InspectionDefinitionKind.View,
+            scenario.View,
+            scenario,
+            "view");
         return new(
             scenario,
             workspace,
@@ -280,15 +328,53 @@ public sealed class InspectionDefinitionRegistry
                 scenario.Query,
                 scenario,
                 "query"),
-            ResolveOptional(
-                InspectionDefinitionKind.View,
-                scenario.View,
-                scenario,
-                "view"),
+            view,
             navigation,
+            ResolveCommittedQueries(
+                view as CommittedViewDefinition,
+                scenario),
             ResolveCatalogDependencies(
                 workspace as WorkspaceDefinition,
                 navigation));
+    }
+
+    private IReadOnlyList<CommittedQueryDefinition>
+        ResolveCommittedQueries(
+            CommittedViewDefinition? view,
+            ScenarioDefinition scenario)
+    {
+        if (view is null)
+            return Array.Empty<CommittedQueryDefinition>();
+
+        var queries = new Dictionary<string, CommittedQueryDefinition>(
+            StringComparer.Ordinal);
+        foreach (CommittedViewStateDefinition state in view.States)
+        {
+            foreach (string queryId in state.Queries)
+            {
+                if (!TryGet(
+                    InspectionDefinitionKind.Query,
+                    queryId,
+                    out InspectionDefinitionRecord? record))
+                {
+                    throw new InspectionDefinitionException(
+                        $"Scenario '{scenario.Id}' references unknown query "
+                            + $"'{queryId}' from committed view '{view.Id}'.");
+                }
+                if (record is not CommittedQueryDefinition query)
+                {
+                    throw new InspectionDefinitionException(
+                        $"Scenario '{scenario.Id}' committed view '{view.Id}' "
+                            + $"references incompatible query '{queryId}'.");
+                }
+
+                queries.TryAdd(query.Id, query);
+            }
+        }
+
+        return queries.Values
+            .OrderBy(query => query.Id, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private InspectionDefinitionRecord? ResolveOptional(
@@ -924,9 +1010,10 @@ public sealed class InspectionDefinitionRegistry
         }
     }
 
-    private static CommittedScenarioDefinitionSet CreateCommittedScenario(
+    private CommittedScenarioDefinitionSet CreateCommittedScenario(
         ScenarioRecordComposition records,
-        NavigationTargetMatchMode targetMatchMode)
+        NavigationTargetMatchMode targetMatchMode,
+        CancellationToken cancellationToken)
     {
         ScenarioDefinition scenario = records.Scenario;
         WorkspaceDefinition? workspace = records.Workspace as WorkspaceDefinition;
@@ -955,7 +1042,7 @@ public sealed class InspectionDefinitionRegistry
         if (records.Query is not null)
         {
             throw new InspectionDefinitionException(
-                $"Scenario '{scenario.Id}' cannot reference a committed query in the query-free record slice.");
+                $"Scenario '{scenario.Id}' must carry committed queries through its view states.");
         }
 
         if (workspace is not null && (navigation is null || view is null))
@@ -974,8 +1061,18 @@ public sealed class InspectionDefinitionRegistry
             throw new InspectionDefinitionException(
                 $"Committed navigation '{navigation.Id}' requires at least one tab when workspace '{workspace.Id}' has contexts.");
         }
+        IReadOnlyList<BoundCommittedQuery> queryBindings =
+            Array.Empty<BoundCommittedQuery>();
         if (navigation is not null && view is not null)
-            ValidateCommittedView(navigation, view);
+        {
+            queryBindings = ValidateCommittedView(
+                scenario,
+                workspace,
+                navigation,
+                view,
+                records.CommittedQueries,
+                cancellationToken);
+        }
 
         return new CommittedScenarioDefinitionSet(
             scenario,
@@ -983,7 +1080,8 @@ public sealed class InspectionDefinitionRegistry
             navigation,
             view,
             records.Catalogs,
-            targetMatchMode);
+            targetMatchMode,
+            queryBindings);
     }
 
     private static Version1ScenarioDefinitionSet CreateVersion1Scenario(
@@ -1029,9 +1127,13 @@ public sealed class InspectionDefinitionRegistry
             records.Catalogs);
     }
 
-    private static void ValidateCommittedView(
+    private IReadOnlyList<BoundCommittedQuery> ValidateCommittedView(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
         CommittedNavigationDefinition navigation,
-        CommittedViewDefinition view)
+        CommittedViewDefinition view,
+        IReadOnlyList<CommittedQueryDefinition> queries,
+        CancellationToken cancellationToken)
     {
         if (view.States.Count != navigation.Tabs.Count + 1)
         {
@@ -1056,7 +1158,21 @@ public sealed class InspectionDefinitionRegistry
                 $"Committed view '{view.Id}' Workspace state cannot retain Package context.");
         }
 
-        ValidateQueryFreeState(view, workspaceState, 0);
+        var queriesById = queries.ToDictionary(
+            query => query.Id,
+            StringComparer.Ordinal);
+        var queryBindings = new List<BoundCommittedQuery>();
+        WorkspaceContextDefinition? selectedContext =
+            ResolveSelectedContext(scenario, workspace);
+        ValidateQueryState(
+            navigation,
+            view,
+            workspaceState,
+            0,
+            selectedContext,
+            queriesById,
+            queryBindings,
+            cancellationToken);
         for (int index = 0; index < navigation.Tabs.Count; index++)
         {
             NavigationTabDefinition tab = navigation.Tabs[index];
@@ -1078,8 +1194,25 @@ public sealed class InspectionDefinitionRegistry
                     $"Committed view '{view.Id}' non-Package navigation row '{tab.Id}' must remain undecorated.");
             }
 
-            ValidateQueryFreeState(view, state, index + 1);
+            ValidateQueryState(
+                navigation,
+                view,
+                state,
+                index + 1,
+                selectedContext,
+                queriesById,
+                queryBindings,
+                cancellationToken);
         }
+
+        ValidateEmptyWorkspaceComposition(
+            scenario,
+            workspace,
+            navigation,
+            view,
+            queryBindings);
+        return new ReadOnlyCollection<BoundCommittedQuery>(
+            queryBindings.ToArray());
     }
 
     private static bool IsDecorated(CommittedViewStateDefinition state) =>
@@ -1089,20 +1222,253 @@ public sealed class InspectionDefinitionRegistry
         || state.Queries.Count != 0
         || state.Libraries.Count != 0;
 
-    private static void ValidateQueryFreeState(
+    private void ValidateQueryState(
+        CommittedNavigationDefinition navigation,
         CommittedViewDefinition view,
         CommittedViewStateDefinition state,
-        int index)
+        int index,
+        WorkspaceContextDefinition? selectedContext,
+        IReadOnlyDictionary<string, CommittedQueryDefinition> queriesById,
+        List<BoundCommittedQuery> queryBindings,
+        CancellationToken cancellationToken)
     {
-        if (state.Queries.Count != 0)
+        if (state.Libraries.Count != 0 && index == 0)
         {
             throw new InspectionDefinitionException(
-                $"Committed view '{view.Id}' state {index} cannot reference queries until #6971 supplies owner codecs.");
+                $"Committed view '{view.Id}' Workspace state cannot carry "
+                    + "state-level Library scope.");
         }
-        if (state.Libraries.Count != 0)
+        if (state.Libraries.Count != 0
+            && navigation.Tabs[index - 1].Coordinate
+                is not DefinitionMemberCoordinate.PackageCoordinate)
         {
             throw new InspectionDefinitionException(
-                $"Committed view '{view.Id}' state {index} cannot carry query Library scope without query-owner codecs.");
+                $"Committed view '{view.Id}' state {index} can carry Library "
+                    + "scope only for a direct Package coordinate.");
+        }
+
+        var purposes = new HashSet<string>(StringComparer.Ordinal);
+        bool consumesLibraryScope = false;
+        foreach (string queryId in state.Queries)
+        {
+            if (!queriesById.TryGetValue(
+                queryId,
+                out CommittedQueryDefinition? query))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index} references "
+                        + $"unknown query '{queryId}'.");
+            }
+            if (!_queryDescriptors.TryGetValue(
+                query.QueryId,
+                out PortableQueryDefinitionDescriptor? descriptor))
+            {
+                throw new InspectionDefinitionException(
+                    $"Query '{query.Id}' uses unknown vocabulary "
+                        + $"'{query.QueryId}'.");
+            }
+            if (!purposes.Add(descriptor.Purpose))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index} has duplicate "
+                        + $"query purpose '{descriptor.Purpose}'.");
+            }
+
+            PortableQueryDefinitionInputs inputs =
+                descriptor.Inputs;
+            if (inputs.CoordinateFreePrimary)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                queryBindings.Add(
+                    descriptor.Bind(
+                        query,
+                        new PortableQueryDefinitionAttachment(
+                            subjectKind: null,
+                            facetId: null,
+                            stateCoordinate: null,
+                            selectedContext: null,
+                            stateLibraryScope: null),
+                        cancellationToken));
+                continue;
+            }
+
+            if (state.Subject is null
+                || !inputs.SubjectKinds.Contains(state.Subject.Kind))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index} query "
+                        + $"'{queryId}' does not accept its subject.");
+            }
+            if (state.Facet is null
+                || !inputs.FacetIds.Contains(
+                    state.Facet,
+                    StringComparer.Ordinal))
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index} query "
+                        + $"'{queryId}' does not accept facet '{state.Facet}'.");
+            }
+
+            DefinitionMemberCoordinate? stateCoordinate =
+                index == 0
+                    ? null
+                    : navigation.Tabs[index - 1].Coordinate;
+            ValidateInputRequirement(
+                inputs.StateCoordinate,
+                stateCoordinate is not null,
+                view,
+                index,
+                queryId,
+                "state coordinate");
+            ValidateInputRequirement(
+                inputs.SelectedContext,
+                selectedContext is not null,
+                view,
+                index,
+                queryId,
+                "selected context");
+            if (inputs.StateLibraryScope
+                    == PortableQueryInputRequirement.Required
+                && state.Libraries.Count == 0)
+            {
+                throw new InspectionDefinitionException(
+                    $"Committed view '{view.Id}' state {index} query "
+                        + $"'{queryId}' requires state-level Library scope.");
+            }
+            consumesLibraryScope |=
+                inputs.StateLibraryScope
+                    is not PortableQueryInputRequirement.Forbidden;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            queryBindings.Add(
+                descriptor.Bind(
+                    query,
+                    new PortableQueryDefinitionAttachment(
+                        state.Subject.Kind,
+                        state.Facet,
+                        inputs.StateCoordinate
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : stateCoordinate,
+                        inputs.SelectedContext
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : selectedContext,
+                        inputs.StateLibraryScope
+                            == PortableQueryInputRequirement.Forbidden
+                            ? null
+                            : state.Libraries),
+                    cancellationToken));
+        }
+
+        if (state.Libraries.Count != 0 && !consumesLibraryScope)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' state {index} carries Library "
+                    + "scope without a consuming query.");
+        }
+    }
+
+    private static WorkspaceContextDefinition? ResolveSelectedContext(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace)
+    {
+        if (workspace is null)
+            return null;
+        if (scenario.Context is not null)
+        {
+            return workspace.Contexts.Single(
+                context => string.Equals(
+                    context.Name,
+                    scenario.Context,
+                    StringComparison.Ordinal));
+        }
+
+        return workspace.Contexts.Count == 1
+            ? workspace.Contexts[0]
+            : null;
+    }
+
+    private static void ValidateInputRequirement(
+        PortableQueryInputRequirement requirement,
+        bool present,
+        CommittedViewDefinition view,
+        int stateIndex,
+        string queryId,
+        string input)
+    {
+        if (requirement == PortableQueryInputRequirement.Required && !present)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' state {stateIndex} query "
+                    + $"'{queryId}' requires {input}.");
+        }
+        if (requirement == PortableQueryInputRequirement.Forbidden && present)
+        {
+            throw new InspectionDefinitionException(
+                $"Committed view '{view.Id}' state {stateIndex} query "
+                    + $"'{queryId}' does not accept {input}.");
+        }
+    }
+
+    private static void ValidateEmptyWorkspaceComposition(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
+        CommittedNavigationDefinition navigation,
+        CommittedViewDefinition view,
+        IReadOnlyList<BoundCommittedQuery> queryBindings)
+    {
+        if (workspace is null
+            || workspace.Contexts.Count != 0
+            || workspace.Registrations.Count != 0)
+        {
+            foreach (CommittedViewStateDefinition state in view.States)
+            {
+                foreach (string queryId in state.Queries)
+                {
+                    if (queryBindings.Any(
+                        binding =>
+                            string.Equals(
+                                binding.Definition.Id,
+                                queryId,
+                                StringComparison.Ordinal)
+                            && binding.Descriptor.Inputs.CoordinateFreePrimary))
+                    {
+                        throw new InspectionDefinitionException(
+                            $"Coordinate-free primary query '{queryId}' cannot "
+                                + "be mixed with Workspace context or registration state.");
+                    }
+                }
+            }
+
+            return;
+        }
+
+        CommittedViewStateDefinition workspaceState = view.States[0];
+        bool queryOnly =
+            scenario.SchemaVersion == InspectionDefinitionSchema.Version3
+            && scenario.Context is null
+            && navigation.Tabs.Count == 0
+            && navigation.Focus is null
+            && view.States.Count == 1
+            && workspaceState.Navigation is null
+            && workspaceState.Subject is PortableSubjectRequest.Workspace
+            && workspaceState.Context is null
+            && workspaceState.Facet is null
+            && workspaceState.Libraries.Count == 0
+            && workspaceState.Queries.Count == 1
+            && queryBindings.Any(
+                binding =>
+                    string.Equals(
+                        binding.Definition.Id,
+                        workspaceState.Queries[0],
+                        StringComparison.Ordinal)
+                    && binding.Descriptor.Inputs.CoordinateFreePrimary);
+        if (!queryOnly)
+        {
+            throw new InspectionDefinitionException(
+                $"Schema-version-3 workspace '{workspace.Id}' with no contexts "
+                    + "or registrations requires the exact query-only composition.");
         }
     }
 
@@ -1226,6 +1592,7 @@ internal sealed record ScenarioRecordComposition(
     InspectionDefinitionRecord? Query,
     InspectionDefinitionRecord? View,
     InspectionDefinitionRecord? Navigation,
+    IReadOnlyList<CommittedQueryDefinition> CommittedQueries,
     IReadOnlyList<CatalogDefinition> Catalogs)
 {
     public IEnumerable<InspectionDefinitionRecord> Referenced
@@ -1240,6 +1607,8 @@ internal sealed record ScenarioRecordComposition(
                 yield return View;
             if (Navigation is not null)
                 yield return Navigation;
+            foreach (CommittedQueryDefinition query in CommittedQueries)
+                yield return query;
             foreach (CatalogDefinition catalog in Catalogs)
                 yield return catalog;
         }
@@ -1341,13 +1710,24 @@ public sealed class CommittedScenarioDefinitionSet
         CommittedViewDefinition? view,
         IReadOnlyList<CatalogDefinition> catalogs,
         NavigationTargetMatchMode navigationTargetMatchMode =
-            NavigationTargetMatchMode.InheritOmitted)
+            NavigationTargetMatchMode.InheritOmitted,
+        IReadOnlyList<BoundCommittedQuery>? queryBindings = null)
     {
         Scenario = scenario;
         Workspace = workspace;
         Navigation = navigation;
         View = view;
         Catalogs = catalogs;
+        QueryBindings = queryBindings is null
+            ? Array.Empty<BoundCommittedQuery>()
+            : new ReadOnlyCollection<BoundCommittedQuery>(
+                queryBindings.ToArray());
+        Queries = new ReadOnlyCollection<CommittedQueryDefinition>(
+            QueryBindings
+                .Select(binding => binding.Definition)
+                .DistinctBy(query => query.Id, StringComparer.Ordinal)
+                .OrderBy(query => query.Id, StringComparer.Ordinal)
+                .ToArray());
         NavigationTargetMatchMode = navigationTargetMatchMode;
         Records = new ReadOnlyCollection<InspectionDefinitionRecord>(
             new InspectionDefinitionRecord?[]
@@ -1359,6 +1739,7 @@ public sealed class CommittedScenarioDefinitionSet
             }
             .Where(record => record is not null)
             .Cast<InspectionDefinitionRecord>()
+            .Concat(Queries)
             .Concat(Catalogs)
             .ToArray());
 
@@ -1371,6 +1752,10 @@ public sealed class CommittedScenarioDefinitionSet
     public CommittedNavigationDefinition? Navigation { get; }
 
     public CommittedViewDefinition? View { get; }
+
+    public IReadOnlyList<CommittedQueryDefinition> Queries { get; }
+
+    public IReadOnlyList<BoundCommittedQuery> QueryBindings { get; }
 
     public IReadOnlyList<CatalogDefinition> Catalogs { get; }
 
