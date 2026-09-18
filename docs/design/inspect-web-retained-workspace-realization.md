@@ -441,9 +441,9 @@ package-occurrence surface.
 A browser traversal records its selected URL and retained-definition identity
 before waiting for an in-progress commit. Staged Workspace history publication
 yields to that recorded traversal, including direct publication after
-managed-to-compatibility selection, so the commit cannot replace its
-destination or truncate the forward entries that existed when the person
-navigated.
+managed-to-compatibility selection and active deletion, so the commit cannot
+replace its destination or truncate the forward entries that existed when the
+person navigated.
 
 The managed-to-compatibility commit boundary is shared by Saved Open,
 retained-list selection, browser-history traversal, and active deletion whose

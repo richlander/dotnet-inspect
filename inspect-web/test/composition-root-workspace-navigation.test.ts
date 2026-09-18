@@ -1334,6 +1334,9 @@ test("browser history reuses available identities and publishes only unavailable
   assert.match(
     appSource,
     /function restoreRetainedWorkspaceSnapshot\([\s\S]*activeWorkspaceUrl = snapshot\.url;\s*if \(restoreUrl\) \{\s*workspaceLocation\.replace\(\s*snapshot\.url,\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(snapshot\.navigation\)\)\)[\s\S]*function selectRetainedWorkspace\(workspaceId: string\)[\s\S]*function publishRetainedWorkspaceSelectionHistory\(\): void \{\s*if \(pendingWorkspaceHistoryTraversal !== null\) return;\s*workspaceLocation\.push\(\s*activeWorkspaceUrl \?\? "\/demos",\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(\s*navigationHistory\.snapshot\(\)\)\)\)[\s\S]*activateRetainedWorkspaceProjection\(workspaceId, false\)[\s\S]*publishRetainedWorkspaceSelectionHistory\(\)[\s\S]*function deleteRetainedWorkspace\(workspaceId: string\)[\s\S]*restoreRetainedWorkspaceSnapshot\(transition\.activatedSnapshot\)/);
+  assert.match(
+    appSource,
+    /function publishRetainedWorkspaceDeletionHistory\(\): void \{\s*if \(pendingWorkspaceHistoryTraversal !== null\) return;\s*workspaceLocation\.replace\([\s\S]*function deleteRetainedWorkspace\(workspaceId: string\)[\s\S]*publishRetainedWorkspaceDeletionHistory\(\)/);
 });
 
 test("same-origin links retain different-coordinate Workspaces", () => {

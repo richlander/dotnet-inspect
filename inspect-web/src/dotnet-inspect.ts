@@ -1961,6 +1961,16 @@ function publishRetainedWorkspaceSelectionHistory(): void {
         navigationHistory.snapshot())));
 }
 
+function publishRetainedWorkspaceDeletionHistory(): void {
+  if (pendingWorkspaceHistoryTraversal !== null) return;
+  workspaceLocation.replace(
+    activeWorkspaceUrl ?? "/demos",
+    withPlatformRootParentHistory(
+      history.state,
+      navigationSnapshotHasPlatformRootParent(
+        navigationHistory.snapshot())));
+}
+
 async function activateLegacyRetainedWorkspaceAfterManaged(
     workspaceId: string,
     incumbent: ManagedRetainedWorkspace,
@@ -2260,12 +2270,7 @@ async function deleteRetainedWorkspaceCore(
               removeRetainedWorkspace(
                 retainedWorkspaces,
                 workspaceId).collection;
-            workspaceLocation.replace(
-              activeWorkspaceUrl ?? "/demos",
-              withPlatformRootParentHistory(
-                history.state,
-                navigationSnapshotHasPlatformRootParent(
-                  navigationHistory.snapshot())));
+            publishRetainedWorkspaceDeletionHistory();
             render({ synchronizeUrl: false });
             restartRestoredWorkspaceSelectionData();
           });

@@ -141,6 +141,7 @@ const hostNames = new Set([
   "finishManagedCompatibilityOpen", "cancelPendingManagedCompatibilityOpen",
   "activateLegacyRetainedWorkspaceAfterManaged",
   "selectRetainedWorkspaceCore", "publishRetainedWorkspaceSelectionHistory",
+  "publishRetainedWorkspaceDeletionHistory",
   "deleteRetainedWorkspaceCore", "waitForPendingWorkspaceCommit",
   "navigateWithinCurrentWorkspace", "restorePlatformScopeThenDeepLink",
   "applyPlatformLibraryScope",
@@ -2257,6 +2258,60 @@ test("active managed deletion keeps legacy successor cutover inside the commit b
   assert.equal(h.state.package?.id, "Source");
   assert.deepEqual(h.retainedDeletes, [managedId]);
   assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
+});
+
+test("active managed deletion yields history replacement to browser traversal", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const browserHistory = wireBrowserHistory(h);
+  const managedId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(managedId, "workspace-definition-1");
+  const entries: { url: string; state: { id: string | null } }[] = [
+    { url: "/demos", state: { id: "workspace-1" } },
+    { url: completeSaved.canonicalLocation, state: { id: managedId } },
+  ];
+  let index = 1;
+  h.context.workspaceLocation.replace = (destination, state) => {
+    const id = state !== null
+      && typeof state === "object"
+      && "id" in state
+      && typeof state.id === "string"
+      ? state.id
+      : null;
+    entries[index] = { url: destination, state: { id } };
+    h.location.href = new URL(destination, h.location).href;
+    h.history.state = state;
+    return true;
+  };
+  const deactivation = deferred<void>();
+  h.controls.deactivateRetained = () => deactivation.promise;
+
+  const deletion = h.deleteWorkspace(managedId);
+  await new Promise(resolve => setImmediate(resolve));
+
+  index = 0;
+  h.location.href = "https://inspect.test/demos";
+  h.history.state = entries[index]!.state;
+  browserHistory.dispatch(h.history.state);
+  await new Promise(resolve => setImmediate(resolve));
+  const captured = h.context.pendingWorkspaceHistoryTraversal?.href;
+
+  deactivation.resolve();
+  await deletion;
+  await new Promise(resolve => setImmediate(resolve));
+  await h.settle();
+
+  assert.deepEqual(browserHistory.errors, []);
+  assert.equal(captured, "https://inspect.test/demos");
+  assert.equal(h.location.href, captured);
+  assert.equal(entries[0]!.url, "/demos");
+  assert.equal(entries[1]!.state.id, managedId);
+  assert.equal(h.context.retainedWorkspaces.activeWorkspaceId, "workspace-1");
+  assert.equal(
+    h.context.retainedWorkspaces.workspaces.some(
+      (workspace: { id: string }) => workspace.id === managedId),
+    false);
 });
 
 test("failed legacy Open restores the managed incumbent's current package focus", async () => {
