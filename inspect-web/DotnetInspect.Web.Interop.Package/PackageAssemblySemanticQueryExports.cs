@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -596,23 +597,33 @@ internal static partial class BrowserPackageQueryOperations
             result.PackageId,
             result.Version,
             BrowserPackageQueryAcquisitionTier.Assembly,
+            [],
             [
                 new(
-                    "library-literal",
-                    $"{result.SelectedAsset.Path}: "
-                    + $"{result.Occurrences.Length} decoded literal uses; "
-                    + $"{result.SelectedAsset.UnevaluatedSiblings} sibling assemblies not evaluated.",
+                    "selected-assembly",
                     BrowserPackageQueryEvidenceScope.Package,
                     new(
                         result.Occurrences.Length,
-                        preview)),
+                        preview),
+                    [
+                        new("path", result.SelectedAsset.Path),
+                        new(
+                            "literal-use-count",
+                            result.Occurrences.Length.ToString(
+                                CultureInfo.InvariantCulture)),
+                        new(
+                            "unevaluated-sibling-count",
+                            result.SelectedAsset.UnevaluatedSiblings.ToString(
+                                CultureInfo.InvariantCulture)),
+                    ],
+                    null),
             ],
             TotalDownloads: null,
             Verified: null,
-            result.Producer,
+            Producer: result.Producer,
             Description:
                 "Matched the decoded library-literal query.",
-            result.SelectedAsset.RootRequest);
+            RootRequest: result.SelectedAsset.RootRequest);
     }
 
     static string LiteralExcerpt(string value) =>

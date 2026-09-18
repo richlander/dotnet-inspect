@@ -1153,7 +1153,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(row.locator("h2")).toHaveText(tool.packageId);
     await expect(row.locator(".query-tier")).toHaveText("package-content");
     await expect(row.locator(".query-evidence")).toContainText(
-      "RID-specific .NET tool CLI v2 format",
+      ".NET tool settings version: 2",
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);

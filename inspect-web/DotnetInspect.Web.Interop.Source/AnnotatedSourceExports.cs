@@ -68,7 +68,11 @@ public static partial class SourceExports
                 source.CallRelationshipsUnavailableReason,
             callCycles: source.CallCycles,
             callCyclesUnavailableReason:
-                source.CallCyclesUnavailableReason);
+                source.CallCyclesUnavailableReason,
+            synchronousCompletions:
+                source.SynchronousCompletions,
+            synchronousCompletionsUnavailableReason:
+                source.SynchronousCompletionsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -120,7 +124,9 @@ public static partial class SourceExports
             source.CallRelationships,
             source.CallRelationshipsUnavailableReason,
             source.CallCycles,
-            source.CallCyclesUnavailableReason);
+            source.CallCyclesUnavailableReason,
+            source.SynchronousCompletions,
+            source.SynchronousCompletionsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -171,7 +177,8 @@ public static partial class SourceExports
                         InvocationDestinations: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
                         CallRelationships: factRows,
-                        CallCycles: factRows))),
+                        CallCycles: factRows,
+                        SynchronousCompletions: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -302,6 +309,19 @@ public static partial class SourceExports
                             ])),
                 ]);
         }
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null;
+        if (projection.SynchronousCompletions
+            is { } projectedSynchronousCompletions)
+        {
+            synchronousCompletions =
+            [
+                .. projectedSynchronousCompletions.Select(observation =>
+                    new BrowserAnnotatedSourceSynchronousCompletion(
+                        observation.FactId,
+                        SynchronousCompletionKind(observation.Kind))),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -329,6 +349,12 @@ public static partial class SourceExports
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             callCycles,
             callCycles is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            synchronousCompletions,
+            synchronousCompletions is null
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
@@ -409,6 +435,19 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static BrowserSynchronousCompletionKind SynchronousCompletionKind(
+        Analysis.SynchronousCompletionKind kind) =>
+        kind switch
+        {
+            Analysis.SynchronousCompletionKind.TaskWait =>
+                BrowserSynchronousCompletionKind.TaskWait,
+            Analysis.SynchronousCompletionKind.TaskResult =>
+                BrowserSynchronousCompletionKind.TaskResult,
+            Analysis.SynchronousCompletionKind.TaskAwaiterGetResult =>
+                BrowserSynchronousCompletionKind.TaskAwaiterGetResult,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     static IEnumerable<BrowserAnnotatedSourceCallCycleLimit> CycleLimits(
         AnnotatedCallGraphCycleLimit limits)
     {
@@ -461,5 +500,9 @@ public static partial class SourceExports
             CallRelationshipsUnavailableReason,
         BrowserAnnotatedSourceCallCycleInspection? CallCycles,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            CallCyclesUnavailableReason);
+            CallCyclesUnavailableReason,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            SynchronousCompletions,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            SynchronousCompletionsUnavailableReason);
 }
