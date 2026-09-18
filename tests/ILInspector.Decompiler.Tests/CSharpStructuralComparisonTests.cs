@@ -1870,8 +1870,148 @@ public class CSharpStructuralComparisonTests
             Assert.Single(issued.UnmatchedAfter).Reason);
         var comparison = CSharpBodyDiff.CompareStructure(issued);
         Assert.Empty(comparison.Rows);
+        var multiplicity = Assert.Single(comparison.MultiplicityDeltas);
+        Assert.Equal("InvocationExpression", multiplicity.NodeKind);
+        Assert.Equal([0x10], multiplicity.Evidence.IlOffsets);
+        Assert.Equal(2, multiplicity.BeforeCount);
+        Assert.Equal(1, multiplicity.AfterCount);
         Assert.False(comparison.IsExact);
         Assert.False(comparison.IsCorrespondenceComplete);
+    }
+
+    [Theory]
+    [InlineData(3, 2)]
+    [InlineData(2, 3)]
+    public void IssueCorrespondence_ReportsAmbiguousMultiplicityDelta(
+        int beforeCount,
+        int afterCount)
+    {
+        var before = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            beforeCount,
+            [0x20, 0x21]);
+        var after = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            afterCount,
+            [0x20, 0x21]);
+
+        var comparison = CSharpBodyDiff.CompareStructure(
+            CSharpBodyDiff.IssueCorrespondence(before, after));
+
+        Assert.Empty(comparison.Rows);
+        Assert.False(comparison.IsCorrespondenceComplete);
+        var delta = Assert.Single(comparison.MultiplicityDeltas);
+        Assert.Equal("ReturnStatement", delta.NodeKind);
+        Assert.Equal([0x20, 0x21], delta.Evidence.IlOffsets);
+        Assert.Equal(beforeCount, delta.BeforeCount);
+        Assert.Equal(afterCount, delta.AfterCount);
+        var display = Assert.Single(
+            CSharpStructuralDiffPrinter.ToMultiplicityDisplayRows(comparison));
+        Assert.Equal("ReturnStatement", display.Structure);
+        Assert.Equal("{32, 33}", display.IlOrigins);
+        Assert.Equal($"{beforeCount} -> {afterCount}", display.Occurrences);
+        Assert.Equal("Unresolved", display.Location);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_EqualAmbiguousMultiplicityEmitsNoDelta()
+    {
+        var before = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            2,
+            [0x20]);
+        var after = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            2,
+            [0x20]);
+
+        var comparison = CSharpBodyDiff.CompareStructure(
+            CSharpBodyDiff.IssueCorrespondence(before, after));
+
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
+        Assert.False(comparison.IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_SeparatesMultiplicityByStableKind()
+    {
+        var before = TrustedDocument(
+            "return; return; break;",
+            new NodeSpec("ReturnStatement", "return;", [0x20]),
+            new NodeSpec("ReturnStatement", "return;", [0x20], Occurrence: 1),
+            new NodeSpec("BreakStatement", "break;", [0x20]));
+        var after = TrustedDocument(
+            "return; break; break;",
+            new NodeSpec("ReturnStatement", "return;", [0x20]),
+            new NodeSpec("BreakStatement", "break;", [0x20]),
+            new NodeSpec("BreakStatement", "break;", [0x20], Occurrence: 1));
+
+        var comparison = CSharpBodyDiff.CompareStructure(
+            CSharpBodyDiff.IssueCorrespondence(before, after));
+
+        Assert.Empty(comparison.Rows);
+        Assert.Collection(
+            comparison.MultiplicityDeltas.OrderBy(static delta => delta.NodeKind),
+            delta =>
+            {
+                Assert.Equal("BreakStatement", delta.NodeKind);
+                Assert.Equal(1, delta.BeforeCount);
+                Assert.Equal(2, delta.AfterCount);
+            },
+            delta =>
+            {
+                Assert.Equal("ReturnStatement", delta.NodeKind);
+                Assert.Equal(2, delta.BeforeCount);
+                Assert.Equal(1, delta.AfterCount);
+            });
+    }
+
+    [Fact]
+    public void IssueCorrespondence_ReorderedAmbiguousOccurrencesDoNotCreateDeltasOrNodeRows()
+    {
+        var before = TrustedDocument(
+            "return; break; return;",
+            new NodeSpec("ReturnStatement", "return;", [0x20]),
+            new NodeSpec("BreakStatement", "break;", [0x20]),
+            new NodeSpec("ReturnStatement", "return;", [0x20], Occurrence: 1));
+        var after = TrustedDocument(
+            "return; return; break;",
+            new NodeSpec("ReturnStatement", "return;", [0x20]),
+            new NodeSpec("ReturnStatement", "return;", [0x20], Occurrence: 1),
+            new NodeSpec("BreakStatement", "break;", [0x20]));
+
+        var comparison = CSharpBodyDiff.CompareStructure(
+            CSharpBodyDiff.IssueCorrespondence(before, after));
+
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
+        Assert.False(comparison.IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_UnsupportedDuplicateNodesDoNotCreateMultiplicityDelta()
+    {
+        var before = TrustedDocument(
+            "return; return;",
+            new NodeSpec("ReturnStatement", "return;", null),
+            new NodeSpec("ReturnStatement", "return;", null, Occurrence: 1));
+        var after = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.All(
+            issued.UnmatchedBefore.Concat(issued.UnmatchedAfter),
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, node.Reason));
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
     }
 
     [Fact]
@@ -1895,7 +2035,9 @@ public class CSharpStructuralComparisonTests
         Assert.All(
             issued.UnmatchedAfter,
             node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
-        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
     }
 
     [Fact]
@@ -1920,7 +2062,9 @@ public class CSharpStructuralComparisonTests
         Assert.All(
             issued.UnmatchedAfter,
             node => Assert.Equal(CSharpUnmatchedNodeReason.Ambiguous, node.Reason));
-        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
     }
 
     [Fact]
@@ -1952,7 +2096,9 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(
             CSharpUnmatchedNodeReason.Unsupported,
             Assert.Single(issued.UnmatchedAfter).Reason);
-        Assert.Empty(CSharpBodyDiff.CompareStructure(issued).Rows);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.Empty(comparison.Rows);
+        Assert.Empty(comparison.MultiplicityDeltas);
     }
 
     [Fact]
@@ -3206,10 +3352,37 @@ public class CSharpStructuralComparisonTests
             CSharpStructuralDiffDocument.CurrentMethodologyVersion,
             document.MethodologyVersion);
         Assert.Single(document.Rows);
+        Assert.Empty(document.MultiplicityDeltas);
         var row = Assert.Single(document.ToComparison().Rows);
         Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
         Assert.Equal("ReturnStatement", row.BeforeKind);
         Assert.Equal("BreakStatement", row.AfterKind);
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_ReissuesMultiplicityDeltas()
+    {
+        var before = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            3,
+            [0x20, 0x21]);
+        var after = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            2,
+            [0x20, 0x21]);
+
+        var document = CSharpStructuralDiffDocument.Create(before, after);
+
+        var delta = Assert.Single(document.MultiplicityDeltas);
+        Assert.Equal("ReturnStatement", delta.NodeKind);
+        Assert.Equal([0x20, 0x21], delta.Evidence.IlOffsets);
+        Assert.Equal(3, delta.BeforeCount);
+        Assert.Equal(2, delta.AfterCount);
+        Assert.Equal(
+            document.MultiplicityDeltas,
+            document.ToComparison().MultiplicityDeltas);
     }
 
     [Fact]
@@ -3233,7 +3406,8 @@ public class CSharpStructuralComparisonTests
             },
             comparison.Before,
             comparison.After,
-            comparison.Rows));
+            comparison.Rows,
+            MultiplicityDeltas: comparison.MultiplicityDeltas));
     }
 
     [Theory]
@@ -3255,7 +3429,8 @@ public class CSharpStructuralComparisonTests
             issued,
             comparison.Before,
             comparison.After,
-            comparison.Rows));
+            comparison.Rows,
+            MultiplicityDeltas: comparison.MultiplicityDeltas));
     }
 
     [Fact]
@@ -3310,7 +3485,8 @@ public class CSharpStructuralComparisonTests
                 priorProjection,
                 priorProjection,
                 current.Rows,
-                current.Fidelity));
+                current.Fidelity,
+                current.MultiplicityDeltas));
 
         Assert.Equal("MethodologyVersion", error.ParamName);
         Assert.Contains(
@@ -3338,7 +3514,8 @@ public class CSharpStructuralComparisonTests
             new CSharpStructuralFidelityEvidence(
                 IlBodyDiffOutcome.Exact,
                 IlBodyDiffOutcome.Exact,
-                "\uD800")));
+                "\uD800"),
+            comparison.MultiplicityDeltas));
     }
 
     [Fact]
@@ -3361,7 +3538,42 @@ public class CSharpStructuralComparisonTests
             comparison.After,
             comparison.Rows.SetItem(
                 0,
-                comparison.Rows[0] with { Change = CSharpStructuralChangeKind.Moved })));
+                comparison.Rows[0] with { Change = CSharpStructuralChangeKind.Moved }),
+            MultiplicityDeltas: comparison.MultiplicityDeltas));
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_RejectsTamperedMultiplicityDelta()
+    {
+        var before = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            3,
+            [0x20, 0x21]);
+        var after = TrustedDuplicateDocument(
+            "ReturnStatement",
+            "return;",
+            2,
+            [0x20, 0x21]);
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        var delta = Assert.Single(comparison.MultiplicityDeltas);
+
+        Assert.Throws<ArgumentException>(() => new CSharpStructuralDiffDocument(
+            CSharpStructuralDiffDocument.CurrentSchemaVersion,
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            issued,
+            comparison.Before,
+            comparison.After,
+            comparison.Rows,
+            MultiplicityDeltas:
+            [
+                new CSharpStructuralMultiplicityDelta(
+                    delta.NodeKind,
+                    delta.Evidence,
+                    delta.BeforeCount,
+                    AfterCount: 1)
+            ]));
     }
 
     [Fact]
@@ -3382,7 +3594,8 @@ public class CSharpStructuralComparisonTests
             issued,
             comparison.After,
             comparison.After,
-            comparison.Rows));
+            comparison.Rows,
+            MultiplicityDeltas: comparison.MultiplicityDeltas));
     }
 
     [Fact]
@@ -3782,6 +3995,25 @@ public class CSharpStructuralComparisonTests
             })
             .ToArray();
         return new AnnotatedSourceDocument(text, sourceNodes, [], [], [], Source());
+    }
+
+    static AnnotatedSourceDocument TrustedDuplicateDocument(
+        string kind,
+        string selectedText,
+        int count,
+        IReadOnlyList<int> ilOffsets)
+    {
+        string text = string.Join(' ', Enumerable.Repeat(selectedText, count));
+        NodeSpec[] nodes =
+        [
+            .. Enumerable.Range(0, count)
+                .Select(occurrence => new NodeSpec(
+                    kind,
+                    selectedText,
+                    ilOffsets,
+                    occurrence))
+        ];
+        return TrustedDocument(text, nodes);
     }
 
     static AnnotatedSourceDocumentSource Source()

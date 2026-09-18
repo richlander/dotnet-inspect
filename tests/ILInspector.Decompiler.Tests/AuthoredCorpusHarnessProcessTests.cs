@@ -182,11 +182,11 @@ public partial class AuthoredCorpusHarnessProcessTests
 
             Assert.Equal(0, markdown.ExitCode);
             Assert.Contains(
-                "Structural review status: **Partial** - 40 unsupported or ambiguous nodes were excluded.",
+                "Structural review status: **Partial** - 40 unsupported or ambiguous nodes were excluded from node-level correspondence.",
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "Supported rows do not establish changes represented only by the gaps below.",
+                "Supported rows do not establish changes represented only by the gaps below;",
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.True(
@@ -223,6 +223,43 @@ public partial class AuthoredCorpusHarnessProcessTests
             Assert.All(
                 replayed.Correspondence.UnmatchedAfter,
                 static node => Assert.Equal([0x20, 0x21, 0x22], node.Evidence!.IlOffsets));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Harness_RendersAmbiguousGroupMultiplicityWithoutInventingLocation()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, MultiplicityStructuralReviewJson(3, 2));
+
+        try
+        {
+            var markdown = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, markdown.ExitCode);
+            Assert.Contains(
+                "No node-level structural changes; ambiguous-group multiplicity changes are reported below.",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains("## Ambiguous group multiplicity", markdown.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "| ReturnStatement | {32, 33} | 3 -&gt; 2 | Unresolved |",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("raise:", markdown.Output, StringComparison.Ordinal);
+
+            var json = RunHarness("--structural-review", path, "--json");
+
+            Assert.Equal(0, json.ExitCode);
+            var replayed = AnnotatedSourceJson.DeserializeStructuralDiff(json.Output);
+            var delta = Assert.Single(replayed.MultiplicityDeltas);
+            Assert.Equal(3, delta.BeforeCount);
+            Assert.Equal(2, delta.AfterCount);
+            Assert.Equal([0x20, 0x21], delta.Evidence.IlOffsets);
         }
         finally
         {
@@ -1253,6 +1290,41 @@ public partial class AuthoredCorpusHarnessProcessTests
             CSharpStructuralDiffDocument.Create(
                 Document(beforeText, "ReturnStatement", "return;".Length),
                 Document(afterText, "BreakStatement", "break;".Length)));
+    }
+
+    static string MultiplicityStructuralReviewJson(int beforeCount, int afterCount)
+    {
+        var source = new AnnotatedSourceDocumentSource(
+            "Fixture",
+            new Guid("11111111-2222-3333-4444-555555555555"),
+            0x06000001,
+            new string('A', 64),
+            "M");
+
+        AnnotatedSourceDocument Document(int count)
+        {
+            const string SelectedText = "return;";
+            string text = string.Join(' ', Enumerable.Repeat(SelectedText, count));
+            int start = 0;
+            var nodes = new List<AnnotatedSourceNode>(count);
+            for (int id = 0; id < count; id++)
+            {
+                nodes.Add(new(
+                    id,
+                    "ReturnStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(start, SelectedText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x20, 0x21])));
+                start += SelectedText.Length + 1;
+            }
+
+            return new AnnotatedSourceDocument(text, nodes, [], [], [], source);
+        }
+
+        return AnnotatedSourceJson.SerializeStructuralDiff(
+            CSharpStructuralDiffDocument.Create(
+                Document(beforeCount),
+                Document(afterCount)));
     }
 
     static AnnotatedSourceDocument StructuralDocument(
