@@ -71,6 +71,7 @@ public enum PdbTypeSourceOutcome
 public enum PdbTypeSourceUnitScope
 {
     PrimaryTypeDocument,
+    AdditionalTypeDocument,
 }
 
 public enum PdbTypeSourceMappingStrength
