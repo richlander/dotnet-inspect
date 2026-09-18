@@ -570,6 +570,18 @@ public sealed class InspectionDefinitionRegistry
                 $"Navigation tab '{tab.Id}'"));
     }
 
+    /// <summary>
+    /// Resolves the normalized context-wide target composed from the context
+    /// and all target-bearing member declarations.
+    /// </summary>
+    public static EffectiveWorkspaceContextTarget ResolveEffectiveContextTarget(
+        WorkspaceContextDefinition context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        NavigationTarget target = EffectiveContextTarget(context);
+        return new(target.Framework, target.RuntimeIdentifier);
+    }
+
     private static NavigationTarget EffectiveContextTarget(
         WorkspaceContextDefinition context)
     {
@@ -1209,6 +1221,14 @@ public abstract record InspectionDefinitionScenarioPreparationResult
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
 }
+
+/// <summary>
+/// One normalized effective target shared by every member in a Workspace
+/// context.
+/// </summary>
+public sealed record EffectiveWorkspaceContextTarget(
+    string? Framework,
+    string? RuntimeIdentifier);
 
 /// <summary>
 /// Strictly composed schema-version-1 records before complete-restoration
