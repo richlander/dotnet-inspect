@@ -1293,7 +1293,7 @@ public partial class PackageCommand
                             InspectionContext.Default,
                             writerOpts,
                             schemaMap);
-                        schemaMap = DiscoverOutput.FilterSchemaToRenderedFields(
+                        schemaMap = DiscoverOutput.FilterSchemaToRenderedItems(
                             effective,
                             schemaMap,
                             renderManifest,

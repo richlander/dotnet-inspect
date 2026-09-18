@@ -401,7 +401,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
 }
 
 /// <summary>
-/// Gate for the <c>--il-offset</c> projection sections of the library view
+/// Gate for the IL-coordinate projection sections of the library view
 /// (issue #3319). These sections render assembly-derived text — the caught
 /// exception type, the allocated and churned types, the callee, the member
 /// signature, and the decoded instruction operand — and were the one family of
