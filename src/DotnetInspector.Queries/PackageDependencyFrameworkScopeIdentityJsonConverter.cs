@@ -180,11 +180,10 @@ public sealed class PackageDependencyFrameworkScopeIdentityJsonConverter :
 
     private static void RequireOpaqueIdentity(string opaqueIdentity)
     {
-        if (opaqueIdentity is not { Length: 64 }
-            || !RestoredProjectIdentityText.IsLowerHex(opaqueIdentity))
+        if (!RestoredProjectIdentityText.IsOpaque(opaqueIdentity))
         {
             throw new JsonException(
-                "An opaque framework scope requires a lowercase 64-character SHA-256 identity.");
+                "An opaque framework scope requires a sha256-prefixed lowercase SHA-256 identity.");
         }
     }
 

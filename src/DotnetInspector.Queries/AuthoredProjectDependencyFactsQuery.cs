@@ -116,11 +116,10 @@ public sealed record AuthoredProjectTargetFrameworkIdentity
                 kind,
                 "An opaque authored framework identity requires an opaque kind.");
         }
-        if (comparisonIdentity is not { Length: 64 }
-            || !RestoredProjectIdentityText.IsLowerHex(comparisonIdentity))
+        if (!RestoredProjectIdentityText.IsOpaque(comparisonIdentity))
         {
             throw new ArgumentException(
-                "An opaque authored framework identity must be a lowercase 64-character SHA-256 hex string.",
+                "An opaque authored framework identity must be a sha256-prefixed lowercase SHA-256 identity.",
                 nameof(comparisonIdentity));
         }
 

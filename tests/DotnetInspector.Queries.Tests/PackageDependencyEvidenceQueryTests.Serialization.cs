@@ -13,8 +13,8 @@ public sealed partial class PackageDependencyEvidenceQueryTests
     [Fact]
     public void Serialization_RoundTripsValidatedFrameworkIdentities()
     {
-        const string opaqueIdentity =
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string opaqueIdentity =
+            RestoredProjectIdentityText.Opaque("custom-framework");
         InertString sourceSpelling =
             new(TextPolicy.Field, "source\u202Espelling");
         PackageDependencyFrameworkScopeIdentity[] frameworkScopes =
@@ -33,12 +33,10 @@ public sealed partial class PackageDependencyEvidenceQueryTests
         AuthoredProjectTargetFrameworkIdentity[] authoredIdentities =
         [
             AuthoredProjectTargetFrameworkIdentity.Exact("net11.0"),
-            AuthoredProjectTargetFrameworkIdentity.FromOpaqueIdentity(
-                AuthoredProjectTargetFrameworkKind.Unrecognized,
-                opaqueIdentity),
-            AuthoredProjectTargetFrameworkIdentity.FromOpaqueIdentity(
-                AuthoredProjectTargetFrameworkKind.Unresolved,
-                opaqueIdentity),
+            AuthoredProjectTargetFrameworkIdentity.Unrecognized(
+                "custom-framework"),
+            AuthoredProjectTargetFrameworkIdentity.Unresolved(
+                "$(TargetFramework)"),
         ];
 
         foreach (PackageDependencyFrameworkScopeIdentity scope in
@@ -78,7 +76,9 @@ public sealed partial class PackageDependencyEvidenceQueryTests
     [InlineData(
         """{"kind":"UnrecognizedFramework","opaque_identity":"not-a-hash","source_spelling":"custom"}""")]
     [InlineData(
-        """{"kind":"UnresolvedFramework","opaque_identity":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","source_spelling":"custom"}""")]
+        """{"kind":"UnrecognizedFramework","opaque_identity":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_spelling":"custom"}""")]
+    [InlineData(
+        """{"kind":"UnresolvedFramework","opaque_identity":"sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","source_spelling":"custom"}""")]
     public void Serialization_RejectsInvalidPackageFrameworkIdentities(
         string json)
     {
@@ -96,6 +96,10 @@ public sealed partial class PackageDependencyEvidenceQueryTests
         """{"kind":"Exact","canonical_framework":"NET8.0"}""")]
     [InlineData(
         """{"kind":"Unrecognized","comparison_identity":"not-a-hash"}""")]
+    [InlineData(
+        """{"kind":"Unrecognized","comparison_identity":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""")]
+    [InlineData(
+        """{"kind":"Unresolved","comparison_identity":"sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}""")]
     public void Serialization_RejectsInvalidAuthoredFrameworkIdentities(
         string json)
     {
