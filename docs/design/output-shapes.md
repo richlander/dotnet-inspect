@@ -49,7 +49,7 @@ columns, or rows.
 
 This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
-the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
+the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -261,7 +261,7 @@ Debug-only exception.
 The #6719 path has locked the CLI contract and adopted the common transport
 with type dependencies. Exercising Library API Diff as the second content kind
 remains. The wider CLI and Browser adoption remains in
-[the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
+[the operation/section production path](operation-command-and-subject-section-composition.md#production-adoption).
 
 The first production scenario is
 `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`, target
@@ -477,7 +477,7 @@ Debug-only machine contract; its availability does not make it an ad-hoc dump.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
-Browser UI, History, or subject-owned command cutover. Those consumers reuse
+Browser UI, History, or Diff command/section cutover. Those consumers reuse
 this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff

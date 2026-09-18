@@ -119,6 +119,10 @@ public static class PackageCommandDefinitions
                 && !PackageOptionsParser.IsSourceLinkFileRowSelection(
                     result,
                     opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
                     commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
@@ -213,6 +217,10 @@ public static class PackageCommandDefinitions
                         out string? rangeError)
                     && rangeError is null)
                 || PackageOptionsParser.IsSourceLinkFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageFileRowSelection(
                     result,
                     opts,
                     commandArgs),

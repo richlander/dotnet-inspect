@@ -19,11 +19,12 @@ The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges, a single package's `SourceLink: Files` section, and one selected
-Project document section have semantic `-n` adoption. Their supported Window
-and direction capabilities remain command-specific. These adopters also accept
-explicit rendered-line selection where their output format permits it.
-Unselected modes of a partially adopted command use the rendered-line fallback.
+graph edges, a single package's `Package files` or `SourceLink: Files` section,
+and one selected Project document section have semantic `-n` adoption. Their
+supported Window and direction capabilities remain command-specific. These
+adopters also accept explicit rendered-line selection where their output format
+permits it. Unselected modes of a partially adopted command use the
+rendered-line fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -57,7 +58,9 @@ logical edges after complete induced-set construction without reducing package
 acquisition or graph production. The Package `SourceLink: Files` adoption
 selects complete package-library/type/URL rows after SourceLink collection and
 type filtering without reducing package, library, or PDB acquisition. The
-Project document adoption selects complete restored-package Skill or root
+Package `Package files` adoption selects complete ordered package-file rows
+after archive extraction, full file enumeration, and optional path filtering.
+The Project document adoption selects complete restored-package Skill or root
 README rows after inventory construction and validation when exactly one
 section is selected. Multi-section Project output remains outside that
 declaration. Semantic adoption for the remaining command row sets is still
@@ -719,6 +722,44 @@ Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges
 sections are independent row sets with different schemas. It retains its
 legacy `--rows` contract and uses the rendered-line fallback for `-n`.
 
+## Package Files adoption
+
+Ordinary single-package `package` inspection declares one semantic row per
+`PackageFile` when the effective section selection is exactly `Package files`.
+The `Files` alias and `--path` sugar reach the same declaration. Package
+resolution, extraction, complete ordered file enumeration, and optional path
+filtering finish before Head/Tail or strict Window stages select from the typed
+row vector.
+
+```console
+$ dotnet-inspect package Markout@0.35.2 \
+    --path "skills/*/SKILL.md" -n 1 --tail --paths
+skills/markout/SKILL.md
+```
+
+What to notice: `-n 1 --tail` selects the final complete path/size row.
+Markdown, table, TSV, JSONL, complete JSON, Count, and path projection consume
+that same selected model, including field-value projection. Selection does not
+reduce package acquisition, archive extraction, or file enumeration.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before package resolution. One strict Window
+failure withholds every output shape:
+
+```console
+$ dotnet-inspect package Markout@0.35.2 \
+    --path "skills/*/SKILL.md" --rows 5..6 --json
+Error: Package file row selection stage 1 requires row 6, but only 5 rows are available.
+```
+
+The document-family sections (`Package nuspec file`, `Package README file`, and
+`Package skill files`), `@Files`, mixed sections, effective or static discovery,
+content output, embedded `--library`/`--all-libraries` inspection, range or
+version listing, and multiple-package inspection remain outside this
+declaration. Those surfaces retain their existing row contracts and use
+rendered-line fallback for bare `-n`. Direct callers that provide only the
+legacy `RowWindow` also retain their existing behavior.
+
 ## Package SourceLink file adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -979,6 +1020,14 @@ The Package SourceLink file adoption is enforced by:
 | `CommandExecutionTests.Package_SourceFilesSection_SemanticTailSelectsTheSameRowAcrossFormats`, `Package_SourceFilesSection_AliasAndTypeSugarAcceptSemanticOpenWindows`, and `Package_SourceFilesSection_Bare_ComposesSemanticAndLineWindows` | The canonical selector, legacy alias, and type-filter sugar select complete package SourceLink file rows after collection; Tail and open or closed Window stages feed Markdown, table, TSV, JSONL, complete JSON, Count, value/URL projection, and bare output, while explicit Lines remains a rendered-text operation. |
 | `CommandExecutionTests.Package_SourceFilesSection_UnavailableSemanticWindowWithholdsOutput`, `Package_SourceFilesSection_RejectsLegacyCountRows`, and `Package_SourceLinkFileLinesRejectJsonBeforePackageResolution` | One unavailable strict Window emits no partial payload, the retired numeric `--rows` count form is rejected, and explicit Lines rejects complete JSON before package resolution. |
 | `CommandExecutionTests.Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation` | The `@SourceLink` category, mixed section selection, embedded-library modes, and multiple-package inspection remain outside the semantic declaration and retain legacy Window validation. |
+
+The Package Files adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.Package_FileRows_SemanticTailSelectsTheSameRowAcrossFormats` and `Package_FileRows_AliasAndPathAcceptSemanticWindows` | One selected whole-package Files section applies semantic Head/Tail and strict Window after complete ordered file enumeration and optional path filtering; Markdown, table, TSV, JSONL, complete JSON, Count, value projection, and paths consume the same selected rows. |
+| `CommandExecutionTests.Package_FileRows_UnavailableWindowWithholdsOutput`, `Package_FileRows_RejectInvalidRequestsBeforePackageResolution`, and `Package_FileRows_ExplicitLinesClipsRenderedText` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and complete-JSON line clipping fail before package resolution, document-family bare `-n` remains rendered-line selection, and explicit Lines clips rendered table text. |
+| `CommandExecutionTests.Package_FileRows_MultiSectionRetainsLegacyWindowValidation`, `Package_MultiplePackages_FilesJsonlWindowsCombinedRows`, and `PackageContentOutput_RowWindowHydratesTheUnarySelection` | Document-family sections, `@Files`, mixed sections, multiple-package file rows, and package-content payloads remain outside the semantic declaration and retain their existing row-window behavior. |
 
 The Project document row adoption is enforced by:
 
