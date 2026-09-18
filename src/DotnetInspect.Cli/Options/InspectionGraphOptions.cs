@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -13,6 +14,7 @@ public sealed record InspectionGraphOptions
     public bool EmbeddedMermaid { get; init; }
     public bool Tree { get; init; }
     public bool Count { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }

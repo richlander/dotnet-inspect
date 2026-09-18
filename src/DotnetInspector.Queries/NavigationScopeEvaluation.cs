@@ -19,7 +19,8 @@ internal static class NavigationScopeEvaluation
                 nameof(settlement));
         }
 
-        NavigationConsumerScopeOutcome scopeOutcome = ScopeOutcome(settlement);
+        NavigationConsumerScopeOutcome scopeOutcome =
+            NavigationConsumerScopeOutcome.FromSettlement(settlement);
         if (settlement is WorkspaceScopeOperationResult.Unavailable unavailable)
         {
             if (preparation is not NavigationScopePreparation.Historical)
@@ -360,45 +361,6 @@ internal static class NavigationScopeEvaluation
                 nameof(facts));
         }
     }
-
-    static NavigationConsumerScopeOutcome ScopeOutcome(
-        WorkspaceScopeOperationResult settlement) =>
-        settlement switch
-        {
-            WorkspaceScopeOperationResult.Committed committed =>
-                new(
-                    NavigationScopeSettlementKind.Committed,
-                    committed.Association.Kind),
-            WorkspaceScopeOperationResult.NoEffect noEffect =>
-                new(
-                    NavigationScopeSettlementKind.NoEffect,
-                    noEffect.Association.Kind),
-            WorkspaceScopeOperationResult.Rejected rejected =>
-                new(
-                    NavigationScopeSettlementKind.Rejected,
-                    rejected.Association.Kind,
-                    Rejection: rejected.Reason),
-            WorkspaceScopeOperationResult.Failed failed =>
-                new(
-                    NavigationScopeSettlementKind.Failed,
-                    failed.Association.Kind,
-                    Failure: failed.Failure),
-            WorkspaceScopeOperationResult.Cancelled cancelled =>
-                new(
-                    NavigationScopeSettlementKind.Cancelled,
-                    cancelled.Association.Kind),
-            WorkspaceScopeOperationResult.Superseded superseded =>
-                new(
-                    NavigationScopeSettlementKind.Superseded,
-                    superseded.Association.Kind),
-            WorkspaceScopeOperationResult.Unavailable unavailable =>
-                new(
-                    NavigationScopeSettlementKind.Unavailable,
-                    unavailable.Association.Kind,
-                    Failure: unavailable.RuntimeFailure),
-            _ => throw new InvalidOperationException(
-                "Unknown Scope settlement."),
-        };
 
     static NavigationConsumerOutcome SettlementOutcome(
         WorkspaceScopeOperationResult settlement,

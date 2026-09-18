@@ -34,6 +34,7 @@ public class MixedSignCompoundTests
             new MethodSignature(ULong, [new Parameter("arg", ULong)], HasThis: false, GenericParameterCount: 0),
             [ULong],
             body);
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -92,6 +93,7 @@ public class MixedSignCompoundTests
             new MethodSignature(target, [new Parameter("arg", target), new Parameter("b", rhsType)], HasThis: false, GenericParameterCount: 0),
             [target],
             body);
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -111,6 +113,7 @@ public class MixedSignCompoundTests
             new MethodSignature(target, [new Parameter("arg", target)], HasThis: false, GenericParameterCount: 0),
             [target],
             body);
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function).Output!;
     }
 
@@ -134,6 +137,7 @@ public class MixedSignCompoundTests
             new MethodSignature(TypeRef.CoreLib("System", "Void"), [new Parameter("x", refParam), new Parameter("b", NInt)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function).Output!;
     }
 
