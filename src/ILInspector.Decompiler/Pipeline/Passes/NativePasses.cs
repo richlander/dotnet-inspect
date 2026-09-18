@@ -113,6 +113,8 @@ internal static class NativePasses
     public static PointerElementCompoundAssignmentPass PointerElementCompoundAssignment => new();
     [Native(NativeCategory.EmitArtifact, "a same-pointer-place read and canonically scaled add/subtract decided as a typed compound update before emission")]
     public static PointerCompoundAssignmentPass PointerCompoundAssignment => new();
+    [Native(NativeCategory.EmitArtifact, "a final scalar store whose binary reads the exact destination annotated with its self-update or unit-step decision, preserving the explicit read/compute/write tree")]
+    public static ScalarSelfUpdatePass ScalarSelfUpdate => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

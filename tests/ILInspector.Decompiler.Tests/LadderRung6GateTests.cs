@@ -194,7 +194,7 @@ public class LadderRung6GateTests
         var fieldX = new FieldRef(point, "X", Int32);
         var fieldY = new FieldRef(point, "Y", Int32);
         var p = new LoadArgument(0, "p", pointPointer);
-        var body = CSharpPrinter.Print(Function(
+        var function = Function(
             "ReadPointerField",
             Int32,
             [new Parameter("p", pointPointer)],
@@ -208,7 +208,9 @@ public class LadderRung6GateTests
                     isUnsigned: false,
                     new LoadField(fieldX, (IrExpression)p.Clone()),
                     new LoadField(fieldY, (IrExpression)p.Clone()))),
-            new Return(new LoadField(fieldX, (IrExpression)p.Clone())))).Output!;
+            new Return(new LoadField(fieldX, (IrExpression)p.Clone())));
+        new ScalarSelfUpdatePass().Run(function, PassContext.None);
+        var body = CSharpPrinter.Print(function).Output!;
 
         Assert.Contains("p->X += p->Y;", body);
         Assert.Contains("return unsafe(p->X);", body);
