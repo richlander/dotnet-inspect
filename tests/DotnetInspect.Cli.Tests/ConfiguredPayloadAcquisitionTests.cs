@@ -812,13 +812,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     [Fact]
     public async Task ExtractPinnedPackage_CompileRealizationFeedsPackageInfoEnvelope()
     {
+        const string Marker = "HOSTILE";
+        const string UnsafeFolder = Marker + "\u202EMARKER";
         string id = $"Pinned.Measurements.{Guid.NewGuid():N}";
         byte[] library = new byte[17];
         byte[] archive = CreatePackage(
             id,
             "measurement package",
             library: library,
-            libraryName: $"{id}.dll");
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ($"{UnsafeFolder}/net11.0/data.bin", new byte[3]),
+            ]);
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
             source => new PayloadFeedHandler(
@@ -856,6 +862,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
             Assert.Equal("net11.0", measurements.SelectedTargetFramework);
             Assert.Equal(1, measurements.AvailableTargetFrameworkCount);
+            Assert.Equal(
+                [@"HOSTILE\u202EMARKER", "lib"],
+                measurements.SelectedTargetFrameworkFolders!
+                    .Select(static folder => folder.ToString()));
             Assert.Equal(library.LongLength, measurements.SelectedLibraryPayloadBytes);
             Assert.Equal(1, measurements.SelectedLibraryCount);
             Assert.Same(
@@ -882,6 +892,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 InspectionContext.Default);
             Assert.Contains("| Package Size (compressed) |", output);
             Assert.Contains("| Selected TFM | net11.0 |", output);
+            Assert.Contains(
+                @"| Selected-TFM Folders | HOSTILE\u202EMARKER, lib |",
+                output);
+            HostileOutputAssert.MarkersRendered(
+                output,
+                "Package Info selected-TFM folders",
+                Marker);
+            HostileOutputAssert.NoRenderingHazard(
+                output,
+                "Package Info selected-TFM folders");
             Assert.Contains("| TFM Count | 1 |", output);
             Assert.Contains("| Selected-TFM Size | 17 B |", output);
             Assert.Contains("| Selected-TFM Library Count | 1 |", output);
@@ -1071,7 +1091,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     private static byte[] CreatePackage(
         string id, string readme, string? redirectId = null,
         string version = Version, byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -1100,6 +1121,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                       </RuntimeIdentifierPackages>
                     </DotNetCliTool>
                     """);
+            }
+            if (extraEntries is not null)
+            {
+                foreach (var (path, content) in extraEntries)
+                {
+                    using Stream entry = archive.CreateEntry(path).Open();
+                    entry.Write(content);
+                }
             }
         }
         return buffer.ToArray();
