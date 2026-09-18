@@ -1099,6 +1099,47 @@ Release.
 gates exact successful-result correspondence in Release. The source-neutral
 before-source-access validation gates above own the delegated ordering claim.
 
+### Package reference-source terminal adoption
+
+For one exact global assembly-reference operation whose Reference source plan
+authorizes only the package capability, an adapter-issued package
+`NotSucceeded` result closes as one source-neutral House terminal outcome. The
+projector accepts only the exact request snapshot, Reference facet, authorized
+capability, and settled target. It performs no package discovery, acquisition,
+content opening, Artifact publication, Library construction, or Metadata work.
+
+An accepted `Unavailable`, `Rejected`, `Incomplete`, or `Failed` contribution
+appears exactly once in the House receipt as `OutcomeRelevant`. The House
+terminal arm preserves the contribution kind; source failure records
+`PlatformHouseFailureKind.Source`. Package rejection diagnostics classify
+invalid selection as `InvalidRequest`, invalid coordinates as
+`InvalidTargetCorrespondence`, and rejected source-owned content or evidence as
+`InvalidOwnerResult`. The source-specific diagnostic remains on the
+caller-owned package adapter result beside the House outcome rather than being
+copied into the host-neutral receipt.
+
+After exact request validation, a corresponding source failure remains
+`Failed`. Otherwise, budget exhaustion produces `Incomplete`; a corresponding
+terminal contribution is retained, while a foreign or otherwise unusable one
+is not settled. Within budget, foreign, unauthorized, mismatched-facet,
+mismatched-target, successful, or otherwise unusable contributions produce
+`Rejected(InvalidOwnerResult)` with no source settlement. Cancellation remains
+`OperationCanceledException`.
+
+This is single-source terminal projection, not source selection. It does not
+add installed projection, target discovery, precedence, fallback, aggregation,
+source-relative lineage, ladder composition, or host adoption.
+
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsPackageSourceTerminalOutcomes`
+gates the four package terminal arms, exact outcome-relevant settlement, source
+failure stage, retained package diagnostic, and absence of further source work
+in Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignPackageSourceTerminal`
+gates foreign unavailable and incomplete owner evidence before settlement in
+Release.
+`PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_BudgetExhaustionPrecedesForeignPackageSourceTerminal`
+gates typed incomplete precedence without settling that foreign evidence.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the
@@ -1250,6 +1291,17 @@ that authority.
 DocumentationHouse owns channel demand, compiled-XML and authored-source
 attempts, field provenance, conflict preservation, and terminal documentation
 outcomes.
+
+One-Library realization accepts an explicit
+`CompiledXmlDocumentation` content demand only with a reference view. The
+authorized installed or package-backed reference source performs exact
+same-basename companion acquisition under the House work budget. The shared
+Platform Artifact materializer publishes any returned XML bytes beside the
+reference assembly and assigns the closed `CompiledXmlDocumentation` role
+associated with the API assembly. This is Library construction, not
+documentation settlement: PlatformHouse does not parse XML, select a
+documentation subject, or create a DocumentationHouse outcome. Omitting the
+content demand performs no companion acquisition and cannot prove absence.
 
 Existing PlatformHouse documentation contracts remain temporary migration
 evidence until #6579 step 10 removes them. New product consumers must not adopt

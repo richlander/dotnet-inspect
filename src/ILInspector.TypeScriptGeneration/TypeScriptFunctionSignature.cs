@@ -11,4 +11,6 @@ internal sealed record TypeScriptFunctionSignature(
 
 internal readonly record struct TypeScriptParameterSignature(
     string Name,
-    string Type);
+    string RawType,
+    string PublicType,
+    bool SerializesJson);

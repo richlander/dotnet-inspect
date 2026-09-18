@@ -1124,7 +1124,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies()
+    public async Task QueryPackage_HouseSelectsCompatibleReferenceAssetsAndRetainsDependencies()
     {
         const string packageId = "Reference.Only";
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
@@ -1159,11 +1159,11 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal("net11.0", surface.ActiveFramework);
         Assert.Equal(
-            BrowserCompileLibraryStatus.NoMatchingTargetFramework,
+            BrowserCompileLibraryStatus.Selected,
             surface.CompileLibrary.Status);
-        Assert.Equal("net11.0", surface.CompileLibrary.TargetFramework);
-        Assert.Null(surface.DefaultAssemblyId);
-        Assert.Empty(surface.Assemblies);
+        Assert.Equal("net10.0", surface.CompileLibrary.TargetFramework);
+        Assert.NotNull(surface.DefaultAssemblyId);
+        Assert.Single(surface.Assemblies);
 
         BrowserPackageDependencies dependencies =
             Assert.IsType<BrowserPackageDependencies>(
@@ -1179,6 +1179,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserCompileLibraryStatus.NoMatchingTargetFramework,
             dependencies.CompileLibrary.Status);
+        Assert.Equal(
+            "net11.0",
+            dependencies.CompileLibrary.TargetFramework);
         BrowserPackageDependency dependency = Assert.Single(
             Assert.Single(dependencies.DependencyGroups).Dependencies);
         Assert.Equal("Reference.Dependency", dependency.Id);

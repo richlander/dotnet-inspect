@@ -112,7 +112,7 @@ internal static class FixedArrayRaising
             ? (IReadOnlyList<IrNode>)[guard]
             : [guard, unpin];
         if (bodyStmts.Count == 0
-            || FixedStatementPass.RewriteWouldInvalidateLabels(
+            || ReferenceOwnership.RewriteWouldInvalidateLabels(
                 function,
                 bodyStmts,
                 removedStatements))
@@ -213,7 +213,7 @@ internal static class FixedArrayRaising
         var bodyStmts = block.Children
             .Where(c => c.ChildIndex > guard.ChildIndex && c.ChildIndex < unpin.ChildIndex)
             .ToList();
-        if (FixedStatementPass.RewriteWouldInvalidateLabels(
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(
             function,
             bodyStmts,
             [defStore, guard, unpin]))

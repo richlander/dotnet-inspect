@@ -10,8 +10,8 @@ namespace ILInspector.Decompiler.Tests.InverseArchitecture;
 // Machinery for the inverse architecture (docs/design/inverse-architecture.md):
 // proves the [InverseOf]/[NotInverted] annotations, the InverseAssumptions
 // predicates, the ledger reflector, and the coverage/drift gates work end to end
-// — without annotating any product node, so this change touches no IrNodes.cs and
-// the value-typed-emission owner applies the real annotations in their own flow.
+// — without annotating any product node, so this change touches no product IR node
+// files and the value-typed-emission owner applies the real annotations in their own flow.
 // The sample nodes below stand in for real IR nodes to exercise the pipeline.
 public class InverseArchitectureTests
 {

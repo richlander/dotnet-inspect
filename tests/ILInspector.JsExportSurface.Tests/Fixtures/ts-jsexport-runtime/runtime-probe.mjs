@@ -53,6 +53,8 @@ for (
 const configureHostKey =
   facadeSource.match(/"(ConfigureHost\.-?\d+)"/)?.[1];
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
+const matchWidgetCandidatesKey =
+  facadeSource.match(/"(MatchWidgetCandidates\.-?\d+)"/)?.[1];
 const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getConditionalOutputKey =
@@ -134,6 +136,10 @@ assert.ok(
   "The generated ConfigureHost runtime dispatch key was not found.",
 );
 assert.ok(echoKey, "The generated Echo runtime dispatch key was not found.");
+assert.ok(
+  matchWidgetCandidatesKey,
+  "The generated MatchWidgetCandidates runtime dispatch key was not found.",
+);
 assert.ok(
   getWidgetAsyncKey,
   "The generated GetWidgetAsync runtime dispatch key was not found.",
@@ -294,6 +300,12 @@ function managedExports(methods = {}) {
             [configureHostKey]:
               methods.configureHost ?? (() => {}),
             [echoKey]: methods.echo ?? ((value) => value),
+            [matchWidgetCandidatesKey]:
+              methods.matchWidgetCandidates
+              ?? ((requestedName, candidatesJson) =>
+                JSON.parse(candidatesJson).some(
+                  (candidate) => candidate.name === requestedName,
+                )),
             [getWidgetAsyncKey]:
               methods.getWidgetAsync
               ?? (async (name, count) => JSON.stringify({ name, count })),
@@ -470,10 +482,15 @@ async function freshFacade() {
 
 {
   const hostCalls = [];
+  const candidateCalls = [];
   const scenario = configureScenario({
     exports: managedExports({
       configureHost: (origin) => hostCalls.push(origin),
       echo: () => "not-json",
+      matchWidgetCandidates: (requestedName, candidatesJson) => {
+        candidateCalls.push([requestedName, candidatesJson]);
+        return true;
+      },
       getWidgetAsync: async (name, count) => JSON.stringify({ name, count }),
     }),
     runMainResult: 37,
@@ -512,6 +529,42 @@ async function freshFacade() {
   facade.configureHost("https://example.test");
   assert.deepEqual(hostCalls, ["https://example.test"]);
   assert.equal(facade.echo("value"), "not-json");
+  assert.equal(
+    facade.matchWidgetCandidates(
+      "primary",
+      [
+        { name: "primary", count: 1 },
+        { name: "fallback", count: 2 },
+      ],
+    ),
+    true,
+  );
+  assert.deepEqual(
+    candidateCalls,
+    [[
+      "primary",
+      '[{"name":"primary","count":1},{"name":"fallback","count":2}]',
+    ]],
+  );
+  assert.throws(
+    () => facade.matchWidgetCandidates("primary", undefined),
+    (error) =>
+      error instanceof TypeError
+      && /candidatesJson.*could not be serialized as JSON/.test(
+        error.message,
+      ),
+  );
+  const cyclicCandidate = { name: "cyclic", count: 3 };
+  cyclicCandidate.self = cyclicCandidate;
+  assert.throws(
+    () => facade.matchWidgetCandidates("cyclic", [cyclicCandidate]),
+    TypeError,
+  );
+  assert.equal(
+    candidateCalls.length,
+    1,
+    "Serialization failures must not dispatch to managed code.",
+  );
   assert.deepEqual(
     await facade.getWidgetAsync("widget", 3),
     { name: "widget", count: 3 },

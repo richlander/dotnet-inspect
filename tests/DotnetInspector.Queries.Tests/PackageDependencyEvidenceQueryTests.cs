@@ -8,7 +8,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class PackageDependencyEvidenceQueryTests
+public sealed partial class PackageDependencyEvidenceQueryTests
 {
     [Fact]
     public void CreatePackageInput_PreservesOwnerIssuedCompatibleSelection()
@@ -659,10 +659,10 @@ public sealed class PackageDependencyEvidenceQueryTests
             declarations.Failures,
             failure => failure is
                 PackageDependencyEvidenceDeclarationFailure.AuthoredProject
-                {
-                    Limitation.Reason:
+            {
+                Limitation.Reason:
                         AuthoredProjectDependencyLimitationReason.ExplicitImport,
-                });
+            });
         Assert.DoesNotContain(
             declarations.Failures,
             failure => failure is
@@ -672,11 +672,11 @@ public sealed class PackageDependencyEvidenceQueryTests
             declarations.Failures,
             failure => failure is
                 PackageDependencyEvidenceDeclarationFailure.AuthoredProject
-                {
-                    Limitation.Reason:
+            {
+                Limitation.Reason:
                         AuthoredProjectDependencyLimitationReason
                             .MissingVersionConstraint,
-                });
+            });
         Assert.Equal(
             2,
             declarations.Groups.Count(group =>
@@ -1826,11 +1826,18 @@ public sealed class PackageDependencyEvidenceQueryTests
         var provenance =
             Assert.IsType<PackageDependencyEvidenceRootProvenance.Package>(
                 root.Provenance);
+        var normalizedProfile = Assert.IsType<
+            PackageDependencyEvidenceRootFailure.PackageProfile>(
+                outcome.FailedRoots[0]);
 
         Assert.Equal(
             PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
             provenance.AcquisitionForm);
-        Assert.Same(source.Source, provenance.Source);
+        AssertPortableSource(source.Source, provenance.Source);
+        Assert.Equal(1, provenance.Source!.Association);
+        Assert.Equal(
+            provenance.Source.Association,
+            normalizedProfile.Source.Association);
         Assert.Equal(
             PackageDependencyEvidenceRootSetCompletion.Incomplete,
             outcome.RootSet.Completion);
@@ -1871,7 +1878,7 @@ public sealed class PackageDependencyEvidenceQueryTests
 
         var invalidFailure =
             new PackageDependencyEvidenceRootFailure.PackageProfile(
-                source.Source,
+                PackageDependencyEvidenceSourceIdentity.Create(source.Source),
                 PackageProfileFailureKind.SearchContract,
                 ManifestFailureReason: null,
                 Coordinate:
@@ -1933,7 +1940,7 @@ public sealed class PackageDependencyEvidenceQueryTests
         Assert.Equal(
             PackageSearchTruncationReason.SourcePageLimit,
             completion.TruncationReason);
-        Assert.Same(source.Source, completion.Source);
+        AssertPortableSource(source.Source, completion.Source);
         Assert.Equal("Example.", completion.Prefix.ToString());
         Assert.Equal(1, completion.Candidates);
         Assert.Equal(1, completion.Matches);
@@ -1974,10 +1981,16 @@ public sealed class PackageDependencyEvidenceQueryTests
                 PackageDependencyEvidenceRootFailure.PackageProfile>(
                 Assert.Single(outcome.FailedRoots));
 
-        Assert.Same(failedCandidateSource.Source, normalizedFailure.Source);
-        Assert.Same(
+        AssertPortableSource(
+            failedCandidateSource.Source,
+            normalizedFailure.Source);
+        AssertPortableSource(
             queriedSource.Source,
             outcome.RootSet.PackagePrefixCompletion!.Source);
+        Assert.Equal(
+            1,
+            outcome.RootSet.PackagePrefixCompletion.Source.Association);
+        Assert.Equal(2, normalizedFailure.Source.Association);
         Assert.Equal(
             PackageDependencyEvidenceRootSetCompletion.Incomplete,
             outcome.RootSet.Completion);

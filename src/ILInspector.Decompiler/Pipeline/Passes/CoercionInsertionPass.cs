@@ -305,6 +305,10 @@ public static class CoercionSinks
             }
             switch (child)
             {
+                case Binary binary when CheckedIntegerOperandPass.OperandType(binary) is { } operandType:
+                    yield return new(binary.Left, operandType);
+                    yield return new(binary.Right, operandType);
+                    break;
                 case Return { Value: { } value } when returnType is { } scopeReturn:
                     yield return new(value, scopeReturn);
                     break;

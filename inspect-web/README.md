@@ -65,18 +65,22 @@ selected assembly set.
    that separately. Neither path requests the NuGet.org v3 service index.
    Framework is request context outside version settlement. The package facade
    returns a request-specific load result containing the complete settlement
-   envelope and a nullable rich package surface. A settled result carries both
-   values; `NotSettled` carries the failure Content, Share, and diagnostics to
-   TypeScript with no fabricated surface. The application then reports that
-   typed failure, while payload or Workspace failures retain their existing
+   envelope, the shared Package Info measurement envelope, and a nullable rich
+   package surface. A settled result carries all three values; `NotSettled`
+   carries the failure Content, Share, and diagnostics to TypeScript with no
+   fabricated measurements or surface. The application then reports that typed
+   failure, while payload or Workspace failures retain their existing
    rejected-operation contract. Settlement evidence is not stored on a
-   reusable exact workspace. The Browser adapter then selects one target
-   framework — never "whatever the package happens to ship".
-2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
+   reusable exact workspace.
+2. **Select and realize typed roles.** The ordinary package-open path requests
+   one PackageHouse compile realization. Its payload acquisition downloads and
    admits the package from the Gallery package CDN through the shared typed
-   source, transport, and archive policy. The Gallery payload carries its
-   advertised length into the Browser reservation policy before body
-   materialization.
+   source, transport, archive, and Browser reservation policy. The Gallery
+   payload carries its advertised length into that policy before body
+   materialization. `PackageInfoMeasurementInspection` projects the retained
+   archive and selected slice from that realization, while
+   `PackageHouseRootContributionAdapter` creates the exact package Root used by
+   the Browser workspace without another acquisition or selection.
    `PackageAssemblyContextSelection` applies
    `PackageCompileAssetSelector`'s reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`.
@@ -183,12 +187,15 @@ capacity is held by active work, admission visibly rejects instead. Opening one
 exact demand is single-flighted: concurrent callers join one realization —
 pending or ready — and a caller that queued behind a full registry re-checks
 that join after every capacity wait rather than demanding a second entry.
-Repeated unbound requests join the retained binding before another selection
-token is issued, keyed by the acquired coordinate, its producer, its retained
-content generation, and the selection request, with a default selection
-distinct from an explicit one; a caller that already holds an issued binding
-joins only that exact binding, never a label match. Each caller keeps its own
-cancellation, a cancelled caller receives no scope, and construction carries a
+Repeated ordinary requests join the retained binding by the acquired
+coordinate, its producer, its retained content generation, and the selection
+request, with a default selection distinct from an explicit one. The legacy
+unbound path performs that join before issuing another selection token; the
+PackageHouse path may already carry a fresh receipt, but uses the exact
+contributed Root only when constructing a new workspace. A caller that directly
+holds an issued binding joins only that exact binding, never a label match.
+Each caller keeps its own cancellation, a cancelled caller receives no scope,
+and construction carries a
 bounded deadline. A completion that raced an eviction or a replacing download
 cannot republish that content: the exact archive identity is revalidated after
 every suspension, a stale coordinate fails visibly, and an abandoned

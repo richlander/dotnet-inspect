@@ -30,6 +30,35 @@ public static class PdbScopeFixtures
         }
     }
 
+    public static int SequentialScopeLocalsWithGoto(bool skip, int value)
+    {
+        int total = 0;
+        {
+            int same = value;
+            Increment(ref same);
+            total += same;
+        }
+        {
+            string same = value.ToString();
+            KeepAlive(ref same);
+            total += same.Length;
+        }
+
+        if (skip)
+            goto Decrement;
+    Increment:
+        total++;
+        if (total < value)
+            goto Decrement;
+        goto Done;
+    Decrement:
+        total--;
+        if (total > -value)
+            goto Increment;
+    Done:
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;

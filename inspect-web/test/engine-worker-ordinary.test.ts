@@ -345,7 +345,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     },
   });
 
-  const sync = state.client.package.searchTypes("String", "[]");
+  const sync = state.client.package.searchTypes("String", []);
   const asyncDto =
     state.client.package.activateWorkspacePackageOccurrence("open");
   const voidResult =
@@ -359,12 +359,18 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   );
   const pruning = state.client.package.queryPackagePruning(
     "Example",
@@ -390,7 +396,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
@@ -399,7 +405,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(matchArguments, [
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   ]);
   assert.equal((await pruning).completion, "Complete");
   assert.deepEqual(pruningArguments, [
@@ -489,6 +501,30 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         correspondence: null,
       }],
     },
+    packageInfo: {
+      content: {
+        status: "Measured",
+        packageId: "System.Text.Json",
+        packageVersion: "8.0.5",
+        compressedPackageBytes: 2048,
+        selectedTargetFramework: "net10.0",
+        availableTargetFrameworkCount: 1,
+        selectedTargetFrameworkFolders: ["lib"],
+        selectedLibraryPayloadBytes: 1024,
+        selectedLibraryCount: 1,
+        detail: null,
+        unavailableReason: null,
+        hasSelectedSlice: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-info-measurements/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -521,6 +557,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageInfo: null,
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({

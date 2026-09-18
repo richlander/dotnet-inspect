@@ -221,7 +221,34 @@ function packageLoadResult(
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
-  return { versionSettlement, surface };
+  return {
+    versionSettlement,
+    packageInfo: {
+      content: {
+        status: "Measured",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        compressedPackageBytes: 2048,
+        selectedTargetFramework: surface.activeFramework,
+        availableTargetFrameworkCount: surface.frameworks.length,
+        selectedTargetFrameworkFolders: ["lib"],
+        selectedLibraryPayloadBytes: 1024,
+        selectedLibraryCount: surface.assemblies.length,
+        detail: null,
+        unavailableReason: null,
+        hasSelectedSlice: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-info-measurements/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    surface,
+  };
 }
 
 function sharedState(): BrowserWorkspaceShareState {
@@ -405,8 +432,8 @@ function harness() {
   const workspaceLocation = createWorkspaceLocationPersistence({
     current: () => location,
     decode,
-    encode: json => {
-      encoded.push(JSON.parse(json));
+    encode: shareState => {
+      encoded.push(structuredClone(shareState));
       return controls.encodeResult;
     },
     push: (url, entryState) => {

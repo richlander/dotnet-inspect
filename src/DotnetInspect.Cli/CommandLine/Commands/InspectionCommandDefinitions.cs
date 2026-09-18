@@ -395,8 +395,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(metadataRootOption);
-        assemblyCommand.Options.Add(opts.RawUrls);
-        assemblyCommand.Options.Add(opts.BrowsableUrls);
+        assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
         // trace should advertise the flag. A flag every command accepts and only one honours is
@@ -613,8 +612,7 @@ public static class InspectionCommandDefinitions
                 IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
                 MetadataRoot = metadataRoot,
-                BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
-                    && !parseResult.GetValue(opts.RawUrls),
+                PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),

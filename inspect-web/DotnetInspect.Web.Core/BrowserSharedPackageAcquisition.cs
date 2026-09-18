@@ -1,37 +1,63 @@
 using System.Runtime.ExceptionServices;
 using DotnetInspector.Packages;
-using BodyResult = DotnetInspect.Web.BrowserManagedOperationBodyResult<
-    DotnetInspector.Packages.AcquiredPackageSourcePayload, string, string>;
-using Producer = DotnetInspect.Web.BrowserManagedSharedProducer<
-    DotnetInspector.Packages.AcquiredPackageSourcePayload, string, string, object>;
 
 namespace DotnetInspect.Web;
 
 internal sealed class BrowserSharedPackageAcquisition
 {
-    readonly object _sync = new();
-    readonly Func<Task<AcquiredPackageSourcePayload>>? _acquire;
-    readonly Producer? _producer;
-    readonly Task<AcquiredPackageSourcePayload>? _registeredCompletion;
-    Task<AcquiredPackageSourcePayload>? _unregisteredCompletion;
+    readonly BrowserSharedOperation<AcquiredPackageSourcePayload> _operation;
 
     internal BrowserSharedPackageAcquisition(
         Func<Task<AcquiredPackageSourcePayload>> acquire,
-        BrowserManagedEpochWorkSource? epochWork)
+        BrowserManagedEpochWorkSource? epochWork) =>
+        _operation = new(
+            acquire,
+            epochWork,
+            "Package acquisition");
+
+    internal Task<AcquiredPackageSourcePayload> Completion =>
+        _operation.Completion;
+
+    internal bool IsCompleted => _operation.IsCompleted;
+
+    internal Task<AcquiredPackageSourcePayload> WaitAsync(
+        CancellationToken cancellationToken) =>
+        _operation.WaitAsync(cancellationToken);
+}
+
+internal sealed class BrowserSharedOperation<T>
+{
+    readonly object _sync = new();
+    readonly Func<Task<T>>? _operation;
+    readonly BrowserManagedSharedProducer<T, string, string, object>? _producer;
+    readonly Task<T>? _registeredCompletion;
+    readonly string _name;
+    Task<T>? _unregisteredCompletion;
+
+    internal BrowserSharedOperation(
+        Func<Task<T>> operation,
+        BrowserManagedEpochWorkSource? epochWork,
+        string name)
     {
-        ArgumentNullException.ThrowIfNull(acquire);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        _name = name;
         if (epochWork is null)
-            _acquire = acquire;
+            _operation = operation;
         else
         {
-            _producer = new Producer(
-                async _ => new BodyResult.Succeeded(await acquire().ConfigureAwait(false)),
+            _producer = new BrowserManagedSharedProducer<T, string, string, object>(
+                async _ => new BrowserManagedOperationBodyResult<
+                    T,
+                    string,
+                    string>.Succeeded(
+                        await operation().ConfigureAwait(false)),
                 epochWork: epochWork);
             _registeredCompletion = ObserveAsync();
         }
     }
 
-    internal Task<AcquiredPackageSourcePayload> Completion =>
+    internal Task<T> Completion =>
         _producer is null ? StartUnregistered() : _registeredCompletion!;
 
     internal bool IsCompleted
@@ -45,20 +71,21 @@ internal sealed class BrowserSharedPackageAcquisition
         }
     }
 
-    internal async Task<AcquiredPackageSourcePayload> WaitAsync(CancellationToken cancellationToken)
+    internal async Task<T> WaitAsync(CancellationToken cancellationToken)
     {
         if (_producer is null)
             return await Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        Producer.Subscription? subscription = _producer.TryAttach();
+        BrowserManagedSharedProducer<T, string, string, object>.Subscription? subscription =
+            _producer.TryAttach();
         if (subscription is null)
         {
-            // A sealed producer is already terminal or retained by its final
-            // draining waiter/fault record. Reuse it instead of downloading twice.
+            // A sealed producer is already terminal or retained by its final draining
+            // waiter/fault record. Reuse it instead of starting duplicate work.
             return await Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        BodyResult? result = null;
+        BrowserManagedOperationBodyResult<T, string, string>? result = null;
         ExceptionDispatchInfo? failure = null;
         try
         {
@@ -76,7 +103,7 @@ internal sealed class BrowserSharedPackageAcquisition
         catch (Exception releaseFailure) when (failure is not null)
         {
             throw new AggregateException(
-                "Package acquisition wait and release both failed.",
+                $"{_name} wait and release both failed.",
                 failure.SourceException,
                 releaseFailure);
         }
@@ -85,7 +112,7 @@ internal sealed class BrowserSharedPackageAcquisition
         return Value(result);
     }
 
-    Task<AcquiredPackageSourcePayload> StartUnregistered()
+    Task<T> StartUnregistered()
     {
         lock (_sync)
         {
@@ -94,25 +121,25 @@ internal sealed class BrowserSharedPackageAcquisition
 
             try
             {
-                _unregisteredCompletion = _acquire!()
-                    ?? Task.FromException<AcquiredPackageSourcePayload>(
+                _unregisteredCompletion = _operation!()
+                    ?? Task.FromException<T>(
                         new InvalidOperationException(
-                            "Package acquisition returned no task."));
+                            $"{_name} returned no task."));
             }
             catch (Exception exception)
             {
                 _unregisteredCompletion =
-                    Task.FromException<AcquiredPackageSourcePayload>(exception);
+                    Task.FromException<T>(exception);
             }
             return _unregisteredCompletion;
         }
     }
 
-    async Task<AcquiredPackageSourcePayload> ObserveAsync() =>
+    async Task<T> ObserveAsync() =>
         Value(await _producer!.ObserveCompletionAsync().ConfigureAwait(false));
 
-    static AcquiredPackageSourcePayload Value(BodyResult? result) =>
-        result is BodyResult.Succeeded succeeded
+    T Value(BrowserManagedOperationBodyResult<T, string, string>? result) =>
+        result is BrowserManagedOperationBodyResult<T, string, string>.Succeeded succeeded
             ? succeeded.Value
-            : throw new InvalidOperationException("Package acquisition returned no payload.");
+            : throw new InvalidOperationException($"{_name} returned no result.");
 }
