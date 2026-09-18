@@ -669,11 +669,14 @@ default; `--platform-family aspnetcore` selects the ASP.NET Core comparison
 inventory. The family is a disclosed policy comparison target, not a claim
 that an application activates that shared framework.
 
-Root-set completion and the state of every requested phase are mandatory
-document fields at every verbosity. They remain visible when the selected
-graph or evidence rows are empty or partial. A traversal phase omitted by
-section planning renders as `NotRequested`; the pruning summary does the same
-when `Pruning` is not selected.
+Root-set completion and the state of every requested phase are mandatory typed
+Content and remain present in unprojected JSON when the selected graph or
+evidence rows are empty or partial. Ordinary Markdown renders the selected H2
+sections directly rather than projecting completion as a root document or
+table. Diagnostics, exit status, and exact-count eligibility still consume
+the typed completion state. A traversal phase omitted by section planning is
+`NotRequested`; the pruning summary has the same state when `Pruning` is not
+selected.
 
 The implementation also retains four **diagnostic sections** for developing
 and diagnosing the command:
