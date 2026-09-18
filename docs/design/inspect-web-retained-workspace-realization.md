@@ -438,6 +438,12 @@ installation. Success clears the retired managed-realization association
 before publishing the new compatibility entry, history result, and legacy
 package-occurrence surface.
 
+The managed-to-compatibility commit boundary is shared by Saved Open,
+retained-list selection, and browser-history traversal. Each path validates
+its compatibility successor before deactivation, makes the short irreversible
+boundary inert, and keeps Navigation waiting until successor presentation and
+history handling complete.
+
 ### Spotlight and package-query handoff
 
 An external package result that is not represented by the active definition

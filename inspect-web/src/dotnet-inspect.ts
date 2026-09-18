@@ -1817,6 +1817,17 @@ function retainedWorkspaceItems() {
   });
 }
 
+async function commitManagedCompatibilityOpen(
+  navigationSeq: number,
+  incumbent: ManagedRetainedWorkspace,
+): Promise<void> {
+  beginManagedCompatibilityCommit(navigationSeq);
+  await retainedWorkspaceActivationController.deactivate(
+    incumbent.id,
+    false);
+  clearInstalledManagedWorkspaceAssociation();
+}
+
 function ensureCurrentWorkspacePublished(): void {
   if (retainedWorkspaces.activeWorkspaceId !== null
     || (!state.package && !state.platformSelection)) return;
@@ -1939,6 +1950,46 @@ function selectRetainedWorkspace(workspaceId: string): void {
     "Activating retained Workspace");
 }
 
+async function activateLegacyRetainedWorkspaceAfterManaged(
+    workspaceId: string,
+    incumbent: ManagedRetainedWorkspace,
+    navigationSeq: number,
+    complete: () => void | Promise<void> = () => {},
+): Promise<void> {
+    const target = retainedWorkspaces.workspaces.find(
+      workspace => workspace.id === workspaceId);
+    if (target?.kind !== "legacy" || target.snapshot === null) {
+      throw new Error(
+        "The compatibility Workspace has no retained snapshot.");
+    }
+    startManagedCompatibilityOpen(
+      navigationSeq,
+      () => {
+        pendingWorkspaceConstruction = null;
+        setWorkspaceConstructionPending(false);
+      });
+    try {
+      await commitManagedCompatibilityOpen(
+        navigationSeq,
+        incumbent);
+      const transition = activateLegacyWorkspaceAfterManaged(
+        retainedWorkspaces,
+        workspaceId);
+      retainedWorkspaces = transition.collection;
+      const snapshot = transition.activatedSnapshot;
+      if (snapshot === null) {
+        throw new Error(
+          "The compatibility Workspace has no retained snapshot.");
+      }
+      restoreRetainedWorkspaceSnapshot(snapshot, false);
+      await complete();
+    } finally {
+      pendingWorkspaceConstruction = null;
+      setWorkspaceConstructionPending(false);
+      finishManagedCompatibilityOpen(navigationSeq, false);
+    }
+}
+
 async function selectRetainedWorkspaceCore(
   workspaceId: string,
 ): Promise<void> {
@@ -1968,18 +2019,21 @@ async function selectRetainedWorkspaceCore(
     const active = retainedWorkspaces.workspaces.find(
       workspace => workspace.id === retainedWorkspaces.activeWorkspaceId);
     if (active?.kind === "managed") {
-      await retainedWorkspaceActivationController.deactivate(active.id);
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      const transition = activateLegacyWorkspaceAfterManaged(
-        retainedWorkspaces,
-        workspaceId);
-      retainedWorkspaces = transition.collection;
-      const snapshot = transition.activatedSnapshot;
-      if (snapshot === null) {
-        throw new Error(
-          "The compatibility Workspace has no retained snapshot.");
-      }
-      restoreRetainedWorkspaceSnapshot(snapshot, false);
+      await activateLegacyRetainedWorkspaceAfterManaged(
+        workspaceId,
+        active,
+        navigationSeq,
+        () => {
+          workspaceLocation.push(
+            activeWorkspaceUrl ?? "/demos",
+            withPlatformRootParentHistory(
+              history.state,
+              navigationSnapshotHasPlatformRootParent(
+                navigationHistory.snapshot())));
+          render();
+          restartRestoredWorkspaceSelectionData();
+        });
+      return;
     } else if (!activateRetainedWorkspaceProjection(workspaceId, false)) {
       return;
     }
@@ -2899,6 +2953,16 @@ function registerManagedCompatibilityOpen(
     committing: false,
     restoreIncumbent,
   };
+}
+
+function startManagedCompatibilityOpen(
+  navigationSeq: number,
+  restoreIncumbent: () => void,
+): void {
+  registerManagedCompatibilityOpen(
+    navigationSeq,
+    restoreIncumbent);
+  setWorkspaceConstructionPending(true);
 }
 
 function beginManagedCompatibilityCommit(navigationSeq: number): void {
@@ -12382,9 +12446,10 @@ async function openLegacySavedWorkspaceFromManaged(
   try {
     const loc = await parseWorkspaceHref(destination);
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    registerManagedCompatibilityOpen(navigationSeq, restoreIncumbent);
+    startManagedCompatibilityOpen(
+      navigationSeq,
+      restoreIncumbent);
     compatibilityOpenRegistered = true;
-    setWorkspaceConstructionPending(true);
     invalidateWorkspaceAsyncOwners();
     prepareUnpublishedWorkspace();
     let failed = false;
@@ -12402,11 +12467,9 @@ async function openLegacySavedWorkspaceFromManaged(
     if (failed || !navigationSequence.isCurrent(navigationSeq)) return;
     const canonicalDestination = (await buildStateUrl()).toString();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    beginManagedCompatibilityCommit(navigationSeq);
-    await retainedWorkspaceActivationController.deactivate(
-      incumbent.id,
-      false);
-    clearInstalledManagedWorkspaceAssociation();
+    await commitManagedCompatibilityOpen(
+      navigationSeq,
+      incumbent);
     retainedWorkspaces = publishLegacyWorkspaceAfterManaged(
       retainedWorkspaces);
     cutOver = true;
@@ -18302,18 +18365,10 @@ window.addEventListener("popstate", () => {
           workspace =>
             workspace.id === retainedWorkspaces.activeWorkspaceId);
         if (active?.kind === "managed") {
-          await retainedWorkspaceActivationController.deactivate(active.id);
-          if (!navigationSequence.isCurrent(navigationSeq)) return;
-          const transition = activateLegacyWorkspaceAfterManaged(
-            retainedWorkspaces,
-            historyWorkspace.id);
-          retainedWorkspaces = transition.collection;
-          const snapshot = transition.activatedSnapshot;
-          if (snapshot === null) {
-            throw new Error(
-              "The compatibility Workspace has no retained snapshot.");
-          }
-          restoreRetainedWorkspaceSnapshot(snapshot, false);
+          await activateLegacyRetainedWorkspaceAfterManaged(
+            historyWorkspace.id,
+            active,
+            navigationSeq);
         } else {
           activateRetainedWorkspaceProjection(historyWorkspace.id, false);
         }
