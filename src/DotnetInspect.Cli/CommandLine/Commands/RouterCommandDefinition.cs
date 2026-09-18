@@ -256,6 +256,8 @@ public static class RouterCommandDefinition
                                         allowStaticDiscovery: true),
                                 PackageOptionsParser.UnrecognizedOption unknown =>
                                     new OptionError($"Unrecognized option '{unknown.Option}'."),
+                                PackageOptionsParser.InvalidArguments invalid =>
+                                    new OptionError(invalid.Message),
                                 _ => throw new InvalidOperationException("Unexpected package parse result."),
                             };
                         }
