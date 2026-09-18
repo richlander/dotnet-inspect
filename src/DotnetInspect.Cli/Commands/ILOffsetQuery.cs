@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
@@ -6,11 +7,14 @@ using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using System.Globalization;
 
 namespace DotnetInspect.Cli.Commands;
 
 internal static class ILOffsetQuery
 {
+    internal const int MaximumCoordinatePopulation = 1024;
+
     internal static Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
         SourceLinkService service,
         string? packageName,
@@ -190,6 +194,123 @@ internal static class ILOffsetQuery
 
         return (methodToken & unchecked((int)0xFF000000)) == 0x06000000;
     }
+
+    internal static ILCoordinatePopulationOutcome ReadPopulation(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return ILCoordinatePopulationOutcome.Failed(
+                new ILCoordinatePopulationFailure(
+                    ILCoordinatePopulationFailureKind.FileNotFound,
+                    path));
+        }
+
+        try
+        {
+            return ParsePopulation(File.ReadLines(path), path);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException)
+        {
+            return ILCoordinatePopulationOutcome.Failed(
+                new ILCoordinatePopulationFailure(
+                    ILCoordinatePopulationFailureKind.FileReadFailed,
+                    path,
+                    ex.Message));
+        }
+    }
+
+    internal static ILCoordinatePopulationOutcome ParsePopulation(
+        IEnumerable<string> lines,
+        string path)
+    {
+        var records = new List<ILCoordinatePopulationRecord>();
+        int lineNumber = 0;
+        int significantRecordCount = 0;
+
+        foreach (string rawLine in lines)
+        {
+            lineNumber++;
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            significantRecordCount++;
+            if (significantRecordCount > MaximumCoordinatePopulation)
+            {
+                return ILCoordinatePopulationOutcome.Failed(
+                    new ILCoordinatePopulationFailure(
+                        ILCoordinatePopulationFailureKind
+                            .CoordinatePopulationLimitExceeded,
+                        path,
+                        Limit: MaximumCoordinatePopulation,
+                        ObservedLineNumber: lineNumber));
+            }
+
+            string[] tokens = line.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries);
+            int coordinateIndex = Array.FindIndex(
+                tokens,
+                token => TryParse(token, out _, out _));
+            if (coordinateIndex < 0)
+            {
+                records.Add(
+                    new ILCoordinatePopulationRecord.Malformed(
+                        lineNumber,
+                        $"{path}:{lineNumber}",
+                        "expected a MethodDef token + IL offset coordinate"));
+                continue;
+            }
+
+            string[] labelTokens = tokens
+                .Where((_, index) => index != coordinateIndex)
+                .ToArray();
+            records.Add(
+                new ILCoordinatePopulationRecord.Coordinate(
+                    lineNumber,
+                    tokens[coordinateIndex],
+                    labelTokens.Length == 0
+                        ? null
+                        : string.Join(' ', labelTokens)));
+        }
+
+        if (records.Count == 0)
+        {
+            return ILCoordinatePopulationOutcome.Failed(
+                new ILCoordinatePopulationFailure(
+                    ILCoordinatePopulationFailureKind.NoCoordinates,
+                    path));
+        }
+
+        return ILCoordinatePopulationOutcome.Success(
+            new ILCoordinatePopulation(records));
+    }
+
+    internal static string PopulationFailureMessage(
+        ILCoordinatePopulationFailure failure,
+        bool coordinateCommand) =>
+        failure.Kind switch
+        {
+            ILCoordinatePopulationFailureKind.FileNotFound =>
+                coordinateCommand
+                    ? $"Coordinate file not found: {failure.Path}"
+                    : $"IL offsets file not found: {failure.Path}",
+            ILCoordinatePopulationFailureKind.FileReadFailed =>
+                coordinateCommand
+                    ? $"Could not read coordinate file '{failure.Path}': {failure.Detail}"
+                    : $"Could not read IL offsets file '{failure.Path}': {failure.Detail}",
+            ILCoordinatePopulationFailureKind.NoCoordinates =>
+                $"{failure.Path} did not contain any IL coordinates.",
+            ILCoordinatePopulationFailureKind.CoordinatePopulationLimitExceeded =>
+                "Coordinate population exceeds the "
+                + $"{failure.Limit?.ToString("N0", CultureInfo.InvariantCulture)}"
+                + "-record limit "
+                + $"at {failure.Path}:{failure.ObservedLineNumber}.",
+            _ => throw new InvalidOperationException(
+                $"Unknown IL coordinate population failure: {failure.Kind}."),
+        };
 
     static bool TryParseHexInt(string value, out int result)
     {

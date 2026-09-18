@@ -48,6 +48,7 @@ function sampleResult(
   return {
     document,
     viewerCatalog: sampleViewerCatalog,
+    findingEvidenceDocuments: [],
     findingEvidence: [],
     provenance: inertStringFixture("test"),
     contextLimitation: null,

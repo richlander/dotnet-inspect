@@ -109,6 +109,10 @@ internal static class NativePasses
     public static ShortCircuitTernaryPass ShortCircuitTernary => new();
     [Native(NativeCategory.EmitArtifact, "the compiler's one-temp value-swap codegen shape (S = p; p = q; q = S over two distinct same-type by-value places) folded back to the recognized tuple deconstruction swap (q, p) = (p, q) — byte-identical to the manual temp swap, so it inverts a codegen shape, not the named DeconstructionAssignmentOperator lowering")]
     public static SwapIdiomPass SwapIdiom => new();
+    [Native(NativeCategory.EmitArtifact, "an exclusive dup-based pointer-element address spill consumed by a typed compound update, preserving pointer/index evaluation and the read/RHS/write sequence")]
+    public static PointerElementCompoundAssignmentPass PointerElementCompoundAssignment => new();
+    [Native(NativeCategory.EmitArtifact, "a same-pointer-place read and canonically scaled add/subtract decided as a typed compound update before emission")]
+    public static PointerCompoundAssignmentPass PointerCompoundAssignment => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

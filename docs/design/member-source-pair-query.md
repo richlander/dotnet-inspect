@@ -47,9 +47,23 @@ correspondence, C# equivalence, or IL equivalence.
 ## Execution boundary
 
 The operation reuses exact-member lookup and PDB acquisition from
-`AssemblyContextSourceQuery`. It does not invoke the ordinary query's
-decompiled fallback or the same-member PDB-versus-decompiled comparison.
-Ordinary source-query defaults remain unchanged.
+`AssemblyContextSourceQuery`, then supplies the exact retained implementation
+and optional acquired companion through the
+[assembly-context Library adapter](assembly-context-library-adapter.md).
+`SourceHouse.ExecuteAuthoredAsync` owns authored candidate settlement and
+declaration extraction. The query projects the settled declaration into its
+existing typed PDB-source inspection and retains the native `HouseOutcome`
+beside it. A terminal adapter result remains `LibraryFailure`; neither result
+is turned into positive member absence.
+
+Existing local, repository, and remote byte providers remain acquisition
+authorities. Their capability adapters preserve checksum-gated reads and cache
+admission; exposing the existing `SourceFetch` typed byte API avoids
+re-encoding text or adding another transport. Local/repository helper
+non-success remains a candidate miss under those providers' existing
+contracts. SourceHouse still owns ordering, final checksum verification,
+decoding, slicing, and settlement. The query does not invoke the ordinary
+source query's decompiled fallback or same-member comparison.
 
 An optional retained assembly path is not implicit permission to probe the
 filesystem. `AllowAdjacentPdbReads` explicitly permits a matching PDB beside
@@ -68,6 +82,31 @@ evidence or failed owned cleanup cannot yield `Compared`. The query borrows
 the groups and source capabilities; it does not acquire authority to close
 host-owned groups or resources.
 
+The acquired PDB reader closes before Library admission. The query transfers
+one Library operation lease to SourceHouse and then retires the Library owner
+before the adjacent Artifact session, including on cancellation and failure.
+House receipt evidence records lease settlement; the pair publishes only after
+the query's remaining owners settle. A primary exception remains primary when
+cleanup also fails, with cleanup evidence attached.
+
+`MemberSourcePairLimits` and `MemberSourcePairTimeout` on the existing source
+context make the House plan explicit and caller-adjustable. Defaults inherit the
+512 MiB retained-image ceiling for assembly and PDB snapshots, allow three
+candidate categories, 64 MiB source bytes/characters, and five minutes of
+settlement after upstream PDB acquisition. Target and mapping admission have
+finite bounds as declared by that plan. Existing source providers retain their
+own read limits; the House limit bounds acceptance, not all upstream I/O or
+process memory. Adapter capture uses the larger image allowance and combined
+retention uses their sum; the House enforces each role's stricter snapshot
+allowance. A limit or deadline produces retained `Incomplete` evidence and a
+failed host-facing source attempt, never a complete or empty comparison.
+The public outcome distinguishes `SourceDeadlineExceeded` from
+`SourceLimitExceeded`; neither is lexical source complexity. Producer slicing
+failures preserve `SourceTooComplex`, `InvalidSequencePointCoordinates`, and
+`SourceExtractionFailed`, without deriving a classification from diagnostic
+prose.
+Ordinary source/decompiler queries do not consume these member-pair settings.
+
 The query is `InspectionCost.Moderated` and requires explicit source intent.
 Acquisition is sequential. Its result retains evidence, not metadata readers
 or content-opening capabilities.
@@ -79,7 +118,9 @@ method represented by an exact MethodDef anchor and one assembly on each side.
 Accessor selections that cannot retain that anchor stay on the existing
 enrichment path rather than being promoted to their owning declaration.
 The shared query also supplies the
-[browser two-version Source view](inspect-web-source-comparison.md).
+[browser two-version Source facade](inspect-web-source-comparison.md).
+The former Source Diff dialog is retired; this adoption serves the published
+generated facade, not a restored UI.
 Existing broader CLI enrichment
 is not claimed migrated or removed by this bounded cutover.
 
@@ -89,10 +130,22 @@ shared handoff for that bounded pair query. It returns
 assembly contexts have produced one detached result. CLI `diff --pdb-source`
 and the browser two-version Source operation both consume that envelope while
 retaining host-owned endpoint resolution, source authorization, operation
-lifetime, and presentation. The query's current PDB acquisition continues
-through `PdbSourceHouse`; migration to the approved `SourceHouse` composition
-remains tracked separately by
-[#6512](https://github.com/richlander/dotnet-inspect/issues/6512).
+lifetime, and presentation. Authored settlement now uses SourceHouse under
+[#7448](https://github.com/richlander/dotnet-inspect/issues/7448), delivery four
+of the immediate adapter-first path: assembly adapter #7313, authored
+House #7368, companion handoff #7440, and this shared production cutover.
+Both hosts adopt in this delivery without another host-specific composition.
+The member-pair route no longer invokes `PdbSourceHouse.AcquireMemberAsync`.
+Existing acquisition and local-byte helpers, ordinary type queries,
+decompiler fallback, and broader CLI enrichment remain; their migration and
+retirement stay under the twelve-step
+[#6512](https://github.com/richlander/dotnet-inspect/issues/6512) plan.
+
+The pair now shares its query-owned authored handoff with
+[ordinary member acquisition](member-source-acquisition.md) under #7497.
+Member queries adopt authored settlement without moving their decompiler
+policy into the House; pair-specific bounds and authored-only behavior remain
+unchanged.
 
 The single delivery ledger is
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706):
@@ -114,11 +167,10 @@ CLI rendering consumes the typed pair alongside unchanged native C#/IL
 results and lowers into its existing Markout Implementation Diff rows.
 Retained line moves remain visible with their old and new declaration-relative
 line numbers, including when no line content changed or moves coexist with
-content edits. Only an exact pair receives an unchanged Source row. The
-browser consumes the same pair as structured native line relations before
-its interactive DOM lowering; its feature design owns that deliberate
-host-specific presentation choice. No browser transport or interaction
-contract is defined here.
+content edits. Only an exact pair receives an unchanged Source row. The browser
+facade consumes the same pair as structured native line relations;
+its feature design owns the projection and historical DOM lowering. No browser
+transport or interaction contract is defined here.
 
 ## Outcome gates
 
@@ -145,3 +197,20 @@ swapping isolated lines is not a substitute for that boundary case.
 Fixtures supply real compiler-produced assemblies, PDBs, and source. Product
 lookup, checksum verification, extraction, and comparison produce the evidence;
 tests do not fabricate successful source endpoints.
+
+The motivating real repository asset is dotnet-inspect's compiled
+`CSharpText.MemberSlicing`, its matching external PDB, and actual
+`MemberTextSlicer.cs`: `SourcePair_RealRepositoryMemberUsesAuthoredHouse`
+compares its exact declaration through both independent endpoint adapters.
+The versioned Counter fixtures preserve source-only edits and neighboring
+unchanged/moved declarations. `SourcePair_SourceHouseByteBoundIsVisibleAndExact`
+gates one byte below and exactly at the larger source document's length;
+`SourcePair_ExpiredHouseDeadlineIsNotMissingSource` gates visible expiry.
+Both bound cases assert the public outcome. The real-repository source/PDB
+mutation case `SourcePair_ProducerSlicingFailuresRemainDistinct` supplies
+checksum-matching token-dense and truncated documents and gates retained
+producer failure classifications; product code still performs verification
+and slicing.
+The detached-envelope, selected CLI, and browser comparison gates assert native
+House evidence, including external-companion and embedded-PDB paths.
+These focused outcome cases are PR-fast.

@@ -239,11 +239,7 @@ public partial class PackageCommand
             }
 
             string? packageLens = options.ListVersions
-                ? options.ForceLatest
-                    ? "--latest-version"
-                    : options.ListVersionsWithFeed
-                        ? "--versions-with-feed"
-                        : "--versions"
+                ? GetVersionQueryLens(options)
                 : options.ListLayout
                     ? "--layout"
                     : options.ListTfms
@@ -411,6 +407,13 @@ public partial class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            if (options.EnvelopeOutput
+                && DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            {
+                CommandError.Write(
+                    "--envelope for package version populations requires online configured-source settlement.");
+                return 1;
+            }
             if (!DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 return await ExecuteOnlineVersionQueryAsync(packageArgs[0], options, context);
 
@@ -704,7 +707,7 @@ public partial class PackageCommand
                 }
                 if (LensProjection.TryProject(
                         options,
-                        "--latest-version",
+                        GetVersionQueryLens(options),
                         visibleLatest.Count,
                         out var latestProjectionExit,
                         VersionListingColumns(options)))

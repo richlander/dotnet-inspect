@@ -11,7 +11,7 @@ recognizes and interprets the SourceLink custom-debug-information document.
 ## PDB source document acquisition
 
 After a Portable PDB maps a member or type to a checksummed source document,
-`PdbSourceHouse` looks for the document bytes in this order:
+the source composition looks for document bytes in this order:
 
 1. The PDB-recorded local path, when local source reads are enabled.
 2. Each caller-supplied local Git clone, addressed by the revision selector and
@@ -29,6 +29,11 @@ scenario: it composes the candidate origins, fetch policy, checksum
 verification, source decoding, and typed failure outcomes into one settled
 result. It intentionally does not include decompiler-generated source.
 `AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
+The [selected-member source pair](design/member-source-pair-query.md) and
+[shared member acquisition](design/member-source-acquisition.md) use SourceHouse
+for authored settlement, while preserving these acquisition providers and their
+authorization and checksum-gated admission. Member callers retain the acquired
+PDB for their existing fallback or explicit comparison.
 
 The target [SourceHouse composition](design/source-house.md), tracked by
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512), replaces

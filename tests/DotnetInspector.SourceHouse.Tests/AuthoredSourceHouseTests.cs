@@ -760,6 +760,25 @@ public sealed class AuthoredSourceHouseTests
             library.Reference.ApiAssembly);
     }
 
+    [Theory]
+    [InlineData("get_Filter")]
+    [InlineData("set_Filter")]
+    public async Task RealPlatformExplicitAccessor_RecognizesOnePhysicalTarget(string accessor)
+    {
+        string assemblyPath = typeof(System.Data.DataView).Assembly.Location;
+        SourceHouseTarget.MemberTarget target = MemberTarget(
+            assemblyPath, typeof(System.Data.DataView).FullName!,
+            $"System.ComponentModel.IBindingListView.{accessor}");
+        await using LibraryFixture library = await LibraryFixture.CreateAsync(assemblyPath);
+
+        SourceHouseOutcome.Unavailable unavailable =
+            Assert.IsType<SourceHouseOutcome.Unavailable>(
+                await ExecuteAsync(library, Request(library, target, [])));
+
+        Assert.Equal(SourceHousePdbContributionKind.Unavailable, unavailable.PdbContribution.Kind);
+        Assert.Empty(unavailable.AuthoredAttempt.SourceAttempts);
+    }
+
     [Fact]
     public async Task ExactInterfaceMemberWithoutSequencePoints_IsUnavailable()
     {

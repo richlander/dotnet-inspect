@@ -12,6 +12,10 @@ export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
 export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "Calli" | number;
 
+export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "InstructionUnavailable" | number;
+
+export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
+
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -29,6 +33,7 @@ export interface BrowserAnnotatedSource {
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
   readonly provenance: InertString;
   readonly contextLimitation: string | null;
+  readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
 }
 
@@ -42,8 +47,10 @@ export interface BrowserAnnotatedSourceFindingEvidence {
   readonly instanceKey: number;
   readonly member: string;
   readonly target: BrowserCallGraphTarget;
+  readonly state: BrowserCalleeEvidenceState;
+  readonly aggregateInputs: ReadonlyArray<BrowserCostCalleeEvidenceInput>;
   readonly coordinates: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceCoordinate>;
-  readonly document: unknown;
+  readonly documentId: number | null;
   readonly nodeIds: ReadonlyArray<number>;
   readonly unavailableReason: string | null;
 }
@@ -51,6 +58,11 @@ export interface BrowserAnnotatedSourceFindingEvidence {
 export interface BrowserAnnotatedSourceFindingEvidenceCoordinate {
   readonly ilOffset: number;
   readonly kind: BrowserCalleeEvidenceKind;
+}
+
+export interface BrowserAnnotatedSourceFindingEvidenceDocument {
+  readonly id: number;
+  readonly document: unknown;
 }
 
 export interface BrowserAnnotatedSourceInvocationDestination {
@@ -113,6 +125,11 @@ export interface BrowserCallGraphTarget {
   readonly kind: string;
   readonly platformPack: string | null;
   readonly surfaceAssemblyId: string | null;
+}
+
+export interface BrowserCostCalleeEvidenceInput {
+  readonly kind: BrowserCostCalleeEvidenceInputKind;
+  readonly value: number | null;
 }
 
 export interface BrowserIlBodyEvidence {

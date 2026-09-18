@@ -75,7 +75,6 @@ public static class PackageCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
-        var latestVersionOption = new Option<bool>("--latest-version") { Description = "Show latest stable version from eligible configured sources (add --preview for prerelease)" };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
@@ -97,7 +96,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
-        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.RawUrls);
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
@@ -117,6 +115,58 @@ public static class PackageCommandDefinitions
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
+        opts.AddEnvelopeOptionTo(
+            packageCommand,
+            opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+            opts.Lines, opts.TailLines,
+            dependenciesOption, layoutOption, pathOption, pathMatchOption,
+            skipEmptyOption, tfmsOption, libOption, toolsOption,
+            libraryOption, allLibrariesOption,
+            contentOption, frontmatterOption, bodyOption, outOption,
+            tfmOption, typeFilterOption, versionOption);
+        packageCommand.Validators.Add(result =>
+        {
+            bool hasPluralVersionSelector =
+                result.GetValue(versionsOption)
+                || result.GetValue(versionsWithFeedOption);
+            if (result.GetValue(opts.Envelope))
+            {
+                string[] packageReferences =
+                    result.GetValue(packageNameArg) ?? [];
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || result.GetValue(opts.Count);
+                bool isRange =
+                    packageReferences is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null;
+                if (!hasPopulationGesture || !isRange)
+                {
+                    result.AddError(
+                        "--envelope on package requires one Package@A..B "
+                        + "range and --versions, --versions-with-feed, or --count.");
+                }
+
+                if (!result.GetValue(opts.Count))
+                {
+                    foreach (Option option in new Option[]
+                    {
+                        opts.Rows, opts.Limit, opts.Head, opts.Tail,
+                    })
+                    {
+                        if (result.GetResult(option) is { Implicit: false })
+                        {
+                            result.AddError(
+                                $"--envelope cannot be combined with {option.Name}.");
+                        }
+                    }
+                }
+            }
+
+        });
 
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
@@ -134,7 +184,15 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result =>
                 result.GetValue(versionsOption)
-                || result.GetValue(versionsWithFeedOption),
+                || result.GetValue(versionsWithFeedOption)
+                || (result.GetValue(opts.Count)
+                    && (result.GetValue(packageNameArg) ?? [])
+                        is [var packageReference]
+                    && PackageVersionRange.TryParse(
+                        packageReference,
+                        out _,
+                        out string? rangeError)
+                    && rangeError is null),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -157,7 +215,7 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption,
+            tfmOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, opts.NoHeaders);
         structuralArgs = commandArgs;

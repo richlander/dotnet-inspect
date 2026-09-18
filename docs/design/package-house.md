@@ -54,9 +54,9 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package --latest-version` and equivalent `@latest` version
-queries consume the shared `PackageVersionSettlementInspection` envelope,
-also used by Inspect Web exact/latest package opening. The shared inspection
+The CLI's online `package Package@latest --version` query and `@latest` package
+opening consume the shared `PackageVersionSettlementInspection` envelope, also
+used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
 render or consume the selected coordinate rather than choosing a latest row.
 The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
@@ -66,7 +66,7 @@ settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
-existing latest-version, source-failure, listing, and rendering cases preserve
+existing latest-settlement, source-failure, listing, and rendering cases preserve
 neighboring behavior.
 This is payload-free adoption: ordinary version listings, CLI pinned and range
 queries, offline behavior, and package-content/Workspace
@@ -377,18 +377,34 @@ adoption uses the same host-neutral contract in a later slice.
 The original #7115 slice did not migrate current API-range or top-level
 `timeline` consumers. [#7410](https://github.com/richlander/dotnet-inspect/issues/7410)
 later adopts only online `package Package@A..B --versions` listing as a direct
-population consumer. That command retains its existing CLI-owned rendering and
-maps the closed House terminal family to visible command failure; it does not
-select or execute population cells.
+population consumer.
+[Issue #7434](https://github.com/richlander/dotnet-inspect/issues/7434)
+completes that leaf as
+`InspectionEnvelope<PackageVersionPopulationOutcome>`. Its available Content
+contains a detached `PackageVersionPopulationDocument` with the normalized
+request, direction-preserving ordinal and selector addresses, listing state,
+and ordered source rows. The closed House terminal family becomes typed
+non-available Content with inert reason text, timeout state, and credential-safe
+authority failures. Neighboring source failures on an available population are
+ordered envelope diagnostics.
+
+Count is an optional semantic component of the same available Content. Its
+request names either the version or version/source cohort and applies the
+already-bound semantic row selection before returning a typed Count result.
+Ordinary `--count` projects that result as the existing scalar; `--count
+--envelope` preserves both the complete population Document and Count
+component. The CLI's ordinary version, feed, JSON, JSONL, and TSV renderers
+remain projections over the shared Document. Neither the inspection nor the
+command selects or executes population cells.
 
 This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History and metadata-only
-package version Count under
+production consumer remains subject-owned Diff History under
 [Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior.
+`timeline` behavior; the metadata-only package version Count is now the
+resource-free CLI consumer described above.
 
 ## Package target context
 
@@ -574,7 +590,8 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI latest-version queries, and Inspect Web exact/latest package opening.
+CLI `Package@latest --version` queries, and Inspect Web exact/latest package
+opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,
 then continues existing payload acquisition and Workspace admission.

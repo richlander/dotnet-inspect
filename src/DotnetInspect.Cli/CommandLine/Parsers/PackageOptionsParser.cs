@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -38,7 +39,6 @@ public static class PackageOptionsParser
         Option<string?> TfmOption,
         Option<string?> TypeFilterOption,
         Option<string?> VersionOption,
-        Option<bool> LatestVersionOption,
         Option<bool> LinesOption,
         Option<bool> TailLinesOption,
         Option<string?> OutOption,
@@ -63,6 +63,12 @@ public static class PackageOptionsParser
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
 
+    internal static string? GetUnrecognizedOption(
+        ParseResult parseResult,
+        PackageCommandArgs args) =>
+        (parseResult.GetValue(args.PackageNameArg) ?? [])
+            .FirstOrDefault(argument => argument.StartsWith('-'));
+
     internal static int GetPositionalCapacity(
         ParseResult result,
         SharedOptions opts,
@@ -74,7 +80,6 @@ public static class PackageOptionsParser
         {
             ExplicitVersion = result.GetValue(args.VersionOption),
             ListVersions = result.GetResult(args.VersionOption) is { Implicit: false }
-                || result.GetValue(args.LatestVersionOption)
                 || result.GetValue(args.VersionsOption)
                 || result.GetValue(args.VersionsWithFeedOption),
             ListLayout = result.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(result),
@@ -106,12 +111,11 @@ public static class PackageOptionsParser
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
 
         // Check for unrecognized options in positional args
-        var badOption = packageArgs.FirstOrDefault(a => a.StartsWith('-'));
+        var badOption = GetUnrecognizedOption(parseResult, args);
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
         var explicitVersion = parseResult.GetValue(args.VersionOption);
-        bool showLatestVersion = parseResult.GetValue(args.LatestVersionOption);
         var libraryValue = parseResult.GetValue(args.LibraryOption);
         var packageLibrary = parseResult.GetResult(args.LibraryOption) is { Implicit: false }
             ? libraryValue ?? ""
@@ -128,25 +132,43 @@ public static class PackageOptionsParser
             parseResult.GetValue(args.VersionsWithFeedOption);
         bool showVersionList =
             parseResult.GetValue(args.VersionsOption);
+        bool countRange = false;
+        if (parseResult.GetValue(opts.Count)
+            && packageArgs is [var packageReference])
+        {
+            countRange =
+                PackageVersionRange.TryParse(
+                    packageReference,
+                    out _,
+                    out string? countRangeError)
+                && countRangeError is null;
+        }
         bool showPluralVersions =
             showVersionsWithFeed
             || showVersionList;
-        if ((showVersionList && showVersionsWithFeed)
-            || (showPluralVersions
-                && (hasExplicitVersionSelector
-                    || showLatestVersion)))
+        bool selectsVersionPopulation =
+            showPluralVersions
+            || countRange;
+        if (showVersionList && showVersionsWithFeed)
         {
             return new InvalidArguments(
                 "--versions and --versions-with-feed cannot be combined "
-                + "with each other, --version, or --latest-version.");
+                + "with each other or --version.");
+        }
+        if (selectsVersionPopulation
+            && hasExplicitVersionSelector)
+        {
+            return new InvalidArguments(
+                "--versions, --versions-with-feed, and range --count "
+                + "cannot be combined with --version.");
         }
 
         bool showVersions =
             bareVersion
-            || showLatestVersion
-            || showPluralVersions;
+            || showPluralVersions
+            || countRange;
         RowSelectionIntent<string>? versionRowSelection = null;
-        if (showPluralVersions
+        if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 "Package version",
@@ -226,9 +248,8 @@ public static class PackageOptionsParser
             FrontmatterRequested = frontmatterRequested,
             BodyRequested = bodyRequested,
             OutputPath = parseResult.GetValue(args.OutOption),
-            Limit = (bareVersion || showLatestVersion) ? 1 : null,
+            Limit = bareVersion ? 1 : null,
             VersionRowSelection = versionRowSelection,
-            ForceLatest = showLatestVersion,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
             Bare = bareOutput,
@@ -252,7 +273,8 @@ public static class PackageOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
-            Rows = showPluralVersions
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+            Rows = selectsVersionPopulation
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
