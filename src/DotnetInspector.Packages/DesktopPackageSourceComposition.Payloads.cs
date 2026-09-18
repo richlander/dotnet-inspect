@@ -20,9 +20,17 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        string? requiredProducerKey = null)
+        string? requiredProducerKey = null,
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
+        if (compileTargetContext is not null
+            && operationContext is not null)
+        {
+            throw new ArgumentException(
+                "PackageHouse compile realization cannot use a legacy operation context.",
+                nameof(operationContext));
+        }
         if (operationContext is not null)
         {
             return PackageSourceSettlementCompatibility.RunAsync(
@@ -69,7 +77,8 @@ public sealed partial class DesktopPackageSourceComposition
                     sourceOperation,
                     limits,
                     transferPolicy,
-                    requiredProducerKey);
+                    requiredProducerKey,
+                    compileTargetContext);
             sourceOperation = null;
             return execution;
         }

@@ -19,14 +19,14 @@ The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges have semantic `-n` adoption. Their supported Window and direction
-capabilities remain command-specific. These adopters also accept explicit
-rendered-line selection where their output format permits it. Unselected modes
-of a partially adopted command use the rendered-line fallback. Commands
-without an active semantic row adoption, including text documents and
-structured commands whose item rows have not yet been adopted, lower bare
-`-n` to rendered-line selection. Explicit `--lines` remains accepted as
-redundant unit selection.
+graph edges, plus a single package's `SourceLink: Files` section, have semantic
+`-n` adoption. Their supported Window and direction capabilities remain
+command-specific. These adopters also accept explicit rendered-line selection
+where their output format permits it. Unselected modes of a partially adopted
+command use the rendered-line fallback. Commands without an active semantic
+row adoption, including text documents and structured commands whose item rows
+have not yet been adopted, lower bare `-n` to rendered-line selection. Explicit
+`--lines` remains accepted as redundant unit selection.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -53,8 +53,10 @@ unit rollout defines rendered lines as the fallback item sequence, adds shared
 selects complete owner-issued entries after kind filtering without reducing
 Workspace construction or acquisition. The Integration graph adoption selects
 logical edges after complete induced-set construction without reducing package
-acquisition or graph production. Semantic adoption for the remaining command
-row sets is still staged.
+acquisition or graph production. The Package `SourceLink: Files` adoption
+selects complete package-library/type/URL rows after SourceLink collection and
+type filtering without reducing package, library, or PDB acquisition. Semantic
+adoption for the remaining command row sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -712,6 +714,47 @@ Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges
 sections are independent row sets with different schemas. It retains its
 legacy `--rows` contract and uses the rendered-line fallback for `-n`.
 
+## Package SourceLink file adoption
+
+Ordinary single-package `package` inspection declares one semantic row per
+`PackageSourceFileInfo` when the effective section selection is exactly
+`SourceLink: Files`. The legacy `Source Files` alias and `-t`/`--type` sugar
+reach the same declaration. Package resolution, extraction, compatible-library
+selection, PDB acquisition, SourceLink collection, and type filtering all
+complete before Head/Tail or strict Window stages select from the typed row
+vector.
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.3 \
+    -S "SourceLink: Files" -t JsonReader \
+    -n 1 --tail --urls --raw
+https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/.../JsonReader.Async.cs
+```
+
+What to notice: `-n 1 --tail` selects the final complete
+library/type/URL row. Markdown, table, TSV, JSONL, complete JSON, Count,
+`--value`/`--urls`, and `--bare` consume that same selected model. Selection
+does not reduce Package or PDB acquisition, compatible-library enumeration, or
+SourceLink collection.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before package resolution. One strict Window
+failure withholds every output shape:
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.3 \
+    -S "SourceLink: Files" -t JsonReader \
+    --rows 2..3 --json
+Error: Package SourceLink file row selection stage 1 requires row 3, but only 2 rows are available.
+```
+
+`@SourceLink`, multi-section selections, effective or static discovery,
+embedded `--library`/`--all-libraries` inspection, `--path`, `--dependencies`,
+and multiple-package inspection remain outside this declaration. Those
+surfaces retain their existing row contracts and use rendered-line fallback
+for bare `-n`. Direct callers that provide only the legacy `RowWindow` also
+retain their existing behavior.
+
 ## Demo-list adoption
 
 The finite `demo list` catalog and equivalent bare `demo` listing declare one
@@ -885,6 +928,14 @@ The Integration graph adoption is enforced by:
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
 | `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, `LibrariesCommand_RetainsLegacyWindowValidation`, `LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation; `graph libraries` remains outside the declaration, infers Lines for `-n`, and retains legacy Window validation. |
+
+The Package SourceLink file adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.Package_SourceFilesSection_SemanticTailSelectsTheSameRowAcrossFormats`, `Package_SourceFilesSection_AliasAndTypeSugarAcceptSemanticOpenWindows`, and `Package_SourceFilesSection_Bare_ComposesSemanticAndLineWindows` | The canonical selector, legacy alias, and type-filter sugar select complete package SourceLink file rows after collection; Tail and open or closed Window stages feed Markdown, table, TSV, JSONL, complete JSON, Count, value/URL projection, and bare output, while explicit Lines remains a rendered-text operation. |
+| `CommandExecutionTests.Package_SourceFilesSection_UnavailableSemanticWindowWithholdsOutput`, `Package_SourceFilesSection_RejectsLegacyCountRows`, and `Package_SourceLinkFileLinesRejectJsonBeforePackageResolution` | One unavailable strict Window emits no partial payload, the retired numeric `--rows` count form is rejected, and explicit Lines rejects complete JSON before package resolution. |
+| `CommandExecutionTests.Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation` | The `@SourceLink` category, mixed section selection, embedded-library modes, and multiple-package inspection remain outside the semantic declaration and retain legacy Window validation. |
 
 The broad explicit-line rollout is enforced by:
 

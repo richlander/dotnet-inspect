@@ -33,6 +33,35 @@ public class ILOffsetProjectionProducerTests
 
     [Fact]
     public void
+        ProjectILOffset_NonBoundaryToleranceRejectsOffsetOutsideMethodExtent()
+    {
+        var method = typeof(ILOffsetProjectionProducerTests).GetMethod(
+            nameof(AddOne),
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+        using var source = SourceLinkService.Open(
+            typeof(ILOffsetProjectionProducerTests).Assembly.Location);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ILOffset: int.MaxValue,
+                    ILOffsetProjectionCapabilities.InstructionContext,
+                    AllowNonBoundaryContextAbsence: true));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(
+            ILOffsetProjectionFailureKind.InstructionUnavailable,
+            outcome.Failure!.Kind);
+        Assert.Contains(
+            "outside the decoded method body",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
         ProjectILOffset_CostContextUsesPhysicalAsyncBody()
     {
         MethodInfo sourceMethod =

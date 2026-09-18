@@ -52,6 +52,15 @@ public static class ILOffsetProjectionProducer
                 decoded = false;
             }
         }
+        if (decoded
+            && (uint)request.ILOffset > (uint)methodBody!.IL.Length)
+        {
+            return ILOffsetProjectionOutcome.Failed(
+                ILOffsetProjectionFailureKind.InstructionUnavailable,
+                $"IL offset 0x{request.ILOffset:X} is outside the decoded "
+                + $"method body for token 0x{request.MethodToken:X}, whose "
+                + $"terminal boundary is 0x{methodBody.IL.Length:X}.");
+        }
 
         ILOffsetInstructionContextInfo? instructionContext = null;
         string? instructionError = decodeError == $"Could not decode IL for token 0x{request.MethodToken:X}."
@@ -68,7 +77,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (instructionContext is null
-            && Includes(request, ILOffsetProjectionCapabilities.InstructionContext))
+            && Includes(request, ILOffsetProjectionCapabilities.InstructionContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.InstructionUnavailable,
@@ -101,7 +111,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (callsiteError is not null
-            && Includes(request, ILOffsetProjectionCapabilities.CallsiteContext))
+            && Includes(request, ILOffsetProjectionCapabilities.CallsiteContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.CallsiteUnavailable,
@@ -121,7 +132,8 @@ public static class ILOffsetProjectionProducer
         }
 
         if (returnAddressError is not null
-            && Includes(request, ILOffsetProjectionCapabilities.ReturnAddressContext))
+            && Includes(request, ILOffsetProjectionCapabilities.ReturnAddressContext)
+            && (!request.AllowNonBoundaryContextAbsence || !decoded))
         {
             return ILOffsetProjectionOutcome.Failed(
                 ILOffsetProjectionFailureKind.ReturnAddressUnavailable,

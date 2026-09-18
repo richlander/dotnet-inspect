@@ -499,8 +499,8 @@ public partial class SectionPipelineTests
         var expected = command == "library"
             ? registered
                 .Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
-                // Coordinate-gated like the Context: sections above: without --heap there is no
-                // value to show, so the section is legitimately not discoverable.
+                // Coordinate-gated like the Context: sections above: without a heap coordinate
+                // there is no value to show, so the section is legitimately not discoverable.
                 .Except([MetadataSectionNames.Heap], StringComparer.OrdinalIgnoreCase)
                 // @Metadata table and heap sections are data-gated: a table with no rows or a heap
                 // with no bytes in this image is legitimately not discoverable, and listing it
