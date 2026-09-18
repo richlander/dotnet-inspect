@@ -325,9 +325,19 @@ public sealed partial class PackageDependencyEvidenceQueryTests
             source.Source.TransportKind,
             roundTrippedFailure.Source.TransportKind);
         Assert.Equal(
+            "Search failed",
+            roundTrippedFailure.Message.ToString());
+        Assert.Equal(
+            source.Source.Producer.Display.ToString(),
+            roundTrippedFailure.Source.ProducerDisplay.ToString());
+        Assert.Equal(
             source.Source.Producer.PortableKey,
             roundTripped.PackageInputs.RootSet.PackagePrefixCompletion!
                 .Source.PortableProducerKey);
+        Assert.Equal(
+            "Example.",
+            roundTripped.PackageInputs.RootSet.PackagePrefixCompletion!
+                .Prefix.ToString());
         Assert.Equal(
             roundTrippedFailure.Source.Association,
             roundTripped.PackageInputs.RootSet.PackagePrefixCompletion!

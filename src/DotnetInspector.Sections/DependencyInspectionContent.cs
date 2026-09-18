@@ -207,6 +207,9 @@ public sealed record DependencyInspectionTraversalFailure(
     ImmutableArray<int> AffectedRootOccurrences,
     DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null)
 {
+    public ImmutableArray<int> AffectedRootOccurrences { get; init; } =
+        AffectedRootOccurrences.IsDefault ? [] : AffectedRootOccurrences;
+
     [JsonIgnore]
     public PackageDependencyTraversalCandidateResult? RuntimeCandidateOutcome
     { get; init; }
@@ -258,7 +261,11 @@ public abstract record DependencyInspectionPruningFailure
         string TargetFramework,
         InertString Message,
         ImmutableArray<int> AffectedRootOccurrences,
-        int AffectedDeclarations) : DependencyInspectionPruningFailure;
+        int AffectedDeclarations) : DependencyInspectionPruningFailure
+    {
+        public ImmutableArray<int> AffectedRootOccurrences { get; init; } =
+            AffectedRootOccurrences.IsDefault ? [] : AffectedRootOccurrences;
+    }
 
     public sealed record Prerequisite(
         int RootOccurrence,
@@ -303,4 +310,17 @@ public sealed record DependencyInspectionContent(
     ImmutableArray<DependencyInspectionRoot> Roots,
     ImmutableArray<DependencyInspectionDependency> Dependencies,
     ImmutableArray<DependencyInspectionPruning> Pruning,
-    ImmutableArray<DependencyInspectionFailure> Failures);
+    ImmutableArray<DependencyInspectionFailure> Failures)
+{
+    public ImmutableArray<DependencyInspectionRoot> Roots { get; init; } =
+        Roots.IsDefault ? [] : Roots;
+
+    public ImmutableArray<DependencyInspectionDependency> Dependencies
+    { get; init; } = Dependencies.IsDefault ? [] : Dependencies;
+
+    public ImmutableArray<DependencyInspectionPruning> Pruning { get; init; } =
+        Pruning.IsDefault ? [] : Pruning;
+
+    public ImmutableArray<DependencyInspectionFailure> Failures { get; init; } =
+        Failures.IsDefault ? [] : Failures;
+}

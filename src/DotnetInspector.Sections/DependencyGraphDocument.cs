@@ -167,7 +167,11 @@ public sealed record DependencyGraphDepthBoundary(
     int? PackageProjectionId,
     int MaximumDepth,
     ImmutableArray<int> RootOccurrences,
-    DependencyGraphDepthBoundaryProducerKind Producer);
+    DependencyGraphDepthBoundaryProducerKind Producer)
+{
+    public ImmutableArray<int> RootOccurrences { get; init; } =
+        RootOccurrences.IsDefault ? [] : RootOccurrences;
+}
 
 /// <summary>
 /// One source-relative package-manifest projection retained separately from
@@ -183,6 +187,10 @@ public sealed record DependencyGraphPackageProjection(
     int? RootOccurrence,
     ImmutableArray<DependencyInspectionPackageAuthorityFailure> Diagnostics)
 {
+    public ImmutableArray<DependencyInspectionPackageAuthorityFailure>
+        Diagnostics
+    { get; init; } = Diagnostics.IsDefault ? [] : Diagnostics;
+
     [JsonIgnore]
     public PackageAcquisitionCandidate? RuntimeCandidate { get; init; }
 
@@ -255,6 +263,9 @@ public sealed record DependencyGraphEdge(
     ImmutableArray<DependencyInspectionPackageAuthorityFailure>
         PackageDiagnostics = default)
 {
+    public ImmutableArray<int> RootOccurrences { get; init; } =
+        RootOccurrences.IsDefault ? [] : RootOccurrences;
+
     public ImmutableArray<DependencyInspectionPackageAuthorityFailure>
         PackageDiagnostics
     { get; init; } = PackageDiagnostics.IsDefault ? [] : PackageDiagnostics;
@@ -272,4 +283,20 @@ public sealed record DependencyGraphDocument(
     ImmutableArray<DependencyGraphNode> Nodes,
     ImmutableArray<DependencyGraphEdge> Edges,
     ImmutableArray<DependencyGraphPackageProjection> PackageProjections,
-    ImmutableArray<DependencyGraphDepthBoundary> DepthBoundaries);
+    ImmutableArray<DependencyGraphDepthBoundary> DepthBoundaries)
+{
+    public ImmutableArray<DependencyGraphRootOccurrence> Roots { get; init; } =
+        Roots.IsDefault ? [] : Roots;
+
+    public ImmutableArray<DependencyGraphNode> Nodes { get; init; } =
+        Nodes.IsDefault ? [] : Nodes;
+
+    public ImmutableArray<DependencyGraphEdge> Edges { get; init; } =
+        Edges.IsDefault ? [] : Edges;
+
+    public ImmutableArray<DependencyGraphPackageProjection> PackageProjections
+    { get; init; } = PackageProjections.IsDefault ? [] : PackageProjections;
+
+    public ImmutableArray<DependencyGraphDepthBoundary> DepthBoundaries
+    { get; init; } = DepthBoundaries.IsDefault ? [] : DepthBoundaries;
+}

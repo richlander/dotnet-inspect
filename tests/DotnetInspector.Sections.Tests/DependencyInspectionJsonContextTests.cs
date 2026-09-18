@@ -241,18 +241,210 @@ public sealed class DependencyInspectionJsonContextTests
         Assert.NotNull(roundTripped);
         Assert.IsType<DependencyGraphNodeIdentity.Package>(
             Assert.Single(roundTripped.Graph.Nodes).Identity);
-        Assert.IsType<
+        Assert.Equal(
+            "Example.Package",
+            Assert.Single(roundTripped.Graph.Nodes).Label.ToString());
+        var edgeEvidence = Assert.IsType<
             DependencyGraphEvidenceIdentity.PackageVersionConstraint>(
             Assert.Single(roundTripped.Graph.Edges).EvidenceIdentity);
+        Assert.Equal("[1.0.0]", edgeEvidence.Value.ToString());
+        Assert.Equal(
+            "Example.Package@1.0.0",
+            Assert.Single(roundTripped.Roots).Input.ToString());
         Assert.IsType<DependencyInspectionFailure.Evidence>(
             roundTripped.Failures[0]);
+        Assert.Equal(
+            "Example failure",
+            ((DependencyInspectionFailure.Evidence)
+                roundTripped.Failures[0]).Value.Message.ToString());
         Assert.IsType<DependencyInspectionFailure.Traversal>(
             roundTripped.Failures[1]);
         Assert.IsType<DependencyInspectionFailure.Pruning>(
             roundTripped.Failures[2]);
-        Assert.IsType<DependencyInspectionPruningFailure.Inventory>(
+        var inventory = Assert.IsType<
+            DependencyInspectionPruningFailure.Inventory>(
             ((DependencyInspectionFailure.Pruning)
                 roundTripped.Failures[2]).Value);
+        Assert.Equal("Inventory unavailable", inventory.Message.ToString());
+    }
+
+    [Fact]
+    public void DefaultGeneratedArraysSerializeAsEmpty()
+    {
+        DependencyGraphDocument graph = RoundTrip(
+            new DependencyGraphDocument(
+                default,
+                default,
+                default,
+                default,
+                default));
+
+        Assert.Empty(graph.Roots);
+        Assert.Empty(graph.Nodes);
+        Assert.Empty(graph.Edges);
+        Assert.Empty(graph.PackageProjections);
+        Assert.Empty(graph.DepthBoundaries);
+
+        DependencyGraphDocument nestedGraph = RoundTrip(
+            new DependencyGraphDocument(
+                [],
+                [],
+                [
+                    new DependencyGraphEdge(
+                        Id: 0,
+                        SourceNodeId: 0,
+                        TargetNodeId: 0,
+                        Relationship: "dependency",
+                        RootOccurrences: default,
+                        MinimumDepth: 0,
+                        DependencyGraphResolutionState.Declared,
+                        EvidenceIdentity: null),
+                ],
+                [
+                    new DependencyGraphPackageProjection(
+                        Id: 0,
+                        NodeId: 0,
+                        PackageDependencyTraversalProjectionKind.RootSupplied,
+                        PackageDependencyTraversalProjectionExpansion.Expanded,
+                        Evidence: null,
+                        Candidate: null,
+                        RootOccurrence: null,
+                        Diagnostics: default),
+                ],
+                [
+                    new DependencyGraphDepthBoundary(
+                        NodeId: 0,
+                        PackageProjectionId: 0,
+                        MaximumDepth: 1,
+                        RootOccurrences: default,
+                        DependencyGraphDepthBoundaryProducerKind.Package),
+                ]));
+
+        Assert.Empty(Assert.Single(nestedGraph.Edges).RootOccurrences);
+        Assert.Empty(Assert.Single(nestedGraph.Edges).PackageDiagnostics);
+        Assert.Empty(
+            Assert.Single(nestedGraph.PackageProjections).Diagnostics);
+        Assert.Empty(
+            Assert.Single(nestedGraph.DepthBoundaries).RootOccurrences);
+
+        DependencyInspectionContent content = RoundTrip(
+            new DependencyInspectionContent(
+                new DependencyInspectionSummary(
+                    DependencyInspectionRootSetCompletion.Complete,
+                    RequestedRoots: 0,
+                    AdmittedRoots: 0,
+                    FailedRoots: 0,
+                    DependencyInspectionTraversalCompletion.NotRequested,
+                    RequestedDepth: null,
+                    GraphNodes: 0,
+                    GraphEdges: 0,
+                    DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                    DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                    DependencyInspectionPruningSummary.NotRequested,
+                    IsPrefixRootSet: false,
+                    PackagePrefix: null),
+                new DependencyGraphDocument([], [], [], [], []),
+                default,
+                default,
+                default,
+                default));
+
+        Assert.Empty(content.Roots);
+        Assert.Empty(content.Dependencies);
+        Assert.Empty(content.Pruning);
+        Assert.Empty(content.Failures);
+
+        DependencyInspectionContent nestedContent = RoundTrip(
+            content with
+            {
+                Failures =
+                [
+                    new DependencyInspectionFailure.Traversal(
+                        new DependencyInspectionTraversalFailure(
+                            "boundary",
+                            SourceProjectionIndex: null,
+                            NodeIndex: null,
+                            ProjectionIndex: null,
+                            DeclarationIdentity: null,
+                            PackageId: null,
+                            VersionConstraint: null,
+                            CandidateOutcome: null,
+                            ManifestFailure: null,
+                            BudgetKind: null,
+                            BudgetLimit: null,
+                            RestoredFailure: null,
+                            AffectedRootOccurrences: default)),
+                    new DependencyInspectionFailure.Pruning(
+                        new DependencyInspectionPruningFailure.Inventory(
+                            "runtime",
+                            "net11.0",
+                            new InertString(
+                                TextPolicy.Prose,
+                                "Inventory unavailable"),
+                            AffectedRootOccurrences: default,
+                            AffectedDeclarations: 0)),
+                ],
+            });
+
+        Assert.Empty(
+            ((DependencyInspectionFailure.Traversal)
+                nestedContent.Failures[0]).Value.AffectedRootOccurrences);
+        Assert.Empty(
+            ((DependencyInspectionPruningFailure.Inventory)
+                ((DependencyInspectionFailure.Pruning)
+                    nestedContent.Failures[1]).Value).AffectedRootOccurrences);
+
+        PackageDependencyEvidenceOutcome produced =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [
+                        PackageDependencyEvidenceQuery.CreatePackageInput(
+                            PackageFacts("Example.Package") with
+                            {
+                                DependencyGroups =
+                                [
+                                    new DeclaredPackageDependencyGroup(
+                                        TargetFramework: "",
+                                        Dependencies: [],
+                                        IsImplicitManifestGroup: true),
+                                ],
+                            },
+                            PackageDependencyEvidenceAcquisitionForm.DirectNuspec),
+                    ]));
+        var available = Assert.IsType<
+            PackageDependencyEvidenceDeclarationResult.Available>(
+                Assert.Single(produced.Roots).Declaration);
+        PackageDependencyEvidenceGroup producedGroup =
+            Assert.Single(available.Groups);
+        PackageDependencyEvidenceGroup group = RoundTrip(
+            new PackageDependencyEvidenceGroup(
+                producedGroup.Identity,
+                producedGroup.FrameworkScope,
+                SourceOccurrences: default,
+                producedGroup.OrderKey,
+                Declarations: default));
+
+        Assert.Empty(group.SourceOccurrences);
+        Assert.Empty(group.Declarations);
+
+        PackageDependencyEvidenceOutcome outcome = RoundTrip(
+            new PackageDependencyEvidenceOutcome(
+                default,
+                default,
+                new PackageDependencyEvidenceRootSetSummary(
+                    PackageDependencyEvidenceRootSetCompletion.Complete,
+                    AdmittedRootCount: 0,
+                    RejectedRootCount: 0,
+                    FailedRootCount: 0,
+                    IsTruncated: false,
+                    PackagePrefixCompletion: null),
+                new PackageDependencyEvidencePhaseSummary(
+                    new PackageDependencyEvidencePhaseCounts(0, 0, 0, 0, 0),
+                    new PackageDependencyEvidencePhaseCounts(0, 0, 0, 0, 0),
+                    new PackageDependencyEvidencePhaseCounts(0, 0, 0, 0, 0))));
+
+        Assert.Empty(outcome.Roots);
+        Assert.Empty(outcome.FailedRoots);
     }
 
     [Fact]

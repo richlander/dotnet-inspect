@@ -642,7 +642,15 @@ public sealed record PackageDependencyEvidenceGroup(
     PackageDependencyFrameworkScopeIdentity FrameworkScope,
     ImmutableArray<PackageDependencyEvidenceGroupOccurrence> SourceOccurrences,
     string OrderKey,
-    ImmutableArray<PackageDependencyEvidenceDeclaration> Declarations);
+    ImmutableArray<PackageDependencyEvidenceDeclaration> Declarations)
+{
+    public ImmutableArray<PackageDependencyEvidenceGroupOccurrence>
+        SourceOccurrences
+    { get; init; } = SourceOccurrences.IsDefault ? [] : SourceOccurrences;
+
+    public ImmutableArray<PackageDependencyEvidenceDeclaration> Declarations
+    { get; init; } = Declarations.IsDefault ? [] : Declarations;
+}
 
 /// <summary>A typed reason one declaration projection is incomplete or failed.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -1225,7 +1233,14 @@ public sealed record PackageDependencyEvidenceOutcome(
     ImmutableArray<PackageDependencyEvidenceRoot> Roots,
     ImmutableArray<PackageDependencyEvidenceRootFailure> FailedRoots,
     PackageDependencyEvidenceRootSetSummary RootSet,
-    PackageDependencyEvidencePhaseSummary Phases);
+    PackageDependencyEvidencePhaseSummary Phases)
+{
+    public ImmutableArray<PackageDependencyEvidenceRoot> Roots { get; init; } =
+        Roots.IsDefault ? [] : Roots;
+
+    public ImmutableArray<PackageDependencyEvidenceRootFailure> FailedRoots
+    { get; init; } = FailedRoots.IsDefault ? [] : FailedRoots;
+}
 
 /// <summary>Why two declaration projections cannot truthfully be compared.</summary>
 public enum PackageDependencyEvidenceNotComparableReason

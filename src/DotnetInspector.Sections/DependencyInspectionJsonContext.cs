@@ -4,6 +4,7 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.Sections;
 
 [JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
