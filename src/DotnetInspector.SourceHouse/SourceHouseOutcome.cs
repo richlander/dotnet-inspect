@@ -92,7 +92,7 @@ public abstract class SourceHouseAuthoredMapping
             ArgumentNullException.ThrowIfNull(document);
             return string.Equals(
                 document.OriginalPath,
-                mapping.SourceFilePath,
+                TypeSourceDocumentSelection.SelectDefault(mapping)?.FilePath,
                 StringComparison.Ordinal)
                     ? SourceHouseSourceUnitScope.PrimaryTypeDocument
                     : SourceHouseSourceUnitScope.AdditionalTypeDocument;
