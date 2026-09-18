@@ -48,6 +48,10 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             callRelationships = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callRelationshipsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            callCyclesUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -57,6 +61,19 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 : ValidateInvocationDestinations(document, invocationDestinations);
         if (callRelationships is not null)
             ValidateCallRelationships(document, callRelationships);
+        if (callCycles is not null)
+        {
+            if (callRelationships is null)
+            {
+                throw new ArgumentException(
+                    "Call cycles require projected call relationships.",
+                    nameof(callCycles));
+            }
+            ValidateCallCycles(
+                document,
+                callRelationships,
+                callCycles);
+        }
 
         var targetedFacts = new bool[document.Facts.Count];
         foreach (AnnotatedSourceTarget target in document.Targets)
@@ -120,6 +137,13 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 : new BrowserAnnotatedSourceCapabilityAvailability(
                     Available: true,
                     UnavailableReason: null),
+            callCycles
+                ?? new BrowserAnnotatedSourceCallCycleInspection(
+                    Available: false,
+                    callCyclesUnavailableReason,
+                    IsComplete: false,
+                    Limits: [],
+                    Findings: []),
             projectedDestinations);
     }
 
@@ -173,6 +197,91 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     nameof(relationships));
             }
             ArgumentNullException.ThrowIfNull(relationship.Target);
+        }
+    }
+
+    private static void ValidateCallCycles(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<BrowserAnnotatedSourceCallRelationship> relationships,
+        BrowserAnnotatedSourceCallCycleInspection cycles)
+    {
+        if (!cycles.Available)
+        {
+            throw new ArgumentException(
+                "Projected call cycles must be available.",
+                nameof(cycles));
+        }
+
+        BrowserAnnotatedSourceCallCycleLimit[] limits =
+            cycles.Limits;
+        if (limits.Any(limit => !Enum.IsDefined(limit))
+            || limits.Distinct().Count() != limits.Length)
+        {
+            throw new ArgumentException(
+                "Call cycle limits must be defined and unique.",
+                nameof(cycles));
+        }
+
+        BrowserAnnotatedSourceCallCycle[] findings =
+            cycles.Findings;
+        var findingKeys = new HashSet<string>(
+            StringComparer.Ordinal);
+        for (int index = 0; index < findings.Length; index++)
+        {
+            BrowserAnnotatedSourceCallCycle finding =
+                findings[index]
+                    ?? throw new ArgumentException(
+                        $"Call cycle {index} is null.",
+                        nameof(cycles));
+            int[] edgeRows = finding.EdgeRows;
+            int[] factIds = finding.FactIds;
+            BrowserCallGraphTarget[] targets =
+                finding.Targets;
+            if (finding.Ordinal != index
+                || string.IsNullOrWhiteSpace(finding.FindingKey)
+                || !findingKeys.Add(finding.FindingKey)
+                || edgeRows.Length == 0
+                || edgeRows.Any(static edgeRow => edgeRow < 1)
+                || edgeRows.Distinct().Count() != edgeRows.Length
+                || factIds.Length == 0
+                || factIds.Distinct().Count() != factIds.Length
+                || targets.Length != edgeRows.Length
+                || targets.Any(static target => target is null))
+            {
+                throw new ArgumentException(
+                    $"Call cycle {index} has invalid identity or path evidence.",
+                    nameof(cycles));
+            }
+
+            int[] expectedFactIds =
+            [
+                .. relationships
+                    .Where(relationship =>
+                        relationship.EdgeRow == edgeRows[0])
+                    .Select(relationship =>
+                        relationship.FactId),
+            ];
+            if (expectedFactIds.Length == 0
+                || !expectedFactIds.ToHashSet()
+                    .SetEquals(factIds))
+            {
+                throw new ArgumentException(
+                    $"Call cycle {index} is not anchored to every physical occurrence of its first edge.",
+                    nameof(cycles));
+            }
+            foreach (int factId in factIds)
+            {
+                if (factId < 0
+                    || factId >= document.Facts.Count
+                    || document.Facts[factId].Descriptor
+                        != ResearchFactRegistry
+                            .CallRelationshipDescriptorId)
+                {
+                    throw new ArgumentException(
+                        $"Call cycle {index} names an invalid call.edge fact.",
+                        nameof(cycles));
+                }
+            }
         }
     }
 

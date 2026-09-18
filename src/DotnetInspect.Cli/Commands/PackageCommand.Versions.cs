@@ -106,14 +106,6 @@ public partial class PackageCommand
         {
             using PackageSourceOperationLease operation =
                 composition.IssueSettlementOperation();
-            PackageVersionPopulationCountRequest? countRequest =
-                options.Count
-                    ? new(
-                        options.ListVersionsWithFeed
-                            ? PackageVersionPopulationCountCohort.SourceListings
-                            : PackageVersionPopulationCountCohort.Versions,
-                        options.VersionRowSelection)
-                    : null;
             InspectionEnvelope<PackageVersionPopulationOutcome> population =
                 await PackageVersionPopulationInspection.ExecuteAsync(
                     range!,
@@ -123,8 +115,7 @@ public partial class PackageCommand
                         context.Logger.Log),
                     operation,
                     options.IncludePrerelease,
-                    options.IncludeUnlisted,
-                    countRequest);
+                    options.IncludeUnlisted);
             return WriteVersionPopulationSettlement(
                 population,
                 packageReference,
@@ -315,10 +306,8 @@ public partial class PackageCommand
         foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
             CommandError.WriteWarning(diagnostic.Summary.ToString());
 
-        if (options.EnvelopeOutput)
+        if (options.EnvelopeOutput && !options.Count)
         {
-            if (options.Count)
-                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
             if (!InspectionEnvelopeOutput.TryWrite(
                     envelope,
                     PackageVersionPopulationJson,
@@ -327,9 +316,6 @@ public partial class PackageCommand
                 return 1;
             }
             return envelope.Content is PackageVersionPopulationOutcome.Populated
-            {
-                Count: not PackageVersionPopulationCountOutcome.Rejected,
-            }
                 ? 0
                 : 1;
         }
@@ -337,7 +323,37 @@ public partial class PackageCommand
         if (envelope.Content is PackageVersionPopulationOutcome.Populated available)
         {
             if (options.Count)
-                return WriteVersionCount(available.Count, options);
+            {
+                PackageVersionPopulationCountOutcome count =
+                    PackageVersionPopulationInspection.Count(
+                        available.Document,
+                        new(
+                            options.ListVersionsWithFeed
+                                ? PackageVersionPopulationCountCohort
+                                    .SourceListings
+                                : PackageVersionPopulationCountCohort.Versions,
+                            options.VersionRowSelection));
+                if (!options.EnvelopeOutput)
+                    return WriteVersionCount(count, options);
+                if (count
+                    is not PackageVersionPopulationCountOutcome.Completed
+                        completed)
+                {
+                    return WriteVersionCount(count, options);
+                }
+
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+                InspectionEnvelope<int> countEnvelope =
+                    PackageVersionPopulationInspection.ProjectCountEnvelope(
+                        envelope,
+                        completed);
+                return InspectionEnvelopeOutput.TryWrite(
+                    countEnvelope,
+                    PackageVersionCountJson,
+                    includeEnvelope: true)
+                        ? 0
+                        : 1;
+            }
 
             IReadOnlyList<PackageVersionInfo> listings =
             [
