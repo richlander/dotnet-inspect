@@ -588,6 +588,87 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--frontmatter", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData("--body", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData("--print", null, "--print is not available with --tfms")]
+    [InlineData("--value", null, "--value is not available with --tfms")]
+    [InlineData("--urls", null, "--urls is not available with --tfms")]
+    [InlineData("--paths", null, "--paths is not available with --tfms")]
+    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, or --print.")]
+    [InlineData("--row", "1", "--row requires --print, --value, --urls, or --paths.")]
+    [InlineData("--columns", "count", "--fields/--columns are not available with --tfms")]
+    [InlineData("--fields", "count", "--fields/--columns are not available with --tfms")]
+    [InlineData("--envelope", null, "--envelope cannot be combined with --tfms.")]
+    public async Task Tfms_CompetingProjectionsRetainOwnedDiagnostics(
+        string option,
+        string? value,
+        string expectedError)
+    {
+        var args = new List<string>
+        {
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--tfms",
+            option,
+        };
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["--rows", "1", "--tips", "q"]);
+
+        var (exit, output, error) =
+            await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--type", "Example")]
+    [InlineData("--lib", null)]
+    [InlineData("--tools", null)]
+    [InlineData("--tfm", "net8.0")]
+    [InlineData("--match", "first")]
+    [InlineData("--skip-empty", null)]
+    [InlineData("--prefer-rendered-urls", null)]
+    [InlineData("--schema", null)]
+    public async Task Tfms_CompetingModifiersRetainLegacyWindow(
+        string option,
+        string? value)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var args = new List<string>
+            {
+                "package",
+                packagePath,
+                "--tfms",
+                option,
+            };
+            if (value is not null)
+                args.Add(value);
+            args.AddRange(["--rows", "1", "--tips", "q"]);
+
+            var (exit, output, error) =
+                await RunAppAsync([.. args]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("net10.0", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Tfms_ShapeProjection_IsRefused()
     {

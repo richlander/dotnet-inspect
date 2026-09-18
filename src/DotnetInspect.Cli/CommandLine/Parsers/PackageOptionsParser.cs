@@ -531,24 +531,7 @@ public static class PackageOptionsParser
             result.GetValue(args.PackageNameArg) ?? [];
         if (packageArgs.Length != 1
             || !result.GetValue(args.TfmsOption)
-            || result.GetResult(opts.Discover)
-                is { Implicit: false }
-            || result.GetResult(opts.Select)
-                is { Implicit: false }
-            || result.GetValue(opts.Tree)
-            || result.GetValue(args.DependenciesOption)
-            || result.GetValue(args.LayoutOption)
-            || result.GetResult(args.PathOption)
-                is { Implicit: false }
-            || result.GetResult(args.LibraryOption)
-                is { Implicit: false }
-            || result.GetValue(args.AllLibrariesOption)
-            || result.GetValue(args.VersionsOption)
-            || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.ContentOption)
-            || (result.GetResult(args.VersionOption)
-                is { Implicit: false }
-                && result.GetValue(args.VersionOption) is null))
+            || HasCompetingPackageTfmIntent(result, opts, args))
         {
             return false;
         }
@@ -566,6 +549,44 @@ public static class PackageOptionsParser
 
         return true;
     }
+
+    private static bool HasCompetingPackageTfmIntent(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => result.GetResult(opts.Discover) is { Implicit: false }
+            || result.GetResult(opts.Select) is { Implicit: false }
+            || result.GetValue(opts.Tree)
+            || result.GetValue(opts.Schema)
+            || result.GetValue(opts.Envelope)
+            || result.GetValue(opts.Print)
+            || result.GetResult(opts.Row) is { Implicit: false }
+            || result.GetValue(opts.Value)
+            || result.GetValue(opts.Urls)
+            || result.GetValue(opts.Paths)
+            || result.GetValue(opts.JsonArray)
+            || result.GetValue(opts.PreferRenderedUrls)
+            || (!result.GetValue(opts.Count)
+                && (result.GetResult(opts.Columns) is { Implicit: false }
+                    || result.GetResult(opts.Fields) is { Implicit: false }))
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.LayoutOption)
+            || result.GetValue(args.LibOption)
+            || result.GetValue(args.ToolsOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
+            || result.GetResult(args.PathMatchOption) is { Implicit: false }
+            || result.GetValue(args.SkipEmptyOption)
+            || result.GetResult(args.TfmOption) is { Implicit: false }
+            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
+            || result.GetResult(args.LibraryOption) is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.ContentOption)
+            || result.GetValue(args.FrontmatterOption)
+            || result.GetValue(args.BodyOption)
+            || (result.GetResult(args.VersionOption) is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null);
 
     private static string[]? ParseSelectors(string? value)
         => string.IsNullOrWhiteSpace(value)

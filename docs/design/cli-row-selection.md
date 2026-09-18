@@ -843,13 +843,16 @@ $ dotnet-inspect package Newtonsoft.Json@13.0.4 \
 Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are available.
 ```
 
+The declaration activates only for the ordinary one-package TFM lens.
 Version listing, valid or malformed package-range coordinates, dependencies,
-bare `--tree`, layout, file and content lenses, embedded
-`--library`/`--all-libraries` inspection, multiple-package inspection, explicit
-section selection, and discovery remain outside this declaration. Those
-surfaces retain their existing row contracts and use rendered-line fallback
-for bare `-n`. Numeric `--rows N` is rejected on the adopted lens because
-Window requires range syntax.
+bare `--tree`, layout, file, content, and SourceLink selectors or modifiers,
+embedded `--library`/`--all-libraries` inspection, multiple-package inspection,
+explicit section selection, discovery/schema, envelope output, and unsupported
+print or shape projections remain outside it. Fields and columns remain inside
+only with Count, where they project the TFM lens's count result. These competing
+intents retain their existing diagnostics or legacy row contracts and use
+rendered-line fallback for bare `-n`. Numeric `--rows N` is rejected on the
+ordinary adopted lens because Window requires range syntax.
 
 ## Package SourceLink file adoption
 
@@ -1134,7 +1137,7 @@ The Package TFM adoption is enforced by:
 | --- | --- |
 | `CommandExecutionTests.Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats` and `Tfms_Count_CountsTheListedFrameworks` | One ordinary `--tfms` lens selects complete TFM rows after package extraction and TFM ordering; Markdown, table, TSV, JSONL, JSON, and Count consume the same selected identity. |
 | `CommandExecutionTests.Tfms_UnavailableWindowWithholdsOutput`, `Tfms_RejectInvalidSelectionBeforePackageResolution`, and `Tfms_LinesMakesRenderedClippingExplicit` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and JSON line clipping fail before package resolution, and explicit Lines clips rendered text. |
-| `CommandExecutionTests.Tfms_CompetingLayoutRetainsRenderedLineFallback`, `Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics`, and `LensCounts_ApplyRowsAndValidateProjectedColumns` | Competing Package modes and valid or malformed range coordinates remain outside the declaration and retain their owned diagnostics or legacy Window validation, while the TFM lens applies semantic Window before Count, declared-column validation, and JSONL lowering. |
+| `CommandExecutionTests.Tfms_CompetingLayoutRetainsRenderedLineFallback`, `Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics`, `Tfms_CompetingProjectionsRetainOwnedDiagnostics`, `Tfms_CompetingModifiersRetainLegacyWindow`, and `LensCounts_ApplyRowsAndValidateProjectedColumns` | Competing Package modes, selectors, modifiers, unsupported projections, and valid or malformed range coordinates remain outside the declaration and retain their owned diagnostics or legacy Window validation, while the ordinary TFM lens applies semantic Window before Count, declared-column validation, and JSONL lowering. |
 
 The Project document row adoption is enforced by:
 
