@@ -268,14 +268,52 @@ public partial class PackageCommand
 
         try
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                context.HttpClient,
-                target.IsLocalFile ? target.OriginalArgument : target.PackageName,
-                logger.Log,
-                sourceOptions: options.SourceOptions,
-                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
-                forceLatest: options.ForceLatest,
-                includePrerelease: options.IncludePrerelease);
+            PackageExtractionOutcome outcome;
+            if (!target.IsLocalFile
+                && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            {
+                outcome = PackageExtractor.TryNormalizePackageVersion(
+                        version,
+                        out string pinnedVersion)
+                    ? await PackageExtractor.ExtractPinnedPackageAsync(
+                        context.HttpClient,
+                        target.PackageName,
+                        pinnedVersion,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        createComposition:
+                            context.CreatePackageSourceComposition,
+                        compileTargetContext:
+                            PackageInfoTargetContext(options))
+                    : await PackageExtractor.ExtractSelectedPackageAsync(
+                        context.HttpClient,
+                        target.PackageName,
+                        version.Length > 0 ? version : null,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        includePrerelease: options.IncludePrerelease,
+                        createComposition:
+                            context.CreatePackageSourceComposition,
+                        compileTargetContext:
+                            PackageInfoTargetContext(options));
+            }
+            else
+            {
+                outcome = await PackageExtractor.ExtractPackageAsync(
+                    context.HttpClient,
+                    target.IsLocalFile
+                        ? target.OriginalArgument
+                        : target.PackageName,
+                    logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    version: target.IsLocalFile
+                        ? null
+                        : version.Length > 0
+                            ? version
+                            : null,
+                    forceLatest: options.ForceLatest,
+                    includePrerelease: options.IncludePrerelease);
+            }
 
             if (!outcome.IsSuccess)
             {
@@ -328,8 +366,11 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
-            if (packageSize.HasValue)
-                result.PackageSize = packageSize;
+            ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                packageSize,
+                logger.Log);
 
             await PopulatePackageSignatureAsync(
                 result,

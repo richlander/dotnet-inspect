@@ -8,8 +8,12 @@ using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using Markout;
 using NuGetFetch;
 using NuGetFetch.Plugins;
 
@@ -744,6 +748,91 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         Assert.False(Directory.Exists(result.TempDir));
         Assert.False(Directory.Exists(result.ExtractPath));
+    }
+
+    [Fact]
+    public async Task ExtractPinnedPackage_CompileRealizationFeedsPackageInfoEnvelope()
+    {
+        string id = $"Pinned.Measurements.{Guid.NewGuid():N}";
+        byte[] library = new byte[17];
+        byte[] archive = CreatePackage(
+            id,
+            "measurement package",
+            library: library,
+            libraryName: $"{id}.dll");
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault());
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            Assert.Same(result.AcquiredPayload, settlement.Payload);
+            InspectionEnvelope<PackageInfoMeasurements> envelope =
+                PackageInfoMeasurementInspection.Project(settlement);
+            PackageInfoMeasurements measurements = envelope.Content;
+
+            Assert.Equal(
+                PackageInfoMeasurementStatus.Measured,
+                measurements.Status);
+            Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+            Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+            Assert.Equal(1, measurements.AvailableTargetFrameworkCount);
+            Assert.Equal(library.LongLength, measurements.SelectedLibraryPayloadBytes);
+            Assert.Equal(1, measurements.SelectedLibraryCount);
+            Assert.Same(
+                settlement.Payload.Content.GenerationIdentity,
+                measurements.Generation);
+            Assert.Same(
+                settlement.Result.Evidence.Realization,
+                measurements.Evidence!.Realization);
+            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+            Assert.Empty(envelope.Diagnostics);
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(".nupkg", StringComparison.Ordinal)));
+
+            var inspection = new InspectionResult
+            {
+                PackageName = id,
+                Version = Version,
+                PackageInfoMeasurementInspection = envelope,
+            };
+            string output = MarkoutSerializer.Serialize(
+                new InspectionResultView(inspection),
+                InspectionContext.Default);
+            Assert.Contains("| Package Size |", output);
+            Assert.Contains("| Selected TFM | net11.0 |", output);
+            Assert.Contains("| TFM Count | 1 |", output);
+            Assert.Contains("| Selected-TFM Size | 17 B |", output);
+            Assert.Contains("| Selected-TFM Library Count | 1 |", output);
+            Assert.DoesNotContain("| Highest TFM |", output);
+            Assert.DoesNotContain("| Size |", output);
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
     }
 
     [Fact]

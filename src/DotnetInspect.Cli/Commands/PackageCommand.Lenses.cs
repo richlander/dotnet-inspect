@@ -57,6 +57,35 @@ public partial class PackageCommand
         }
     }
 
+    private static PackageHouseTargetContext PackageInfoTargetContext(
+        InspectionOptions options) =>
+        string.IsNullOrWhiteSpace(options.Tfm)
+            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
+            ? PackageHouseTargetContext.OwnerDefault()
+            : PackageHouseTargetContext.Exact(options.Tfm);
+
+    private static void ApplyPackageInfoMeasurements(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        long? fallbackPackageSize,
+        Action<string>? log)
+    {
+        if (resolution.HouseSettlement
+            is PackageHouseSettlement.Acquired settlement)
+        {
+            InspectionEnvelope<PackageInfoMeasurements> inspection =
+                PackageInfoMeasurementInspection.Project(settlement);
+            result.PackageInfoMeasurementInspection = inspection;
+            result.PackageSize =
+                inspection.Content.CompressedPackageBytes;
+            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+                log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
+            return;
+        }
+
+        result.PackageSize = fallbackPackageSize;
+    }
+
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
         string searchPath;

@@ -1011,12 +1011,14 @@ public partial class PackageCommand
                     ? await PackageExtractor.ExtractPinnedPackageAsync(
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
-                        createComposition: context.CreatePackageSourceComposition)
+                        createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: PackageInfoTargetContext(options))
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
-                        createComposition: context.CreatePackageSourceComposition);
+                        createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: PackageInfoTargetContext(options));
             }
             else
             {
@@ -1157,9 +1159,11 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
-            // Apply package size (not cached in index — comes from nupkg file)
-            if (packageSize.HasValue)
-                result.PackageSize = packageSize;
+            ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                packageSize,
+                logger.Log);
 
             await PopulatePackageSignatureAsync(
                 result,
