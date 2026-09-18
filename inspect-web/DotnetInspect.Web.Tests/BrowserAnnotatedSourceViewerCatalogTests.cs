@@ -126,6 +126,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             invocationLikeNodeKinds,
             unavailable,
             unavailable,
+            unavailable,
             []);
 
         defaultFindingIds[0] = 99;
@@ -143,6 +144,51 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             ["InvocationExpression"],
             catalog.InvocationLikeNodeKinds);
         Assert.Empty(catalog.InvocationDestinations);
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesCallRelationshipAvailability()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceCallRelationship[] relationships =
+        [
+            new(
+                EdgeRow: 1,
+                FactId: 1,
+                ModuleVersionId:
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CallerToken: 0x06000001,
+                IlOffset: 0,
+                OperandToken: 0x0A000001,
+                BrowserAnnotatedSourceCallKind.Call,
+                InLoop: false,
+                Target("n1", "Call")),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships);
+
+        Assert.True(catalog.CallRelationships.Available);
+        Assert.Null(catalog.CallRelationships.UnavailableReason);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships:
+                [
+                    relationships[0] with { FactId = 0 },
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships:
+                [
+                    relationships[0] with
+                    {
+                        Kind = (BrowserAnnotatedSourceCallKind)99,
+                    },
+                ]));
     }
 
     [Fact]
