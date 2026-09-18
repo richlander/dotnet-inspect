@@ -357,6 +357,18 @@ public static class CommandLineBuilder
                 effectiveArguments,
                 rowSelection.ArgumentPositions,
                 optionValueFailure);
+        ParseFailure? librarySourceOptionFailure =
+            FindLibrarySourceOptionFailure(
+                parseResult,
+                effectiveArguments,
+                rowSelection.ArgumentPositions);
+        if (librarySourceOptionFailure is not null
+            && (parseFailure is null
+                || librarySourceOptionFailure.Position
+                    < parseFailure.Position))
+        {
+            parseFailure = librarySourceOptionFailure;
+        }
 
         bool usesCombinedFailurePrecedence =
             rowSelection.HasRequest
@@ -381,6 +393,13 @@ public static class CommandLineBuilder
 
             if (WriteParseErrors(parseResult))
                 return 1;
+
+            if (librarySourceOptionFailure is not null)
+            {
+                CommandError.Write(
+                    librarySourceOptionFailure.Error);
+                return 1;
+            }
         }
 
         if (preparedFailure is not null)
@@ -601,6 +620,58 @@ public static class CommandLineBuilder
                 failure.Error,
                 failure.Position))
             .First();
+    }
+
+    private static ParseFailure? FindLibrarySourceOptionFailure(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (!parseResult.CommandResult.Command.Name.Equals(
+                "library",
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        ArgumentResult? source =
+            parseResult.CommandResult.Children
+                .OfType<ArgumentResult>()
+                .SingleOrDefault();
+        if (source is null || source.Tokens.Count == 0)
+            return null;
+
+        var sourceTokens = new HashSet<Token>(
+            source.Tokens,
+            ReferenceEqualityComparer.Instance);
+        CliArgumentOwnership.ParsedArgument[] mapped =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                arguments);
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (argument == "--")
+                break;
+            if (!argument.StartsWith(
+                    "-",
+                    StringComparison.Ordinal)
+                || mapped[index].AttachedOption is not null
+                || CliArgumentOwnership.FindDeclaredOption(
+                    mapped[index].Scope,
+                    argument) is not null
+                || !mapped[index].Tokens.Any(
+                    sourceTokens.Contains))
+            {
+                continue;
+            }
+
+            return new(
+                $"Unrecognized option '{argument}'.",
+                argumentPositions?[index] ?? index);
+        }
+
+        return null;
     }
 
     private static int FindParseErrorPosition(

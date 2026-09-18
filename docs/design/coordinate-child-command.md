@@ -189,9 +189,11 @@ The intentionally breaking placement change is complete. Ordinary `library`
 help and parsing no longer expose the three parent options. Their former
 spellings are outside the command contract: no alias, forwarding, specialized
 diagnostic, or retired-input behavior is preserved or tested.
-The parent action is reachable only after ordinary strict option parsing, so an
-unmatched attached option cannot be ignored behind successful Library output.
-This is a generic parser invariant, not recognition of any retired spelling.
+The parent action is reachable only after parser token ownership rejects an
+undeclared option-shaped token bound to the positional Library source before
+the `--` end-of-options marker. Declared ancestor options retain their normal
+meaning, and leading-dash Library filenames remain positional after `--`. This
+is a generic parser invariant, not recognition of any retired spelling.
 
 Release CLI gates cover:
 
@@ -211,7 +213,9 @@ Release CLI gates cover:
 - `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for complete
   retirement from parent help and the current child surface; and
 - `Library_AttachedUnknownOptionFails` for strict generic parent parsing of
-  attached unknown options; and
+  attached unknown options;
+- `Library_EndOfOptionsAllowsLeadingDashSource` for the ordinary positional
+  escape boundary; and
 - `LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput` and
   `LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary` for
   input-free structural discovery; and

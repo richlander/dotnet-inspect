@@ -418,17 +418,6 @@ public static class InspectionCommandDefinitions
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
             var source = parseResult.GetValue(assemblyPathArg);
-            if (source?.StartsWith(
-                    "-",
-                    StringComparison.Ordinal) == true
-                && CliArgumentOwnership.FindDeclaredOption(
-                    parseResult.CommandResult,
-                    source) is null)
-            {
-                CommandError.Write(
-                    $"Unrecognized option '{source}'.");
-                return 1;
-            }
             if (!IntegrationQueryOptions.TryExtract(
                     parseResult.GetValue(opts.RowWhere) ?? [],
                     out var integrationQuery,

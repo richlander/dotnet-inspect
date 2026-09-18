@@ -46,6 +46,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Library_EndOfOptionsAllowsLeadingDashSource()
+    {
+        DirectoryInfo directory =
+            Directory.CreateTempSubdirectory("library-leading-dash-");
+        try
+        {
+            const string fileName = "--probe.dll";
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(directory.FullName, fileName));
+
+            var (exit, output, error) =
+                await RunAppInDirectoryAsync(
+                    directory.FullName,
+                    "library",
+                    "--tips",
+                    "q",
+                    "--",
+                    fileName);
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Library_FixedOverviewCountValidatesFieldProjection()
     {
         var invalid = await RunAppAsync(
