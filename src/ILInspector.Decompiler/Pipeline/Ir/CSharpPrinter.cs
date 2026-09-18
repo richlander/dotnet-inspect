@@ -6793,7 +6793,7 @@ public sealed partial class CSharpPrinter
         => constant.Value is int or long
             && _function.EnumMembers.TryGetValue(NamedDefinition(constant.Type), out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
-            ? $"{TypeQualifierText(constant.Type)}.{name}"
+            ? $"{TypeQualifierText(constant.Type)}.{CSharpNaming.ContainedIdentifier(name)}"
             : null;
 
     /// <summary>

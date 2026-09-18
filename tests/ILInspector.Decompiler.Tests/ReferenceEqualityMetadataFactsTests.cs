@@ -304,6 +304,69 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
+    [Fact]
+    public void SameNameLocalEnum_DoesNotOverrideExternalEnumFacts()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "external-enum-fact-identities-").FullName;
+        try
+        {
+            string v1 = Path.Combine(directory, "v1", "Twin.dll");
+            string v2 = Path.Combine(directory, "v2", "Twin.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(v1)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(v2)!);
+            File.WriteAllBytes(
+                v1,
+                BuildTwinEnum(
+                    new Version(1, 0, 0, 0),
+                    SignatureTypeCode.Int32,
+                    "Named"));
+            File.WriteAllBytes(
+                v2,
+                BuildTwinEnum(
+                    new Version(2, 0, 0, 0),
+                    SignatureTypeCode.Int64,
+                    "Wrong"));
+
+            var resolver = new VersionResolver(v1, v2);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                v2,
+                resolver,
+                context);
+            var external = TypeRef.DefinitionWithResolution(
+                "Twin",
+                "N",
+                "E",
+                ValueTypeHint.ValueType,
+                MetadataFactState.Unknown,
+                null,
+                MetadataTypeDefinitionName.Create("N", ["E"]) is
+                    MetadataTypeDefinitionNameResult.Valid valid
+                        ? valid.Name
+                        : throw new InvalidOperationException(
+                            "E metadata name is invalid"),
+                new AssemblyReferenceIdentity(
+                    "Twin",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null));
+
+            var members = source.ResolveEnumMembers(external);
+
+            Assert.NotNull(members);
+            Assert.Equal("Named", members![7]);
+            Assert.DoesNotContain("Wrong", members.Values);
+            Assert.Equal(
+                "Int32",
+                source.ResolveEnumUnderlyingType(external)?.Name);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(2, MetadataFactState.No)]
     [InlineData(5000, MetadataFactState.Unknown)]
@@ -1364,7 +1427,10 @@ public class ReferenceEqualityMetadataFactsTests
         return Serialize(metadata, new BlobBuilder());
     }
 
-    static byte[] BuildTwinEnum(Version version)
+    static byte[] BuildTwinEnum(
+        Version version,
+        SignatureTypeCode underlyingType = SignatureTypeCode.Int32,
+        string memberName = "Named")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1407,7 +1473,7 @@ public class ReferenceEqualityMetadataFactsTests
             MetadataTokens.MethodDefinitionHandle(1));
         var fieldSignature = new BlobBuilder();
         fieldSignature.WriteByte(0x06);
-        fieldSignature.WriteByte((byte)SignatureTypeCode.Int32);
+        fieldSignature.WriteByte((byte)underlyingType);
         metadata.AddFieldDefinition(
             FieldAttributes.Public
                 | FieldAttributes.SpecialName
@@ -1419,9 +1485,12 @@ public class ReferenceEqualityMetadataFactsTests
                 | FieldAttributes.Static
                 | FieldAttributes.Literal
                 | FieldAttributes.HasDefault,
-            metadata.GetOrAddString("Named"),
+            metadata.GetOrAddString(memberName),
             metadata.GetOrAddBlob(fieldSignature));
-        metadata.AddConstant(literal, 7);
+        if (underlyingType == SignatureTypeCode.Int64)
+            metadata.AddConstant(literal, 7L);
+        else
+            metadata.AddConstant(literal, 7);
         return Serialize(metadata, new BlobBuilder());
     }
 

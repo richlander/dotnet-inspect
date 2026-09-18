@@ -1109,9 +1109,14 @@ public sealed class MetadataSource : IDisposable
     {
         if (type.Kind != TypeRefKind.Definition)
             return null;
-        EnsureTypeMaps();
-        if (_enumMembers!.TryGetValue(type, out var members))
-            return members;
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
+        {
+            EnsureTypeMaps();
+            return _enumMembers!.GetValueOrDefault(type);
+        }
         return CrossAssembly.ResolveEnumFacts(type)?.Members;
     }
 
@@ -1119,9 +1124,14 @@ public sealed class MetadataSource : IDisposable
     {
         if (type.Kind != TypeRefKind.Definition)
             return null;
-        EnsureTypeMaps();
-        if (_enumUnderlyingTypes!.TryGetValue(type, out var underlyingType))
-            return underlyingType;
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            type,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
+        {
+            EnsureTypeMaps();
+            return _enumUnderlyingTypes!.GetValueOrDefault(type);
+        }
         return CrossAssembly.ResolveEnumFacts(type)?.UnderlyingType;
     }
 

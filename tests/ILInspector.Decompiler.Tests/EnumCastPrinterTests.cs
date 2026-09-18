@@ -12,6 +12,18 @@ namespace ILInspector.Decompiler.Tests;
 // cast the integer to the enum structurally.
 public class EnumCastPrinterTests
 {
+    [Fact]
+    public void ExternalEnumKeywordMember_IsEscapedAndCompiles()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalKeywordConstant));
+
+        Assert.Contains("return ExternalKeyword.@default;", body);
+        AssertCompiles(
+            "public static ExternalKeyword M()",
+            body,
+            "public enum ExternalKeyword { @default = 1 }");
+    }
+
     // #3011: an enum-typed value shifted has no predefined C# shift operator
     // (CS0019); the printer reinterprets the enum left operand to its underlying
     // integer so the shift type-checks and the shr/shr.un opcode round-trips.
