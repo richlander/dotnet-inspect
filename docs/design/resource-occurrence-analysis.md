@@ -79,9 +79,10 @@ LibraryBodyAnalysisService
 
 `LibraryBodyAnalysisService` remains the sole path or immutable-image execution
 boundary. It owns request normalization, operation-local readers, resolver use,
-producer selection, and final `LibraryBodyIndex` construction. Resource
-Occurrence Analysis receives no path, image, reader, resolver, Workspace, or
-host state.
+producer selection, and publication of explicitly named Analysis results.
+Resource Occurrence Analysis receives no path, image, reader, resolver,
+Workspace, or host state. Its detached
+`ResourceOccurrenceAnalysisResult` is not added to `LibraryBodyIndex`.
 
 The producer is a stateless callable boundary, not a retained coordinator,
 service-provider registration, or generic producer framework. Every
@@ -148,7 +149,7 @@ method-incomplete.
 
 ## Result boundary
 
-The detached result preserves:
+`ResourceOccurrenceAnalysisResult` preserves:
 
 - exact method identity;
 - each root's typed identity and resource-obligation domain;
@@ -159,7 +160,10 @@ The detached result preserves:
 - root-local and method-level typed limitations.
 
 The result carries no decoded instructions, block graph, reaching-definition
-state, metadata reader, resolver, or live service authority.
+state, metadata reader, resolver, or live service authority. It may participate
+in one service execution receipt with other focused results, but lifecycle,
+Research, sections, and other consumers receive it through its own type rather
+than through `LibraryBodyIndex` or a generic result bag.
 
 The result is not yet the compact Research ownership-path contract. That
 consumer defines its required interprocedural summary under #6732. The
@@ -234,9 +238,12 @@ evidence already has complete ArrayPool fidelity is explicitly unverified.
 
 This owner is step 7 of the 26-step #6544 adoption plan:
 
-1. #6730 defines and implements additive root-bound occurrence evidence.
+1. #6730 defines and implements additive root-bound occurrence evidence as a
+   bespoke `ResourceOccurrenceAnalysisResult` published by
+   `LibraryBodyAnalysisService`.
 2. #6731 consumes it with Analysis-owned control-flow and exception facts to
-   produce generic lifecycle evidence and migrate Resource Triage.
+   produce `ResourceLifecycleAnalysisResult` and migrate the Resource Triage
+   section directly to that type.
 3. #6732 defines the compact interprocedural summary required by the Research
    call-graph consumer.
 4. ArrayPool parity is evaluated after those consumers exist. The
