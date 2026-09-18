@@ -9,7 +9,10 @@ import {
   selectFindingInstance,
 } from "../src/finding-interaction.ts";
 import { memberFindingCensusFixture } from "./member-finding-census-fixture.ts";
-import { sampleCalleeEvidence } from "./annotated-source-result-fixture.ts";
+import {
+  sampleCalleeEvidence,
+  sampleCalleeEvidenceDocuments,
+} from "./annotated-source-result-fixture.ts";
 
 test("display-identical Findings retain distinct bidirectional identity", () => {
   const interaction =
@@ -106,6 +109,7 @@ test("malformed sidecars and key sets are rejected without shape fallback", () =
       ...census,
       annotatedSource: {
         ...census.annotatedSource,
+        findingEvidenceDocuments: sampleCalleeEvidenceDocuments,
         findingEvidence: [{
           ...sampleCalleeEvidence,
           instanceKey: 42,

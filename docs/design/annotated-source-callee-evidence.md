@@ -6,7 +6,9 @@
 
 Annotated Source keeps a callee Finding attached to the caller invocation while
 showing instruction evidence only at the exact product-issued source node in
-the physical callee method.
+the physical callee method. The browser transport serializes each physical
+callee document once and bounds the aggregate document payload without hiding
+the affected Finding.
 
 The composition joins three owner-issued currencies:
 
@@ -86,16 +88,42 @@ target, including its product-issued selector, before transport. The browser
 consumes only the same-process facade output, so this slice does not duplicate
 the callee identity solely to compare one trusted projection with another.
 
+### Shared document table and budget
+
+The Source facade groups projected callee documents by the complete
+Research-issued `MethodIdentity`, including assembly name, module version id,
+declaring type, signature, and MethodDef token. Display member text, navigation
+text, document contents, and caller Finding identity are not deduplication
+keys. Two Findings for the same physical method share one operation-local
+integer `documentId`; two physically distinct methods remain distinct even
+when their display text and source text match.
+
+`annotatedSource.findingEvidenceDocuments` carries each admitted compact
+`AnnotatedSourceDocument` once. Each `findingEvidence` row retains its own
+fact id, instance key, member target, coordinates, node ids, and unavailable
+reason, and carries only its optional `documentId`. First occurrence of each
+complete method identity defines deterministic table order. Repeated
+projections for one identity must serialize to the same document or the
+managed operation fails visibly. The managed and TypeScript adapters require
+unique non-negative document ids, valid references, and no unreferenced table
+entries.
+
+The table admits at most 8,388,608 compact JSON characters across unique
+callee documents. This reserves half of the ordinary worker's 16,777,216
+character JSON ceiling for the caller document, Finding rows, typed targets,
+and envelope overhead. Documents are considered in deterministic first-use
+order. A document that would exceed the aggregate allowance is not entered in
+the table. Every referencing row retains its Finding identity, target, and
+coordinates, clears its node ids and document id, and carries a visible budget
+reason in addition to any pre-existing unavailable reason. Later smaller
+documents may still be admitted. The ordinary worker remains the owner of the
+final whole-message limit.
+
 ## Boundaries
 
 This slice covers instruction-level `semantics.callee` and `safety.callee`.
 Method-level aggregate `cost.callee` evidence remains #4642 because it has no
 truthful singular source node.
-
-Each eligible Finding currently carries its own callee document. #4640 owns
-shared document identity, deduplication, and Browser/Wasm payload bounds. This
-slice neither introduces a parallel document table nor claims a payload
-budget.
 
 Research owns the evidence subject and locations. Decompiler owns document
 construction, node kinds, and IL provenance. The assembly-context query owns
@@ -112,7 +140,11 @@ Release tests cover:
 - unavailable instruction and source-document outcomes;
 - exact fact-id and instance-key transport association;
 - browser rejection of malformed callee documents, node ids, and identities;
-  and
+- complete-method-identity deduplication rather than display-text aliasing;
+- one shared serialized document across repeated Finding rows;
+- visible aggregate document-budget exhaustion;
+- bounded stress showing that the document portion grows with unique physical
+  callees rather than repeated call sites; and
 - detail rendering, coordinate disclosure, and typed Member/Source actions.
 
 The real `System.Text.Json` scenario is the production demonstration.
@@ -123,4 +155,4 @@ The real `System.Text.Json` scenario is the production demonstration.
 - No browser inference from C# text, display signatures, or descriptors.
 - No cross-assembly callee acquisition beyond the Research assembly context.
 - No aggregate-cost source line.
-- No callee-document deduplication or payload budget.
+- No replacement of the ordinary worker's whole-message admission limit.
