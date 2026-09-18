@@ -298,9 +298,8 @@ public class QueryDiscoveryTests
 
     [Theory]
     [InlineData("Integrations")]
-    [InlineData("Integration: Aspire")]
-    [InlineData("Integration: Opportunities")]
-    public async Task IntegrationQuery_ExposesOnlyItsExecutableEcosystemBinding(string section)
+    [InlineData("Integration Opportunities")]
+    public async Task IntegrationQuery_ExposesConceptAndEcosystemBindings(string section)
     {
         var result = await Run("library", "--package", "/missing/query-discovery.nupkg",
             "-Q", section, "--json");
@@ -308,21 +307,35 @@ public class QueryDiscoveryTests
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
         JsonElement described = Assert.Single(json.RootElement.GetProperty("sections").EnumerateArray());
-        JsonElement facet = Assert.Single(described.GetProperty("facets").EnumerateArray());
-        Assert.Equal("ecosystem", facet.GetProperty("name").GetString());
-        Assert.Equal(["--where"], facet.GetProperty("operators").EnumerateArray()
-            .Select(value => value.GetString()));
-        Assert.Equal(["="], facet.GetProperty("comparisons").EnumerateArray()
-            .Select(value => value.GetString()));
-        Assert.Equal(["ecosystem.aspire"], facet.GetProperty("values").EnumerateArray()
-            .Select(value => value.GetString()));
-        foreach (string value in IntegrationQueryOptions.QueryKey.Values)
+        JsonElement[] facets =
+            [.. described.GetProperty("facets").EnumerateArray()];
+        Assert.Equal(["integration", "ecosystem"], facets.Select(
+            facet => facet.GetProperty("name").GetString()));
+        Assert.All(facets, facet =>
+        {
+            Assert.Equal(["--where"], facet.GetProperty("operators")
+                .EnumerateArray().Select(value => value.GetString()));
+            Assert.Equal(["="], facet.GetProperty("comparisons")
+                .EnumerateArray().Select(value => value.GetString()));
+        });
+        Assert.Equal(
+            IntegrationQueryOptions.IntegrationQueryKey.Values,
+            facets[0].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["ecosystem.aspire"],
+            facets[1].GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        foreach (string value in IntegrationQueryOptions.EcosystemQueryKey.Values)
             Assert.True(IntegrationQueryOptions.TryExtract(
                 [$"ecosystem={value}"], out _, out _, out var error), error.ToString());
+        foreach (string value in IntegrationQueryOptions.IntegrationQueryKey.Values)
+            Assert.True(IntegrationQueryOptions.TryExtract(
+                [$"integration={value}"], out _, out _, out var error), error.ToString());
     }
 
     [Fact]
-    public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableFacets()
+    public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableTerms()
     {
         var result = await Run(
             "package",
@@ -331,7 +344,6 @@ public class QueryDiscoveryTests
             "Packages",
             "--json");
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("package.query.", result.Output);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
             "package query",
@@ -342,14 +354,27 @@ public class QueryDiscoveryTests
                 .GetProperty("facets").EnumerateArray(),
         ];
         Assert.Equal(
-            [PackageQuery.DependsTermKey, "facet"],
+            PackageQueryOptions.QueryKeys.Select(key => key.Name),
             facets.Select(facet => facet.GetProperty("name").GetString()));
-        JsonElement facet = facets[1];
-        Assert.Equal(PackageQueryOptions.QueryKey.Values,
-            facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
+        JsonElement toolFormat = facets.Single(facet =>
+            facet.GetProperty("name").GetString()
+                == PackageQuery.ToolFormatTermKey);
+        Assert.Equal(
+            ["v1", "v2"],
+            toolFormat.GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
         Assert.Equal(
             "NuGet package ID",
-            facets[0].GetProperty("value_kind").GetString());
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.DependsTermKey)
+                .GetProperty("value_kind").GetString());
+        Assert.Equal(
+            "all or NuGet target framework",
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.DependencyTargetTermKey)
+                .GetProperty("value_kind").GetString());
     }
 
     [Fact]

@@ -84,10 +84,14 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "activateRetainedWorkspaceDefinition"
+  | "canonicalizeWorkspaceSharePacket"
+  | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"
   | "listVocabulary"
+  | "observeRetainedWorkspaceSettlement"
   | "resolveHomeDemo"
   | "runHomeDemo";
 

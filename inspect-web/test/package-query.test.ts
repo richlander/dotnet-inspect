@@ -12,73 +12,96 @@ import {
   initialQueryState,
   isLibraryLiteralQuery,
   shouldExecuteQuery,
-  toggleFacet,
+  togglePreset,
   replaceTerm,
   withCompletion,
   withEditorDraft,
-  withFacet,
   withLibraryLiteralDraft,
+  withPreset,
   withTerm,
   withSourceSelection,
   withScopeQuery,
-  withoutFacet,
+  withoutPreset,
   withoutTerm,
   type PackageQueryDataSource,
   type QueryAssemblyAssessment,
   type QueryCompletion,
-  type QueryFacetTerm,
+  type QueryPreset,
   type QueryResultRow,
   type QueryTermDescriptor,
   type TerminalQueryCompletion,
 } from "../src/package-query.ts";
 
-const TFM_FACET: QueryFacetTerm = {
-  key: "tfm-out-of-support",
-  label: "out-of-support only",
+const TFM_FACET: QueryPreset = {
+  id: "readme:eq:true",
+  key: "readme",
+  operator: "eq",
+  value: "true",
+  label: "embedded README",
   tier: "nuspec",
 };
 
-const HAS_DEPENDENCIES_FACET: QueryFacetTerm = {
-  key: "package.query.has-dependencies",
+const HAS_DEPENDENCIES_FACET: QueryPreset = {
+  id: "dependencies:eq:any",
+  key: "dependencies",
+  operator: "eq",
+  value: "any",
   label: "Has dependencies",
   tier: "nuspec",
-  selectionGroupId: "package.query.dependencies",
+  selectionGroupId: "dependencies",
 };
 
-const NO_DEPENDENCIES_FACET: QueryFacetTerm = {
-  key: "package.query.no-dependencies",
+const NO_DEPENDENCIES_FACET: QueryPreset = {
+  id: "dependencies:eq:none",
+  key: "dependencies",
+  operator: "eq",
+  value: "none",
   label: "No dependencies",
   tier: "nuspec",
-  selectionGroupId: "package.query.dependencies",
+  selectionGroupId: "dependencies",
 };
 
-const SKILL_FACET: QueryFacetTerm = {
-  key: "package.query.embedded-skill",
+const SKILL_FACET: QueryPreset = {
+  id: "skill:eq:true",
+  key: "skill",
+  operator: "eq",
+  value: "true",
   label: "embedded SKILL.md",
   tier: "package-content",
 };
 
-const ANY_TOOL_FACET: QueryFacetTerm = {
-  key: "package.query.dotnet-tool",
+const ANY_TOOL_FACET: QueryPreset = {
+  id: "tool:eq:true",
+  key: "tool",
+  operator: "eq",
+  value: "true",
   label: ".NET Tool",
-  tier: "package-content",
-  selectionGroupId: "package.query.dotnet-tool-format",
+  tier: "nuspec",
+  replacementGroupId: "dotnet-tool",
 };
 
-const TOOL_V1_FACET: QueryFacetTerm = {
-  key: "package.query.dotnet-tool-v1",
+const TOOL_V1_FACET: QueryPreset = {
+  id: "tool-format:eq:v1",
+  key: "tool-format",
+  operator: "eq",
+  value: "v1",
   label: "v1",
   tier: "package-content",
-  selectionGroupId: "package.query.dotnet-tool-format",
+  selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
+  replacementGroupId: "dotnet-tool",
 };
 
-const TOOL_V2_FACET: QueryFacetTerm = {
-  key: "package.query.dotnet-tool-v2",
+const TOOL_V2_FACET: QueryPreset = {
+  id: "tool-format:eq:v2",
+  key: "tool-format",
+  operator: "eq",
+  value: "v2",
   label: "v2",
   tier: "package-content",
-  selectionGroupId: "package.query.dotnet-tool-format",
+  selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
+  replacementGroupId: "dotnet-tool",
 };
 
 const DEPENDS_TERM: QueryTermDescriptor = {
@@ -123,14 +146,14 @@ const NO_MATCH_ASSESSMENT: QueryAssemblyAssessment = {
   rootRequest: "{\"kind\":\"package\"}",
 };
 
-test("withFacet is idempotent by key and withoutFacet removes by key", () => {
+test("withPreset is idempotent by preset id and withoutPreset removes by id", () => {
   const base = createQueryRequest("Microsoft.");
-  const once = withFacet(base, TFM_FACET);
-  const twice = withFacet(once, TFM_FACET);
+  const once = withPreset(base, TFM_FACET);
+  const twice = withPreset(once, TFM_FACET);
 
-  assert.equal(once.facets.length, 1);
-  assert.equal(twice.facets.length, 1);
-  assert.equal(withoutFacet(twice, TFM_FACET.key).facets.length, 0);
+  assert.equal(once.presets.length, 1);
+  assert.equal(twice.presets.length, 1);
+  assert.equal(withoutPreset(twice, TFM_FACET.id).presets.length, 0);
 });
 
 test("createQueryRequest gives candidate and match limits independent defaults", () => {
@@ -145,7 +168,7 @@ test("createQueryRequest gives candidate and match limits independent defaults",
 
 test("library-literal mode is exclusive and derives exact or prefix candidate bounds", () => {
   const ordinary = withTerm(
-    withFacet(createQueryRequest("Contoso.Package"), TFM_FACET),
+    withPreset(createQueryRequest("Contoso.Package"), TFM_FACET),
     DEPENDS_TERM,
     "eq",
     "Contoso.Dependency");
@@ -156,7 +179,7 @@ test("library-literal mode is exclusive and derives exact or prefix candidate bo
   const prefix = withScopeQuery(exact, "Contoso.*");
 
   assert.equal(isLibraryLiteralQuery(exact), true);
-  assert.deepEqual(exact.facets, []);
+  assert.deepEqual(exact.presets, []);
   assert.deepEqual(exact.terms, []);
   assert.equal(exact.requestedLimit, 1);
   assert.equal(exact.requestedMatchLimit, 1);
@@ -165,7 +188,7 @@ test("library-literal mode is exclusive and derives exact or prefix candidate bo
 
   const whitespace = withLibraryLiteralDraft(ordinary, " ", "net10.0");
   assert.equal(isLibraryLiteralQuery(whitespace), true);
-  assert.deepEqual(whitespace.facets, []);
+  assert.deepEqual(whitespace.presets, []);
   assert.deepEqual(whitespace.terms, []);
   assert.equal(whitespace.requestedLimit, 1);
   assert.equal(whitespace.requestedMatchLimit, 1);
@@ -176,6 +199,26 @@ test("library-literal mode is exclusive and derives exact or prefix candidate bo
   assert.equal(cleared.requestedLimit, 200);
   assert.equal(cleared.requestedMatchLimit, 100);
   assert.equal(cleared.libraryLiteral.targetFramework, "net9.0");
+});
+
+test("applying presets or free terms exits literal mode with ordinary query bounds", () => {
+  const literal = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.*"),
+    "shared-literal-use-marker",
+    "net9.0");
+  for (const [request, candidateLimit] of [
+    [withPreset(literal, TFM_FACET), 200],
+    [togglePreset(literal, SKILL_FACET), 20],
+    [withTerm(literal, DEPENDS_TERM, "eq", "Contoso.Dependency"), 200],
+    [withTerm(literal, CONTENT_TERM, "eq", "tools/"), 20],
+  ] as const) {
+    assert.equal(isLibraryLiteralQuery(request), false);
+    assert.equal(request.libraryLiteral.operand, "");
+    assert.equal(request.libraryLiteral.targetFramework, "net9.0");
+    assert.equal(request.scopeQuery, "Contoso.*");
+    assert.equal(request.requestedLimit, candidateLimit);
+    assert.equal(request.requestedMatchLimit, 100);
+  }
 });
 
 test("operand-bearing terms retain exact repeated triples and edit by position", () => {
@@ -235,8 +278,8 @@ test("inspection changes retain prerelease selection and independent match limit
     includePrerelease: true,
     requestedMatchLimit: 7,
   };
-  const content = toggleFacet(request, SKILL_FACET);
-  const manifest = toggleFacet(toggleFacet(content, TFM_FACET), SKILL_FACET);
+  const content = togglePreset(request, SKILL_FACET);
+  const manifest = togglePreset(togglePreset(content, TFM_FACET), SKILL_FACET);
   const browse = withScopeQuery(manifest, "");
 
   assert.equal(content.requestedLimit, 20);
@@ -245,17 +288,17 @@ test("inspection changes retain prerelease selection and independent match limit
     assert.equal(changed.includePrerelease, true);
     assert.equal(changed.requestedMatchLimit, 7);
   }
-  assert.deepEqual(browse.facets, [TFM_FACET]);
+  assert.deepEqual(browse.presets, [TFM_FACET]);
   assert.equal(browse.scopeQuery, "");
 });
 
-test("package-content facets lower the candidate bound until the last one is removed", () => {
+test("package-content presets lower the candidate bound until the last one is removed", () => {
   const base = createQueryRequest("Microsoft.");
-  const withSkill = withFacet(base, SKILL_FACET);
-  const withSkillAndManifest = withFacet(withSkill, TFM_FACET);
-  const manifestOnly = withoutFacet(
+  const withSkill = withPreset(base, SKILL_FACET);
+  const withSkillAndManifest = withPreset(withSkill, TFM_FACET);
+  const manifestOnly = withoutPreset(
     withSkillAndManifest,
-    SKILL_FACET.key);
+    SKILL_FACET.id);
 
   assert.equal(withSkill.requestedLimit, 20);
   assert.equal(withSkillAndManifest.requestedLimit, 20);
@@ -265,17 +308,18 @@ test("package-content facets lower the candidate bound until the last one is rem
   assert.equal(manifestOnly.requestedMatchLimit, 100);
 });
 
-test("the broad tool facet grants the same bounded package-content work as version facets", () => {
+test("only tool-format presets grant bounded package-content work", () => {
   const base = createQueryRequest("Azure.");
 
-  for (const facet of [ANY_TOOL_FACET, TOOL_V1_FACET, TOOL_V2_FACET]) {
-    assert.equal(withFacet(base, facet).requestedLimit, 20);
+  assert.equal(withPreset(base, ANY_TOOL_FACET).requestedLimit, 200);
+  for (const preset of [TOOL_V1_FACET, TOOL_V2_FACET]) {
+    assert.equal(withPreset(base, preset).requestedLimit, 20);
   }
 });
 
-test("withScopeQuery preserves facets and bounds while changing search text", () => {
+test("withScopeQuery preserves selected presets and bounds while changing search text", () => {
   const request = {
-    ...withFacet(createQueryRequest("Microsoft."), TFM_FACET),
+    ...withPreset(createQueryRequest("Microsoft."), TFM_FACET),
     requestedLimit: 25,
     requestedMatchLimit: 10,
   };
@@ -286,7 +330,7 @@ test("withScopeQuery preserves facets and bounds while changing search text", ()
   });
 });
 
-test("controller configures blank package input as idle while retaining facets", () => {
+test("controller configures blank package input as idle while retaining presets", () => {
   const state = initialQueryState();
   let runs = 0;
   const controller = createPackageQueryController(
@@ -299,23 +343,23 @@ test("controller configures blank package input as idle while retaining facets",
     },
     () => {},
   );
-  const configured = withFacet(createQueryRequest(""), TFM_FACET);
+  const configured = withPreset(createQueryRequest(""), TFM_FACET);
 
   controller.configure(configured);
 
   assert.equal(runs, 0);
-  assert.deepEqual(state.request?.facets, [TFM_FACET]);
+  assert.deepEqual(state.request?.presets, [TFM_FACET]);
   assert.equal(state.outcome.completion.kind, "idle");
 });
 
-test("blank package input stays idle while editor and prerelease controls retain facets", () => {
-  const configuredPackage = withFacet(createQueryRequest(""), TFM_FACET);
+test("blank package input stays idle while editor and prerelease controls retain presets", () => {
+  const configuredPackage = withPreset(createQueryRequest(""), TFM_FACET);
   assert.equal(shouldExecuteQuery(configuredPackage), false);
 
   const drafted = withEditorDraft(configuredPackage, "Newtonsoft.Json");
   assert.equal(drafted.scopeQuery, "Newtonsoft.Json");
   assert.equal(shouldExecuteQuery(drafted), true);
-  assert.deepEqual(toggleFacet(drafted, SKILL_FACET).facets, [
+  assert.deepEqual(togglePreset(drafted, SKILL_FACET).presets, [
     TFM_FACET,
     SKILL_FACET,
   ]);
@@ -323,37 +367,39 @@ test("blank package input stays idle while editor and prerelease controls retain
     includePrerelease: true,
   });
   assert.equal(prerelease.includePrerelease, true);
-  assert.deepEqual(prerelease.facets, [TFM_FACET]);
+  assert.deepEqual(prerelease.presets, [TFM_FACET]);
 });
 
-test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
-  const withDependencies = toggleFacet(
+test("togglePreset replaces an active preset in the same producer-owned selection group", () => {
+  const withDependencies = togglePreset(
     createQueryRequest("Microsoft."),
     HAS_DEPENDENCIES_FACET);
-  const withoutDependencies = toggleFacet(
+  const withoutDependencies = togglePreset(
     withDependencies,
     NO_DEPENDENCIES_FACET);
 
   assert.deepEqual(
-    withoutDependencies.facets.map(facet => facet.key),
-    [NO_DEPENDENCIES_FACET.key]);
+    withoutDependencies.presets.map(preset => preset.id),
+    [NO_DEPENDENCIES_FACET.id]);
 });
 
-test("toggleFacet unions combining tool versions while any-tool remains exclusive", () => {
-  const withV1 = toggleFacet(createQueryRequest("Microsoft."), TOOL_V1_FACET);
-  const withBoth = toggleFacet(withV1, TOOL_V2_FACET);
-  const withAny = toggleFacet(withBoth, ANY_TOOL_FACET);
-  const backToV2 = toggleFacet(withAny, TOOL_V2_FACET);
+test("togglePreset applies product-owned tool replacement and union groups", () => {
+  const withV1 = togglePreset(createQueryRequest("Microsoft."), TOOL_V1_FACET);
+  const withBoth = togglePreset(withV1, TOOL_V2_FACET);
+  const withAny = togglePreset(withBoth, ANY_TOOL_FACET);
+  const backToV2 = togglePreset(withAny, TOOL_V2_FACET);
 
   assert.deepEqual(
-    withBoth.facets.map(facet => facet.key),
-    [TOOL_V1_FACET.key, TOOL_V2_FACET.key]);
+    withBoth.presets.map(preset => preset.id),
+    [TOOL_V1_FACET.id, TOOL_V2_FACET.id]);
   assert.deepEqual(
-    withAny.facets.map(facet => facet.key),
-    [ANY_TOOL_FACET.key]);
+    withAny.presets.map(preset => preset.id),
+    [ANY_TOOL_FACET.id]);
+  assert.equal(withAny.requestedLimit, 200);
   assert.deepEqual(
-    backToV2.facets.map(facet => facet.key),
-    [TOOL_V2_FACET.key]);
+    backToV2.presets.map(preset => preset.id),
+    [TOOL_V2_FACET.id]);
+  assert.equal(backToV2.requestedLimit, 20);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

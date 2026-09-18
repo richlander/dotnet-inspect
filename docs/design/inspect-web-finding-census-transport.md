@@ -42,8 +42,9 @@ The result carries:
 - `facts`: the complete Research Facts rows, with `instanceKey` present only
   for body Finding rows;
 - `annotatedSource`: the existing Browser annotated-source envelope, including
-  its product-owned document, viewer catalog, provenance, and visible context
-  limitation; and
+  its product-owned caller document, viewer catalog, provenance, visible
+  context limitation, shared callee-document table, and instruction-level
+  callee-evidence rows; and
 - `sourceFactInstances`: the document-local `factId` to producer-issued
   `instanceKey` sidecar for body facts.
 
@@ -59,6 +60,15 @@ The transport fields are `factCensusReceipt`, `facts`,
 `cSharpLine`, and `instanceKey`, while sidecar rows use `factId` and
 `instanceKey`.
 
+`annotatedSource.findingEvidenceDocuments` carries each admitted callee
+document once in the same compact Decompiler-owned JSON shape as the caller
+document. Each `annotatedSource.findingEvidence` row carries the exact sidecar
+`factId` and `instanceKey` pair, a typed callee member target,
+method-qualified instruction coordinates, an optional `documentId`, exact
+evidence node ids, and an optional unavailable reason. The transport does not
+join or deduplicate evidence by descriptor, caller offset, display text,
+document text, or collection order.
+
 The existing Analysis-only member Facts operation remains separate. This
 transport does not merge Analysis DTOs into the Research projection or claim
 that two independently executed operations share a census.
@@ -72,8 +82,14 @@ the combined envelope:
 - every keyed Facts row carries that receipt and a unique non-default key;
 - every source sidecar row carries that receipt, a unique non-default key, and
   a unique body fact id present in the document;
-- the sidecar covers every document body fact and no member-header fact; and
-- the Facts and Annotated Source key sets are equal.
+- the sidecar covers every document body fact and no member-header fact;
+- the Facts and Annotated Source key sets are equal;
+- every callee-evidence row names one exact sidecar fact-id/key pair and no pair
+  appears more than once;
+- every callee-document id is unique, non-negative, referenced, and resolves to
+  one valid compact document; and
+- an available evidence row carries a valid document reference and exact node
+  ids, while an unavailable row carries no node ids and a visible reason.
 
 A wrong receipt, incomplete row identity, duplicate or invalid key, invalid or
 duplicate fact id, incomplete body-fact sidecar, or projection mismatch fails
@@ -95,7 +111,9 @@ This owner consumes:
 Adjacent owners remain separate:
 
 - Research owns census construction, exact Finding-reference admission, Facts
-  construction, document construction, and the typed source sidecar;
+  construction, caller document construction, and the typed source sidecar;
+- [Annotated Source callee evidence](annotated-source-callee-evidence.md) owns
+  the Research-location to callee-document/node composition;
 - `AnnotatedSourceDocument` owns its compact nested wire shape;
 - the existing Analysis facade owns allocation, call, safety, exception, and
   performance result transport; and
@@ -137,7 +155,11 @@ The Release Inspect Web engine suite gates:
 - a successful empty body census retaining its receipt;
 - wrong-receipt and malformed sidecar rejection before envelope
   serialization; and
-- preservation of the exact nested `AnnotatedSourceDocument` field shape.
+- mismatched or duplicate callee-evidence fact-id/key associations;
+- preservation of the exact nested `AnnotatedSourceDocument` field shape;
+- shared callee-document references and rejection of missing, duplicate, or
+  unreferenced document ids; and
+- bounded stress proving repeated Findings do not repeat document payload.
 
 The generated-facade drift gate proves the new operation and DTO closure are
 present in the checked-in Source TypeScript and JavaScript artifacts.
@@ -156,6 +178,5 @@ This transport does not:
   behavior;
 - add identity to the existing Analysis-only Facts payload;
 - persist identity in a Workspace or share packet;
-- change source acquisition, member resolution, Research projection, or
-  Annotated Source presentation; or
+- change source acquisition or member resolution; or
 - define correspondence across different censuses.

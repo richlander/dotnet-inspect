@@ -906,10 +906,10 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     },
     runPackageQuery: (...args) => {
       runs.push(args);
-      emit(args[8], progressEvent);
-      emit(args[8], matchEvent);
-      emit(args[8], failureEvent);
-      emit(args[8], assessmentEvent);
+      emit(args[7], progressEvent);
+      emit(args[7], matchEvent);
+      emit(args[7], failureEvent);
+      emit(args[7], assessmentEvent);
       return terminal.promise;
     },
   };
@@ -918,8 +918,11 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
 
   const request: QueryRequest = {
     ...createQueryRequest("Contoso.*"),
-    facets: [{
-      key: "package.query.source-verified",
+    presets: [{
+      id: "readme:eq:true",
+      key: "readme",
+      operator: "eq",
+      value: "true",
       label: "Verified",
       tier: "nuspec",
     }],
@@ -998,17 +1001,16 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       .map(event => event.durable.value),
     [progressEvent, matchEvent, failureEvent, assessmentEvent],
   );
-  assert.deepEqual(runs[0]?.slice(0, 8), [
+  assert.deepEqual(runs[0]?.slice(0, 7), [
     "package-query-operation",
     "Contoso.*",
-    '["package.query.source-verified"]',
-    '[{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
+    '[{"key":"readme","operator":"eq","value":"true"},{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
     200,
     100,
     true,
     20,
   ]);
-  assert.equal(runs[0]?.length, 9);
+  assert.equal(runs[0]?.length, 8);
 
   const start = harness.worker.receivedMessages.find(message =>
     typeof message === "object"
@@ -1023,12 +1025,18 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   assert.deepEqual(payload, {
     kind: "query",
     searchText: "Contoso.*",
-    facetIds: ["package.query.source-verified"],
-    terms: [{
-      key: "depends",
-      operator: "eq",
-      value: "Microsoft.Extensions.Hosting",
-    }],
+    terms: [
+      {
+        key: "readme",
+        operator: "eq",
+        value: "true",
+      },
+      {
+        key: "depends",
+        operator: "eq",
+        value: "Microsoft.Extensions.Hosting",
+      },
+    ],
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: true,
@@ -1143,7 +1151,7 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[8], serialized);
+      emitSerialized(args[7], serialized);
       return Promise.resolve(inspected([
         expandedMatch,
         failureEvent,
@@ -1183,7 +1191,7 @@ test("Package Query Worker rejects callbacks above the encoded wire bound", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[8], " ".repeat(8 * 1_024 * 1_024));
+      emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
       return Promise.resolve(succeeded());
     },
   };
@@ -1235,7 +1243,6 @@ test("Package Query binding preserves caller identity and expected diagnostics",
     "caller-package-query",
     "Contoso.",
     "[]",
-    "[]",
     20,
     10,
     false,
@@ -1273,7 +1280,6 @@ test("Package Query binding preserves the inspection envelope", async () => {
   const result = await binding.runPackageQuery(
     "envelope-package-query",
     "Contoso.",
-    "[]",
     "[]",
     20,
     10,
@@ -1366,7 +1372,7 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
       additionalMatchCredit: null,
     }),
     async runPackageQuery(...args) {
-      emit(args[8], completionEvent);
+      emit(args[7], completionEvent);
       return succeeded();
     },
   };
@@ -1428,7 +1434,6 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
   const queryInput = {
     kind: "query",
     searchText: "Contoso.*",
-    facetIds: [],
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: false,

@@ -1,6 +1,6 @@
 import type {
   PackageQueryState,
-  QueryFacetTerm,
+  QueryPreset,
   QueryRequest,
   QueryResultRow,
   QuerySourceSelection,
@@ -23,7 +23,7 @@ const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
 export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
-  onFacetToggle: (facetKey: string, prefix: string) => void;
+  onPresetToggle: (presetId: string, prefix: string) => void;
   onLibraryLiteralInput: (
     operand: string,
     targetFramework: string,
@@ -76,7 +76,7 @@ export type PackageQueryFocusSnapshot =
   | { kind: "run" }
   | { kind: "results" }
   | { kind: "prerelease" }
-  | { kind: "facet"; facetKey: string }
+  | { kind: "preset"; presetId: string }
   | { kind: "term-add"; termKey: string }
   | {
       kind: "term";
@@ -222,8 +222,8 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.id === "package-query-results") return { kind: "results" };
   if (active.id === "package-query-prerelease") return { kind: "prerelease" };
-  if (active.dataset.queryFacet) {
-    return { kind: "facet", facetKey: active.dataset.queryFacet };
+  if (active.dataset.queryPreset) {
+    return { kind: "preset", presetId: active.dataset.queryPreset };
   }
   if (active.dataset.queryTermAdd) {
     return { kind: "term-add", termKey: active.dataset.queryTermAdd };
@@ -294,9 +294,9 @@ export function restorePackageQueryFocus(
     case "library-tfm":
       target = root.querySelector("#package-query-library-tfm");
       break;
-    case "facet":
-      target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
-        .find(element => element.dataset.queryFacet === snapshot.facetKey)
+    case "preset":
+      target = [...root.querySelectorAll<HTMLElement>("[data-query-preset]")]
+        .find(element => element.dataset.queryPreset === snapshot.presetId)
         ?? null;
       break;
     case "term-add":
@@ -400,9 +400,9 @@ export function bindPackageQueryView(
     const input = event.currentTarget;
     if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
   });
-  root.querySelectorAll<HTMLElement>("[data-query-facet]").forEach(button =>
-    button.addEventListener("click", () => actions.onFacetToggle(
-      button.dataset.queryFacet ?? "",
+  root.querySelectorAll<HTMLElement>("[data-query-preset]").forEach(button =>
+    button.addEventListener("click", () => actions.onPresetToggle(
+      button.dataset.queryPreset ?? "",
       prefixInput()?.value ?? "")));
   bindPackageQueryTerms(root, actions, prefixInput);
   const prerelease = root.querySelector<HTMLInputElement>(
@@ -602,46 +602,46 @@ function renderQueryContext(
     : "";
 }
 
-function renderFacet(
-  facet: QueryFacetTerm,
+function renderPreset(
+  preset: QueryPreset,
   activeKeys: ReadonlySet<string>,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const active = activeKeys.has(facet.key);
+  const active = activeKeys.has(preset.id);
   return `
     <button
       type="button"
-      class="query-facet ${active ? "active" : ""}"
-      data-query-facet="${escapeHtml(facet.key)}"
+      class="query-preset ${active ? "active" : ""}"
+      data-query-preset="${escapeHtml(preset.id)}"
       aria-pressed="${active}"
-      title="${escapeHtml(facet.summary ?? facet.label)}">
-      ${escapeHtml(facet.label)}
+      title="${escapeHtml(preset.summary ?? preset.label)}">
+      ${escapeHtml(preset.label)}
     </button>`;
 }
 
-function renderFacets(
-  facets: readonly QueryFacetTerm[],
+function renderPresets(
+  presets: readonly QueryPreset[],
   activeKeys: ReadonlySet<string>,
   escapeHtml: (value: unknown) => string,
 ): string {
   const renderedGroups = new Set<string>();
-  return facets.map(facet => {
-    if (!facet.displayGroupId) {
-      return renderFacet(facet, activeKeys, escapeHtml);
+  return presets.map(preset => {
+    if (!preset.displayGroupId) {
+      return renderPreset(preset, activeKeys, escapeHtml);
     }
-    if (renderedGroups.has(facet.displayGroupId)) return "";
-    renderedGroups.add(facet.displayGroupId);
-    const groupFacets = facets.filter(candidate =>
-      candidate.displayGroupId === facet.displayGroupId);
+    if (renderedGroups.has(preset.displayGroupId)) return "";
+    renderedGroups.add(preset.displayGroupId);
+    const groupPresets = presets.filter(candidate =>
+      candidate.displayGroupId === preset.displayGroupId);
     return `
       <div
-        class="query-facet-group"
+        class="query-preset-group"
         role="group"
         aria-label="${escapeHtml(
-          facet.displayGroupLabel ?? facet.label)}">
-        ${groupFacets
-          .map(groupFacet => renderFacet(
-            groupFacet,
+          preset.displayGroupLabel ?? preset.label)}">
+        ${groupPresets
+          .map(groupPreset => renderPreset(
+            groupPreset,
             activeKeys,
             escapeHtml))
           .join("")}
@@ -874,7 +874,7 @@ function renderLibraryLiteralControls(
           autocomplete="off"
           spellcheck="false" />
       </label>
-      <p class="query-facet-disclosure">Literal qualification is exclusive with facets and terms and evaluates at most five prefix candidates.</p>
+      <p class="query-preset-disclosure">Literal qualification is exclusive with presets and active terms and evaluates at most five prefix candidates.</p>
     </details>`;
 }
 
@@ -907,7 +907,7 @@ export function decodeLibraryLiteralEditorValue(value: string): string {
 function renderPackageOptions(request: QueryRequest): string {
   return `
     <div class="query-source-controls" role="group" aria-label="Package query options">
-      <h2>Package options</h2>
+      <h2>Search options</h2>
       <label for="package-query-prerelease">
         <input id="package-query-prerelease" type="checkbox"${request.includePrerelease ? " checked" : ""} />
         Include prerelease
@@ -973,7 +973,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Ready to query</h2>
-        <p>Enter a package ID or terminal-star prefix. Selected inspection facets remain configured.</p>
+        <p>Enter a package ID or terminal-star prefix. Selected inspection facts remain configured.</p>
       </section>`;
   }
   if (completion.kind === "cancelled") {
@@ -1033,7 +1033,7 @@ function renderEmptyState(
     <section class="query-empty">
       <span class="large-glyph">◇</span>
       <h2>No matches</h2>
-      <p>Try a broader explicit prefix or select fewer inspection facets.</p>
+      <p>Try a broader explicit prefix or select fewer inspection facts.</p>
     </section>`;
 }
 
@@ -1041,7 +1041,7 @@ export interface RenderPackageQueryOptions {
   state: PackageQueryState;
   prefix?: string;
   viewport?: PackageQueryViewportSnapshot | null;
-  availableFacets: readonly QueryFacetTerm[];
+  availablePresets: readonly QueryPreset[];
   availableTerms?: readonly QueryTermDescriptor[];
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
@@ -1165,20 +1165,20 @@ export function renderPackageQueryView(
   const {
     state,
     prefix = state.request?.scopeQuery ?? "",
-    availableFacets,
+    availablePresets,
     availableTerms = [],
     navigationError = "",
     escapeHtml,
     viewport = null,
   } = options;
-  const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
-  const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
+  const activeKeys = new Set(state.request?.presets.map(preset => preset.id) ?? []);
+  const presets = renderPresets(availablePresets, activeKeys, escapeHtml);
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
   const libraryLiteralActive = isLibraryLiteralQuery(request);
   const terms = libraryLiteralActive
-    ? `<p class="query-facet-disclosure">Terms are unavailable while Library literal qualification is active.</p>`
+    ? `<p class="query-preset-disclosure">Terms are unavailable while Library literal qualification is active.</p>`
     : renderTermControls(state, availableTerms, escapeHtml);
 
   return `
@@ -1208,18 +1208,18 @@ export function renderPackageQueryView(
           : ""}
         <div id="package-query-failure-region">${failures}</div>
         <div class="query-layout">
-          <aside class="query-facet-rail" aria-label="Package query controls">
+          <aside class="query-preset-rail" aria-label="Package query controls">
             ${renderPackageOptions(request)}
             ${renderLibraryLiteralControls(request, escapeHtml)}
             ${terms}
-            <h2>Inspection facets</h2>
+            <h2>Inspection facts</h2>
             <p>${libraryLiteralActive
-              ? "Facets are unavailable while Library literal qualification is active."
+              ? "Presets are unavailable while Library literal qualification is active."
               : "Changes rerun the selected input; blank package input stays idle."}</p>
-            <div class="query-facets">${libraryLiteralActive ? "" : facets}</div>
-            <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
-            <p class="query-facet-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
-            <p class="query-facet-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
+            <div class="query-presets">${libraryLiteralActive ? "" : presets}</div>
+            <p class="query-preset-disclosure">Content facts download up to 20 candidate package archives.</p>
+            <p class="query-preset-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
+            <p class="query-preset-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>
           <section id="package-query-results" class="query-results" aria-label="Package query results" tabindex="-1">
             ${results}

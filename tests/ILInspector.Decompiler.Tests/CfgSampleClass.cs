@@ -5477,6 +5477,120 @@ public class CfgSampleClass
     }
 }
 
+public static class StructuringRegionExitSamples
+{
+    public static int PrefixedRegionExitWithExternalEntry(int a)
+    {
+        int value = 0;
+        try
+        {
+            if (a != 0)
+            {
+                try
+                {
+                    if (a == 2)
+                        goto failure;
+                }
+                finally
+                {
+                    CfgSampleClass.LastValue++;
+                }
+
+                if (a == 1)
+                    goto success;
+            failure:
+                value = 7;
+                goto done;
+            }
+        success:
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+
+    public static int PrefixedRegionExitBeforeSibling(int a)
+    {
+        int value = 0;
+        try
+        {
+            if (a != 0)
+            {
+                CfgSampleClass.LastValue++;
+                if (a != 1)
+                {
+                    value = 7;
+                    goto done;
+                }
+            }
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+
+    public static int PrefixedRegionExitTakenArmWithExternalEntry(int a)
+    {
+        int value = 0;
+        try
+        {
+            try
+            {
+                if (a == 2)
+                    goto success;
+            }
+            finally
+            {
+                CfgSampleClass.LastValue++;
+            }
+
+            if (a == 0)
+                goto success;
+            value = 7;
+            goto done;
+        success:
+            value = 1;
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+
+    public static int PrefixedRegionExitInsideTailInfiniteLoop(int a)
+    {
+        int value = 0;
+        try
+        {
+            while (true)
+            {
+                if (a == 0)
+                {
+                    value = 7;
+                    goto done;
+                }
+                a--;
+            }
+        }
+        finally
+        {
+            value++;
+        }
+    done:
+        return value;
+    }
+}
+
 public interface IJoinShape
 {
     string Shape();

@@ -8,6 +8,7 @@ internal static class LibraryCallUseViewSections
     internal const string ProviderApiTypes = "Provider API Types";
     internal const string DirectUseClusters = "Direct Use Clusters";
     internal const string CallSites = "Call Sites";
+    internal const string PublicRootPaths = "Public Root Paths";
 }
 
 internal static class LibraryCallUseViewText
@@ -154,6 +155,33 @@ public sealed class LibraryCallUseCallSitesView
     public List<LibraryCallUseCallSiteRow>? Rows { get; init; }
 }
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    DescriptionProperty = nameof(Description),
+    AutoFields = false)]
+public sealed class LibraryCallUsePublicRootPathsView
+{
+    [MarkoutIgnore]
+    public string Title
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    } = LibraryCallUseViewText.Contain(
+        LibraryCallUseViewSections.PublicRootPaths);
+
+    [MarkoutIgnore]
+    public required string Description
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.ContainDescription(value);
+    }
+
+    [MarkoutSection(
+        Name = LibraryCallUseViewSections.PublicRootPaths,
+        Headless = true)]
+    public List<LibraryCallUsePublicRootPathRow>? Rows { get; init; }
+}
+
 [MarkoutSerializable(AutoFields = false)]
 public sealed class LibraryCallUseSelectedView
 {
@@ -168,6 +196,9 @@ public sealed class LibraryCallUseSelectedView
 
     [MarkoutSection(Name = LibraryCallUseViewSections.CallSites)]
     public List<LibraryCallUseCallSiteRow> CallSites { get; init; } = [];
+
+    [MarkoutSection(Name = LibraryCallUseViewSections.PublicRootPaths)]
+    public List<LibraryCallUsePublicRootPathRow> PublicRootPaths { get; init; } = [];
 }
 
 [MarkoutSerializable]
@@ -425,17 +456,69 @@ public sealed class LibraryCallUseCallSiteRow
     }
 }
 
+[MarkoutSerializable]
+public sealed class LibraryCallUsePublicRootPathRow
+{
+    public required string SourceLibrary
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public int Cluster { get; init; }
+
+    public required string PublicRoot
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string PublicRootToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string DirectUseDestination
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string DestinationToken
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public int Depth { get; init; }
+
+    public required string MethodPath
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+
+    public required string PhysicalReceipts
+    {
+        get => field;
+        init => field = LibraryCallUseViewText.Contain(value);
+    }
+}
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(LibraryCallUseHeaderView))]
 [MarkoutContext(typeof(LibraryCallUseConsumerUseSitesView))]
 [MarkoutContext(typeof(LibraryCallUseProviderApiTypesView))]
 [MarkoutContext(typeof(LibraryCallUseDirectUseClustersView))]
 [MarkoutContext(typeof(LibraryCallUseCallSitesView))]
+[MarkoutContext(typeof(LibraryCallUsePublicRootPathsView))]
 [MarkoutContext(typeof(LibraryCallUseSelectedView))]
 [MarkoutContext(typeof(LibraryCallUseConsumerUseSiteRow))]
 [MarkoutContext(typeof(LibraryCallUseProviderApiTypeRow))]
 [MarkoutContext(typeof(LibraryCallUseDirectUseClusterRow))]
 [MarkoutContext(typeof(LibraryCallUseCallSiteRow))]
+[MarkoutContext(typeof(LibraryCallUsePublicRootPathRow))]
 public partial class LibraryCallUseViewContext : MarkoutSerializerContext
 {
 }

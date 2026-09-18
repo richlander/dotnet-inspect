@@ -23,10 +23,9 @@ internal sealed record ExactLocalNameAllocation(
     {
         var displayNames = new string?[localCount];
         var dispositions = new ExactLocalNameDisposition[localCount];
-        var taken = new HashSet<string>(reservedNames, StringComparer.Ordinal);
-        var armLocalOwners = ArmScopedPatternLocals(scope);
-        var armNameUsers =
-            new Dictionary<(object Switch, string Name), HashSet<object>>();
+        var reserved = new HashSet<string>(reservedNames, StringComparer.Ordinal);
+        var users = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        IReadOnlyDictionary<int, IrNode>? declarationScopes = null;
 
         for (var index = 0;
             index < localCount && index < localNames.Length;
@@ -42,32 +41,44 @@ internal sealed record ExactLocalNameAllocation(
                 continue;
             }
 
-            bool isArmLocal = armLocalOwners.TryGetValue(index, out var owner);
-            if (taken.Add(name))
-            {
-                displayNames[index] = name;
-                dispositions[index] = ExactLocalNameDisposition.Preserved;
-                if (isArmLocal)
-                    armNameUsers[(owner.Switch, name)] = [owner.Arm];
-            }
-            else if (isArmLocal
-                && armNameUsers.TryGetValue(
-                    (owner.Switch, name),
-                    out var users)
-                && users.Add(owner.Arm))
-            {
-                displayNames[index] = name;
-                dispositions[index] = ExactLocalNameDisposition.Preserved;
-            }
-            else
+            if (reserved.Contains(name)
+                || users.TryGetValue(name, out var previous)
+                    && previous.Any(other => !Disjoint(index, other)))
             {
                 dispositions[index] = ExactLocalNameDisposition.Collision;
+                continue;
             }
+            displayNames[index] = name;
+            dispositions[index] = ExactLocalNameDisposition.Preserved;
+            if (!users.TryGetValue(name, out var sameName))
+                users.Add(name, sameName = []);
+            sameName.Add(index);
         }
 
         return new ExactLocalNameAllocation(
             [.. displayNames],
             [.. dispositions]);
+
+        bool Disjoint(int left, int right)
+        {
+            declarationScopes ??= CSharpPrinter.LocalDeclarationScopes(scope, localCount);
+            return declarationScopes.TryGetValue(left, out var leftScope)
+                && declarationScopes.TryGetValue(right, out var rightScope)
+                && !ScopesOverlap(leftScope, rightScope);
+        }
+    }
+
+    internal static bool ScopesOverlap(IrNode left, IrNode right)
+        => Contains(left, right) || Contains(right, left);
+
+    internal static bool Contains(IrNode scope, IrNode node)
+    {
+        for (IrNode? current = node; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(scope, current))
+                return true;
+        }
+        return false;
     }
 
     public static HashSet<int> RetainedLocalSlots(
@@ -109,27 +120,4 @@ internal sealed record ExactLocalNameAllocation(
         return names;
     }
 
-    static Dictionary<int, (object Switch, object Arm)>
-        ArmScopedPatternLocals(IrNode scope)
-    {
-        var owners = new Dictionary<int, (object, object)>();
-        foreach (var arm in scope
-            .DescendantsOutsideNestedFunctions
-            .OfType<PatternSwitchExpressionArm>())
-        {
-            object owningSwitch = arm.Parent ?? arm;
-            if (arm.LocalIndex is { } localIndex)
-                owners[localIndex] = (owningSwitch, arm);
-            if (arm.Subpattern is { } subpattern)
-                owners[subpattern.LocalIndex] = (owningSwitch, arm);
-        }
-        foreach (var arm in scope
-            .DescendantsOutsideNestedFunctions
-            .OfType<UnionSwitchExpressionArm>())
-        {
-            if (arm.LocalIndex is { } localIndex)
-                owners[localIndex] = (arm.Parent ?? arm, arm);
-        }
-        return owners;
-    }
 }

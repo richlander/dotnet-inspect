@@ -592,7 +592,7 @@ internal static partial class BrowserPackageQueryOperations
         return new(
             result.PackageId,
             result.Version,
-            BrowserPackageQueryFacetTier.Assembly,
+            BrowserPackageQueryAcquisitionTier.Assembly,
             [
                 new(
                     "library-literal",

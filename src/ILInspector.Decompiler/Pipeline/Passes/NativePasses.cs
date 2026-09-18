@@ -97,6 +97,8 @@ internal static class NativePasses
     public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
+    [Native(NativeCategory.EmitArtifact, "lexical blocks erased by codegen retained where PDB names and reconstructed uses establish disjoint declaration scopes")]
+    public static PdbLocalScopePass PdbLocalScope => new();
     [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
     public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
     [Native(NativeCategory.EmitArtifact, "a spilled fluent call chain re-composed by folding each single-use scratch receiver/argument temp back into the chained call it feeds")]

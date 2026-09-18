@@ -61,20 +61,14 @@ public partial class SectionPipelineTests
             AssemblyContextIntegrationsQuery.Definition,
             catalog.QueryCatalog.RegisteredQueries);
 
-        foreach (string section in LibraryIntegrationCatalog.CategorySections)
+        var integrations = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
         {
-            var include = new HashSet<string>(
-                StringComparer.OrdinalIgnoreCase)
-            {
-                section,
-            };
-            HashSet<InspectionQueryDefinition> queries =
-                pipeline.GetRequiredQueries(Verbosity.Minimal, include);
-
-            Assert.Contains(
-                AssemblyContextIntegrationsQuery.Definition,
-                queries);
-        }
+            IntegrationSectionNames.Integrations,
+        };
+        Assert.Contains(
+            AssemblyContextIntegrationsQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, integrations));
 
         var opportunities = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase)
@@ -1237,10 +1231,13 @@ public partial class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: OpenTelemetry" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                IntegrationSectionNames.Integrations,
+            });
 
-        Assert.DoesNotContain("Integration: OpenTelemetry", effective);
-        Assert.Contains("Integration: OpenTelemetry", selected);
+        Assert.DoesNotContain(IntegrationSectionNames.Integrations, effective);
+        Assert.Contains(IntegrationSectionNames.Integrations, selected);
     }
 
     [Theory]
@@ -1256,7 +1253,8 @@ public partial class SectionPipelineTests
     [InlineData("Hosting")]
     [InlineData("Health Checks")]
     [InlineData("HTTP Client")]
-    public void CanRender_EcosystemIntegrationSections_UsePresenceFlags(string sectionName)
+    public void CanRender_IntegrationsSection_UsesConceptPresenceFlags(
+        string sectionName)
     {
         var pipeline = LibrarySections.CreatePipeline();
         var model = new LibraryInspection
@@ -1277,12 +1275,14 @@ public partial class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
-        var prefixed = IntegrationSectionNames.Prefix + sectionName;
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { prefixed });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                IntegrationSectionNames.Integrations,
+            });
 
-        Assert.DoesNotContain(prefixed, effective);
-        Assert.Contains(prefixed, selected);
+        Assert.DoesNotContain(IntegrationSectionNames.Integrations, effective);
+        Assert.Contains(IntegrationSectionNames.Integrations, selected);
     }
 
     [Fact]

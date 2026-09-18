@@ -205,6 +205,52 @@ export interface BrowserParameterSurface {
     readonly defaultValue: string | null;
     readonly description: string | null;
 }
+export interface BrowserRetainedWorkspaceActivationFailure {
+    readonly kind: string;
+    readonly message: string;
+}
+export interface BrowserRetainedWorkspaceActivationResult {
+    readonly status: string;
+    readonly installation: BrowserRetainedWorkspaceInstallation | null;
+    readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
+export interface BrowserRetainedWorkspaceDeactivationResult {
+    readonly status: string;
+    readonly settlement: BrowserRetainedWorkspaceSettlement | null;
+    readonly message: string | null;
+}
+export interface BrowserRetainedWorkspaceInstallation {
+    readonly retainedDefinitionId: string;
+    readonly label: string;
+    readonly canonicalLocation: string;
+    readonly canonicalPacket: string;
+    readonly realizationId: string;
+    readonly publicationOrdinal: number;
+    readonly navigation: BrowserRetainedWorkspaceNavigation;
+    readonly predecessor: BrowserRetainedWorkspacePredecessor | null;
+}
+export interface BrowserRetainedWorkspaceNavigation {
+    readonly activeStateIndex: number | null;
+    readonly states: ReadonlyArray<BrowserRetainedWorkspaceView>;
+}
+export interface BrowserRetainedWorkspacePredecessor {
+    readonly settlementId: string;
+    readonly reason: string;
+}
+export interface BrowserRetainedWorkspaceSettlement {
+    readonly succeeded: boolean;
+    readonly reason: string;
+    readonly failure: string | null;
+}
+export interface BrowserRetainedWorkspaceSettlementResult {
+    readonly status: string;
+    readonly settlement: BrowserRetainedWorkspaceSettlement | null;
+}
+export interface BrowserRetainedWorkspaceView {
+    readonly navigationId: string | null;
+    readonly subjectKind: string | null;
+    readonly facet: string | null;
+}
 export interface BrowserTypeSurface {
     readonly id: string;
     readonly definitionId: string;
@@ -292,9 +338,13 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function activateRetainedWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string): Promise<BrowserRetainedWorkspaceActivationResult>;
+export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
+export declare function deactivateRetainedWorkspaceDefinition(retainedDefinitionId: string): Promise<BrowserRetainedWorkspaceDeactivationResult>;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
+export declare function observeRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResult>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;

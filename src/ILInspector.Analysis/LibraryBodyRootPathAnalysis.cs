@@ -405,7 +405,8 @@ public static class LibraryBodyRootPathAnalysis
     {
         Dictionary<int, MethodIdentity> methods = index.DeclaredMethods
             .ToDictionary(static method => method.MetadataToken);
-        var methodMap = MethodDefinitionMap.Create(index.DeclaredMethods);
+        MethodDefinitionMap methodMap =
+            index.DeclaredMethodMap;
         var callSites = new Dictionary<
             (int Caller, int Callee),
             List<DirectCall>>();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -22,11 +23,11 @@ import {
   emptyOutcome,
   initialQueryState,
   withCompletion,
-  withFacet,
   withLibraryLiteralDraft,
+  withPreset,
   withTerm,
   type PackageQueryState,
-  type QueryFacetTerm,
+  type QueryPreset,
   type QueryResultRow,
   type QuerySourceSelection,
   type QueryTermDescriptor,
@@ -38,41 +39,69 @@ const escapeHtml = (value: unknown) => String(value)
   .replace(/</g, "&lt;")
   .replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
+const styles = readFileSync(
+  new URL("../src/styles.css", import.meta.url),
+  "utf8");
 
-const NUSPEC_FACET: QueryFacetTerm = { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" };
-const DOWNLOAD_FACET: QueryFacetTerm = { key: "downloads-1m", label: "1M+ downloads", tier: "nuspec" };
-const TOOL_FACETS: readonly QueryFacetTerm[] = [
+const NUSPEC_FACET: QueryPreset = {
+  id: "readme:eq:true",
+  key: "readme",
+  operator: "eq",
+  value: "true",
+  label: "embedded README",
+  tier: "nuspec",
+};
+const DOWNLOAD_FACET: QueryPreset = {
+  id: "downloads:eq:1m",
+  key: "downloads",
+  operator: "eq",
+  value: "1m",
+  label: "1M+ downloads",
+  tier: "search-metadata",
+};
+const TOOL_FACETS: readonly QueryPreset[] = [
   {
-    key: "package.query.dotnet-tool",
+    id: "tool:eq:true",
+    key: "tool",
+    operator: "eq",
+    value: "true",
     label: ".NET Tool",
-    tier: "package-content",
-    selectionGroupId: "package.query.dotnet-tool-format",
+    tier: "nuspec",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
   },
   {
-    key: "package.query.dotnet-tool-v1",
+    id: "tool-format:eq:v1",
+    key: "tool-format",
+    operator: "eq",
+    value: "v1",
     label: "v1",
     tier: "package-content",
-    selectionGroupId: "package.query.dotnet-tool-format",
+    selectionGroupId: "tool-format",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
   },
   {
-    key: "package.query.dotnet-tool-v2",
+    id: "tool-format:eq:v2",
+    key: "tool-format",
+    operator: "eq",
+    value: "v2",
     label: "v2",
     tier: "package-content",
-    selectionGroupId: "package.query.dotnet-tool-format",
+    selectionGroupId: "tool-format",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
   },
 ];
-const SKILL_FACET: QueryFacetTerm = {
-  key: "package.query.embedded-skill",
+const SKILL_FACET: QueryPreset = {
+  id: "skill:eq:true",
+  key: "skill",
+  operator: "eq",
+  value: "true",
   label: "embedded SKILL.md",
   tier: "package-content",
 };
-const FACETS: readonly QueryFacetTerm[] = [
+const FACETS: readonly QueryPreset[] = [
   NUSPEC_FACET,
   ...TOOL_FACETS,
   DOWNLOAD_FACET,
@@ -115,7 +144,7 @@ function row(packageId: string): QueryResultRow {
 test("an unstarted query renders the composing empty state", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
 
@@ -138,13 +167,12 @@ test("package options retain prerelease without Gallery controls", () => {
         request,
         outcome: emptyOutcome(),
       },
-      availableFacets: FACETS,
+      availablePresets: FACETS,
       escapeHtml,
     });
-
-    assert.match(html, /<h2>Package options<\/h2>/);
+    assert.match(html, /<h2>Search options<\/h2>/);
     assert.match(html, /id="package-query-prerelease"/);
-    assert.match(html, /<h2>Inspection facets<\/h2>/);
+    assert.match(html, /<h2>Inspection facts<\/h2>/);
     assert.doesNotMatch(
       html,
       /Feeling lucky|Gallery filters|package-query-(discover|type|order)/);
@@ -158,13 +186,13 @@ test("package options retain prerelease without Gallery controls", () => {
       },
       outcome: emptyOutcome(),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
   assert.match(
     html,
     /id="package-query-prerelease" type="checkbox" checked/);
-  assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facets</h2>"));
+  assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facts</h2>"));
 });
 
 test("library-literal mode renders exclusive controls and bounded occurrence evidence", () => {
@@ -203,7 +231,7 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
         complete: true,
       }),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -217,9 +245,9 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
   assert.match(html, /1 matching package · 5 occurrences/);
   assert.match(html, /exact package population complete/);
   assert.match(html, /data-query-root-request="opaque-root"/);
-  assert.match(html, /Facets are unavailable while Library literal qualification is active/);
+  assert.match(html, /Presets are unavailable while Library literal qualification is active/);
   assert.match(html, /Terms are unavailable while Library literal qualification is active/);
-  assert.doesNotMatch(html, /data-query-facet=/);
+  assert.doesNotMatch(html, /data-query-preset=/);
   assert.doesNotMatch(html, /data-query-term-add=/);
 });
 
@@ -233,7 +261,7 @@ test("whitespace-only library literals remain active and unchanged", () => {
       request,
       outcome: emptyOutcome(),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -244,7 +272,7 @@ test("whitespace-only library literals remain active and unchanged", () => {
     /data-query-library-literal-value="&quot; &quot;"/);
   assert.match(
     html,
-    /Facets are unavailable while Library literal qualification is active/);
+    /Presets are unavailable while Library literal qualification is active/);
   assert.match(
     html,
     /Terms are unavailable while Library literal qualification is active/);
@@ -298,7 +326,7 @@ test("library-literal completion distinguishes exhausted and bounded populations
         complete,
       }),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -341,7 +369,7 @@ test("library-literal result footer discloses an incomplete population", () => {
           complete: false,
         }),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -366,7 +394,7 @@ test("active terms render above the product-issued available-term palette", () =
       request,
       outcome: emptyOutcome(),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -394,7 +422,7 @@ test("an empty term draft is editable but not part of the executable request", (
       },
       termEdits: [],
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -425,7 +453,7 @@ test("pending term edits survive full view rerenders", () => {
         value: "Microsoft.Extensions.DependencyInjection",
       }],
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     availableTerms: TERMS,
     escapeHtml,
   });
@@ -440,20 +468,20 @@ test("pending term edits survive full view rerenders", () => {
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
     null,
-    withFacet(createQueryRequest(""), NUSPEC_FACET),
-    withFacet(createQueryRequest(""), SKILL_FACET),
+    withPreset(createQueryRequest(""), NUSPEC_FACET),
+    withPreset(createQueryRequest(""), SKILL_FACET),
     { ...createQueryRequest(""), requestedMatchLimit: 7 },
   ]) {
     const html = renderPackageQueryView({
       state: { request, outcome: emptyOutcome() },
-      availableFacets: FACETS,
+      availablePresets: FACETS,
       escapeHtml,
     });
     assert.ok(html.includes(`Candidate bound K: ${request?.requestedLimit ?? 200}`));
     assert.match(html, /exact IDs use one candidate/);
     assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
     assert.match(html, /The match limit does not change prefix capacity/);
-    assert.match(html, /Content facets download up to 20 candidate package archives/);
+    assert.match(html, /Content facts download up to 20 candidate package archives/);
     assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
   }
 });
@@ -488,7 +516,7 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
           },
         ]),
       },
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml,
     });
     assert.match(html, /query-tier-search-metadata">search-metadata</);
@@ -524,7 +552,7 @@ test("a large outcome mounts only the scrolled row window while retaining total 
       anchorRowIndex: null,
       anchorOffsetTop: null,
     },
-    availableFacets: [],
+    availablePresets: [],
     escapeHtml,
   });
 
@@ -553,7 +581,7 @@ test("query context renders once while package summaries remain on their cards",
     evidence: [
       queryEvidence,
       {
-        id: "package.query.has-dependencies",
+        id: "depends",
         text: "4 dependencies: A, B, C (+1 more).",
         scope: "package" as const,
         summary: {
@@ -568,7 +596,7 @@ test("query context renders once while package summaries remain on their cards",
     evidence: [
       queryEvidence,
       {
-        id: "package.query.embedded-skill",
+        id: "skill",
         text: "2 skill documents: skills/SKILL.md, skills/build/SKILL.md.",
         scope: "package" as const,
         summary: {
@@ -584,7 +612,7 @@ test("query context renders once while package summaries remain on their cards",
       request: createQueryRequest("Contoso.*"),
       outcome: appendRows(emptyOutcome(), [first, second]),
     },
-    availableFacets: [],
+    availablePresets: [],
     escapeHtml,
   });
 
@@ -611,7 +639,7 @@ test("bounded prefix completion text remains visible with or without rows", () =
           reason,
         }),
       },
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml,
     });
 
@@ -627,7 +655,7 @@ test("an exact zero-result completion states that no fallback search was used", 
       request: createQueryRequest("Missing.Package"),
       outcome: withCompletion(emptyOutcome(), { kind: "exact" }),
     },
-    availableFacets: [],
+    availablePresets: [],
     escapeHtml,
   });
 
@@ -644,7 +672,7 @@ test("exact inspection failure is not presented as a confirmed empty result", ()
         appendFailure(emptyOutcome(), "The package manifest could not be acquired."),
         { kind: "exact" }),
     },
-    availableFacets: [],
+    availablePresets: [],
     escapeHtml,
   });
 
@@ -666,7 +694,7 @@ test("row descriptions render as escaped text only when available", () => {
           ...(description === undefined ? {} : { description }),
         }]),
       },
-      availableFacets: [],
+      availablePresets: [],
       escapeHtml,
     });
     if (description?.trim()) {
@@ -681,7 +709,7 @@ test("row descriptions render as escaped text only when available", () => {
 test("the query header keeps home and Back without Query or Workspace buttons", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
 
@@ -701,19 +729,19 @@ test("a packageId cannot break out of the row's HTML attribute context via a quo
     outcome: appendRows(emptyOutcome(), [maliciousRow]),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.ok(!html.includes('" onmouseover="alert(1)'), "raw quote must not break out of the attribute");
   assert.match(html, /&quot; onmouseover=&quot;alert\(1\)/);
 });
 
-test("a streaming result renders rows, product facets, and the streaming footer", () => {
+test("a streaming result renders rows, product presets, and the streaming footer", () => {
   const state: PackageQueryState = {
-    request: withFacet(createQueryRequest("Microsoft."), NUSPEC_FACET),
+    request: withPreset(createQueryRequest("Microsoft."), NUSPEC_FACET),
     outcome: appendRows(emptyOutcome(), [row("Microsoft.Bcl.AsyncInterfaces")]),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /Microsoft\.Bcl\.AsyncInterfaces/);
   assert.match(html, /query-tier-nuspec/);
@@ -743,7 +771,7 @@ test("streaming progress renders with and without matching rows", () => {
       request: createQueryRequest("System.*"),
       outcome: progress,
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
   const withRows = renderPackageQueryView({
@@ -751,7 +779,7 @@ test("streaming progress renders with and without matching rows", () => {
       request: createQueryRequest("System.*"),
       outcome: appendRows(progress, [row("System.Text.Json")]),
     },
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
 
@@ -772,34 +800,34 @@ test("result rows render typed producer identity instead of a source literal", (
     }]),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, />contoso\.example\/v3</);
   assert.doesNotMatch(html, />nuget\.org<\/span>/);
 });
 
-test("facet buttons expose pressed state without shipping promoted placeholders", () => {
+test("preset buttons expose pressed state without shipping promoted placeholders", () => {
   const state: PackageQueryState = {
-    request: withFacet(
+    request: withPreset(
       createQueryRequest("Microsoft."),
       NUSPEC_FACET),
     outcome: appendRows(emptyOutcome(), [row("A")]),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(
     html,
-    /data-query-facet="tfm-out-of-support"[\s\S]*aria-pressed="true"/);
+    /data-query-preset="readme:eq:true"[\s\S]*aria-pressed="true"/);
   assert.match(
     html,
-    /data-query-facet="downloads-1m"[\s\S]*aria-pressed="false"/);
+    /data-query-preset="downloads:eq:1m"[\s\S]*aria-pressed="false"/);
   assert.doesNotMatch(html, /promoted|Deepen/);
 });
 
-test("tool format facets render as one independently selectable segmented control", () => {
+test("tool format presets render as one independently selectable segmented control", () => {
   const state: PackageQueryState = {
-    request: withFacet(
+    request: withPreset(
       createQueryRequest("Microsoft."),
       TOOL_FACETS[2]!),
     outcome: appendRows(emptyOutcome(), [row("A")]),
@@ -807,25 +835,47 @@ test("tool format facets render as one independently selectable segmented contro
 
   const html = renderPackageQueryView({
     state,
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
 
   assert.match(
     html,
-    /class="query-facet-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
+    /class="query-preset-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
   assert.match(
     html,
-    /data-query-facet="package\.query\.dotnet-tool"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
+    /data-query-preset="tool:eq:true"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
   assert.match(html, />\s*embedded SKILL\.md\s*<\/button>/);
   assert.match(
     html,
-    /Content facets download up to 20 candidate package archives/);
+    /Content facts download up to 20 candidate package archives/);
+});
+
+test("preset markup classes have matching Package Query style selectors", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availablePresets: FACETS,
+    escapeHtml,
+  });
+
+  for (const className of [
+    "query-preset",
+    "query-preset-group",
+    "query-preset-rail",
+    "query-preset-disclosure",
+  ]) {
+    assert.match(html, new RegExp(`class="[^"]*${className}`));
+    assert.match(styles, new RegExp(`\\.${className}(?:[\\s:{.,]|$)`));
+  }
+
+  assert.doesNotMatch(
+    styles,
+    /\.query-facet(?:-group|-rail)?(?:[\s:{.,]|$)/);
 });
 
 test("package-content results disclose their evidence tier", () => {
   const state: PackageQueryState = {
-    request: withFacet(createQueryRequest("Contoso."), SKILL_FACET),
+    request: withPreset(createQueryRequest("Contoso."), SKILL_FACET),
     outcome: appendRows(emptyOutcome(), [{
       ...row("Contoso.Skill"),
       tier: "package-content",
@@ -834,23 +884,23 @@ test("package-content results disclose their evidence tier", () => {
 
   const html = renderPackageQueryView({
     state,
-    availableFacets: FACETS,
+    availablePresets: FACETS,
     escapeHtml,
   });
 
   assert.match(html, /query-tier-package-content">package-content</);
 });
 
-test("a facet catalog failure remains visible beside an empty facet rail", () => {
+test("a preset catalog failure remains visible beside an empty preset rail", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
-    availableFacets: [],
-    navigationError: "Package-query facets are unavailable: catalog failed.",
+    availablePresets: [],
+    navigationError: "Package-query facts are unavailable: catalog failed.",
     escapeHtml,
   });
 
-  assert.match(html, /Package-query facets are unavailable: catalog failed/);
-  assert.match(html, /class="query-facets"><\/div>/);
+  assert.match(html, /Package-query facts are unavailable: catalog failed/);
+  assert.match(html, /class="query-presets"><\/div>/);
   assert.doesNotMatch(html, /role="alert"/);
   assert.doesNotMatch(
     html,
@@ -863,7 +913,7 @@ test("failures render alongside already-streamed rows, never as a bare empty sta
     outcome: appendFailure(appendRows(emptyOutcome(), [row("A")]), "feed Y unreachable"),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /feed Y unreachable/);
   assert.match(html, /<h2>A<\/h2>/);
@@ -879,7 +929,7 @@ test("an exhausted outcome with a partial failure never claims 'all matches'", (
     ),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /feed Y unreachable/);
   // "all matches" alone would overclaim exhaustiveness when a source failed.
@@ -893,7 +943,7 @@ test("an exhausted outcome with rows and no failures still says plain 'all match
     outcome: withCompletion(appendRows(emptyOutcome(), [row("A")]), { kind: "exhausted" }),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   // Without a failure, the qualified wording would be an unwarranted hedge.
   assert.match(html, /· all matches<\/span>/);
@@ -909,7 +959,7 @@ test("a bounded-complete outcome states the exact bound rather than a bare count
     ),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /bounded: first 1,500 relevance-ranked ids/);
   assert.doesNotMatch(html, /data-query-cancel="1"/);
@@ -921,11 +971,11 @@ test("no matches after completion renders the empty-match state, not the composi
     outcome: withCompletion(emptyOutcome(), { kind: "exhausted" }),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /No matches/);
-  // The facet rail stays mounted so the empty-state guidance is actionable.
-  assert.match(html, /query-facet-rail/);
+  // The preset rail stays mounted so the empty-state guidance is actionable.
+  assert.match(html, /query-preset-rail/);
   assert.match(html, /1M\+ downloads/);
 });
 
@@ -935,7 +985,7 @@ test("a bounded-complete zero-row outcome never claims plain 'no matches' — it
     outcome: withCompletion(emptyOutcome(), { kind: "bounded", reason: "first 1,500 relevance-ranked ids" }),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   // Plain "No matches" would overclaim exhaustiveness: a bounded search only
   // covered the declared cap, not the whole scope, so zero rows there is not
@@ -953,7 +1003,7 @@ test("a bounded-complete zero-row outcome with a partial failure keeps the bound
     ),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   // A bounded outcome keeps its bounded label regardless of a partial
   // failure (same rule the footer follows for non-empty results) — the
@@ -977,7 +1027,7 @@ test("zero rows plus a failure never renders as a confirmed empty result", () =>
     ),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /feed Y unreachable/);
   // "No matches" alone would falsely claim a clean, confirmed zero even
@@ -995,7 +1045,7 @@ test("a failed outcome with rows still shows them, with an escaped reason in the
     ),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /<h2>A<\/h2>/);
   assert.ok(!html.includes("<script>steal()"), "raw failure reason must not appear unescaped");
@@ -1010,7 +1060,7 @@ test("a failed outcome with zero rows renders the failed empty state with an esc
     outcome: withCompletion(emptyOutcome(), { kind: "failed", reason: "<script>steal()</script>" }),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   assert.match(html, /<h2>Query failed<\/h2>/);
   assert.ok(!html.includes("<script>steal()"), "raw failure reason must not appear unescaped");
@@ -1026,7 +1076,7 @@ test("a cancelled query with zero rows never renders as a confirmed empty result
     outcome: withCompletion(emptyOutcome(), { kind: "cancelled" }),
   };
 
-  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+  const html = renderPackageQueryView({ state, availablePresets: FACETS, escapeHtml });
 
   // "No matches" alone would falsely claim a confirmed clean zero even
   // though the run was stopped before it could search the whole scope.
@@ -1192,9 +1242,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-prerelease"),
     },
     {
-      active: new FakeElement({ queryFacet: "downloads-1m" }),
-      selector: "[data-query-facet]",
-      replacement: new FakeElement({ queryFacet: "downloads-1m" }),
+      active: new FakeElement({ queryPreset: "downloads:eq:1m" }),
+      selector: "[data-query-preset]",
+      replacement: new FakeElement({ queryPreset: "downloads:eq:1m" }),
     },
     {
       active: new FakeElement({ queryTermAdd: "depends" }),
@@ -1478,18 +1528,18 @@ test("semantic editor snapshots never modify a fallback control", () => {
   assert.equal(prefix.selectionRange, null);
 });
 
-test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
+test("bindPackageQueryView wires back, row-open, preset, and cancel", () => {
   const root = new FakeRoot();
   const [back] = root.add("#package-query-back", new FakeElement());
   const [open] = root.add("[data-query-row-open]", new FakeElement({ queryRowOpen: "A", queryRowVersion: "1.0.0" }));
-  const [facet] = root.add("[data-query-facet]", new FakeElement({ queryFacet: "tfm-out-of-support" }));
+  const [preset] = root.add("[data-query-preset]", new FakeElement({ queryPreset: "readme:eq:true" }));
   const [cancel] = root.add("[data-query-cancel]", new FakeElement());
 
   const calls: string[] = [];
   const actions: PackageQueryBindingActions = {
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
-    onFacetToggle: key => calls.push(`facet:${key}`),
+    onPresetToggle: key => calls.push(`preset:${key}`),
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
@@ -1503,13 +1553,13 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
 
   back?.dispatch("click");
   open?.dispatch("click");
-  facet?.dispatch("click");
+  preset?.dispatch("click");
   cancel?.dispatch("click");
 
   assert.deepEqual(calls, [
     "back",
     "open:A:1.0.0",
-    "facet:tfm-out-of-support",
+    "preset:readme:eq:true",
     "cancel",
   ]);
 });
@@ -1529,7 +1579,7 @@ test("bindPackageQueryView forwards library-literal and target-framework edits",
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: (...args) => calls.push(args),
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1567,7 +1617,7 @@ test("bindPackageQueryView defers library-literal updates during composition", (
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: (...args) => calls.push(args),
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1614,7 +1664,7 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1665,7 +1715,7 @@ test("assembly row binding forwards the exact opaque Root request", () => {
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1696,7 +1746,7 @@ test("prerelease changes forward the selection and current unmodified package te
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => assert.fail("source controls are not inspection facets"),
+    onPresetToggle: () => assert.fail("source controls are not inspection presets"),
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1739,7 +1789,7 @@ test("query form submits package text without a Gallery action", () => {
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
@@ -1786,7 +1836,7 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
-    onFacetToggle: () => {},
+    onPresetToggle: () => {},
     onLibraryLiteralInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
@@ -1832,7 +1882,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
     {
       onBack: () => {},
       onCancel: () => {},
-      onFacetToggle: () => {},
+      onPresetToggle: () => {},
       onLibraryLiteralInput: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },

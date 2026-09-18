@@ -84,6 +84,47 @@ test("finding chips open detail without jumping the source", async ({ page }) =>
   await expect(source).toHaveJSProperty("scrollTop", before);
 });
 
+test("Finding detail peeks exact callee evidence and navigates by typed target", async ({
+  page,
+}) => {
+  await page.locator("#explore-annotated").click();
+  await page.locator("#annotated-inspector-6").click();
+
+  const detail = page.locator(".annotated-detail");
+  await expect(detail.getByRole("heading", {
+    name: "Caller relationship targets",
+  })).toBeVisible();
+  await expect(detail.getByRole("heading", {
+    name: "Callee evidence",
+  })).toBeVisible();
+  await expect(detail.locator(".annotated-evidence-member")).toHaveText(
+    "System.Text.Json.JsonElement.DeepEquals(JsonElement, JsonElement)",
+  );
+  await expect(detail.locator(".annotated-evidence-selected")).toHaveText(
+    "stackalloc byte[64]",
+  );
+  await expect(detail).not.toContainText("IL_0012");
+
+  await detail.locator('[data-annotated-action="close-detail"]').click();
+  await page.locator("#annotated-inspector-7").click();
+  await expect(detail.locator(".annotated-evidence-selected")).toHaveText(
+    "stackalloc byte[128]",
+  );
+
+  await detail.locator('[data-annotated-action="close-detail"]').click();
+  await page.locator("#annotated-coordinate-toggle").click();
+  await page.locator("#annotated-inspector-6").click();
+  await expect(detail).toContainText("stack allocation");
+  await expect(detail).toContainText("IL_0012");
+
+  await detail.getByRole("button", { name: "Member", exact: true }).click();
+  await expect(page.locator("#annotated-source-modal")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-destination",
+    "member:evidence:6",
+  );
+});
+
 test("modal finding chips preserve the source pane position", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   await page.addStyleTag({

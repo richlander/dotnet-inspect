@@ -29,6 +29,12 @@ namespace DotnetInspect.Cli.Commands;
 
 public partial class PackageCommand
 {
+    private static readonly InspectionEnvelopeJsonContract<PackageVersionPopulationOutcome>
+        PackageVersionPopulationJson =
+            new(
+                "package-version-population",
+                1,
+                PackageVersionPopulationJsonContext.Default.PackageVersionPopulationOutcome);
 
     private static async Task<int> ExecuteOnlineVersionQueryAsync(
         string packageReference,
@@ -58,7 +64,7 @@ public partial class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
-        if (latest
+        if ((latest || isRange)
             && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
         {
             CommandError.Write(
@@ -81,18 +87,46 @@ public partial class PackageCommand
                     options.IncludePrerelease);
             return WriteVersionSettlement(envelope, packageReference, options);
         }
+        if (isRange)
+        {
+            using PackageSourceOperationLease operation =
+                composition.IssueSettlementOperation();
+            PackageVersionPopulationCountRequest? countRequest =
+                options.Count
+                    ? new(
+                        options.ListVersionsWithFeed
+                            ? PackageVersionPopulationCountCohort.SourceListings
+                            : PackageVersionPopulationCountCohort.Versions,
+                        options.VersionRowSelection)
+                    : null;
+            InspectionEnvelope<PackageVersionPopulationOutcome> population =
+                await PackageVersionPopulationInspection.ExecuteAsync(
+                    range!,
+                    composition.CreateSettlementHouse(
+                        packageId,
+                        options.SourceOptions,
+                        context.Logger.Log),
+                    operation,
+                    options.IncludePrerelease,
+                    options.IncludeUnlisted,
+                    countRequest);
+            return WriteVersionPopulationSettlement(
+                population,
+                packageReference,
+                options);
+        }
 
         PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
             packageId,
-            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
-            options.VersionRowSelection is not null || isRange || pinned
+            pinned || options.IncludePrerelease,
+            options.VersionRowSelection is not null || pinned
                 ? null : options.Limit,
             options.SourceOptions,
             context.Logger.Log,
             includeUnlisted: pinned || options.IncludeUnlisted);
 
-        bool requiresCompleteEvidence = isRange
-            || (!pinned && options.SingleVersionQuery);
+        bool requiresCompleteEvidence =
+            !pinned && options.SingleVersionQuery;
         if (discovery.State == PackageVersionDiscoveryState.Failed
             || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
         {
@@ -122,21 +156,6 @@ public partial class PackageCommand
             return 1;
         }
 
-        if (isRange)
-        {
-            try
-            {
-                listings = [.. PackageVersionVector.CreateListingAware(
-                    range!, listings, options.IncludePrerelease)
-                    .Take(options.Limit ?? int.MaxValue)];
-            }
-            catch (ArgumentException exception)
-            {
-                CommandError.Write(exception.Message);
-                return 1;
-            }
-        }
-
         if (discovery.State == PackageVersionDiscoveryState.Partial)
         {
             CommandError.WriteWarning(
@@ -145,6 +164,121 @@ public partial class PackageCommand
         }
 
         return WriteVersionQueryRows(listings, discovery.SourceListings, latest, options);
+    }
+
+    private static int WriteVersionPopulationSettlement(
+        InspectionEnvelope<PackageVersionPopulationOutcome> envelope,
+        string packageReference,
+        InspectionOptions options)
+    {
+        foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
+            CommandError.WriteWarning(diagnostic.Summary.ToString());
+
+        if (options.EnvelopeOutput)
+        {
+            if (options.Count)
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+            if (!InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    PackageVersionPopulationJson,
+                    includeEnvelope: true))
+            {
+                return 1;
+            }
+            return envelope.Content is PackageVersionPopulationOutcome.Populated
+            {
+                Count: not PackageVersionPopulationCountOutcome.Rejected,
+            }
+                ? 0
+                : 1;
+        }
+
+        if (envelope.Content is PackageVersionPopulationOutcome.Populated available)
+        {
+            if (options.Count)
+            {
+                if (available.Count
+                    is PackageVersionPopulationCountOutcome.Completed completed)
+                {
+                    string lens = options.ListVersionsWithFeed
+                        ? "--versions-with-feed"
+                        : "--versions";
+                    return LensProjection.TryProject(
+                        options,
+                        lens,
+                        completed.Result.Value,
+                        out int exit,
+                        ["Count"])
+                            ? exit
+                            : throw new InvalidOperationException(
+                                "Package version Count was not projected.");
+                }
+
+                if (available.Count
+                    is PackageVersionPopulationCountOutcome.Rejected rejected)
+                {
+                    PackageVersionPopulationCountFailure countFailure =
+                        rejected.Failure;
+                    CommandError.Write(
+                        $"Version row selection stage {countFailure.StageNumber} "
+                        + $"requires row {countFailure.RequiredPosition}, but "
+                        + $"{countFailure.AvailableCount} version rows are available.");
+                    return 1;
+                }
+
+                throw new InvalidOperationException(
+                    "Package version population did not retain requested Count.");
+            }
+
+            IReadOnlyList<PackageVersionInfo> listings =
+            [
+                .. available.Document.Versions.Select(version =>
+                    new PackageVersionInfo(version.Version, version.Listed)),
+            ];
+            return WriteVersionQueryRows(
+                listings,
+                available.Document.SourceListings,
+                latest: false,
+                options);
+        }
+
+        if (envelope.Content
+            is not PackageVersionPopulationOutcome.NotAvailable notAvailable)
+        {
+            throw new InvalidOperationException(
+                "Unknown package version population outcome.");
+        }
+        PackageVersionPopulationFailure failure = notAvailable.Failure;
+        var (displayPackageId, _) =
+            PackageExtractor.ParsePackageReference(packageReference);
+        if (failure.Kind == PackageVersionPopulationFailureKind.NotFound)
+        {
+            CommandError.Write(
+                $"Package '{packageReference}' not found on eligible configured sources.");
+            return 1;
+        }
+
+        if (failure.Kind == PackageVersionPopulationFailureKind.NoMatch)
+        {
+            CommandError.Write(failure.Reason.ToString());
+            return 1;
+        }
+
+        if (!failure.AuthorityFailures.IsEmpty)
+        {
+            WriteVersionDiscoveryFailureDetails(
+                displayPackageId,
+                [
+                    .. failure.AuthorityFailures.Select(value =>
+                        (value.Kind, value.Message.ToString())),
+                ]);
+            return 1;
+        }
+
+        CommandError.Write(
+            $"Package '{displayPackageId}' version discovery failed.",
+            [failure.Reason.ToString()]);
+        return 1;
     }
 
     private static int WriteVersionQueryRows(

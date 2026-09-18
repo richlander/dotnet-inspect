@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using Inspector.Findings;
@@ -55,6 +56,21 @@ public sealed class AssemblyContextSourceQueryContext
     public SymbolAcquisitionLimits? SymbolAcquisitionLimits { get; init; }
     public int MaxDecompilerBodyProjections { get; init; } =
         CSharpDecompilerService.DefaultMaxBodyProjections;
+
+    /// <summary>Authored settlement bounds for the selected-member pair query only.</summary>
+    public SourceHouseLimits MemberSourcePairLimits { get; init; } = new(
+        maximumAssemblyBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
+        maximumPortablePdbBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
+        targetBounds: new(65_536, 1_000_000, 100_000, 100_000, 8_000_000, 256_000_000),
+        sourceLinkReadLimits: new(512 * 1024 * 1024, 16_000_000, 100_000),
+        maximumDocuments: 1_000_000,
+        maximumTargetMappings: 1_000_000,
+        maximumCandidateAttempts: 3,
+        maximumSourceBytes: 64 * 1024 * 1024,
+        maximumSourceTextCharacters: 64 * 1024 * 1024);
+
+    /// <summary>Per-endpoint settlement time after upstream PDB acquisition.</summary>
+    public TimeSpan MemberSourcePairTimeout { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Allows checksum-authenticated reads from absolute paths recorded in the
@@ -1323,7 +1339,7 @@ public static class AssemblyContextSourceQuery
         }
     }
 
-    static void ValidateAfterSourceDisposal(
+    internal static void ValidateAfterSourceDisposal(
         AssemblyContextParticipant participant,
         AssemblyBindingPolicyVersion expectedVersion,
         CancellationToken cancellationToken,

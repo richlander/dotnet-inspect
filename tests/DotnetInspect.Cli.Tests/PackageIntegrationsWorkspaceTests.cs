@@ -268,7 +268,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 "package", $"{packageName}@1.0.0",
                 "--all-libraries",
                 .. targetFramework is null ? Array.Empty<string>() : ["--tfm", targetFramework],
-                "-S", "Integration: Opportunities",
+                "-S", "Integration Opportunities",
                 "--source", source,
                 "--markdown", "--verbose", "--tips", "q",
             ];
@@ -281,7 +281,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             });
 
             Assert.True(exit == 0, error);
-            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains("## Integration Opportunities", output);
             Assert.Contains("Npgsql.NpgsqlConnection", output);
             Assert.Equal(
                 includeReferenceRole || targetFramework == "all" ? 2 : 1,
@@ -1148,7 +1148,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             [
                 "package", archive, "--all-libraries",
                 "--tfm", shape == "all-frameworks" ? "all" : "net11.0",
-                "-S", "Integration: Opportunities", "--markdown",
+                "-S", "Integration Opportunities", "--markdown",
                 "--offline", "--no-nuget-cache", "--verbose", "--tips", "q",
             ];
             var start = new ProcessStartInfo(
@@ -1185,7 +1185,7 @@ public sealed class PackageIntegrationsWorkspaceTests
 
             Assert.True(exit == 0, error);
             Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
-            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains("## Integration Opportunities", output);
             Assert.Equal(expectedLibraries, output.Split(
                 "| Aspire | `Npgsql.NpgsqlConnection` |", StringSplitOptions.None).Length - 1);
             Assert.Contains("Health Checks", output);

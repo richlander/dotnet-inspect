@@ -362,9 +362,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.1685943924");
+        value = $ownDataProperty(value, "RunPackageQuery.52840355");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
         }
     }
     {
@@ -529,8 +529,8 @@ export async function runPackageAssemblySemanticQuery(operationId, packageInput,
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function runPackageQuery(operationId, prefix, facetIdsJson, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, facetIdsJson, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+export async function runPackageQuery(operationId, prefix, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.52840355"](operationId, prefix, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

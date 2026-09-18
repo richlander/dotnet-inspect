@@ -100,9 +100,6 @@ public static class InspectionCommandDefinitions
         command.Options.Add(opts.Fields);
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
-
         command.SetAction(async (parseResult, ct) =>
         {
             string[] positional = parseResult.GetValue(argsArgument) ?? [];
@@ -190,11 +187,16 @@ public static class InspectionCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return command;
     }
@@ -412,6 +414,12 @@ public static class InspectionCommandDefinitions
         opts.AddPrintOptionTo(assemblyCommand);
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
+        assemblyCommand.Subcommands.Add(
+            LibraryCoordinateCommandDefinitions.Create(
+                opts,
+                assemblyCommand,
+                assemblyPathArg,
+                metadataRootOption));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -586,24 +594,12 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], .. targets];
             }
 
-            string? metadataRootText = parseResult.GetValue(metadataRootOption);
-            MetadataRootKind metadataRoot;
-            if (string.IsNullOrWhiteSpace(metadataRootText)
-                || metadataRootText.Equals("cli", StringComparison.OrdinalIgnoreCase))
+            if (!TryParseMetadataRoot(
+                    parseResult.GetValue(metadataRootOption),
+                    out MetadataRootKind metadataRoot,
+                    out string? metadataRootError))
             {
-                metadataRoot = MetadataRootKind.Cli;
-            }
-            else if (metadataRootText.Equals(
-                "r2r-manifest",
-                StringComparison.OrdinalIgnoreCase))
-            {
-                metadataRoot = MetadataRootKind.ReadyToRunManifest;
-            }
-            else
-            {
-                CommandError.Write(
-                    $"invalid --metadata-root value '{metadataRootText}': "
-                    + "expected cli or r2r-manifest.");
+                CommandError.Write(metadataRootError!);
                 return 1;
             }
 
@@ -672,5 +668,32 @@ public static class InspectionCommandDefinitions
         });
 
         return assemblyCommand;
+    }
+
+    internal static bool TryParseMetadataRoot(
+        string? value,
+        out MetadataRootKind metadataRoot,
+        out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Equals("cli", StringComparison.OrdinalIgnoreCase))
+        {
+            metadataRoot = MetadataRootKind.Cli;
+            error = null;
+            return true;
+        }
+
+        if (value.Equals("r2r-manifest", StringComparison.OrdinalIgnoreCase))
+        {
+            metadataRoot = MetadataRootKind.ReadyToRunManifest;
+            error = null;
+            return true;
+        }
+
+        metadataRoot = default;
+        error =
+            $"invalid --metadata-root value '{value}': "
+            + "expected cli or r2r-manifest.";
+        return false;
     }
 }

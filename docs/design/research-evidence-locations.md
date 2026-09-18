@@ -1,7 +1,7 @@
 # Research evidence locations
 
-Status: proposed for
-[#5610](https://github.com/richlander/dotnet-inspect/issues/5610).
+Status: implemented by
+[#7360](https://github.com/richlander/dotnet-inspect/pull/7360).
 
 **Owner:** `ILInspector.Research` evidence-location composition.
 
@@ -63,8 +63,8 @@ The first adopter is the Research call-site fact family:
 - `cost.callee` retains the resolved callee as method-only aggregate evidence.
 
 The annotation's existing `SourceOffset` remains the caller relationship
-coordinate. The typed payload owns the remote evidence subject and locations.
-This slice does not project or render remote documents.
+coordinate. The typed payload owns the callee evidence subject and locations.
+This slice does not project or render callee evidence documents.
 
 ## Pathological case and gates
 
@@ -85,11 +85,13 @@ Release tests gate:
 
 ## Production adoption
 
-This is step 1 of 4:
+This is the foundation for a four-step adoption:
 
-1. Define the carrier and adopt it in Research call-site facts (#5610).
-2. Expose method-qualified remote evidence in CLI Facts output (#7358).
-3. Project exact remote safety and semantics evidence into Inspect Web
+1. Define the carrier and adopt it in Research call-site facts (#5610,
+   completed by #7360).
+2. Expose method-qualified callee evidence in CLI Facts output (#7358,
+   completed by #7392).
+3. Project exact callee safety and semantics evidence into Inspect Web
    (#4641).
 4. Present method-level aggregate cost evidence in Inspect Web (#4642), with
    shared evidence-document deduplication and bounds tracked by #4640.
@@ -103,7 +105,7 @@ locations. Each host owns only its presentation and navigation behavior.
   evidence construction.
 - No change to Decompiler `IAnnotation`, source-node identity, provenance, or
   correspondence.
-- No browser wire shape, remote-document acquisition, node mapping,
+- No browser wire shape, network source-document acquisition, node mapping,
   deduplication, payload budget, or interaction behavior.
 - No CLI formatting or structured-output change in this slice.
 - No claim that aggregate cost evidence has one truthful source line.

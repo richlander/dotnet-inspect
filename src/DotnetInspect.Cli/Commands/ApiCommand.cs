@@ -2609,6 +2609,19 @@ public class ApiCommand
                 + "use Markdown/plaintext or exact singleton --json without row, column, count, or payload projection.");
             return 1;
         }
+        if (IsInvalidFactsJsonSelection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.Facts}' must be the only selected section under unprojected --json.");
+            return 1;
+        }
+        if (IsInvalidFactsJsonWindow(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.Facts}' exact --json is a complete typed document; "
+                + "use --table, --tsv, --jsonl, or an explicit field/column projection for row shaping.");
+            return 1;
+        }
         bool findingCensusExplicitlySelected =
             HasExplicitFindingCensusSelector(options);
         if (findingCensusExplicitlySelected
@@ -2672,6 +2685,8 @@ public class ApiCommand
 
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool findingCensusJson = IsFindingCensusJson(options);
+        bool factsJson = IsFactsJson(options);
+        bool projectedFactsJson = IsProjectedFactsJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         string? exactSourceFailure =
@@ -2724,7 +2739,8 @@ public class ApiCommand
         }
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
-            && !sourceDocumentJson && !findingCensusJson)
+            && !sourceDocumentJson && !findingCensusJson && !factsJson
+            && !projectedFactsJson)
         {
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.ImplementationProfiles))
@@ -3051,6 +3067,51 @@ public class ApiCommand
                 MemberFindingCensusJsonContext.Default.MemberFindingCensusEnvelope,
                 MemberFindingCensusCompactJsonContext.Default.MemberFindingCensusEnvelope,
                 options.CompactJson);
+            return 0;
+        }
+
+        if (factsJson)
+        {
+            if (view.MemberCode?.FactsDocument is not { } facts)
+            {
+                CommandError.Write(
+                    $"section '{SectionNames.Facts}' produced no payload.");
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                facts,
+                MemberFactsJsonContext.Default.MemberFactsDocument,
+                MemberFactsCompactJsonContext.Default.MemberFactsDocument,
+                options.CompactJson);
+            return 0;
+        }
+
+        if (projectedFactsJson)
+        {
+            if (view.MemberCode is not { } memberCode)
+            {
+                CommandError.Write(
+                    $"section '{SectionNames.Facts}' produced no payload.");
+                return 1;
+            }
+
+            OutputFormatter.WriteProjectedJson(
+                sink,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = [SectionNames.Facts];
+                    MarkoutSerializer.Serialize(
+                        memberCode,
+                        writer,
+                        formatter,
+                        ApiViewContext.Default,
+                        writerOptions);
+                },
+                !options.CompactJson,
+                GetProjectedFactsRowWindow(options));
             return 0;
         }
 
@@ -4738,6 +4799,88 @@ public class ApiCommand
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.FindingCensus)
            && HasOnlyExplicitFindingCensusSelectors(options);
+
+    private static bool IsFactsJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
+           && options.Limit is null
+           && !IsMemberLineWindowRequested(options)
+           && options.Rows is null
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.Facts)
+           && HasOnlyExplicitFactsSelectors(options);
+
+    private static bool IsProjectedFactsJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && IsColumnProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.Facts)
+           && HasOnlyExplicitFactsSelectors(options);
+
+    private static RowWindow? GetProjectedFactsRowWindow(
+        ApiOptions options)
+    {
+        if (options.Rows is { } rows)
+            return rows;
+        if (ArgumentPreprocessor.TailLines is int tail)
+            return RowWindow.Tail(tail);
+        if (ArgumentPreprocessor.HeadLines is int head)
+            return RowWindow.Head(head);
+        return options.Limit is int limit
+            ? RowWindow.Head(limit)
+            : null;
+    }
+
+    private static bool IsInvalidFactsJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.Facts)
+           && HasExplicitFactsSelector(options)
+           && (sections.Count != 1
+               || !HasOnlyExplicitFactsSelectors(options));
+
+    private static bool IsInvalidFactsJsonWindow(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
+           && options.IncludeSections?.Contains(SectionNames.Facts) == true
+           && HasExplicitFactsSelector(options)
+           && (options.Limit is not null
+               || IsMemberLineWindowRequested(options)
+               || options.Rows is not null);
+
+    private static bool IsMemberLineWindowRequested(ApiOptions options)
+        => IsLineLimitRequested()
+           || options is MemberOptions
+           {
+               LineWindowExplicitlySet: true,
+           };
+
+    private static bool HasOnlyExplicitFactsSelectors(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.Facts)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitFactsSelector);
+
+    private static bool HasExplicitFactsSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.Facts) == true
+            : options.Select?.Any(IsExplicitFactsSelector) == true;
+
+    private static bool IsExplicitFactsSelector(string selector)
+        => selector.Equals(
+            SectionNames.Facts,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsInvalidFindingCensusJsonSelection(ApiOptions options)
         => options.JsonOutput

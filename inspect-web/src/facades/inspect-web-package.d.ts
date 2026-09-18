@@ -19,11 +19,11 @@ export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackage
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
 export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
+export type BrowserPackageQueryAcquisitionTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
 export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
-export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
 export type BrowserPackageQueryManifestIdentityProvenance = "ExpectedCoordinate" | "SelfAttested" | number;
@@ -579,7 +579,7 @@ export interface BrowserPackageQueryCancellation {
     readonly reason: string | null;
 }
 export interface BrowserPackageQueryCatalog {
-    readonly facets: ReadonlyArray<BrowserPackageQueryFacetDescriptor>;
+    readonly presets: ReadonlyArray<BrowserPackageQueryPresetDescriptor>;
     readonly terms: ReadonlyArray<BrowserPackageQueryTermDescriptor>;
 }
 export interface BrowserPackageQueryCompletion {
@@ -632,17 +632,6 @@ export interface BrowserPackageQueryEvidenceSummary {
     readonly count: number;
     readonly preview: ReadonlyArray<string>;
 }
-export interface BrowserPackageQueryFacetDescriptor {
-    readonly id: string;
-    readonly label: string;
-    readonly summary: string;
-    readonly weight: number;
-    readonly tier: BrowserPackageQueryFacetTier;
-    readonly selectionGroupId: string | null;
-    readonly combinesWithinSelectionGroup: boolean;
-    readonly displayGroupId: string | null;
-    readonly displayGroupLabel: string | null;
-}
 export interface BrowserPackageQueryFailure {
     readonly packageId: string | null;
     readonly version: string | null;
@@ -679,6 +668,20 @@ export interface BrowserPackageQueryMatchCreditResponse {
     readonly kind: BrowserPackageQueryMatchCreditKind;
     readonly additionalMatchCredit: number | null;
 }
+export interface BrowserPackageQueryPresetDescriptor {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+    readonly label: string;
+    readonly summary: string;
+    readonly weight: number;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
+    readonly selectionGroupId: string | null;
+    readonly combinesWithinSelectionGroup: boolean;
+    readonly replacementGroupId: string | null;
+    readonly displayGroupId: string | null;
+    readonly displayGroupLabel: string | null;
+}
 export interface BrowserPackageQueryProgress {
     readonly phase: BrowserPackageQueryProgressPhase;
     readonly completed: number;
@@ -697,7 +700,7 @@ export interface BrowserPackageQueryResult {
 export interface BrowserPackageQueryRow {
     readonly packageId: string;
     readonly version: string;
-    readonly tier: BrowserPackageQueryFacetTier;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
     readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
     readonly totalDownloads: number | null;
     readonly verified: boolean | null;
@@ -717,7 +720,7 @@ export interface BrowserPackageQueryTermDescriptor {
     readonly label: string;
     readonly summary: string;
     readonly weight: number;
-    readonly tier: BrowserPackageQueryFacetTier;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
     readonly operators: ReadonlyArray<string>;
     readonly valueKind: string;
     readonly example: string;
@@ -901,5 +904,5 @@ export declare function requestPackageQueryMatches(operationId: string, addition
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
 export declare function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
-export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
+export declare function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

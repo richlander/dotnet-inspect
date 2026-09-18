@@ -95,7 +95,11 @@ public class LibraryCommand
         // which is exactly when "what did this actually scan?" is worth knowing.
         var trace = new InspectionTrace
         {
-            Command = new InertString(TextPolicy.Field, "library"),
+            Command = new InertString(
+                TextPolicy.Field,
+                options.IsCoordinateCommand
+                    ? "library coordinate"
+                    : "library"),
             Target = new InertString(
                 TextPolicy.Field,
                 Path.GetFileName(
@@ -368,19 +372,24 @@ public class LibraryCommand
             if (options.IntegrationQuery.HasFilter)
             {
                 string[] integrationSections =
-                    [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities];
+                    [
+                        IntegrationSectionNames.Integrations,
+                        IntegrationSectionNames.Opportunities,
+                    ];
                 if (options.IncludeSections is not { Count: > 0 })
                 {
                     options = options with
                     {
-                        IncludeSections = [.. integrationSections],
+                        IncludeSections =
+                            [IntegrationSectionNames.Integrations],
                         FixedOverview = false,
                     };
                 }
                 else if (!options.IncludeSections.Overlaps(integrationSections))
                 {
                     CommandError.Write(
-                        "--where ecosystem=... targets Integrations. Omit -S or include an Integration section.");
+                        "Integration --where predicates target Integrations. "
+                        + "Omit -S or include Integrations or Integration Opportunities.");
                     return 1;
                 }
             }
@@ -523,7 +532,10 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
-            CommandError.Write($"--heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            string requestName = options.IsCoordinateCommand
+                ? "library coordinate"
+                : "--heap";
+            CommandError.Write($"{requestName} requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
@@ -531,7 +543,10 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            CommandError.Write($"--il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
+            string requestName = options.IsCoordinateCommand
+                ? "library coordinate"
+                : "--il-offset";
+            CommandError.Write($"{requestName} requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
@@ -1752,7 +1767,17 @@ public class LibraryCommand
         {
             var value = select[i].Trim();
             if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                return (options, $"IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
+            {
+                return options.IsCoordinateCommand
+                    ? (options,
+                        "IL coordinate parameters belong in the coordinate argument, "
+                        + $"not in -S. Use library coordinate 0x06000001+0x5 "
+                        + $"--library <path> -S \"{SectionNames.ILOffset}\".")
+                    : (options,
+                        $"IL offset parameters belong in --il-offset, not in -S. "
+                        + $"Use --il-offset 0x06000001+0x5 "
+                        + $"-S \"{SectionNames.ILOffset}\".");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -2083,7 +2108,14 @@ public class LibraryCommand
             return (options, null);
 
         if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
-            return (options, $"invalid --heap value '{options.HeapParameter}': {error}");
+        {
+            string requestName = options.IsCoordinateCommand
+                ? "coordinate"
+                : "--heap value";
+            return (
+                options,
+                $"invalid {requestName} '{options.HeapParameter}': {error}");
+        }
 
         if (options.Discover != null || options.Select is { Length: > 0 })
             return (options, null);
@@ -3224,7 +3256,12 @@ public class LibraryCommand
         }
 
         if (options.IntegrationQuery.HasFilter
-            && section.StartsWith(IntegrationSectionNames.Prefix, StringComparison.OrdinalIgnoreCase))
+            && (section.Equals(
+                    IntegrationSectionNames.Integrations,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    IntegrationSectionNames.Opportunities,
+                    StringComparison.OrdinalIgnoreCase)))
             return false;
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
@@ -3286,12 +3323,15 @@ public class LibraryCommand
 
         if (failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal))
         {
-            return section.Equals(IntegrationSectionNames.OpenTelemetry, StringComparison.OrdinalIgnoreCase);
+            return section.Equals(
+                IntegrationSectionNames.Integrations,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
-               && LibraryIntegrationCatalog.All.Any(
-                   descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
+               && section.Equals(
+                   IntegrationSectionNames.Integrations,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)
@@ -3528,7 +3568,25 @@ public class LibraryCommand
             return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
-        // --tfm <specific>: find assembly by TFM
+        if (!string.IsNullOrEmpty(assemblyName))
+        {
+            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
+            if (matchedAssembly == null)
+            {
+                CommandError.Write($"Library '{assemblyName}' not found in package.");
+                CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            if (matchedTfm != null)
+                logger.Log($"Using TFM: {matchedTfm}");
+
+            logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
+            return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        }
+
+        // --tfm <specific>: find the package-primary assembly by TFM
         if (!string.IsNullOrEmpty(tfm))
         {
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
@@ -3549,41 +3607,23 @@ public class LibraryCommand
         }
 
         // No --tfm and no assembly name: select the highest-priority TFM (default)
-        if (string.IsNullOrEmpty(assemblyName))
+        var defaultCandidates = TfmSelector.GetPackageAssemblies(extractPath);
+        if (defaultCandidates.Count == 0)
         {
-            var candidates = TfmSelector.GetPackageAssemblies(extractPath);
-            if (candidates.Count == 0)
-            {
-                CommandError.Write("No DLLs found in package.");
-                DeleteTempDir(tempDir);
-                return null;
-            }
-
-            var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(candidates, extractPath, resolution.PackageName);
-            if (selectedPath == null)
-            {
-                // No TFM structure found, fall back to first DLL
-                return ([candidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-            }
-
-            logger.Log($"Using TFM: {selectedTfm}");
-            return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
-        }
-
-        var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
-        if (matchedAssembly == null)
-        {
-            CommandError.Write($"Library '{assemblyName}' not found in package.");
-            CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+            CommandError.Write("No DLLs found in package.");
             DeleteTempDir(tempDir);
             return null;
         }
 
-        if (matchedTfm != null)
-            logger.Log($"Using TFM: {matchedTfm}");
+        var (selectedPath, selectedTfm) = TfmSelector.SelectHighestTfmAssembly(defaultCandidates, extractPath, resolution.PackageName);
+        if (selectedPath == null)
+        {
+            // No TFM structure found, fall back to first DLL
+            return ([defaultCandidates[0]], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        }
 
-        logger.Log($"Found: {Path.GetRelativePath(extractPath, matchedAssembly)}");
-        return ([matchedAssembly], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+        logger.Log($"Using TFM: {selectedTfm}");
+        return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
     private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);

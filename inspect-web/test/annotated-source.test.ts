@@ -33,6 +33,9 @@ import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../prototypes/annotated-source-viewer/src/sample-document.js";
 import {
   csharpOnlyEmptyViewerCatalog,
+  sampleCalleeDocument,
+  sampleCalleeEvidence,
+  sampleCalleeEvidenceDocuments,
   sampleInvocationTarget,
   sampleViewerCatalog,
 } from "./annotated-source-result-fixture.ts";
@@ -114,6 +117,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       destinationIndex: "2",
       destination: "source",
     }),
+    new FakeElement({
+      annotatedAction: "finding-evidence-open",
+      factId: "4",
+      destination: "member",
+    }),
   ];
   const calls: AnnotatedSourceAction[] = [];
   bindAnnotatedSource(
@@ -148,6 +156,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       destinationIndex: 2,
       destination: "source",
     },
+    {
+      kind: "finding-evidence-open",
+      factId: 4,
+      destination: "member",
+    },
   ]);
 });
 
@@ -162,6 +175,11 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
     new FakeElement({
       annotatedAction: "destination-open",
       destinationIndex: "x",
+      destination: "other",
+    }),
+    new FakeElement({
+      annotatedAction: "finding-evidence-open",
+      factId: "x",
       destination: "other",
     }),
   ];
@@ -187,6 +205,8 @@ function escapeHtml(value: unknown) {
 const result: AnnotatedSourceResult = {
   document: sampleDocument,
   viewerCatalog: sampleViewerCatalog,
+  findingEvidenceDocuments: [],
+  findingEvidence: [],
   provenance: inertStringFixture("decompiled from IL"),
   contextLimitation: null,
 };
@@ -234,9 +254,259 @@ function invocationResult(): AnnotatedSourceResult {
   };
 }
 
+function calleeEvidenceResult(
+  evidence: AnnotatedSourceResult["findingEvidence"][number] =
+    sampleCalleeEvidence,
+  evidenceDocument: AnnotatedSourceDocument = sampleCalleeDocument,
+): AnnotatedSourceResult {
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      facts: sampleDocument.facts.map(fact =>
+        fact.id === 0
+          ? { ...fact, descriptor: "safety.callee" }
+          : fact),
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      findingEvidence: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    findingEvidenceDocuments: evidence.documentId === null
+      ? []
+      : [{
+          ...sampleCalleeEvidenceDocuments[0],
+          document: evidenceDocument,
+        }],
+    findingEvidence: [evidence],
+  };
+}
+
 test("the result preserves the validated portable document contract", () => {
   const document: AnnotatedSourceDocument = result.document;
   assert.equal(document, sampleDocument);
+});
+
+test("viewer model validates exact callee evidence documents and node kinds", () => {
+  const model = createAnnotatedSourceViewerModel(calleeEvidenceResult());
+
+  assert.equal(model.findingEvidence.length, 1);
+  assert.equal(model.findingEvidenceByFactId.get(0)?.instanceKey, 41);
+  assert.equal(
+    model.findingEvidenceByFactId.get(0)?.document,
+    sampleCalleeDocument,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      documentId: 99,
+    })),
+    /names no callee document/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [
+        ...sampleCalleeEvidenceDocuments,
+        ...sampleCalleeEvidenceDocuments,
+      ],
+    }),
+    /invalid or duplicate id/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [
+        ...sampleCalleeEvidenceDocuments,
+        {
+          id: 1,
+          document: sampleCalleeDocument,
+        },
+      ],
+    }),
+    /unreferenced callee evidence document/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      documentId: null,
+    })),
+    /requires a document, coordinates, and node ids/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      nodeIds: [99],
+    })),
+    /node ids do not equal its exact coordinate matches/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
+        ...sampleCalleeDocument,
+        nodes: [{
+          ...sampleCalleeDocument.nodes[0],
+          spans: [{ start: 99, length: 1 }],
+        }],
+      },
+    )),
+    /outside the document text/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
+        ...sampleCalleeDocument,
+        nodes: [{
+          ...sampleCalleeDocument.nodes[0],
+          kind: "InvocationExpression",
+        }],
+      },
+    )),
+    /matches 0 StackAllocationExpression nodes/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      coordinates: [{
+        ilOffset: 3,
+        kind: "Localloc",
+      }],
+    })),
+    /matches 0 StackAllocationExpression nodes/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        nodeIds: [1],
+      },
+      {
+        ...sampleCalleeDocument,
+        text: `${sampleCalleeDocument.text}; stackalloc byte[2]`,
+        nodes: [
+          sampleCalleeDocument.nodes[0],
+          {
+            id: 1,
+            kind: "StackAllocationExpression",
+            medium: "CSharp",
+            spans: [{
+              start: sampleCalleeDocument.text.length + 2,
+              length: 18,
+            }],
+            provenance: {
+              il_offsets: [9],
+            },
+          },
+        ],
+      },
+    )),
+    /node ids do not equal its exact coordinate matches/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult(
+      sampleCalleeEvidence,
+      {
+        ...sampleCalleeDocument,
+        nodes: [{
+          ...sampleCalleeDocument.nodes[0],
+          provenance: {
+            il_offsets: [],
+          },
+        }],
+      },
+    )),
+    /provenance must be a non-empty C# IL-offset set/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel(calleeEvidenceResult({
+      ...sampleCalleeEvidence,
+      nodeIds: [],
+      unavailableReason: "No unique callee source node.",
+    })),
+    /unavailable despite exact serialized correspondence/,
+  );
+  const reverseSourceOrder = createAnnotatedSourceViewerModel(
+    calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        coordinates: [
+          {
+            ilOffset: 2,
+            kind: "Localloc",
+          },
+          {
+            ilOffset: 9,
+            kind: "Localloc",
+          },
+        ],
+        nodeIds: [0, 1],
+      },
+      {
+        ...sampleCalleeDocument,
+        text: `${sampleCalleeDocument.text}; stackalloc byte[2]`,
+        nodes: [
+          {
+            id: 0,
+            kind: "StackAllocationExpression",
+            medium: "CSharp",
+            spans: [{
+              start: sampleCalleeDocument.text.length + 2,
+              length: 18,
+            }],
+            provenance: {
+              il_offsets: [9],
+            },
+          },
+          {
+            ...sampleCalleeDocument.nodes[0],
+            id: 1,
+          },
+        ],
+      },
+    ),
+  );
+  assert.deepEqual(reverseSourceOrder.findingEvidence[0]?.nodeIds, [0, 1]);
+  const sharedNode = createAnnotatedSourceViewerModel(
+    calleeEvidenceResult(
+      {
+        ...sampleCalleeEvidence,
+        coordinates: [
+          {
+            ilOffset: 2,
+            kind: "Localloc",
+          },
+          {
+            ilOffset: 9,
+            kind: "Localloc",
+          },
+        ],
+        nodeIds: [0],
+      },
+      {
+        ...sampleCalleeDocument,
+        nodes: [{
+          ...sampleCalleeDocument.nodes[0],
+          provenance: {
+            il_offsets: [2, 9],
+          },
+        }],
+      },
+    ),
+  );
+  assert.deepEqual(sharedNode.findingEvidence[0]?.nodeIds, [0]);
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...calleeEvidenceResult(),
+      findingEvidenceDocuments: [],
+      findingEvidence: [],
+    }),
+    /does not cover every instruction-level callee Finding/,
+  );
 });
 
 test("the pure renderer rejects an invalid document for the shell to surface", () => {
@@ -600,6 +870,79 @@ test("chip and persistent inspector paths render identical non-empty detail", ()
   assert.match(coordinates, /<dt>Source offset<\/dt><dd>1<\/dd>/);
 });
 
+test("Finding detail separates caller targets from exact callee evidence", () => {
+  const source = calleeEvidenceResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const modal = openModalSession(
+    model,
+    createEmbeddedSession(model),
+  ).modal;
+  const selected = selectFinding(
+    modal,
+    { kind: "inspector", factId: 0 },
+  );
+  const html = renderAnnotatedSourceModal({
+    result: source,
+    session: selected,
+    escapeHtml,
+  });
+
+  assert.match(html, /Caller relationship targets/);
+  assert.match(html, /<h4>Callee evidence<\/h4>/);
+  assert.match(html, /Example\.Targets\.Target\(int\)/);
+  assert.match(
+    html,
+    /data-annotated-action="finding-evidence-open"[\s\S]*data-destination="member">Member<\/button>/,
+  );
+  assert.match(
+    html,
+    /data-annotated-action="finding-evidence-open"[\s\S]*data-destination="source">Source<\/button>/,
+  );
+  assert.match(
+    html,
+    /class="annotated-evidence-selected">stackalloc int\[1\]<\/span>/,
+  );
+  assert.doesNotMatch(html, /IL_0002/);
+
+  const coordinates = renderAnnotatedSourceModal({
+    result: source,
+    session: toggleCoordinates(selected).state,
+    escapeHtml,
+  });
+  assert.match(coordinates, /stack allocation\s*· IL_0002/);
+
+  const unavailableSource = calleeEvidenceResult(
+    {
+      ...sampleCalleeEvidence,
+      nodeIds: [],
+      unavailableReason: "No unique callee source node.",
+    },
+    {
+      ...sampleCalleeDocument,
+      nodes: [{
+        ...sampleCalleeDocument.nodes[0],
+        provenance: {
+          il_offsets: [3],
+        },
+      }],
+    },
+  );
+  const unavailableModel = createAnnotatedSourceViewerModel(unavailableSource);
+  const unavailableHtml = renderAnnotatedSourceModal({
+    result: unavailableSource,
+    session: selectFinding(
+      openModalSession(
+        unavailableModel,
+        createEmbeddedSession(unavailableModel),
+      ).modal,
+      { kind: "inspector", factId: 0 },
+    ),
+    escapeHtml,
+  });
+  assert.match(unavailableHtml, /No unique callee source node\./);
+  assert.doesNotMatch(unavailableHtml, /annotated-evidence-source/);
+});
+
 test("mixed-line hidden media keeps its layout text but removes its action", () => {
   const source: AnnotatedSourceResult = {
     document: {
@@ -632,6 +975,8 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         unavailableReason: "NotProjected",
       },
     },
+    findingEvidenceDocuments: [],
+    findingEvidence: [],
     provenance: inertStringFixture("mixed media"),
     contextLimitation: null,
   };
@@ -656,6 +1001,8 @@ test("source text is escaped while source actions and chrome remain separate", (
       targets: [],
     },
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
+    findingEvidenceDocuments: [],
+    findingEvidence: [],
     provenance: inertStringFixture("decompiled from IL"),
     contextLimitation: null,
   };
@@ -767,6 +1114,10 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   assert.match(
     appSource,
     /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+  );
+  assert.match(
+    appSource,
+    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,

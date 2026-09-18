@@ -29,6 +29,9 @@ public static class CommandLineBuilder
     /// </summary>
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
+    public static bool LineWindowExplicitlySet =>
+        ArgumentPreprocessor.LineWindowExplicitlySet;
+
     /// <summary>
     /// Returns whether the parsed route owns <c>-n</c> as a typed item limit rather
     /// than delegating it to the host's rendered-line writer.
@@ -50,7 +53,12 @@ public static class CommandLineBuilder
                 && (HasParsedOption(result, "--versions")
                     || HasParsedOption(
                         result,
-                        "--versions-with-feed")));
+                        "--versions-with-feed")))
+            || (result.CommandResult.Command.Name
+                    == MemberCommand.Name
+                && HasParsedOption(result, "--json")
+                && (HasParsedOption(result, "--fields")
+                    || HasParsedOption(result, "--columns")));
     }
 
     /// <summary>
@@ -125,6 +133,11 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
+            processed,
+            rootCommand,
+            "library",
+            "coordinate");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -153,6 +166,69 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
+        string[] args,
+        RootCommand rootCommand,
+        string parentName,
+        string childName)
+    {
+        if (args.FirstOrDefault() != parentName
+            || !args.TakeWhile(static token => token != "--").Contains(childName))
+            return args;
+
+        Command? parent = rootCommand.Subcommands.FirstOrDefault(
+            command => command.Name == parentName);
+        if (parent is null)
+            return args;
+
+        List<string>? result = null;
+        for (int i = 1; i < args.Length; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+            {
+                result?.AddRange(args[i..]);
+                break;
+            }
+
+            int separator = token.Length - 1;
+            if (separator <= 0
+                || token[separator] is not ('=' or ':'))
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            string alias = token[..separator];
+            Option? option = parent.Options.FirstOrDefault(
+                candidate =>
+                    candidate.Arity.MaximumNumberOfValues > 0
+                    && (candidate.Name == alias
+                        || candidate.Aliases.Contains(alias)));
+            if (option is null)
+            {
+                result?.Add(token);
+                continue;
+            }
+
+            result ??= [.. args[..i]];
+            result.Add(alias);
+            result.Add("");
+        }
+
+        if (result is null)
+            return args;
+
+        string[] expanded = [.. result];
+        // Let the parser establish which literal `coordinate` token is the child.
+        CommandResult selected = rootCommand.Parse(expanded).CommandResult;
+        return selected.Command.Name == childName
+            && selected.Parent is CommandResult selectedParent
+            && selectedParent.Command.Name == parentName
+                ? expanded
+                : args;
     }
 
     private static bool UsesImplicitVersionDirectionPresence(
@@ -281,7 +357,7 @@ public static class CommandLineBuilder
                 optionValueFailure);
 
         bool usesCombinedFailurePrecedence =
-            rowSelection.IsAdopted
+            rowSelection.HasRequest
             || executionBound.IsActive;
         if (usesCombinedFailurePrecedence
             && SelectFirstCategoryOneFailure(
@@ -327,9 +403,10 @@ public static class CommandLineBuilder
 
             ArgumentPreprocessor.SetLineWindow(
                 headLines,
-                tailLines);
+                tailLines,
+                explicitlySet: true);
         }
-        else if (!rowSelection.IsActive)
+        else if (!rowSelection.IsAdopted)
         {
             ApplyParsedLineWindow(parseResult, rawArgs);
             headLines = HeadLines;
@@ -1077,12 +1154,6 @@ public static class CommandLineBuilder
         ParseResult parseResult, Option<string[]> sourceOption,
         Option<string[]> addSourceOption, Option<string?> nugetConfigOption)
         => OptionParsers.ParseNuGetSourceOptions(parseResult, sourceOption, addSourceOption, nugetConfigOption);
-
-    /// <summary>
-    /// Parses a -t value as either a numeric limit or null (glob patterns are handled separately).
-    /// Delegates to <see cref="CommandLineHelpers.ParseTypeLimit"/> for backward compatibility.
-    /// </summary>
-    internal static int? ParseTypeLimit(string? value) => CommandLineHelpers.ParseTypeLimit(value);
 
     /// <summary>
     /// Classifies a positional argument by file extension.

@@ -447,6 +447,23 @@ public sealed partial class BrowserEngineBoundaryTests
                 "[]");
         using JsonDocument annotatedDocument =
             JsonDocument.Parse(annotatedJson);
+        Assert.False(
+            annotatedDocument.RootElement
+                .GetProperty("viewerCatalog")
+                .GetProperty("findingEvidence")
+                .GetProperty("available")
+                .GetBoolean());
+        Assert.Equal(
+            "NotProjected",
+            annotatedDocument.RootElement
+                .GetProperty("viewerCatalog")
+                .GetProperty("findingEvidence")
+                .GetProperty("unavailableReason")
+                .GetString());
+        Assert.Empty(
+            annotatedDocument.RootElement
+                .GetProperty("findingEvidence")
+                .EnumerateArray());
         JsonElement destination = Assert.Single(
             annotatedDocument.RootElement
                 .GetProperty("viewerCatalog")
@@ -557,6 +574,129 @@ public sealed partial class BrowserEngineBoundaryTests
             identity => Assert.Contains(
                 identity.GetProperty("factId").GetInt32(),
                 documentFactIds));
+    }
+
+    [Fact]
+    public async Task MemberFindingCensus_ProjectsExactCalleeEvidenceSource()
+    {
+        const string PackageId = "Browser.Member.CalleeEvidence";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await QueryPackageSurfaceJson(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument = JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(CalleeEvidenceProbe));
+
+        string censusJson = await DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            type.GetProperty("queryId").GetString()!,
+            member.GetProperty("name").GetString()!,
+            member.GetProperty("signature").GetString()!,
+            member.GetProperty("graphSelectorKey").GetString()!,
+            member.GetProperty("metadataToken").GetInt32(),
+            "[]");
+        using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
+        JsonElement root = censusDocument.RootElement;
+        JsonElement annotatedSource = root.GetProperty("annotatedSource");
+        Assert.True(
+            annotatedSource
+                .GetProperty("viewerCatalog")
+                .GetProperty("findingEvidence")
+                .GetProperty("available")
+                .GetBoolean());
+
+        JsonElement evidence = Assert.Single(
+            annotatedSource.GetProperty("findingEvidence").EnumerateArray());
+        int factId = evidence.GetProperty("factId").GetInt32();
+        int instanceKey = evidence.GetProperty("instanceKey").GetInt32();
+        JsonElement sourceIdentity = Assert.Single(
+            root.GetProperty("sourceFactInstances").EnumerateArray(),
+            identity => identity.GetProperty("factId").GetInt32() == factId);
+        Assert.Equal(
+            instanceKey,
+            sourceIdentity.GetProperty("instanceKey").GetInt32());
+        JsonElement fact = Assert.Single(
+            root.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("instanceKey").ValueKind
+                    == JsonValueKind.Number
+                && candidate.GetProperty("instanceKey").GetInt32()
+                    == instanceKey);
+        Assert.Equal("safety.callee", fact.GetProperty("id").GetString());
+
+        Assert.Equal(
+            nameof(PerformanceStackAllocProbe),
+            evidence.GetProperty("target")
+                .GetProperty("memberName")
+                .GetString());
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceStackAllocProbe))!
+                .MetadataToken,
+            evidence.GetProperty("target")
+                .GetProperty("metadataToken")
+                .GetInt32());
+        Assert.Equal(
+            type.GetProperty("assemblyId").GetString(),
+            evidence.GetProperty("target")
+                .GetProperty("surfaceAssemblyId")
+                .GetString());
+        JsonElement coordinate = Assert.Single(
+            evidence.GetProperty("coordinates").EnumerateArray());
+        Assert.Equal("Localloc", coordinate.GetProperty("kind").GetString());
+        Assert.True(coordinate.GetProperty("ilOffset").GetInt32() >= 0);
+        Assert.Equal(JsonValueKind.Null, evidence.GetProperty("unavailableReason").ValueKind);
+
+        int documentId = evidence.GetProperty("documentId").GetInt32();
+        JsonElement calleeDocument = Assert.Single(
+            annotatedSource
+                .GetProperty("findingEvidenceDocuments")
+                .EnumerateArray(),
+            candidate => candidate.GetProperty("id").GetInt32() == documentId)
+            .GetProperty("document");
+        int nodeId = Assert.Single(
+            evidence.GetProperty("nodeIds").EnumerateArray()).GetInt32();
+        JsonElement node = calleeDocument
+            .GetProperty("nodes")
+            .EnumerateArray()
+            .ElementAt(nodeId);
+        Assert.Equal(
+            "StackAllocationExpression",
+            node.GetProperty("kind").GetString());
+        string text = calleeDocument.GetProperty("text").GetString()!;
+        Assert.Contains(
+            node.GetProperty("spans").EnumerateArray(),
+            span => text.Substring(
+                span.GetProperty("start").GetInt32(),
+                span.GetProperty("length").GetInt32())
+                .Contains("stackalloc", StringComparison.Ordinal));
     }
 
     [Fact]
