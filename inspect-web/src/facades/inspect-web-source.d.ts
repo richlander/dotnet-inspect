@@ -11,6 +11,7 @@ export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "Instruction
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserSynchronousCompletionKind = "TaskWait" | "TaskResult" | "TaskAwaiterGetResult" | number;
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -77,6 +78,15 @@ export interface BrowserAnnotatedSourceInvocationDestination {
     readonly nodeId: number;
     readonly target: BrowserCallGraphTarget;
 }
+export interface BrowserAnnotatedSourceSynchronousCompletion {
+    readonly factId: number;
+    readonly kind: BrowserSynchronousCompletionKind;
+}
+export interface BrowserAnnotatedSourceSynchronousCompletionInspection {
+    readonly available: boolean;
+    readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+    readonly observations: ReadonlyArray<BrowserAnnotatedSourceSynchronousCompletion>;
+}
 export interface BrowserAnnotatedSourceViewerCatalog {
     readonly defaultFindingIds: ReadonlyArray<number>;
     readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
@@ -86,6 +96,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
     readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
     readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
     readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
+    readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
 }
 export interface BrowserCSharpBodyEvidence {
     readonly isExact: boolean;

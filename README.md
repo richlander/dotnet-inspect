@@ -318,7 +318,10 @@ diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. Selecting a
 recursive relationship shows its exact direct or mutual cycle witness and
-whether the bounded focus-graph census was complete.
+whether the bounded focus-graph census was complete. Selecting a framework
+`Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
+shows the exact synchronous-completion structure without claiming that runtime
+blocking was measured.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
