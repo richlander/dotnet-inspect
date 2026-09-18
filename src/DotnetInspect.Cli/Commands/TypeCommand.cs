@@ -1579,6 +1579,7 @@ public static class TypeCommand
                 || options.MemberFilter.Count != 0
                 || options.KindFilter.Count != 0
                 || options.UnsafeOnly
+                || options.IncludeSections is { Count: > 0 }
                 || options.Limit is not null
                 || options.Select is { Length: > 0 }
                 || options.SelectDefault

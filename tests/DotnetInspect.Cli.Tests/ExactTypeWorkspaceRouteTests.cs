@@ -9,6 +9,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -450,8 +451,30 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Equal("type.api", choice.Facet?.Value);
     }
 
+    [Theory]
+    [InlineData(SectionNames.Methods)]
+    [InlineData(SectionNames.CustomAttributes)]
+    [InlineData(SectionNames.SourceFiles)]
+    [InlineData(SectionNames.PerformanceTriage)]
+    public void WorkspaceShareChoiceRefusesUnboundSemanticSections(
+        string section)
+    {
+        var options = new TypeOptions
+        {
+            ShareFormat = WorkspaceShareFormat.Packet,
+            IncludeSections = [section],
+        };
+
+        TypeCommand.WorkspaceTypeShareChoice choice =
+            TypeCommand.WorkspaceTypeShareChoice.From(options);
+
+        Assert.Null(choice.Facet);
+        Assert.NotNull(choice.Refusal);
+        Assert.Equal("type/query", choice.Refusal.Path);
+    }
+
     [Fact]
-    public async Task WorkspaceRoutePreservesAssemblyBackedTypeSections()
+    public async Task WorkspaceRouteSectionSelectionRefusesOnlyShare()
     {
         var store = await CachedStoreAsync();
         string packet = EncodePacket(
@@ -466,6 +489,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             IncludeSections = ["Performance Triage"],
+            ShareFormat = WorkspaceShareFormat.Packet,
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
@@ -480,10 +504,22 @@ public sealed class ExactTypeWorkspaceRouteTests
                         .FromCompatibilityOptions(options),
                     LoadOptions(client, store)));
 
-        Assert.Equal(0, exitCode);
+        Assert.Equal(1, exitCode);
         Assert.Contains(
             "Performance Triage",
             output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--share is not projectable at type/query",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            WorkspaceShareOutput.UrlPrefix,
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            Environment.NewLine + "ey",
+            error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "FileNotFound",
