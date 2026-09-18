@@ -6,6 +6,7 @@ namespace ILInspector.Analysis;
 internal sealed class MethodDefinitionMap
 {
     readonly HashSet<int> _methodTokens = [];
+    readonly HashSet<int> _invalidMethodTokens = [];
     readonly Dictionary<(TypeRef DeclaringType, string Name), List<MethodIdentity>>
         _methodsByDeclaringTypeAndName = [];
     readonly SameImageSignatureComparer _signatureComparer;
@@ -26,6 +27,9 @@ internal sealed class MethodDefinitionMap
             }
 
             _methodTokens.Add(method.MetadataToken);
+            if (method.HasInvalidGenericParameterDeclaration)
+                _invalidMethodTokens.Add(method.MetadataToken);
+
             var key = (method.DeclaringType, method.Name);
             if (_methodsByDeclaringTypeAndName.TryGetValue(
                     key,
@@ -56,7 +60,8 @@ internal sealed class MethodDefinitionMap
     public int Resolve(DirectCall call)
     {
         MethodIdentity scope = call.EvidenceMethod;
-        if (!TryGetDeclaringTypeParameterCount(
+        if (scope.HasInvalidGenericParameterDeclaration
+            || !TryGetDeclaringTypeParameterCount(
                 scope.DeclaringType,
                 out int callerTypeParameterCount)
             || SignatureTypeFacts.IsMalformed(
@@ -94,7 +99,10 @@ internal sealed class MethodDefinitionMap
         if (_methodTokens.Contains(
                 calleeDefinitionToken))
         {
-            return calleeDefinitionToken;
+            return _invalidMethodTokens.Contains(
+                    calleeDefinitionToken)
+                ? 0
+                : calleeDefinitionToken;
         }
         if (callee.Kind == MemberKind.Unsupported
             || !_signatureComparer.CanResolveToCurrentModule(

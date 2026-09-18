@@ -467,13 +467,24 @@ rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
 rejects malformed or ambiguous matches. Preliminary classification preserves
 raw current-module TypeRef scope when structured decoding rejects the type, so
 malformed local metadata cannot be reclassified as an ordinary foreign
-reference. A MethodDef candidate's `GenericParam` rows must exactly declare its
-signature generic parameters by count and zero-based contiguous index before
-signature matching.
+reference. A corresponding MethodDef target and the physical
+`EvidenceMethod` supplying generic scope must each have `GenericParam` rows
+that exactly declare the signature generic parameters by count and zero-based
+contiguous index. This applies equally to direct MethodDef tokens, peeled
+MethodSpec tokens, and signature-matched MemberRefs. Every `GenericParam` row
+visited by the bounded resolver is charged to its aggregate correspondence-row
+budget.
 `SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind` gates that rule
 for full analysis with a well-formed neighboring control, while
 `UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly` gates
 the bounded absence claim.
+`SameImageCalls_MalformedDirectTargetGenericDeclarationDoesNotBind`,
+`SameImageCalls_MalformedPhysicalCallerGenericDeclarationDoesNotBind`,
+`SameImageCalls_GuardRejectedPhysicalCallerRetainsInvalidDeclaration`,
+`UnsafeEvidencePresence_InvalidDirectTargetGenericDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_InvalidPhysicalCallerGenericDeclarationFailsVisibly`,
+and `UnsafeEvidencePresence_ChargesRepeatedTargetGenericParameterRows` gate
+the direct token, physical scope, and bounded-work paths.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.

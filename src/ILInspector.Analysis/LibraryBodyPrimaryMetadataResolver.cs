@@ -125,9 +125,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             MetadataTokens.EntityHandle(definitionToken);
         if (handle.Kind == HandleKind.MethodDefinition)
         {
+            MethodDefinitionHandle method =
+                (MethodDefinitionHandle)handle;
+            EnsureExactGenericParameters(
+                method,
+                workBudget);
             return CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(
-                    (MethodDefinitionHandle)handle));
+                    method));
         }
         if (handle.Kind == HandleKind.MemberReference)
         {
@@ -137,9 +142,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     .Parent;
             if (parent.Kind == HandleKind.MethodDefinition)
             {
+                MethodDefinitionHandle method =
+                    (MethodDefinitionHandle)parent;
+                EnsureExactGenericParameters(
+                    method,
+                    workBudget);
                 return CallerUnsafeModeFromContract(
                     _memorySafety.GetMemberContract(
-                        (MethodDefinitionHandle)parent));
+                        method));
             }
         }
 
@@ -334,6 +344,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
             signatureHeader = 0;
             requiredParameterCount = -1;
+            hasInvalidGenericParameterDeclaration =
+                !HasExactGenericParameterDeclaration(methodDef);
         }
         return new MethodIdentity(
             _assemblyName,
@@ -969,7 +981,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             if (!MemberResolver.HasExactGenericParameters(
                     _reader,
                     methodGenericParameters,
-                    signature.GenericParameterCount)
+                    signature.GenericParameterCount,
+                    workBudget.ReserveCorrespondenceRow)
                 || SignatureTypeFacts.IsMalformed(
                     signature.ReturnType,
                     typeParameterCount,
@@ -1480,6 +1493,114 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
         => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
 
+    internal GenericScope CreatePresenceScope(
+        TypeDefinition typeDefinition,
+        MethodDefinition methodDefinition,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        GenericScope scope =
+            new(
+                GenericParameterNames(
+                    typeDefinition.GetGenericParameters(),
+                    workBudget),
+                GenericParameterNames(
+                    methodDefinition.GetGenericParameters(),
+                    workBudget));
+        EnsureExactGenericParameters(
+            methodDefinition,
+            scope,
+            workBudget);
+        return scope;
+    }
+
+    void EnsureExactGenericParameters(
+        MethodDefinitionHandle methodHandle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        MethodDefinition method =
+            _reader.GetMethodDefinition(methodHandle);
+        EnsureExactGenericParameters(
+            method,
+            GenericScope.Empty,
+            workBudget);
+    }
+
+    void EnsureExactGenericParameters(
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        if (!HasExactGenericParameters(
+                method,
+                scope,
+                workBudget))
+        {
+            throw new BadImageFormatException(
+                "Method generic parameter declarations do not "
+                    + "match the signature.");
+        }
+    }
+
+    bool HasExactGenericParameters(
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(method.Signature).Length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "A method signature exceeds the safe decoding "
+                    + "limits.");
+        }
+
+        MethodSignature<TypeRef> signature =
+            method.DecodeSignature(
+                new TypeRefDecoder(
+                    workBudget.ReserveCorrespondenceBytes),
+                scope);
+        return MemberResolver.HasExactGenericParameters(
+            _reader,
+            method.GetGenericParameters(),
+            signature.GenericParameterCount,
+            workBudget.ReserveCorrespondenceRow);
+    }
+
+    bool HasExactGenericParameterDeclaration(
+        MethodDefinition method)
+    {
+        try
+        {
+            BlobReader signature =
+                _reader.GetBlobReader(method.Signature);
+            SignatureHeader header =
+                signature.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method)
+                return false;
+
+            int signatureGenericParameterCount =
+                header.IsGeneric
+                    ? signature.ReadCompressedInteger()
+                    : 0;
+            return signatureGenericParameterCount >= 0
+                && MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    method.GetGenericParameters(),
+                    signatureGenericParameterCount);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException)
+        {
+            return false;
+        }
+    }
+
     ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)
@@ -1487,6 +1608,26 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         var names = ImmutableArray.CreateBuilder<string>(handles.Count);
         foreach (var handle in handles)
             names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
+        return names.MoveToImmutable();
+    }
+
+    ImmutableArray<string> GenericParameterNames(
+        GenericParameterHandleCollection handles,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        if (handles.Count == 0)
+            return [];
+        var names =
+            ImmutableArray.CreateBuilder<string>(
+                handles.Count);
+        foreach (GenericParameterHandle handle in handles)
+        {
+            workBudget.ReserveCorrespondenceRow();
+            names.Add(
+                ReadPresenceString(
+                    _reader.GetGenericParameter(handle).Name,
+                    workBudget));
+        }
         return names.MoveToImmutable();
     }
 

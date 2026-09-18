@@ -198,6 +198,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             typeDefinition,
             methodDefinition);
 
+    GenericScope
+        ILibraryMethodAnalysisInfrastructure.CreatePresenceScope(
+            TypeDefinition typeDefinition,
+            MethodDefinition methodDefinition,
+            UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver.CreatePresenceScope(
+            typeDefinition,
+            methodDefinition,
+            workBudget);
+
     MethodIdentity
         ILibraryMethodAnalysisInfrastructure.CreateMethodIdentity(
             TypeDefinitionHandle typeHandle,
