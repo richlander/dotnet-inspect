@@ -997,6 +997,15 @@ public partial class PackageCommand
             || options.PackageLibrary != null
             || options.NamesakeLibrary;
 
+        if (!TryCreatePackageInfoTargetContext(
+                options,
+                producerOptions,
+                pipeline,
+                out PackageHouseTargetContext? packageInfoTargetContext))
+        {
+            return 1;
+        }
+
         try
         {
             PackageExtractionOutcome outcome;
@@ -1007,12 +1016,14 @@ public partial class PackageCommand
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
                         createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: packageInfoTargetContext,
                         followToolWrapperPayload: !requestsLibrarySubject)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
                         createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: packageInfoTargetContext,
                         followToolWrapperPayload: !requestsLibrarySubject);
             }
             else
@@ -1157,9 +1168,11 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
-            // Apply package size (not cached in index — comes from nupkg file)
-            if (packageSize.HasValue)
-                result.PackageSize = packageSize;
+            ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                packageSize,
+                logger.Log);
 
             await PopulatePackageSignatureAsync(
                 result,
