@@ -127,11 +127,13 @@ workspace-owned immutable snapshots; call graphs retain one catalog generation
 for both traversal directions. These queries return typed results without
 choosing a renderer or output format.
 The compiled-documentation result retains DocumentationHouse's exact detached
-outcome for in-process composition and separately owns the portable snapshot
-registered for source-generated JSON. The snapshot is copied before the query
-returns and carries no Library or Artifact authority.
+outcome for in-process composition and separately owns the portable,
+discriminated terminal outcome registered for source-generated JSON. The
+portable value is copied before the query returns, carries no Library or
+Artifact authority, omits operation and lease accounting, and bounds repeated
+source provenance.
 L1 returns that bare Query result; a later completed L2 or host handoff
-envelopes the portable snapshot rather than the lower DocumentationHouse
+envelopes the portable outcome rather than the lower DocumentationHouse
 outcome.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,

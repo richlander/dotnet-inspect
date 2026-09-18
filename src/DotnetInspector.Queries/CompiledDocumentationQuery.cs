@@ -6,134 +6,216 @@ using DotnetInspector.Libraries;
 
 namespace DotnetInspector.Queries;
 
-public enum CompiledDocumentationQueryOutcomeKind
+public enum CompiledDocumentationSourceKind
 {
-    Completed,
-    Rejected,
-    Failed,
-    Incomplete,
+    Package,
+    Platform,
+    DirectLibrary,
+    SourceHouse,
 }
 
-public sealed record CompiledDocumentationAssemblySnapshot(
+public enum CompiledDocumentationSourceEvidenceKind
+{
+    Candidate,
+    Absent,
+    Partial,
+    Unavailable,
+}
+
+public enum CompiledDocumentationSourceRejectionKind
+{
+    SubjectMismatch,
+    LibraryMismatch,
+    ApiContentMismatch,
+    CompanionMismatch,
+}
+
+public enum CompiledDocumentationRequestRejectionKind
+{
+    LibraryReferenceMismatch,
+    ApiContentMismatch,
+    LeaseReferenceMismatch,
+}
+
+public enum CompiledDocumentationIncompleteReason
+{
+    Deadline,
+    ContributionLimit,
+    CompanionSelectionPartial,
+    CompiledXmlByteLimit,
+}
+
+public sealed record CompiledDocumentationAssemblyIdentity(
     string Name,
     string? Version,
     string? Culture,
     string? PublicKeyToken);
 
-public sealed record CompiledDocumentationTypeSnapshot(
-    string Namespace,
-    ImmutableArray<string> Segments);
+public sealed record CompiledDocumentationSubject(
+    CompiledDocumentationAssemblyIdentity Assembly,
+    string DocumentationId);
 
-public sealed record CompiledDocumentationMemberSnapshot(
-    string StableSelector,
-    string CanonicalSignature,
-    string Fingerprint,
-    string TypeFullName,
-    string MemberName);
-
-public sealed record CompiledDocumentationSubjectSnapshot(
-    CompiledDocumentationAssemblySnapshot Assembly,
-    CompiledDocumentationTypeSnapshot Type,
-    CompiledDocumentationMemberSnapshot? Member,
-    string CompiledXmlIdentity);
-
-public sealed record CompiledDocumentationContributionSnapshot(
-    CompiledXmlContributionKind Kind,
-    DocumentationSourceKind SourceKind,
-    string Source,
+public sealed record CompiledDocumentationSource(
+    CompiledDocumentationSourceKind Kind,
+    string Name,
     int? Precedence);
 
-public sealed record CompiledDocumentationRejectionSnapshot(
-    CompiledDocumentationContributionSnapshot Contribution,
-    DocumentationCompiledXmlRejectionKind Kind);
+public sealed record CompiledDocumentationSourceEvidence(
+    CompiledDocumentationSource Source,
+    CompiledDocumentationSourceEvidenceKind Kind);
 
-public sealed record CompiledDocumentationParameterSnapshot(
+public sealed record CompiledDocumentationSourceRejection(
+    CompiledDocumentationSource Source,
+    CompiledDocumentationSourceRejectionKind Reason);
+
+public sealed record CompiledDocumentationParameter(
     string Name,
     string Description);
 
-public sealed record CompiledDocumentationExceptionSnapshot(
-    string? Cref,
+public sealed record CompiledDocumentationException(
+    string? Reference,
     string? Description);
 
-public sealed record CompiledDocumentationSampleSnapshot(
-    string Source,
+public sealed record CompiledDocumentationSample(
+    string Code,
     string? Title,
     string? Region);
 
-public sealed record CompiledDocumentationEntrySnapshot(
+public sealed record CompiledDocumentationEntry(
     string? Summary,
     string? Remarks,
     string? Returns,
-    ImmutableArray<CompiledDocumentationParameterSnapshot> Parameters,
-    ImmutableArray<CompiledDocumentationExceptionSnapshot> Exceptions,
-    ImmutableArray<CompiledDocumentationSampleSnapshot> Samples);
-
-public sealed record CompiledDocumentationAttemptSnapshot(
-    DocumentationCompiledXmlAttemptKind Kind,
-    CompiledDocumentationContributionSnapshot? Selected,
-    ImmutableArray<CompiledDocumentationContributionSnapshot> Candidates,
-    ImmutableArray<CompiledDocumentationContributionSnapshot> Contributions,
-    ImmutableArray<CompiledDocumentationRejectionSnapshot> Rejections,
-    CompiledDocumentationEntrySnapshot? Documentation,
-    DocumentationCompiledXmlFailureKind? Failure,
-    DocumentationIncompleteBoundary? IncompleteBoundary);
-
-public sealed record CompiledDocumentationHouseFailureSnapshot(
-    DocumentationHouseFailureStage Stage,
-    DocumentationCompiledXmlFailureKind Kind);
-
-public sealed record CompiledDocumentationWorkSnapshot(
-    int ContributionsObserved,
-    long CompiledXmlBytesObserved,
-    bool ParsedCompiledXml);
+    ImmutableArray<CompiledDocumentationParameter> Parameters,
+    ImmutableArray<CompiledDocumentationException> Exceptions,
+    ImmutableArray<CompiledDocumentationSample> Samples);
 
 /// <summary>
-/// Queries-owned portable snapshot of one completed DocumentationHouse
-/// operation. It contains no Library or Artifact authority.
+/// Queries-owned portable terminal outcome for one compiled-documentation
+/// request. It contains no Library or Artifact authority.
 /// </summary>
-public sealed record CompiledDocumentationQuerySnapshot(
-    string Request,
-    string OperationPlan,
-    string PolicyGeneration,
-    DocumentationDemand Demand,
-    CompiledDocumentationSubjectSnapshot Subject,
-    CompiledDocumentationQueryOutcomeKind Outcome,
-    CompiledDocumentationAttemptSnapshot? CompiledXml,
-    ImmutableArray<CompiledDocumentationContributionSnapshot>
-        ObservedCompiledXmlContributions,
-    DocumentationHouseRejectionKind? Rejection,
-    CompiledDocumentationHouseFailureSnapshot? Failure,
-    DocumentationIncompleteBoundary? IncompleteBoundary,
-    CompiledDocumentationWorkSnapshot Work,
-    DocumentationLibraryLeaseConsumer LeaseConsumer);
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.Absent),
+    "absent")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.Ambiguous),
+    "ambiguous")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.ContributionsRejected),
+    "contributionsRejected")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.MalformedOrUnreadableDocument),
+    "malformedOrUnreadableDocument")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.Incomplete),
+    "incomplete")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.RequestRejected),
+    "requestRejected")]
+[JsonDerivedType(
+    typeof(CompiledDocumentationOutcome.ContentAccessFailed),
+    "contentAccessFailed")]
+public abstract record CompiledDocumentationOutcome(
+    CompiledDocumentationSubject Subject)
+{
+    public sealed record Available(
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationSource Source,
+        CompiledDocumentationEntry Documentation)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record Absent(
+        CompiledDocumentationSubject Subject,
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool SourcesTruncated)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record Unavailable(
+        CompiledDocumentationSubject Subject,
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool SourcesTruncated)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record Ambiguous(
+        CompiledDocumentationSubject Subject,
+        ImmutableArray<CompiledDocumentationSource> Candidates,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool CandidatesTruncated)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record ContributionsRejected(
+        CompiledDocumentationSubject Subject,
+        ImmutableArray<CompiledDocumentationSourceRejection> Rejections,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool RejectionsTruncated)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record MalformedOrUnreadableDocument(
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationSource Source)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record Incomplete(
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationIncompleteReason Reason,
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        [property: JsonIgnore(
+            Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        bool SourcesTruncated)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record RequestRejected(
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationRequestRejectionKind Reason)
+        : CompiledDocumentationOutcome(Subject);
+
+    public sealed record ContentAccessFailed(
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationSource Source)
+        : CompiledDocumentationOutcome(Subject);
+}
 
 /// <summary>
-/// Exact in-process settlement plus the producer-owned snapshot used for
-/// serialization. Consumers serialize <see cref="Snapshot"/>, not
+/// Exact in-process settlement plus the producer-owned content used for
+/// serialization. Consumers serialize <see cref="Content"/>, not
 /// <see cref="Outcome"/>.
 /// </summary>
 public sealed class CompiledDocumentationQueryResult
 {
     internal CompiledDocumentationQueryResult(
         DocumentationHouseOutcome outcome,
-        CompiledDocumentationQuerySnapshot snapshot)
+        CompiledDocumentationOutcome content)
     {
         Outcome = outcome;
-        Snapshot = snapshot;
+        Content = content;
     }
 
     [JsonIgnore]
     public DocumentationHouseOutcome Outcome { get; }
 
-    public CompiledDocumentationQuerySnapshot Snapshot { get; }
+    public CompiledDocumentationOutcome Content { get; }
 }
 
 /// <summary>
-/// Executes one already-authorized DocumentationHouse request and publishes a
-/// settled snapshot before returning control to a consumer.
+/// Executes one already-authorized DocumentationHouse request and publishes
+/// settled portable content before returning control to a consumer.
 /// </summary>
 public static class CompiledDocumentationQuery
 {
+    private const int MaximumPublishedSourceEvidence = 8;
+
     public static async ValueTask<CompiledDocumentationQueryResult>
         ExecuteAsync(
             DocumentationHouseRequest request,
@@ -149,213 +231,340 @@ public static class CompiledDocumentationQuery
                     operationLease,
                     cancellationToken)
                 .ConfigureAwait(false);
-        return new(outcome, Snapshot(outcome));
+        return new(outcome, Content(outcome));
     }
 
-    private static CompiledDocumentationQuerySnapshot Snapshot(
+    private static CompiledDocumentationOutcome Content(
         DocumentationHouseOutcome outcome)
     {
-        DocumentationHouseRequest request = outcome.Request;
+        CompiledDocumentationSubject subject =
+            Snapshot(outcome.Request.Subject);
         return outcome switch
         {
-            DocumentationHouseOutcome.Completed completed => Create(
-                completed,
-                CompiledDocumentationQueryOutcomeKind.Completed,
-                Snapshot(completed.CompiledXmlAttempt),
-                rejection: null,
-                failure: null,
-                incompleteBoundary: null),
-            DocumentationHouseOutcome.Rejected rejected => Create(
-                rejected,
-                CompiledDocumentationQueryOutcomeKind.Rejected,
-                compiledXml: null,
-                rejected.Rejection.Kind,
-                failure: null,
-                incompleteBoundary: null),
-            DocumentationHouseOutcome.Failed failed => Create(
-                failed,
-                CompiledDocumentationQueryOutcomeKind.Failed,
-                compiledXml: null,
-                rejection: null,
-                new(
-                    failed.Failure.Stage,
-                    failed.Failure.Kind),
-                incompleteBoundary: null),
-            DocumentationHouseOutcome.Incomplete incomplete => Create(
-                incomplete,
-                CompiledDocumentationQueryOutcomeKind.Incomplete,
-                compiledXml: null,
-                rejection: null,
-                failure: null,
-                incomplete.Boundary),
+            DocumentationHouseOutcome.Completed completed =>
+                Content(subject, completed.CompiledXmlAttempt),
+            DocumentationHouseOutcome.Rejected rejected =>
+                new CompiledDocumentationOutcome.RequestRejected(
+                    subject,
+                    Snapshot(rejected.Rejection.Kind)),
+            DocumentationHouseOutcome.Failed failed =>
+                ContentAccessFailed(subject, failed.Failure),
+            DocumentationHouseOutcome.Incomplete incomplete =>
+                Incomplete(
+                    subject,
+                    incomplete.Boundary,
+                    outcome.Request.Plan.CompiledXmlContributions
+                        .Take(outcome.Work.ContributionsObserved)),
             _ => throw new InvalidOperationException(
                 "Unknown DocumentationHouse outcome."),
         };
-
-        CompiledDocumentationQuerySnapshot Create(
-            DocumentationHouseOutcome source,
-            CompiledDocumentationQueryOutcomeKind kind,
-            CompiledDocumentationAttemptSnapshot? compiledXml,
-            DocumentationHouseRejectionKind? rejection,
-            CompiledDocumentationHouseFailureSnapshot? failure,
-            DocumentationIncompleteBoundary? incompleteBoundary) =>
-            new(
-                request.Identity.Name,
-                request.Plan.Identity.Name,
-                request.Plan.PolicyGeneration.Name,
-                request.Demand,
-                Snapshot(request.Subject),
-                kind,
-                compiledXml,
-                ObservedContributions(source, compiledXml),
-                rejection,
-                failure,
-                incompleteBoundary,
-                new(
-                    source.Work.ContributionsObserved,
-                    source.Work.CompiledXmlBytesObserved,
-                    source.Work.ParsedCompiledXml),
-                source.LeaseSettlement.Consumer);
     }
 
-    private static ImmutableArray<
-        CompiledDocumentationContributionSnapshot> ObservedContributions(
-            DocumentationHouseOutcome outcome,
-            CompiledDocumentationAttemptSnapshot? compiledXml)
-    {
-        if (compiledXml is not null
-            || outcome.Work.ContributionsObserved == 0)
+    private static CompiledDocumentationOutcome Content(
+        CompiledDocumentationSubject subject,
+        DocumentationCompiledXmlAttempt attempt) =>
+        attempt switch
         {
-            return [];
+            DocumentationCompiledXmlAttempt.Available available =>
+                new CompiledDocumentationOutcome.Available(
+                    subject,
+                    Snapshot(available.Selected),
+                    Snapshot(available.Documentation)),
+            DocumentationCompiledXmlAttempt.Absent absent =>
+                Absent(subject, absent),
+            DocumentationCompiledXmlAttempt.Unavailable unavailable =>
+                Unavailable(subject, unavailable.Contributions),
+            DocumentationCompiledXmlAttempt.Ambiguous ambiguous =>
+                Ambiguous(subject, ambiguous.Candidates),
+            DocumentationCompiledXmlAttempt.Rejected rejected =>
+                ContributionsRejected(subject, rejected.Rejections),
+            DocumentationCompiledXmlAttempt.Failed failed =>
+                MalformedOrUnreadableDocument(subject, failed),
+            DocumentationCompiledXmlAttempt.Incomplete incomplete =>
+                Incomplete(
+                    subject,
+                    incomplete.Boundary,
+                    incomplete.Contributions,
+                    incomplete.Selected),
+            _ => throw new InvalidOperationException(
+                "Unknown compiled-XML attempt."),
+        };
+
+    private static CompiledDocumentationOutcome.ContentAccessFailed
+        ContentAccessFailed(
+            CompiledDocumentationSubject subject,
+            DocumentationHouseFailure failure) =>
+        failure.Kind switch
+        {
+            DocumentationCompiledXmlFailureKind.ContentAccessFailed =>
+                new(subject, Snapshot(failure.Selected)),
+            _ => throw new InvalidOperationException(
+                "Unexpected top-level compiled-XML failure kind."),
+        };
+
+    private static CompiledDocumentationOutcome.MalformedOrUnreadableDocument
+        MalformedOrUnreadableDocument(
+            CompiledDocumentationSubject subject,
+            DocumentationCompiledXmlAttempt.Failed failed) =>
+        failed.Failure.Kind switch
+        {
+            DocumentationCompiledXmlFailureKind
+                .MalformedOrUnreadableDocument =>
+                new(subject, Snapshot(failed.Selected)),
+            _ => throw new InvalidOperationException(
+                "Unexpected contribution failure kind."),
+        };
+
+    private static CompiledDocumentationOutcome.Absent Absent(
+        CompiledDocumentationSubject subject,
+        DocumentationCompiledXmlAttempt.Absent absent)
+    {
+        (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
+            bool truncated) =
+            absent.Selected is { } selected
+                ? BoundedSourceEvidence([selected])
+                : BoundedSourceEvidence(
+                    absent.Contributions,
+                    absent.Contributions.Where(
+                        static contribution =>
+                            contribution.Kind
+                                == CompiledXmlContributionKind.Absent));
+        return new(subject, sources, truncated);
+    }
+
+    private static CompiledDocumentationOutcome.Unavailable Unavailable(
+        CompiledDocumentationSubject subject,
+        IEnumerable<CompiledXmlContribution> contributions)
+    {
+        (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
+            bool truncated) =
+            BoundedSourceEvidence(contributions);
+        return new(subject, sources, truncated);
+    }
+
+    private static CompiledDocumentationOutcome.Ambiguous Ambiguous(
+        CompiledDocumentationSubject subject,
+        IEnumerable<CompiledXmlContribution> candidates)
+    {
+        (ImmutableArray<CompiledDocumentationSource> sources,
+            bool truncated) =
+            TakeDistinct(candidates.Select(Snapshot));
+        return new(subject, sources, truncated);
+    }
+
+    private static CompiledDocumentationOutcome.ContributionsRejected
+        ContributionsRejected(
+            CompiledDocumentationSubject subject,
+            IEnumerable<DocumentationCompiledXmlRejection> rejections)
+    {
+        (ImmutableArray<CompiledDocumentationSourceRejection> snapshots,
+            bool truncated) =
+            TakeDistinct(
+                rejections.Select(
+                    static rejection =>
+                        new CompiledDocumentationSourceRejection(
+                            Snapshot(rejection.Contribution),
+                            Snapshot(rejection.Kind))));
+        return new(subject, snapshots, truncated);
+    }
+
+    private static CompiledDocumentationOutcome.Incomplete Incomplete(
+        CompiledDocumentationSubject subject,
+        DocumentationIncompleteBoundary reason,
+        IEnumerable<CompiledXmlContribution> contributions,
+        CompiledXmlContribution? selected = null)
+    {
+        IEnumerable<CompiledXmlContribution>? decisiveContributions =
+            selected is not null
+                ? [selected]
+                : reason
+                    == DocumentationIncompleteBoundary
+                        .CompanionSelectionPartial
+                            ? contributions.Where(
+                                static contribution =>
+                                    contribution.Kind
+                                        == CompiledXmlContributionKind.Partial)
+                            : null;
+        (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
+            bool truncated) =
+            BoundedSourceEvidence(
+                contributions,
+                decisiveContributions);
+        return new(subject, Snapshot(reason), sources, truncated);
+    }
+
+    private static (
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        bool Truncated)
+        BoundedSourceEvidence(
+            IEnumerable<CompiledXmlContribution> contributions,
+            IEnumerable<CompiledXmlContribution>?
+                decisiveContributions = null)
+    {
+        IEnumerable<CompiledXmlContribution> orderedContributions =
+            decisiveContributions is null
+                ? contributions
+                : decisiveContributions.Concat(contributions);
+        return TakeDistinct(
+            orderedContributions.Select(SnapshotEvidence));
+    }
+
+    private static (
+        ImmutableArray<T> Items,
+        bool Truncated)
+        TakeDistinct<T>(IEnumerable<T> values)
+        where T : notnull
+    {
+        var seen = new HashSet<T>();
+        var items =
+            ImmutableArray.CreateBuilder<T>(
+                MaximumPublishedSourceEvidence);
+        foreach (T value in values)
+        {
+            if (!seen.Add(value))
+                continue;
+            if (items.Count == MaximumPublishedSourceEvidence)
+                return (items.ToImmutable(), true);
+
+            items.Add(value);
         }
 
-        return
-        [
-            .. outcome.Request.Plan.CompiledXmlContributions
-                .Take(outcome.Work.ContributionsObserved)
-                .Select(Snapshot)
-                .Distinct(),
-        ];
+        return (items.ToImmutable(), false);
     }
 
-    private static CompiledDocumentationSubjectSnapshot Snapshot(
-        DocumentationSubjectReference subject)
-    {
-        var assembly = new CompiledDocumentationAssemblySnapshot(
-            subject.MetadataAssembly.Name,
-            subject.MetadataAssembly.Version?.ToString(),
-            subject.MetadataAssembly.Culture,
-            subject.MetadataAssembly.PublicKeyToken);
-        var type = new CompiledDocumentationTypeSnapshot(
-            subject.TypeIdentity.Namespace,
-            [.. subject.TypeIdentity.Segments]);
-        CompiledDocumentationMemberSnapshot? member =
-            subject.MemberIdentity is { } value
-                ? new(
-                    value.StableSelector,
-                    value.CanonicalSignature,
-                    value.Fingerprint,
-                    value.TypeFullName,
-                    value.MemberName)
-                : null;
-        return new(
-            assembly,
-            type,
-            member,
+    private static CompiledDocumentationSubject Snapshot(
+        DocumentationSubjectReference subject) =>
+        new(
+            new(
+                subject.MetadataAssembly.Name,
+                subject.MetadataAssembly.Version?.ToString(),
+                subject.MetadataAssembly.Culture,
+                subject.MetadataAssembly.PublicKeyToken),
             subject.CompiledXmlIdentity.Value);
-    }
 
-    private static CompiledDocumentationAttemptSnapshot Snapshot(
-        DocumentationCompiledXmlAttempt attempt)
-    {
-        CompiledDocumentationContributionSnapshot? selected =
-            attempt switch
-            {
-                DocumentationCompiledXmlAttempt.Available available =>
-                    Snapshot(available.Selected),
-                DocumentationCompiledXmlAttempt.Absent absent =>
-                    SnapshotOptional(absent.Selected),
-                DocumentationCompiledXmlAttempt.Failed failed =>
-                    Snapshot(failed.Selected),
-                DocumentationCompiledXmlAttempt.Incomplete incomplete =>
-                    SnapshotOptional(incomplete.Selected),
-                _ => null,
-            };
-        ImmutableArray<CompiledDocumentationContributionSnapshot> candidates =
-            attempt is DocumentationCompiledXmlAttempt.Ambiguous ambiguous
-                ? [.. ambiguous.Candidates.Select(Snapshot)]
-                : [];
-        ImmutableArray<CompiledDocumentationRejectionSnapshot> rejections =
-            attempt is DocumentationCompiledXmlAttempt.Rejected rejected
-                ? [.. rejected.Rejections.Select(
-                    static rejection => new CompiledDocumentationRejectionSnapshot(
-                        Snapshot(rejection.Contribution),
-                        rejection.Kind))]
-                : [];
-        CompiledDocumentationEntrySnapshot? documentation =
-            attempt is DocumentationCompiledXmlAttempt.Available availableAttempt
-                ? Snapshot(availableAttempt.Documentation)
-                : null;
-        DocumentationCompiledXmlFailureKind? failure =
-            attempt is DocumentationCompiledXmlAttempt.Failed failedAttempt
-                ? failedAttempt.Failure.Kind
-                : null;
-        DocumentationIncompleteBoundary? incompleteBoundary =
-            attempt is DocumentationCompiledXmlAttempt.Incomplete incompleteAttempt
-                ? incompleteAttempt.Boundary
-                : null;
-
-        return new(
-            attempt.Kind,
-            selected,
-            candidates,
-            [.. attempt.Contributions.Select(Snapshot)],
-            rejections,
-            documentation,
-            failure,
-            incompleteBoundary);
-    }
-
-    private static CompiledDocumentationContributionSnapshot Snapshot(
+    private static CompiledDocumentationSource Snapshot(
         CompiledXmlContribution contribution) =>
         new(
-            contribution.Kind,
-            contribution.Source.Kind,
+            Snapshot(contribution.Source.Kind),
             contribution.Source.Name,
             contribution.Precedence);
 
-    private static CompiledDocumentationContributionSnapshot? SnapshotOptional(
-        CompiledXmlContribution? contribution) =>
-        contribution is null ? null : Snapshot(contribution);
+    private static CompiledDocumentationSourceEvidence SnapshotEvidence(
+        CompiledXmlContribution contribution) =>
+        new(
+            Snapshot(contribution),
+            Snapshot(contribution.Kind));
 
-    private static CompiledDocumentationEntrySnapshot Snapshot(
+    private static CompiledDocumentationEntry Snapshot(
         CSharpText.XmlDocumentationEntry documentation) =>
         new(
             documentation.Summary,
             documentation.Remarks,
             documentation.Returns,
             [.. documentation.Parameters.Select(
-                static parameter => new CompiledDocumentationParameterSnapshot(
+                static parameter => new CompiledDocumentationParameter(
                     parameter.Key,
                     parameter.Value))],
             [.. documentation.Exceptions.Select(
-                static exception => new CompiledDocumentationExceptionSnapshot(
+                static exception => new CompiledDocumentationException(
                     exception.Cref,
                     exception.Description))],
             [.. documentation.Samples.Select(
-                static sample => new CompiledDocumentationSampleSnapshot(
+                static sample => new CompiledDocumentationSample(
                     sample.Source,
                     sample.Title,
                     sample.Region))]);
+
+    private static CompiledDocumentationSourceKind Snapshot(
+        DocumentationSourceKind kind) =>
+        kind switch
+        {
+            DocumentationSourceKind.Package =>
+                CompiledDocumentationSourceKind.Package,
+            DocumentationSourceKind.Platform =>
+                CompiledDocumentationSourceKind.Platform,
+            DocumentationSourceKind.DirectLibrary =>
+                CompiledDocumentationSourceKind.DirectLibrary,
+            DocumentationSourceKind.SourceHouse =>
+                CompiledDocumentationSourceKind.SourceHouse,
+            _ => throw new InvalidOperationException(
+                "Unknown documentation source kind."),
+        };
+
+    private static CompiledDocumentationSourceEvidenceKind Snapshot(
+        CompiledXmlContributionKind kind) =>
+        kind switch
+        {
+            CompiledXmlContributionKind.Candidate =>
+                CompiledDocumentationSourceEvidenceKind.Candidate,
+            CompiledXmlContributionKind.Absent =>
+                CompiledDocumentationSourceEvidenceKind.Absent,
+            CompiledXmlContributionKind.Partial =>
+                CompiledDocumentationSourceEvidenceKind.Partial,
+            CompiledXmlContributionKind.Unavailable =>
+                CompiledDocumentationSourceEvidenceKind.Unavailable,
+            _ => throw new InvalidOperationException(
+                "Unknown compiled-XML contribution kind."),
+        };
+
+    private static CompiledDocumentationSourceRejectionKind Snapshot(
+        DocumentationCompiledXmlRejectionKind kind) =>
+        kind switch
+        {
+            DocumentationCompiledXmlRejectionKind.SubjectMismatch =>
+                CompiledDocumentationSourceRejectionKind.SubjectMismatch,
+            DocumentationCompiledXmlRejectionKind.LibraryMismatch =>
+                CompiledDocumentationSourceRejectionKind.LibraryMismatch,
+            DocumentationCompiledXmlRejectionKind.ApiContentMismatch =>
+                CompiledDocumentationSourceRejectionKind.ApiContentMismatch,
+            DocumentationCompiledXmlRejectionKind.CompanionMismatch =>
+                CompiledDocumentationSourceRejectionKind.CompanionMismatch,
+            _ => throw new InvalidOperationException(
+                "Unknown compiled-XML rejection kind."),
+        };
+
+    private static CompiledDocumentationRequestRejectionKind Snapshot(
+        DocumentationHouseRejectionKind kind) =>
+        kind switch
+        {
+            DocumentationHouseRejectionKind.LibraryReferenceMismatch =>
+                CompiledDocumentationRequestRejectionKind
+                    .LibraryReferenceMismatch,
+            DocumentationHouseRejectionKind.ApiContentMismatch =>
+                CompiledDocumentationRequestRejectionKind.ApiContentMismatch,
+            DocumentationHouseRejectionKind.LeaseReferenceMismatch =>
+                CompiledDocumentationRequestRejectionKind
+                    .LeaseReferenceMismatch,
+            _ => throw new InvalidOperationException(
+                "Unknown DocumentationHouse rejection kind."),
+        };
+
+    private static CompiledDocumentationIncompleteReason Snapshot(
+        DocumentationIncompleteBoundary boundary) =>
+        boundary switch
+        {
+            DocumentationIncompleteBoundary.Deadline =>
+                CompiledDocumentationIncompleteReason.Deadline,
+            DocumentationIncompleteBoundary.ContributionLimit =>
+                CompiledDocumentationIncompleteReason.ContributionLimit,
+            DocumentationIncompleteBoundary.CompanionSelectionPartial =>
+                CompiledDocumentationIncompleteReason
+                    .CompanionSelectionPartial,
+            DocumentationIncompleteBoundary.CompiledXmlByteLimit =>
+                CompiledDocumentationIncompleteReason.CompiledXmlByteLimit,
+            _ => throw new InvalidOperationException(
+                "Unknown DocumentationHouse incomplete boundary."),
+        };
 }
 
 /// <summary>
-/// Source-generated JSON contract for the Queries-owned portable snapshot.
+/// Source-generated JSON contract for the Queries-owned portable outcome.
 /// The exact in-process DocumentationHouse outcome is intentionally excluded.
 /// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(CompiledDocumentationQuerySnapshot))]
+[JsonSerializable(typeof(CompiledDocumentationOutcome))]
 public partial class CompiledDocumentationQueryJsonContext :
     JsonSerializerContext;
