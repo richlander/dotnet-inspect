@@ -386,9 +386,27 @@ public static class LibraryCallUseCommand
             catalog.SelectableSectionNames,
             infoSections: [CallSitesSection],
             catalog.SelectionCategoryMap,
-            selectDefault: false);
+            selectDefault: false,
+            exactOnlySections:
+                LibraryCallUseSections.ExactOnlySectionNames);
         if (SelectOutput.WriteUnresolved(selection))
         {
+            selectedNames = [];
+            return false;
+        }
+        if (options.Select is { Length: > 0 } selectors
+            && selection.Sections is null)
+        {
+            SelectOutput.WriteUnresolved(
+                new SelectResult(
+                    null,
+                    selectors
+                        .Select(selector =>
+                            new SelectMiss(
+                                selector,
+                                [],
+                                IsGlob: true))
+                        .ToArray()));
             selectedNames = [];
             return false;
         }
@@ -396,15 +414,7 @@ public static class LibraryCallUseCommand
         selectedNames =
         [
             .. catalog.AlphabeticalSectionOrder.Where(
-                name => selection.Sections!.Contains(name)
-                    && (name != PublicRootPathsSection
-                        || options.Select!.Any(
-                            selected =>
-                                string.Equals(
-                                    selected,
-                                    PublicRootPathsSection,
-                                    StringComparison
-                                        .OrdinalIgnoreCase)))),
+                name => selection.Sections!.Contains(name)),
         ];
         return true;
     }

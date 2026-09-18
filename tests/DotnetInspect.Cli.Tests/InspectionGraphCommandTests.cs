@@ -257,6 +257,36 @@ public sealed class InspectionGraphCommandTests
         Assert.DoesNotContain("Library not found", captured.Error);
     }
 
+    [Theory]
+    [InlineData("Public*", "No sections match 'Public*'.")]
+    [InlineData("Public*,Bogus", "Select value 'Bogus' not found.")]
+    public async Task LibrariesCommand_WildcardDoesNotSelectPublicRootPaths(
+        string selector,
+        string expectedError)
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        "missing-consumer.dll",
+                        "--library",
+                        "missing-provider.dll",
+                        "-S",
+                        selector,
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(expectedError, captured.Error);
+        Assert.DoesNotContain("Warning:", captured.Error);
+        Assert.DoesNotContain("Library not found", captured.Error);
+    }
+
     [Fact]
     public async Task LibrariesCommand_ProjectsPublicRootPaths()
     {
