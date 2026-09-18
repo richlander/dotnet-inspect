@@ -725,6 +725,28 @@ test("row descriptions render as escaped text only when available", () => {
   }
 });
 
+test("multiple semantic answers render as distinct list items", () => {
+  const html = renderPackageQueryView({
+    state: {
+      request: createQueryRequest(""),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Producer.Result"),
+        answers: [
+          { id: "license", value: "MIT" },
+          { id: "downloads", value: "1m" },
+        ],
+      }]),
+    },
+    availablePresets: [],
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /<ul class="query-answers" aria-label="Answers"><li class="query-answer">MIT<\/li><li class="query-answer">1m<\/li><\/ul>/);
+  assert.doesNotMatch(html, /<span class="query-answer">MIT<\/span><span/);
+});
+
 test("the query header keeps home and Back without Query or Workspace buttons", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),

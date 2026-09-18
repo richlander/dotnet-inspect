@@ -541,7 +541,7 @@ function renderRow(
   escapeHtml: (value: unknown) => string,
 ): string {
   const answers = row.answers
-    .map(item => `<span class="query-answer">${escapeHtml(item.value)}</span>`)
+    .map(item => `<li class="query-answer">${escapeHtml(item.value)}</li>`)
     .join("");
   const evidence = row.evidence
     .filter(item => item.scope === "package")
@@ -581,7 +581,7 @@ function renderRow(
       ${row.description?.trim()
         ? `<p class="query-row-description">${escapeHtml(row.description)}</p>`
         : ""}
-      ${answers ? `<p class="query-answers">${answers}</p>` : ""}
+      ${answers ? `<ul class="query-answers" aria-label="Answers">${answers}</ul>` : ""}
       ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
         <span>${row.totalDownloads === null
