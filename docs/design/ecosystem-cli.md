@@ -54,8 +54,24 @@ Focus does not filter a fixed section list — it **builds a different one**:
 | none | `Ecosystems` | catalog-wide, every pack |
 | one ecosystem | `Ecosystem Info` | that pack's sections |
 
-This is why the command declares no section categories: scoping is structural,
-so a category door would be a second mechanism for a job already done.
+The compiled section catalog follows that structural choice. Categories
+organize the selected route; they do not select or change focus.
+
+## Categories organize the selected route
+
+`@Ecosystem` is the base category and contains every section available after
+focus is resolved. Catalog-wide and ordinary focused routes therefore have six
+members; the focused `.NET` route has the same focused members plus
+`Pruning`.
+
+`@Integrations` is a domain door containing `Known Integrations`. It does not
+change focus and does not turn configured knowledge into library observation.
+The former unprefixed `Integrations` alias is removed; exact
+`Known Integrations` remains selectable.
+
+Ordinary output still renders only `Ecosystems` or `Ecosystem Info`. Bare `-S`
+and explicit `@Ecosystem` compose the selected route's complete section set,
+ordered alphabetically.
 
 ## Sections
 

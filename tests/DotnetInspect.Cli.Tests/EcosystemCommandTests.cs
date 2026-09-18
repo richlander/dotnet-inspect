@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using NuGet.Versioning;
@@ -30,13 +31,14 @@ public sealed class EcosystemCommandTests
             "ecosystem",
             "aspire",
             "-S",
-            "Integrations",
+            "@Integrations",
             "--json",
             "--rows",
             "1..1",
         ];
 
-        var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(CommandLineBuilder.PreprocessArgs(arguments));
 
         Assert.Empty(result.Errors);
     }
@@ -45,13 +47,16 @@ public sealed class EcosystemCommandTests
     public async Task CommandLine_ExecutesTheCatalogRoute()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        string[] arguments = ["ecosystem", "aspire", "-S", "Integrations"];
+        string[] arguments = ["ecosystem", "aspire", "-S", "@Integrations"];
         var result = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(root.Parse(arguments), arguments));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains("| Aspire | integration.aspire |", result.Output);
+        Assert.Contains(
+            "| Dependency Injection | integration.dependency-injection |",
+            result.Output);
     }
 
     [Fact]
@@ -62,9 +67,9 @@ public sealed class EcosystemCommandTests
             "ecosystem",
             "aspire",
             "-S",
-            "Integrations",
+            "@Integrations",
             "--rows",
-            "2..2",
+            "14..14",
         ];
         var result = await ExecuteCommandLineAsync(arguments);
 
@@ -72,7 +77,7 @@ public sealed class EcosystemCommandTests
         Assert.Empty(result.Output);
         Assert.Contains(
             "Ecosystem row selection stage 1 for 'Known Integrations' "
-            + "requires row 2, but only 1 rows are available.",
+            + "requires row 14, but only 13 rows are available.",
             result.Error);
     }
 
@@ -198,7 +203,7 @@ public sealed class EcosystemCommandTests
             "| ecosystem.dotnet | .NET | .NET runtime libraries and product demos. | none | 0 | 3 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
+            "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 13 | 2 |",
             result.Output);
         Assert.Contains(
             "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
@@ -326,17 +331,17 @@ public sealed class EcosystemCommandTests
         Assert.Contains("# Aspire", result.Output);
         Assert.Contains("## Ecosystem Info", result.Output);
         Assert.Contains("| ID | ecosystem.aspire |", result.Output);
-        Assert.Contains("| Known Integration Bindings | 1 |", result.Output);
+        Assert.Contains("| Known Integration Bindings | 13 |", result.Output);
         Assert.DoesNotContain("## Known Integrations", result.Output);
     }
 
     [Fact]
-    public async Task IntegrationsAlias_ReportsConfiguredKnowledgeNotLibraryObservation()
+    public async Task IntegrationsCategory_ReportsConfiguredKnowledgeNotLibraryObservation()
     {
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "ecosystem.aspire",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
         });
 
         Assert.Equal(0, result.ExitCode);
@@ -344,6 +349,12 @@ public sealed class EcosystemCommandTests
         Assert.DoesNotContain("# Aspire", result.Output);
         Assert.Contains("## Known Integrations", result.Output);
         Assert.Contains("| Aspire | integration.aspire |", result.Output);
+        Assert.Contains(
+            "| Dependency Injection | integration.dependency-injection |",
+            result.Output);
+        Assert.Contains(
+            "| OpenTelemetry | integration.opentelemetry |",
+            result.Output);
         Assert.Contains(
             "these are not observations from a library",
             result.Output);
@@ -355,7 +366,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "microsoft-extensions",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
         });
 
         Assert.Equal(0, result.ExitCode);
@@ -374,7 +385,7 @@ public sealed class EcosystemCommandTests
     {
         var result = await ExecuteAsync(new EcosystemOptions
         {
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Format = OutputFormat.Tsv,
         });
 
@@ -386,13 +397,16 @@ public sealed class EcosystemCommandTests
         Assert.Equal(
             "ecosystem\tintegration\tid\tevidence_relationships\tbinding\tknowledge_scope",
             lines[0]);
-        Assert.StartsWith(
+        Assert.Contains(lines, line => line.StartsWith(
             "Aspire\tAspire\tintegration.aspire\tintegration.observed, integration.opportunity\tconfigured\t",
-            lines[1]);
-        Assert.EndsWith(
+            StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.StartsWith(
+            "Aspire\tDependency Injection\tintegration.dependency-injection\tintegration.observed, integration.opportunity\tconfigured\t",
+            StringComparison.Ordinal));
+        Assert.All(lines[1..], line => Assert.EndsWith(
             "Configured product knowledge; not a library observation.",
-            lines[1]);
-        Assert.Equal(2, lines.Length);
+            line));
+        Assert.Equal(14, lines.Length);
     }
 
     [Theory]
@@ -406,7 +420,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "microsoft-extensions",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Format = format,
         });
 
@@ -424,7 +438,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "microsoft-extensions",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Count = true,
         });
 
@@ -439,7 +453,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "microsoft-extensions",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Rows = RowWindow.Range(2, 2),
             Format = OutputFormat.Jsonl,
         });
@@ -462,7 +476,7 @@ public sealed class EcosystemCommandTests
             "ecosystem",
             "microsoft-extensions",
             "-S",
-            "Integrations",
+            "@Integrations",
             "--columns",
             "ID",
             format);
@@ -480,7 +494,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "microsoft-extensions",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Columns = ["Binding", "Knowledge Scope"],
             Format = OutputFormat.Jsonl,
         });
@@ -499,14 +513,14 @@ public sealed class EcosystemCommandTests
         var jsonl = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "aspire",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Fields = ["Binding"],
             Format = OutputFormat.Jsonl,
         });
         var json = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "aspire",
-            Select = ["Integrations"],
+            Select = [SectionCategoryNames.Integrations],
             Fields = ["Binding"],
             Format = OutputFormat.Json,
         });
@@ -514,19 +528,32 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, jsonl.ExitCode);
         Assert.Empty(jsonl.Error);
         Assert.Equal(
-            """{"binding":"configured"}""",
-            jsonl.Output.Trim());
+            13,
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.All(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries),
+            line => Assert.Equal("""{"binding":"configured"}""", line));
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
         using JsonDocument document = JsonDocument.Parse(json.Output);
-        JsonElement row = Assert.Single(
-            document.RootElement
+        JsonElement[] rows =
+        [
+            .. document.RootElement
                 .GetProperty("known_integrations")
-                .EnumerateArray());
-        JsonProperty property = Assert.Single(row.EnumerateObject());
-        Assert.Equal("binding", property.Name);
-        Assert.Equal("configured", property.Value.GetString());
+                .EnumerateArray(),
+        ];
+        Assert.Equal(13, rows.Length);
+        Assert.All(rows, row =>
+        {
+            JsonProperty property = Assert.Single(row.EnumerateObject());
+            Assert.Equal("binding", property.Name);
+            Assert.Equal("configured", property.Value.GetString());
+        });
     }
 
     [Fact]
@@ -608,7 +635,7 @@ public sealed class EcosystemCommandTests
         var schema = await ExecuteAsync(new EcosystemOptions
         {
             Ecosystem = "aspire",
-            Discover = ["Integrations"],
+            Discover = [EcosystemSections.KnownIntegrationsSection],
         });
 
         Assert.Equal(0, sections.ExitCode);
@@ -616,6 +643,236 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, schema.ExitCode);
         Assert.Contains("| Integration | column |", schema.Output);
         Assert.Contains("| Evidence Relationships | column |", schema.Output);
+    }
+
+    [Fact]
+    public async Task UnprefixedIntegrationsIsNotASelector()
+    {
+        var removed = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select = ["Integrations"],
+        });
+        var exact = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select = [EcosystemSections.KnownIntegrationsSection],
+        });
+        var discovery = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Discover = ["Integrations"],
+        });
+
+        Assert.Equal(1, removed.ExitCode);
+        Assert.Empty(removed.Output);
+        Assert.Contains(
+            "Select value 'Integrations' not found.",
+            removed.Error);
+
+        Assert.Equal(0, exact.ExitCode);
+        Assert.Empty(exact.Error);
+        Assert.Contains("## Known Integrations", exact.Output);
+
+        Assert.Equal(1, discovery.ExitCode);
+        Assert.Empty(discovery.Output);
+        Assert.Contains(
+            "Section 'Integrations' not found.",
+            discovery.Error);
+    }
+
+    [Fact]
+    public async Task DiscoveryListsRouteSpecificAuthoredCatalogs()
+    {
+        var catalog = await ExecuteAsync(new EcosystemOptions
+        {
+            Discover = [],
+        });
+        var focused = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Discover = [],
+        });
+        var dotnet = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "dotnet",
+            Discover = [],
+        });
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Empty(catalog.Error);
+        Assert.Equal(
+            """
+            | Name | Kind |
+            | ---- | ---- |
+            | @Ecosystem | category |
+            | @Integrations | category |
+            | Core Packages | section |
+            | Demos | section |
+            | Ecosystems | section |
+            | Known Integrations | section |
+            | Namespace Hints | section |
+            | Tool Packages | section |
+            """,
+            catalog.Output.Trim());
+
+        Assert.Equal(0, focused.ExitCode);
+        Assert.Empty(focused.Error);
+        Assert.Equal(
+            """
+            | Name | Kind |
+            | ---- | ---- |
+            | @Ecosystem | category |
+            | @Integrations | category |
+            | Core Packages | section |
+            | Demos | section |
+            | Ecosystem Info | section |
+            | Known Integrations | section |
+            | Namespace Hints | section |
+            | Tool Packages | section |
+            """,
+            focused.Output.Trim());
+
+        Assert.Equal(0, dotnet.ExitCode);
+        Assert.Empty(dotnet.Error);
+        Assert.Equal(
+            """
+            | Name | Kind |
+            | ---- | ---- |
+            | @Ecosystem | category |
+            | @Integrations | category |
+            | Core Packages | section |
+            | Demos | section |
+            | Ecosystem Info | section |
+            | Known Integrations | section |
+            | Namespace Hints | section |
+            | Pruning | section |
+            | Tool Packages | section |
+            """,
+            dotnet.Output.Trim());
+    }
+
+    [Fact]
+    public async Task DiscoveryDrillsIntoRouteSpecificCategories()
+    {
+        var ecosystem = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "dotnet",
+            Discover = [SectionCategoryNames.Ecosystem],
+        });
+        var integrations = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "dotnet",
+            Discover = [SectionCategoryNames.Integrations],
+        });
+
+        Assert.Equal(0, ecosystem.ExitCode);
+        Assert.Empty(ecosystem.Error);
+        Assert.Equal(
+            [
+                "Core Packages",
+                "Demos",
+                "Ecosystem Info",
+                "Known Integrations",
+                "Namespace Hints",
+                "Pruning",
+                "Tool Packages",
+            ],
+            DiscoveryNames(ecosystem.Output));
+
+        Assert.Equal(0, integrations.ExitCode);
+        Assert.Empty(integrations.Error);
+        Assert.Equal(
+            ["Known Integrations"],
+            DiscoveryNames(integrations.Output));
+    }
+
+    [Fact]
+    public async Task EcosystemCategoryComposesFocusedSectionsAlphabetically()
+    {
+        int reads = 0;
+        InstalledPlatformPruneSource.Result Prune()
+        {
+            reads++;
+            return Supplying("System.Text.Json|11.0.0")();
+        }
+
+        var result = await ExecuteAsync(
+            new EcosystemOptions
+            {
+                Ecosystem = "dotnet",
+                Select = [SectionCategoryNames.Ecosystem],
+                Format = OutputFormat.Json,
+            },
+            Prune);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(1, reads);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            [
+                "core_packages",
+                "demos",
+                "ecosystem_info",
+                "known_integrations",
+                "namespace_hints",
+                "pruning",
+                "tool_packages",
+            ],
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name));
+    }
+
+    [Fact]
+    public async Task OverlappingCategoriesRenderKnownIntegrationsOnce()
+    {
+        var result = await ExecuteAsync(new EcosystemOptions
+        {
+            Ecosystem = "aspire",
+            Select =
+            [
+                SectionCategoryNames.Ecosystem,
+                SectionCategoryNames.Integrations,
+            ],
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            1,
+            result.Output.Split("## Known Integrations").Length - 1);
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("@Default")]
+    [InlineData("@Hidden")]
+    public async Task ComputedCategoryPolesFailBeforePruneRowsAreReadWhenAnotherSelectorMatches(
+        string selector)
+    {
+        int reads = 0;
+        InstalledPlatformPruneSource.Result Prune()
+        {
+            reads++;
+            return Supplying("System.Text.Json|11.0.0")();
+        }
+
+        var result = await ExecuteAsync(
+            new EcosystemOptions
+            {
+                Ecosystem = "dotnet",
+                Select = [SectionCategoryNames.Ecosystem, selector],
+            },
+            Prune);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{selector}' not found.",
+            result.Error);
+        Assert.Equal(0, reads);
     }
 
     [Fact]
@@ -758,6 +1015,16 @@ public sealed class EcosystemCommandTests
                 root.Parse(arguments),
                 arguments));
     }
+
+    private static string[] DiscoveryNames(string output) =>
+    [
+        .. output.Split('\n')
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal)
+                && !line.StartsWith("| Name ", StringComparison.Ordinal)
+                && !line.StartsWith("| ---- ", StringComparison.Ordinal))
+            .Select(line =>
+                line.Split('|', StringSplitOptions.TrimEntries)[1]),
+    ];
 
     [Fact]
     public async Task Pruning_ListsWhatTheInstalledPlatformTargetSupplies()

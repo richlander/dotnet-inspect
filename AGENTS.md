@@ -540,13 +540,13 @@ checkpoint and split mechanics:
 
 ## Lead with the demo
 
-Put `## Demo` above validation in every PR body. Show the real scenario and
-output, before and after for a fix, and a neighboring case; use a mockup for
-documentation-only work. [Development Practices](docs/development-practices.md#lead-with-the-demo)
-owns the full contract and the inspect-web hosting pointer.
+Every PR body puts `## Demo` above validation and follows the full
+[demo contract](docs/development-practices.md#lead-with-the-demo).
 
 ## PR and CI discipline
 
+- Before merging a user-observable change, record it and its PR or stack link on [the 0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493); outside release preparation, do not edit
+  `src/DotnetInspect.Cli/release-notes.md`.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
   Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
 - Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
