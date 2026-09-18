@@ -230,11 +230,12 @@ state supplies a second analogy for composing durable Workspace and view intent
 without serializing rendered results. These analogies support the separation;
 they do not transfer another system's schema or lifecycle.
 
-The current CLI does not satisfy this target. It constructs one ephemeral
-realization, renders the typed top-level inventory, optionally enters Package
-Navigation, and exits. Direct registration construction is non-projectable, and
-the current packet grammar cannot represent every supported top-level
-registration.
+The CLI resource-free authoring path is implemented under #7427. Direct
+Package and registration inputs produce one schema-version-3 definition and
+canonical format-3 packet or URL; canonical packet and exact Inspect Web URL
+input re-emits the same durable value without realization. The default
+inventory and optional Package Navigation paths remain realization-backed
+transitional behavior when durable output is not requested.
 
 ### Definition, plan, and realization
 
@@ -643,7 +644,8 @@ Implementation proceeds in focused slices:
    contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
-   realization when no transformation needs it.
+   realization when no transformation needs it. Implemented under
+   [#7427](https://github.com/richlander/dotnet-inspect/issues/7427).
 4. **Portable enrichment.** Add one real realization-backed transformation,
    “make Package dependencies explicit/top-level,” using a nuget.org package
    with deterministic direct dependencies and proving context-preserving
