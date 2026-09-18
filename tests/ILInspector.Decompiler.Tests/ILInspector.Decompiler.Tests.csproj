@@ -146,6 +146,10 @@
              Link="AuthoredCorpusMethodology.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.cs"
              Link="ReturnToSenderTypePlanner.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.Models.cs"
+             Link="ReturnToSenderTypePlanner.Models.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.TypeProducer.cs"
+             Link="ReturnToSenderTypePlanner.TypeProducer.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderEvidence.cs"
              Link="ReturnToSenderEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderClosureEvidence.cs"
