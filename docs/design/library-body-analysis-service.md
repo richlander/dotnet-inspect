@@ -21,6 +21,13 @@ Evidence and Implementation Profiles queries consume those focused types
 directly. One service invocation may still coordinate several producers over
 one body acquisition; that does not make their answers one semantic type.
 
+The CLI session adoption moves both path and prefetched-image execution in
+`MethodBodyInspectionSession` onto the service. The session continues to own
+command-selected feature and body-scope policy, resolver binding policy, source
+attribution, and reuse of one execution across requested sections. Migrated
+sections consume focused results from that execution; unmigrated sections
+request its lazy compatibility index.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
 for those consumers, not the destination for new producer evidence or query
@@ -228,6 +235,13 @@ UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
+The cluster root-path query follows the same request/service shape for
+`MethodEvidence`; its existing section and CLI continue to own composition and
+presentation. `MethodBodyInspectionSession` similarly translates command
+capability and scope policy into one request, delegates path or
+prefetched-image execution to the service, retains the returned execution for
+the command, and creates its detached compatibility index only when an
+unmigrated consumer requests it.
 
 ## Evidence
 
@@ -248,6 +262,12 @@ The initial Release gates are:
 - existing `AssemblyPairCallUseQueryTests` cluster root-path cases for public
   root composition, exact path witnesses, completion boundaries, owner
   diagnostics, and stale-selection rejection;
+- existing `MethodBodyInspectionSessionTests` for path execution, requested
+  features, body scope, source attribution, and cross-assembly composition;
+- existing `IndexBuildInvariantTests` for one Analysis execution per command,
+  plus
+  `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+  for prefetched-image execution over a retained package participant;
 - `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor` and
   `EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface` for the
   query-owned Browser/Wasm boundary; and

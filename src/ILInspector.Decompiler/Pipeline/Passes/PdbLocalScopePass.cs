@@ -20,13 +20,6 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
-        // No new scope may turn a retained transfer into an entry past a
-        // declaration. This pass leaves unstructured control flow unchanged.
-        if (function.DescendantsOutsideNestedFunctions.Any(node =>
-            node is Branch or ConditionalBranch or Leave))
-        {
-            return;
-        }
         var reserved = ExactLocalNameAllocation.ReservedNames(
             function, function.Signature.Parameters, function.Signature.GenericParameterNames);
         foreach (var group in duplicates)
@@ -87,6 +80,10 @@ public sealed class PdbLocalScopePass : IIrPass
         }
 
         var range = block.Children.Skip(first).Take(last - first + 1).ToArray();
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+        {
+            return;
+        }
         bool Inside(IrNode node) => range.Any(statement => ExactLocalNameAllocation.Contains(statement, node));
         if (sameName.Any(other => other != index
             && IrFunction.LocalSlotReferencesInScope(function.Body, other).Any(Inside)))
