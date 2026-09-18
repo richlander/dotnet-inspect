@@ -940,7 +940,11 @@ public sealed class PackageIntegrationsWorkspaceTests
                 return;
             }
 
-            Assert.Equal(shape == "invalid-image" ? 1 : 0, exit);
+            Assert.Equal(
+                shape is "native-image" or "invalid-image"
+                    ? 1
+                    : 0,
+                exit);
             Assert.Contains("## Integration Opportunities", output);
             Assert.Equal(expectedLibraries, output.Split(
                 "| Aspire | `Npgsql.NpgsqlConnection` |", StringSplitOptions.None).Length - 1);
@@ -961,15 +965,16 @@ public sealed class PackageIntegrationsWorkspaceTests
                 Assert.DoesNotContain("Native.dll", output);
                 Assert.DoesNotContain("Invalid.dll", output);
             }
-            if (shape == "invalid-image")
+            if (shape is "native-image" or "invalid-image")
             {
+                string fileName =
+                    shape == "native-image"
+                        ? "Native.dll"
+                        : "Invalid.dll";
                 Assert.Contains(
                     "Could not select library descriptor for "
-                    + "'lib/net11.0/Invalid.dll'",
+                    + $"'lib/net11.0/{fileName}'",
                     error);
-            }
-            if (shape == "native-image")
-            {
                 Assert.DoesNotContain("Could not read library:", error);
             }
             TestContext.Current.TestOutputHelper?.WriteLine($"{shape}: exit {exit}\n{output}");
