@@ -24,10 +24,22 @@ public static partial class CatalogExports
     [JSExport]
     public static string EncodeWorkspaceShareState(string stateJson)
     {
-        BrowserWorkspaceShareEncodeResult result =
-            BrowserWorkspaceShareOperations.ReadAndEncode(
+        BrowserWorkspaceShareEncodeResult result;
+        try
+        {
+            BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
                 stateJson,
-                BrowserWorkspaceShareOperations.Encode);
+                BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
+            result = state is null
+                ? BrowserWorkspaceShareOperations.InvalidState(
+                    "Workspace share state must be one object.")
+                : BrowserWorkspaceShareOperations.Encode(state);
+        }
+        catch (JsonException)
+        {
+            result = BrowserWorkspaceShareOperations.InvalidState(
+                "Workspace share state is not valid Browser transport JSON.");
+        }
 
         return JsonSerializer.Serialize(
             result,
@@ -37,10 +49,23 @@ public static partial class CatalogExports
     [JSExport]
     public static string CaptureCompleteWorkspaceShareState(string stateJson)
     {
-        BrowserWorkspaceShareEncodeResult result =
-            BrowserWorkspaceShareOperations.ReadAndEncode(
+        BrowserWorkspaceShareEncodeResult result;
+        try
+        {
+            BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
                 stateJson,
-                BrowserWorkspaceShareOperations.CaptureComplete);
+                BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
+            result = state is null
+                ? BrowserWorkspaceShareOperations.InvalidState(
+                    "Workspace share state must be one object.")
+                : BrowserWorkspaceShareOperations.CaptureComplete(state);
+        }
+        catch (JsonException)
+        {
+            result = BrowserWorkspaceShareOperations.InvalidState(
+                "Workspace share state is not valid Browser transport JSON.");
+        }
+
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
@@ -313,30 +338,6 @@ namespace DotnetInspect.Web.Interop.Catalog
                     "InvalidBrowserState",
                     "state",
                     message));
-
-        internal static BrowserWorkspaceShareEncodeResult ReadAndEncode(
-            string stateJson,
-            Func<
-                BrowserWorkspaceShareState,
-                BrowserWorkspaceShareEncodeResult> encode)
-        {
-            ArgumentNullException.ThrowIfNull(stateJson);
-            ArgumentNullException.ThrowIfNull(encode);
-            try
-            {
-                BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
-                    stateJson,
-                    BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
-                return state is null
-                    ? InvalidState("Workspace share state must be one object.")
-                    : encode(state);
-            }
-            catch (JsonException)
-            {
-                return InvalidState(
-                    "Workspace share state is not valid Browser transport JSON.");
-            }
-        }
 
         private static WorkspaceSharePacketDefinitionSet ToDefinitions(
             BrowserWorkspaceShareState state)

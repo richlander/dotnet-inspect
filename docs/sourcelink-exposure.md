@@ -145,7 +145,8 @@ queries. Issue [#1163](https://github.com/richlander/dotnet-inspect/issues/1163)
 records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `PDB Source` / package
 content patterns, availability checks live in `SourceLink: Integrity` and
-`SourceLink: Availability`, URL shape is selected with `--blob`, and IL offset
+`SourceLink: Availability`, browser views are preferred with
+`--prefer-rendered-urls`, and IL offset
 symbolication is `library coordinate <token>+<offset> --library <source>`,
 which supplies the value for the `Context: Source Location` section.
 
@@ -176,8 +177,9 @@ sections such as `Decompiled Source`, `Annotated Source`, `PDB Source`, and
 `IL`, one-column SourceLink URL output such as `Source Locations`, and package
 README/content payloads. It does not change the selected shape; it simply strips
 framing from an already-selected payload. `--count` remains the reduction that
-collapses a selected section to a single row count, and `--raw`/`--blob` remain
-the URL-shape pair for emitted GitHub links.
+collapses a selected section to a single row count. Fetchable URLs are the
+default; `--prefer-rendered-urls` selects supported browser views without
+changing payload shape.
 
 ## PDB dependency
 

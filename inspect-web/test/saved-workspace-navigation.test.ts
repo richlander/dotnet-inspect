@@ -534,8 +534,8 @@ function harness() {
   const workspaceLocation = createWorkspaceLocationPersistence({
     current: () => location,
     decode,
-    encode: json => {
-      encoded.push(JSON.parse(json));
+    encode: shareState => {
+      encoded.push(structuredClone(shareState));
       return controls.encodeResult;
     },
     push: (url, entryState) => {
@@ -748,8 +748,10 @@ function harness() {
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
       controls.decodeWorkspace?.(value) ?? Promise.resolve(decode(value)),
-    inspectCaptureCompleteWorkspaceShareState: (stateJson: string) => {
-      completeEncoded.push(JSON.parse(stateJson));
+    inspectCaptureCompleteWorkspaceShareState: (
+      completeState: BrowserWorkspaceShareState,
+    ) => {
+      completeEncoded.push(structuredClone(completeState));
       return Promise.resolve(controls.completeEncodeResult);
     },
     retainedWorkspaceActivationController: {

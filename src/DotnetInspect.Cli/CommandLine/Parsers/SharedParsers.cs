@@ -370,21 +370,11 @@ public static class SharedParsers
     }
 
     /// <summary>
-    /// Parses type filter value where a numeric value means limit,
-    /// otherwise the value is a glob pattern.
+    /// Parses a type filter value.
     /// </summary>
     /// <param name="value">The -t option value.</param>
-    /// <returns>A tuple of (filter pattern if not numeric, limit if numeric).</returns>
-    public static (string? Filter, int? Limit) ParseTypeFilter(string? value)
-    {
-        if (value == null)
-            return (null, null);
-
-        if (int.TryParse(value, out var limit))
-            return (null, limit);
-
-        return (value, null);
-    }
+    /// <returns>The filter pattern, including numeric literals.</returns>
+    public static string? ParseTypeFilter(string? value) => value;
 
     public static OptionError? ParseAnalysisQueryOptions(
         ParseResult parseResult,

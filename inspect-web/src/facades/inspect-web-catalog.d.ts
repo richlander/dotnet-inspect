@@ -370,11 +370,11 @@ export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]
 export declare function activateRetainedWorkspacePackageOccurrence(retainedDefinitionId: string, realizationId: string, navigationId: string): Promise<BrowserRetainedWorkspacePackageActivationResult>;
 export declare function cancelRetainedWorkspaceActivation(activationIntentId: string): Promise<BrowserRetainedWorkspaceActivationResult>;
 export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
-export declare function captureCompleteWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
+export declare function captureCompleteWorkspaceShareState(stateJson: BrowserWorkspaceShareState): BrowserWorkspaceShareEncodeResult;
 export declare function commitRetainedWorkspaceActivation(activationIntentId: string): Promise<BrowserRetainedWorkspaceActivationResult>;
 export declare function deactivateRetainedWorkspaceDefinition(retainedDefinitionId: string): Promise<BrowserRetainedWorkspaceDeactivationResult>;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
-export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
+export declare function encodeWorkspaceShareState(stateJson: BrowserWorkspaceShareState): BrowserWorkspaceShareEncodeResult;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
 export declare function observeRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResult>;

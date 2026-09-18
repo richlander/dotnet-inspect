@@ -27,6 +27,9 @@ import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserWorkspaceShareState,
+} from "../src/facades/inspect-web-catalog.d.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -277,7 +280,7 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
 });
 
 test("complete Workspace capture crosses Browser Worker transport", async () => {
-  const stateJson = JSON.stringify({
+  const shareState: BrowserWorkspaceShareState = {
     tabs: [],
     contexts: [],
     activeTabId: "t0",
@@ -290,8 +293,8 @@ test("complete Workspace capture crosses Browser Worker transport", async () => 
       section: null,
       libraries: [],
     },
-  });
-  let received = "";
+  };
+  let received: BrowserWorkspaceShareState | null = null;
   const state = fixture({
     catalog: {
       captureCompleteWorkspaceShareState(value) {
@@ -306,10 +309,10 @@ test("complete Workspace capture crosses Browser Worker transport", async () => 
   });
 
   const result =
-    state.client.catalog.captureCompleteWorkspaceShareState(stateJson);
+    state.client.catalog.captureCompleteWorkspaceShareState(shareState);
   await state.environment.flushAsync();
 
-  assert.equal(received, stateJson);
+  assert.deepEqual(received, shareState);
   assert.deepEqual(await result, {
     succeeded: true,
     packet: "complete-packet",
@@ -395,7 +398,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     },
   });
 
-  const sync = state.client.package.searchTypes("String", "[]");
+  const sync = state.client.package.searchTypes("String", []);
   const asyncDto =
     state.client.package.activateWorkspacePackageOccurrence("open");
   const voidResult =
@@ -409,12 +412,18 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   );
   const pruning = state.client.package.queryPackagePruning(
     "Example",
@@ -440,7 +449,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
-    "[\"Example.Root\",\"Other\"]",
+    ["Example.Root", "Other"],
   ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
@@ -449,7 +458,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(matchArguments, [
     "Dependency",
     null,
-    "[{\"key\":\"candidate\"}]",
+    [{
+      key: "candidate",
+      provenance: "NuGetPackage",
+      packageId: "Dependency",
+      version: "1.0.0",
+      targetFramework: "net11.0",
+    }],
   ]);
   assert.equal((await pruning).completion, "Complete");
   assert.deepEqual(pruningArguments, [
