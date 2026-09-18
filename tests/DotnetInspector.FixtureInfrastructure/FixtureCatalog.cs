@@ -148,6 +148,8 @@ public static class FixtureIds
     public const string HostileLiterals = "hostile.literals";
     public const string InspectWebCloneTransport =
         "inspect-web.clone-transport";
+    public const string InspectWebDocumentation =
+        "inspect-web.documentation";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
@@ -242,6 +244,17 @@ public static class FixtureCatalog
         "InspectWeb.CloneTransportFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "inspect-web", "clone", "generic-identity", "explicit-interface");
+
+    public static readonly FixtureDefinition InspectWebDocumentation = Fixture(
+        FixtureIds.InspectWebDocumentation,
+        "InspectWeb.DocumentationFixtures",
+        "InspectWeb.DocumentationFixtures.dll",
+        ["inspect-web", "documentation", "extension", "non-public"],
+        Boundaries(FixtureBoundary.SidecarAsset),
+        Asset(
+            "documentation",
+            "InspectWeb.DocumentationFixtures",
+            "InspectWeb.DocumentationFixtures.xml"));
 
     public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
         FixtureIds.InspectWebMethodBodies,
@@ -980,6 +993,7 @@ public static class FixtureCatalog
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
+        InspectWebDocumentation,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
@@ -1393,6 +1407,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyReference",
             "InspectWeb.CloneTransportFixtures" =>
                 "fixtures/inspect-web/InspectWeb.CloneTransportFixtures",
+            "InspectWeb.DocumentationFixtures" =>
+                "fixtures/inspect-web/InspectWeb.DocumentationFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",

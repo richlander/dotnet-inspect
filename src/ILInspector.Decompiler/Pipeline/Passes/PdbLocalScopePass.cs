@@ -60,6 +60,8 @@ public sealed class PdbLocalScopePass : IIrPass
                 || node is LoadLocalAddress address && address.Index == index) => store,
             LoadLocalAddress address when address.Parent is InitObject init
                 && ReferenceEquals(init.Address, address) => init,
+            IsPattern pattern => PatternStatement(pattern, references),
+            RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
             _ => null,
         };
         if (declaration?.Parent is not Block block)
@@ -114,6 +116,23 @@ public sealed class PdbLocalScopePass : IIrPass
                 block.Add(statements[position]);
         }
         context.Stepper.StepOver($"retain scope for local {index}", lexical);
+    }
+
+    static IrNode? StatementInBlock(IrNode node)
+    {
+        while (node.Parent is not null and not Block)
+            node = node.Parent;
+        return node.Parent is Block ? node : null;
+    }
+
+    static IrNode? PatternStatement(IrNode pattern, IrNode[] references)
+    {
+        IrNode? statement = StatementInBlock(pattern);
+        return statement is not null
+            && references.All(reference =>
+                ExactLocalNameAllocation.Contains(statement, reference))
+                ? statement
+                : null;
     }
 
     internal static IReadOnlyList<IrNode> WithoutLexicalBlocks(IReadOnlyList<IrNode> statements)

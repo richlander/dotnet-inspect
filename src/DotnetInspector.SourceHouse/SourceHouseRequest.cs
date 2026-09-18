@@ -82,10 +82,18 @@ public abstract class SourceHouseTarget
 
     public sealed class TypeTarget : SourceHouseTarget
     {
-        public TypeTarget(MetadataTypeDefinitionName type)
+        public TypeTarget(
+            MetadataTypeDefinitionName type,
+            string? originalDocumentPath = null)
             : base(SourceHouseTargetKind.Type, type)
         {
+            if (originalDocumentPath is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(originalDocumentPath);
+            OriginalDocumentPath = originalDocumentPath;
         }
+
+        /// <summary>Exact original PDB path, or null to select the primary document.</summary>
+        public string? OriginalDocumentPath { get; }
     }
 
     public sealed class MemberTarget : SourceHouseTarget

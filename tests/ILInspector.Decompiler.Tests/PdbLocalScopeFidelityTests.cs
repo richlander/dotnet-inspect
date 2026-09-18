@@ -27,4 +27,17 @@ public sealed class PdbLocalScopeFidelityTests
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Method}: {result.Status}: {result.Detail}"));
     }
+
+    [Fact]
+    public void DisjointPatternNames_CompileBackExactly()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(PdbScopeFixtures).Assembly.Location,
+            type => type == typeof(PdbScopeFixtures).FullName,
+            method => method.Method == nameof(PdbScopeFixtures.SequentialPatterns)));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
 }
