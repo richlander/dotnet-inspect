@@ -19,8 +19,8 @@ public static class EcosystemSections
     public static SectionCatalog<EcosystemDiscoveryModel> Focused { get; } =
         CreateFocusedPipeline().Compile();
 
-    public static SectionCatalog<EcosystemDiscoveryModel> DotNet { get; } =
-        CreateDotNetPipeline().Compile();
+    public static SectionCatalog<EcosystemDiscoveryModel> Runtime { get; } =
+        CreateRuntimePipeline().Compile();
 
     public static SectionPipeline<EcosystemDiscoveryModel>
         CreateCatalogWidePipeline() =>
@@ -31,7 +31,7 @@ public static class EcosystemSections
         CreatePipeline<PackInfo>(includePruning: false);
 
     public static SectionPipeline<EcosystemDiscoveryModel>
-        CreateDotNetPipeline() =>
+        CreateRuntimePipeline() =>
         CreatePipeline<PackInfo>(includePruning: true);
 
     private static SectionPipeline<EcosystemDiscoveryModel>

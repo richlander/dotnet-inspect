@@ -81,7 +81,7 @@ public sealed class WorkspaceTopLevelInventoryTests
 
         var ecosystem = Assert.IsType<WorkspaceTopLevelEcosystemEntry>(
             document.Entries[5]);
-        Assert.Equal("ecosystem.dotnet", ecosystem.Id);
+        Assert.Equal("ecosystem.runtime", ecosystem.Id);
         Assert.Equal(["System", "Microsoft"], ecosystem.NamespaceRoots);
         Assert.Equal(
             ["System.Text.Json", "Microsoft.Extensions.Logging"],
@@ -563,7 +563,7 @@ public sealed class WorkspaceTopLevelInventoryTests
                 ExactLibraryRegistration()).Coordinate;
         var prefix = new PackagePrefixDeclaration("Microsoft.Extensions.");
         var ecosystem = new WorkspaceEcosystemRegistrationDeclaration(
-            WorkspaceEcosystemRegistrationId.Create("ecosystem.dotnet"),
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.runtime"),
             ["System", "Microsoft"],
             [
                 new PackageCoordinate("System.Text.Json"),

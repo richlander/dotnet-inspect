@@ -11,18 +11,18 @@ public sealed class PackageSetRegistryConsumerTests
     [Fact]
     public void PublicSurfaceSelectsIndependentPopulationLoaderBindings()
     {
-        EcosystemPopulationLoaderBinding dotnet =
+        EcosystemPopulationLoaderBinding runtime =
             Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
                 EcosystemPackCatalog.SelectPopulationLoader(
-                    EcosystemPackIds.DotNet)).Binding;
+                    EcosystemPackIds.Runtime)).Binding;
         EcosystemPopulationLoaderBinding aspNetCore =
             Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
                 EcosystemPackCatalog.SelectPopulationLoader(
                     EcosystemPackIds.AspNetCore)).Binding;
 
-        Assert.Equal("ecosystem-loader.dotnet", dotnet.Id.Value);
+        Assert.Equal("ecosystem-loader.runtime", runtime.Id.Value);
         Assert.Equal("ecosystem-loader.aspnetcore", aspNetCore.Id.Value);
-        Assert.NotSame(dotnet, aspNetCore);
+        Assert.NotSame(runtime, aspNetCore);
         Assert.IsType<EcosystemPopulationLoaderSelectionResult.Unavailable>(
             EcosystemPackCatalog.SelectPopulationLoader(
                 EcosystemPackIds.MicrosoftExtensions));
@@ -96,14 +96,14 @@ public sealed class PackageSetRegistryConsumerTests
             curated.Members,
             member => member.PackageId == "Microsoft.Extensions.DependencyInjection.Abstractions");
 
-        EcosystemPackDescriptor dotnet = Assert.IsType<EcosystemPackLookupResult.Known>(
-            EcosystemPackCatalog.Lookup(EcosystemPackIds.DotNet)).Descriptor;
-        Assert.Equal(["System"], dotnet.NamespaceRoots);
-        Assert.Empty(dotnet.CorePackages);
-        Assert.Null(dotnet.PackageSet);
-        Assert.False(dotnet.HasScanner);
-        Assert.True(dotnet.HasPopulationLoader);
-        Assert.Equal(3, dotnet.Demos.Length);
+        EcosystemPackDescriptor runtime = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Runtime)).Descriptor;
+        Assert.Equal(["System"], runtime.NamespaceRoots);
+        Assert.Empty(runtime.CorePackages);
+        Assert.Null(runtime.PackageSet);
+        Assert.False(runtime.HasScanner);
+        Assert.True(runtime.HasPopulationLoader);
+        Assert.Equal(3, runtime.Demos.Length);
 
         EcosystemPackDescriptor ai = Assert.IsType<EcosystemPackLookupResult.Known>(
             EcosystemPackCatalog.Lookup(EcosystemPackIds.AI)).Descriptor;

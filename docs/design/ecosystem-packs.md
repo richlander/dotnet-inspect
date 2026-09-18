@@ -22,7 +22,7 @@ named below are implemented. The assembly-friend tests, solution
 dependency-policy rule, and strengthened inspect-web facade boundary gate are
 active. The optional scanner slot and Aspire binding selection are implemented
 under [#5935](https://github.com/richlander/dotnet-inspect/issues/5935), using
-the Integration-owned compatibility binding. The `.NET` and ASP.NET Core packs
+the Integration-owned compatibility binding. The `.NET Runtime` and ASP.NET Core packs
 now expose independent Ecosystem Population Loading bindings under #7317 while
 PlatformHouse execution remains staged. CLI ecosystem narrowing is adopted under
 [#5985](https://github.com/richlander/dotnet-inspect/issues/5985);
@@ -582,9 +582,9 @@ Selecting a demo does not select, resolve, count, or update the package set,
 does not expand a prefix, and does not return or invoke the scanner. Selecting
 another pack capability does not construct demo records.
 
-`ecosystem.dotnet` is the application grouping for .NET runtime and package
-content, not a source-coordinate inference rule. A .NET demo may retain an exact
-package coordinate when that is the existing reproducible scenario. The
+`ecosystem.runtime` is the application grouping for .NET Runtime and package
+content, not a source-coordinate inference rule. A .NET Runtime demo may retain
+an exact package coordinate when that is the existing reproducible scenario. The
 catalog never infers grouping from package IDs, namespaces, titles, or
 workspace coordinate kinds.
 
@@ -717,8 +717,8 @@ acquire a core package. Traversal begins only when an operation selects the
 ecosystem and supplies the required finite policies. Namespace and
 package-prefix matches never substitute for a concrete registered package root.
 
-Ecosystem grouping and source provenance are orthogonal. `ecosystem.dotnet`
-groups .NET runtime demos, while `ecosystem.microsoft-extensions` retains
+Ecosystem grouping and source provenance are orthogonal. `ecosystem.runtime`
+groups .NET Runtime demos, while `ecosystem.microsoft-extensions` retains
 the Microsoft.Extensions demos whose exact implementation sources are ASP.NET
 Core Platform libraries. Neither grouping creates a Platform package set,
 changes curated package-set membership, or substitutes a package prefix for a
@@ -993,7 +993,7 @@ currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
 | --- | --- | --- | --- |
-| `ecosystem.dotnet` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | `System.` prefix and `ecosystem-loader.dotnet`; PlatformHouse execution remains staged |
+| `ecosystem.runtime` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | `System.` prefix and `ecosystem-loader.runtime`; PlatformHouse execution remains staged |
 | `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | `Microsoft.AspNetCore.` prefix and `ecosystem-loader.aspnetcore`; PlatformHouse execution remains staged |
 | `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
@@ -1013,7 +1013,7 @@ authored alongside those capabilities:
 
 | Pack | Namespace roots | Core packages, in preference order |
 | --- | --- | --- |
-| .NET | `System` | none |
+| .NET Runtime | `System` | none |
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions` |
 | ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
 | Aspire | `Aspire` | `Aspire.Hosting` |
@@ -1232,9 +1232,9 @@ packs; neither pack gains exclusive ownership or triggers traversal by prefix.
 
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned platform order is .NET, ASP.NET Core, then
+application-owned platform order is .NET Runtime, ASP.NET Core, then
 Microsoft.Extensions, which deliberately differs from ordinary pack discovery
-order. .NET requires a source-owned runtime population declaration and retains
+order. .NET Runtime requires a source-owned runtime population declaration and retains
 the inert `System.` package prefix;
 ASP.NET Core requires both its source-owned shared-framework population and
 its concrete registered packages; Microsoft.Extensions contributes concrete
@@ -1252,14 +1252,14 @@ construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
-| 100 | `stj-serializer` | `ecosystem.dotnet` |
+| 100 | `stj-serializer` | `ecosystem.runtime` |
 | 200 | `extensions-callgraph` | `ecosystem.microsoft-extensions` |
-| 300 | `stj-serialize-callgraph` | `ecosystem.dotnet` |
+| 300 | `stj-serialize-callgraph` | `ecosystem.runtime` |
 | 400 | `config-bind-callgraph` | `ecosystem.microsoft-extensions` |
 | 500 | `options-add-callgraph` | `ecosystem.microsoft-extensions` |
 | 600 | `di-tryadd-callgraph` | `ecosystem.microsoft-extensions` |
 | 700 | `http-addhttpclient-callgraph` | `ecosystem.microsoft-extensions` |
-| 800 | `stj-getdecimal-callgraph` | `ecosystem.dotnet` |
+| 800 | `stj-getdecimal-callgraph` | `ecosystem.runtime` |
 | 900 | `aspire-postgres-callgraph` | `ecosystem.aspire` |
 | 1000 | `aspire-redis-callgraph` | `ecosystem.aspire` |
 
@@ -1524,7 +1524,7 @@ ordinary non-friend consumer.
 | `EcosystemPackRegistryTests.PopulationLoaderSelectionReturnsOnlyTheSelectedBindingWithoutInvocation` | Exact loader selection returns only the chosen opaque binding and discovery, lookup, and selection invoke no loader. |
 | `EcosystemPackRegistryTests.LoaderOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack` | A loader-only contribution is valid; exact selection distinguishes a known pack without a loader from an unknown pack. |
 | `EcosystemPackRegistryTests.DuplicatePopulationLoaderIdentityFailsBeforePublication` | One loader identity cannot ambiguously name bindings on two pack registrations. |
-| `ProductEcosystemPackTests.DotNetAndAspNetCoreExposeIndependentPopulationLoaders` | `.NET` and ASP.NET Core expose distinct exact loader IDs, all other shipped packs report unavailable, and the retired `ecosystem.platform` identity is unknown. |
+| `ProductEcosystemPackTests.RuntimeAndAspNetCoreExposeIndependentPopulationLoaders` | `.NET Runtime` and ASP.NET Core expose distinct exact loader IDs, all other shipped packs report unavailable, and the retired `ecosystem.platform` and `ecosystem.dotnet` identities are unknown. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSelectsIndependentPopulationLoaderBindings` | An ordinary non-friend consumer selects the two exact opaque bindings without gaining registration construction or a public invocation path. |
 | `ProductEcosystemPackTests.AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding` | Literal shipped availability identifies only Aspire and selection preserves the Integration-owned compatibility binding by identity. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceHandsSelectedScannerToIntegrationOwner` | A non-friend consumer discovers and selects Aspire, passes only the binding to the public Integration operation, and retains typed missing-capability/unknown results. |

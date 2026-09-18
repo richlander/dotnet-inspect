@@ -89,9 +89,9 @@ separate discovery scope.
 which owns demo discovery and execution. Two paths to the same content is the
 failure this shape avoids.
 
-### Pruning belongs to the .NET ecosystem alone
+### Pruning belongs to the .NET Runtime ecosystem alone
 
-`Pruning` exists only when the .NET ecosystem is the focus, because
+`Pruning` exists only when the .NET Runtime ecosystem is the focus, because
 subsumption is a fact about a platform target rather than about a package
 ecosystem — `ecosystem aspnetcore` registers ASP.NET Core package content, not
 a shared framework. It is neither catalog-wide nor reachable from another pack.
@@ -142,7 +142,7 @@ installed reference pack, and that premise does not hold for it.
 
 Rows are therefore produced on first access rather than at construction, so an
 unselected section is free. Cost is decided by the section ladder rather than
-by the constructor, which is what lets `ecosystem dotnet` render
+by the constructor, which is what lets `ecosystem runtime` render
 `Ecosystem Info` without reading a pack.
 
 The command takes its prune source as a factory so that property is countable

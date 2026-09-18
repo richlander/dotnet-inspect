@@ -344,7 +344,7 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         var platformRegistration = new WorkspaceRegistration.Ecosystem(
             new WorkspaceEcosystemRegistrationDeclaration(
                 WorkspaceEcosystemRegistrationId.Create(
-                    "ecosystem.dotnet"),
+                    "ecosystem.runtime"),
                 namespaceRoots: [],
                 corePackages: [],
                 populations:

@@ -4,25 +4,25 @@ namespace DotnetInspector.Ecosystems;
 
 internal static class ProductEcosystemPopulationLoaders
 {
-    internal static EcosystemPopulationLoaderBinding DotNet { get; } =
-        EcosystemPopulationLoaderBinding.Create<DotNetInputs>(
-            EcosystemPopulationLoaderId.Create("ecosystem-loader.dotnet"),
-            LoadDotNetAsync);
+    internal static EcosystemPopulationLoaderBinding Runtime { get; } =
+        EcosystemPopulationLoaderBinding.Create<RuntimeInputs>(
+            EcosystemPopulationLoaderId.Create("ecosystem-loader.runtime"),
+            LoadRuntimeAsync);
 
     internal static EcosystemPopulationLoaderBinding AspNetCore { get; } =
         EcosystemPopulationLoaderBinding.Create<AspNetCoreInputs>(
             EcosystemPopulationLoaderId.Create("ecosystem-loader.aspnetcore"),
             LoadAspNetCoreAsync);
 
-    private static ValueTask<EcosystemPopulationLoaderReply> LoadDotNetAsync(
-        EcosystemPopulationLoadRequest<DotNetInputs> request) =>
+    private static ValueTask<EcosystemPopulationLoaderReply> LoadRuntimeAsync(
+        EcosystemPopulationLoadRequest<RuntimeInputs> request) =>
         ValueTask.FromResult<EcosystemPopulationLoaderReply>(
             request.Failed(
                 [],
                 [
                     new(
                         "ecosystem-loader.adapter-not-composed",
-                        "The .NET Ecosystem population loader is not yet composed with PlatformHouse."),
+                        "The .NET Runtime Ecosystem population loader is not yet composed with PlatformHouse."),
                 ]));
 
     private static ValueTask<EcosystemPopulationLoaderReply> LoadAspNetCoreAsync(
@@ -36,10 +36,10 @@ internal static class ProductEcosystemPopulationLoaders
                         "The ASP.NET Core Ecosystem population loader is not yet composed with PlatformHouse."),
                 ]));
 
-    private sealed class DotNetInputs : IEcosystemPopulationLoadInputs
+    private sealed class RuntimeInputs : IEcosystemPopulationLoadInputs
     {
         public EcosystemPopulationLoadInputSnapshot Snapshot { get; } =
-            PendingSnapshot("dotnet");
+            PendingSnapshot("runtime");
     }
 
     private sealed class AspNetCoreInputs : IEcosystemPopulationLoadInputs

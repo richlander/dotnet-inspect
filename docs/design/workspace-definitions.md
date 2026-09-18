@@ -403,7 +403,7 @@ the same `coordinate` object above, one `family`, or one `prefix`.
 {
   "kind": "ecosystem",
   "declaration": {
-    "id": "ecosystem.dotnet",
+    "id": "ecosystem.runtime",
     "namespaceRoots": ["System"],
     "corePackages": [],
     "populations": [
@@ -728,7 +728,7 @@ $ dotnet-inspect workspace \
     --register-library \
       System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
     --register-package-prefix Microsoft.Extensions. \
-    --register-ecosystem dotnet \
+    --register-ecosystem runtime \
     --share packet
 ey...
 ```
@@ -1807,7 +1807,7 @@ section outside that allow list
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
-schema version 2 settles complete view composition. `ecosystem.dotnet` is
+schema version 2 settles complete view composition. `ecosystem.runtime` is
 application grouping,
 not workspace-coordinate inference. The three System.Text.Json demos now
 declare exact, assembly-scoped Runtime Platform coordinates after exact prune

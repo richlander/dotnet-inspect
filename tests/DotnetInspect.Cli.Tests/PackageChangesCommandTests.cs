@@ -712,7 +712,7 @@ public sealed class PackageChangesCommandTests
             () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json) with
                 {
-                    Ecosystem = "dotnet",
+                    Ecosystem = "runtime",
                 },
                 source,
                 new GitHubNuGetAdvisoryService(advisoryClient),

@@ -25,9 +25,9 @@ public sealed class EcosystemWorkspaceConstructionTests
                 Assert.Same(pack.CorePackages[index], declaration.CorePackages[index]);
         }
 
-        var dotnet = SelectKnown(EcosystemPackIds.DotNet);
+        var runtime = SelectKnown(EcosystemPackIds.Runtime);
         Assert.Collection(
-            dotnet.Populations,
+            runtime.Populations,
             item => Assert.Equal(
                 PlatformFamily.DotNetRuntime,
                 Assert.IsType<
@@ -38,7 +38,7 @@ public sealed class EcosystemWorkspaceConstructionTests
                 Assert.IsType<
                     WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
                         item).Prefix.Prefix));
-        Assert.Empty(dotnet.CorePackages);
+        Assert.Empty(runtime.CorePackages);
         var aspNetCore = SelectKnown(EcosystemPackIds.AspNetCore);
         Assert.Collection(aspNetCore.Populations,
             item => Assert.Equal(PlatformFamily.AspNetCore,
@@ -232,7 +232,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         EcosystemPackId[] selected =
         [
             EcosystemPackIds.AI,
-            EcosystemPackIds.DotNet,
+            EcosystemPackIds.Runtime,
         ];
 
         WorkspacePlan plan =
@@ -248,7 +248,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             selected.Select(id => id.Value),
             declarations.Select(declaration => declaration.Id.Value));
         Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[0]);
-        Assert.Same(SelectKnown(EcosystemPackIds.DotNet), declarations[1]);
+        Assert.Same(SelectKnown(EcosystemPackIds.Runtime), declarations[1]);
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             EcosystemPackCatalog.CreateWorkspacePlan([null!]));
         Assert.Throws<ArgumentException>(() =>
             EcosystemPackCatalog.CreateWorkspacePlan(
-                [EcosystemPackIds.DotNet, EcosystemPackIds.DotNet]));
+                [EcosystemPackIds.Runtime, EcosystemPackIds.Runtime]));
         Assert.True(EcosystemPackId.TryCreate(
             "ecosystem.not-shipped",
             out EcosystemPackId? unknown));
@@ -282,7 +282,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Unavailable>(
             registry.SelectWorkspaceRegistration(EcosystemPackIds.Aspire));
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Unknown>(
-            registry.SelectWorkspaceRegistration(EcosystemPackIds.DotNet));
+            registry.SelectWorkspaceRegistration(EcosystemPackIds.Runtime));
         Assert.Throws<ArgumentNullException>(() => registry.SelectWorkspaceRegistration(null!));
     }
 
@@ -291,7 +291,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         WorkspaceEcosystemRegistrationDeclaration declaration = Declaration(EcosystemPackIds.Aspire);
         Assert.Throws<ArgumentException>(() => new EcosystemPackRegistry(
-            [Pack(EcosystemPackIds.DotNet, declaration)]));
+            [Pack(EcosystemPackIds.Runtime, declaration)]));
         Assert.Throws<ArgumentException>(() => new EcosystemPackRegistry(
         [
             Pack(EcosystemPackIds.Aspire, declaration),
@@ -309,7 +309,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             [],
             [null!],
             [EcosystemPackIds.Aspire, EcosystemPackIds.Aspire],
-            [EcosystemPackIds.DotNet],
+            [EcosystemPackIds.Runtime],
         ];
         foreach (EcosystemPackId[] manifest in invalid)
             Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(registry, manifest));
@@ -350,13 +350,13 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         var registry = new EcosystemPackRegistry(
         [
-            Pack(EcosystemPackIds.DotNet, Declaration(EcosystemPackIds.DotNet)),
+            Pack(EcosystemPackIds.Runtime, Declaration(EcosystemPackIds.Runtime)),
             Pack(EcosystemPackIds.Aspire, null) with { Order = 200, PackageSet = PackageSetIds.Aspire },
         ]);
         Assert.Throws<ArgumentException>(() =>
-            EcosystemWorkspacePlanFactory.Create(registry, [EcosystemPackIds.DotNet], requireAllPacks: true));
+            EcosystemWorkspacePlanFactory.Create(registry, [EcosystemPackIds.Runtime], requireAllPacks: true));
         Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(
-            registry, [EcosystemPackIds.DotNet, EcosystemPackIds.Aspire], requireAllPacks: true));
+            registry, [EcosystemPackIds.Runtime, EcosystemPackIds.Aspire], requireAllPacks: true));
     }
 
     [Fact]
@@ -364,10 +364,10 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         var registry = new EcosystemPackRegistry(
         [
-            Pack(EcosystemPackIds.DotNet, Declaration(EcosystemPackIds.DotNet)),
+            Pack(EcosystemPackIds.Runtime, Declaration(EcosystemPackIds.Runtime)),
             Pack(EcosystemPackIds.Aspire, Declaration(EcosystemPackIds.Aspire)) with { Order = 200 },
         ]);
-        EcosystemPackId[] manifest = [EcosystemPackIds.DotNet];
+        EcosystemPackId[] manifest = [EcosystemPackIds.Runtime];
         WorkspacePlan firstPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
         manifest[0] = EcosystemPackIds.Aspire;
         WorkspacePlan laterPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
@@ -377,7 +377,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         await using InspectionWorkspace restored = new(initial.Plan);
         await using InspectionWorkspace empty = new([]);
 
-        Assert.Equal("ecosystem.dotnet", Assert.Single(Declarations(initial)).Id.Value);
+        Assert.Equal("ecosystem.runtime", Assert.Single(Declarations(initial)).Id.Value);
         Assert.Equal("ecosystem.aspire", Assert.Single(
             Declarations(Read(later))).Id.Value);
         Assert.Same(initial, Read(first));

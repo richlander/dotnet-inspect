@@ -9,25 +9,25 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class ProductEcosystemPackTests
 {
     [Fact]
-    public void DotNetAndAspNetCoreExposeIndependentPopulationLoaders()
+    public void RuntimeAndAspNetCoreExposeIndependentPopulationLoaders()
     {
         Assert.Equal(
             [true, false, true, false, false, false, false, false],
             EcosystemPackCatalog.Discover()
                 .Select(pack => pack.HasPopulationLoader));
 
-        EcosystemPopulationLoaderBinding dotnet =
+        EcosystemPopulationLoaderBinding runtime =
             Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
                 EcosystemPackCatalog.SelectPopulationLoader(
-                    EcosystemPackIds.DotNet)).Binding;
+                    EcosystemPackIds.Runtime)).Binding;
         EcosystemPopulationLoaderBinding aspNetCore =
             Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
                 EcosystemPackCatalog.SelectPopulationLoader(
                     EcosystemPackIds.AspNetCore)).Binding;
 
-        Assert.Equal("ecosystem-loader.dotnet", dotnet.Id.Value);
+        Assert.Equal("ecosystem-loader.runtime", runtime.Id.Value);
         Assert.Equal("ecosystem-loader.aspnetcore", aspNetCore.Id.Value);
-        Assert.NotSame(dotnet, aspNetCore);
+        Assert.NotSame(runtime, aspNetCore);
         Assert.All(
             new[]
             {
@@ -49,6 +49,13 @@ public sealed class ProductEcosystemPackTests
             EcosystemPackCatalog.Lookup(retiredPlatform));
         Assert.IsType<EcosystemPopulationLoaderSelectionResult.Unknown>(
             EcosystemPackCatalog.SelectPopulationLoader(retiredPlatform));
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.dotnet",
+            out EcosystemPackId? retiredDotNet));
+        Assert.IsType<EcosystemPackLookupResult.Unknown>(
+            EcosystemPackCatalog.Lookup(retiredDotNet));
+        Assert.IsType<EcosystemPopulationLoaderSelectionResult.Unknown>(
+            EcosystemPackCatalog.SelectPopulationLoader(retiredDotNet));
     }
 
     [Fact]
@@ -63,7 +70,7 @@ public sealed class ProductEcosystemPackTests
         Assert.All(
             new[]
             {
-                EcosystemPackIds.DotNet,
+                EcosystemPackIds.Runtime,
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.AI,
@@ -82,10 +89,10 @@ public sealed class ProductEcosystemPackTests
 
         Assert.Collection(
             packs,
-            dotnet => AssertPack(
-                dotnet,
-                EcosystemPackIds.DotNet,
-                ".NET",
+            runtime => AssertPack(
+                runtime,
+                EcosystemPackIds.Runtime,
+                ".NET Runtime",
                 100,
                 packageSet: null,
                 ProductDemoIds.StjSerializer,
@@ -192,7 +199,7 @@ public sealed class ProductEcosystemPackTests
     {
         Assert.Collection(
             EcosystemPackCatalog.Discover(),
-            dotnet => AssertKnowledge(dotnet, ["System"], []),
+            runtime => AssertKnowledge(runtime, ["System"], []),
             extensions => AssertKnowledge(
                 extensions,
                 ["Microsoft.Extensions"],
@@ -289,7 +296,7 @@ public sealed class ProductEcosystemPackTests
     {
         Assert.Collection(
             EcosystemPackCatalog.Discover(),
-            dotnet => Assert.Empty(dotnet.ToolPackages),
+            runtime => Assert.Empty(runtime.ToolPackages),
             extensions => Assert.Empty(extensions.ToolPackages),
             aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
             aspire => Assert.Equal(
@@ -306,14 +313,14 @@ public sealed class ProductEcosystemPackTests
     {
         var expected = new[]
         {
-            (100, ProductDemoIds.StjSerializer, EcosystemPackIds.DotNet, "System.Text.Json", "Browse the .NET runtime API"),
+            (100, ProductDemoIds.StjSerializer, EcosystemPackIds.Runtime, "System.Text.Json", "Browse the .NET runtime API"),
             (200, ProductDemoIds.ExtensionsCallGraph, EcosystemPackIds.MicrosoftExtensions, "Cross-library call graph", "Trace calls across three ASP.NET Core libraries"),
-            (300, ProductDemoIds.StjSerializeCallGraph, EcosystemPackIds.DotNet, "Serialize call graph", "Trace the .NET runtime STJ implementation"),
+            (300, ProductDemoIds.StjSerializeCallGraph, EcosystemPackIds.Runtime, "Serialize call graph", "Trace the .NET runtime STJ implementation"),
             (400, ProductDemoIds.ConfigBindCallGraph, EcosystemPackIds.MicrosoftExtensions, "Configuration Bind", "Recursive binder call graph"),
             (500, ProductDemoIds.OptionsAddCallGraph, EcosystemPackIds.MicrosoftExtensions, "Options hub", "Inbound fan-in at AddOptions"),
             (600, ProductDemoIds.DiTryAddCallGraph, EcosystemPackIds.MicrosoftExtensions, "DI TryAdd hub", "Keyed/scoped Try* fan-in"),
             (700, ProductDemoIds.HttpAddHttpClientCallGraph, EcosystemPackIds.MicrosoftExtensions, "AddHttpClient", "HttpClient factory registration"),
-            (800, ProductDemoIds.StjGetDecimalCallGraph, EcosystemPackIds.DotNet, "JsonElement.GetDecimal", "Trace the .NET runtime number parse path"),
+            (800, ProductDemoIds.StjGetDecimalCallGraph, EcosystemPackIds.Runtime, "JsonElement.GetDecimal", "Trace the .NET runtime number parse path"),
             (900, ProductDemoIds.AspirePostgresCallGraph, EcosystemPackIds.Aspire, "Aspire AddPostgres", "PostgreSQL resource registration graph"),
             (1000, ProductDemoIds.AspireRedisCallGraph, EcosystemPackIds.Aspire, "Aspire AddRedis", "Redis resource registration graph"),
         };
