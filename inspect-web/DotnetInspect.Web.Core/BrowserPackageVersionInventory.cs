@@ -1,5 +1,5 @@
+using DotnetInspector.Sections;
 using NuGet.Versioning;
-using NuGetFetch;
 
 namespace DotnetInspect.Web;
 
@@ -10,23 +10,25 @@ internal sealed record BrowserPackageVersionInventory(
     string? PreviousVersionUnavailableReason)
 {
     public static BrowserPackageVersionInventory Create(
-        PackageVersionResult result,
+        PackageVersionListingDocument document,
         string currentVersion)
     {
+        ArgumentNullException.ThrowIfNull(document);
         NuGetVersion current = NuGetVersion.Parse(currentVersion);
-        var candidates = result.Candidates
+        var candidates = document.Versions
             .Select(candidate => (
                 Candidate: candidate,
-                Version: NuGetVersion.Parse(candidate.Coordinate.Version)))
+                Version: NuGetVersion.Parse(candidate.Version)))
             .OrderByDescending(row => row.Version, VersionComparer.VersionRelease)
-            .ThenBy(row => row.Candidate.Coordinate.Version, StringComparer.Ordinal)
+            .ThenBy(row => row.Candidate.Version, StringComparer.Ordinal)
             .ToArray();
         string[] versions =
-            [.. candidates.Select(row => row.Candidate.Coordinate.Version)];
+            [.. candidates.Select(row => row.Candidate.Version)];
         int currentVersionInsertionIndex = candidates
             .TakeWhile(row => VersionComparer.VersionRelease.Compare(row.Version, current) > 0)
             .Count();
-        if (!result.HasAuthoritativeListingState)
+        if (document.Completeness
+            != PackageVersionListingCompleteness.Authoritative)
         {
             return new(
                 versions,
@@ -38,10 +40,10 @@ internal sealed record BrowserPackageVersionInventory(
 
         string? previous = candidates
             .Where(row =>
-                row.Candidate.ListingState == PackageListingState.Listed
+                row.Candidate.Listed
                 && (current.IsPrerelease || !row.Version.IsPrerelease)
                 && VersionComparer.VersionRelease.Compare(row.Version, current) < 0)
-            .Select(row => row.Candidate.Coordinate.Version)
+            .Select(row => row.Candidate.Version)
             .FirstOrDefault();
         return new(versions, currentVersionInsertionIndex, previous, null);
     }

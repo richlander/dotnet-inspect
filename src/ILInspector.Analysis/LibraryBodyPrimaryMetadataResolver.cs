@@ -125,9 +125,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             MetadataTokens.EntityHandle(definitionToken);
         if (handle.Kind == HandleKind.MethodDefinition)
         {
+            MethodDefinitionHandle method =
+                (MethodDefinitionHandle)handle;
+            EnsureExactGenericParameters(
+                method,
+                workBudget);
             return CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(
-                    (MethodDefinitionHandle)handle));
+                    method));
         }
         if (handle.Kind == HandleKind.MemberReference)
         {
@@ -137,9 +142,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     .Parent;
             if (parent.Kind == HandleKind.MethodDefinition)
             {
+                MethodDefinitionHandle method =
+                    (MethodDefinitionHandle)parent;
+                EnsureExactGenericParameters(
+                    method,
+                    workBudget);
                 return CallerUnsafeModeFromContract(
                     _memorySafety.GetMemberContract(
-                        (MethodDefinitionHandle)parent));
+                        method));
             }
         }
 
@@ -217,14 +227,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 or HandleKind.MethodDefinition => true,
             HandleKind.TypeSpecification => true,
             HandleKind.TypeReference =>
-                CanCanonicalizeCurrentModuleReference(
-                    new TypeRefDecoder(
-                        workBudget
-                            .ReserveCorrespondenceBytes)
-                        .GetTypeFromReference(
-                            _reader,
-                            (TypeReferenceHandle)parent,
-                            0)),
+                MayResolveSameImageTypeReference(
+                    (TypeReferenceHandle)parent,
+                    workBudget),
             HandleKind.ModuleReference =>
                 ReadPresenceString(
                     _reader.GetModuleReference(
@@ -311,11 +316,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
     {
-        var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
         ImmutableArray<TypeRef> parameterTypes;
         TypeRef returnType;
         byte signatureHeader;
         int requiredParameterCount;
+        GenericParameterHandleCollection genericParameters =
+            methodDef.GetGenericParameters();
+        int genericArity = genericParameters.Count;
+        bool hasInvalidGenericParameterDeclaration = false;
         if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
         {
             var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
@@ -323,6 +331,11 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType = signature.ReturnType;
             signatureHeader = signature.Header.RawValue;
             requiredParameterCount = signature.RequiredParameterCount;
+            hasInvalidGenericParameterDeclaration =
+                !MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    genericParameters,
+                    signature.GenericParameterCount);
         }
         else
         {
@@ -330,30 +343,119 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
             signatureHeader = 0;
             requiredParameterCount = -1;
+            hasInvalidGenericParameterDeclaration =
+                !HasExactGenericParameterDeclaration(methodDef);
         }
-        return new MethodIdentity(
-            _assemblyName,
-            _mvid,
-            declaringType,
+        return CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            methodDef,
+            TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                typeHandle,
+                0),
             _reader.GetString(methodDef.Name),
             parameterTypes,
             returnType,
+            signatureHeader,
+            requiredParameterCount,
+            genericArity,
+            GenericParameterNames(methodDef),
+            hasInvalidGenericParameterDeclaration);
+    }
+
+    internal MethodIdentity CreatePresenceMethodIdentity(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(method.Signature).Length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "A method signature exceeds the safe decoding "
+                    + "limits.");
+        }
+
+        var decoder = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes);
+        MethodSignature<TypeRef> signature =
+            method.DecodeSignature(
+                decoder,
+                scope);
+        return CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            method,
+            decoder.GetTypeFromDefinition(
+                _reader,
+                typeHandle,
+                0),
+            ReadPresenceString(
+                method.Name,
+                workBudget),
+            signature.ParameterTypes,
+            signature.ReturnType,
+            signature.Header.RawValue,
+            signature.RequiredParameterCount,
+            scope.MethodParameters.Length,
+            scope.MethodParameters,
+            hasInvalidGenericParameterDeclaration: false,
+            isExtensionMethod:
+                IsExtensionMethod(
+                    typeHandle,
+                    method,
+                    workBudget));
+    }
+
+    MethodIdentity CreateMethodIdentity(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        TypeRef declaringType,
+        string methodName,
+        ImmutableArray<TypeRef> parameterTypes,
+        TypeRef returnType,
+        byte signatureHeader,
+        int requiredParameterCount,
+        int genericArity,
+        ImmutableArray<string> genericParameterNames,
+        bool hasInvalidGenericParameterDeclaration,
+        bool? isExtensionMethod = null)
+        => new(
+            _assemblyName,
+            _mvid,
+            declaringType,
+            methodName,
+            parameterTypes,
+            returnType,
             MetadataTokens.GetToken(methodHandle),
-            (methodDef.Attributes & MethodAttributes.Static) != 0,
-            IsExtensionMethod(typeHandle, methodDef),
+            (method.Attributes & MethodAttributes.Static) != 0,
+            isExtensionMethod
+                ?? IsExtensionMethod(
+                    typeHandle,
+                    method,
+                    workBudget: null),
             CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(methodHandle)),
-            methodDef.GetGenericParameters().Count,
-            GenericParameterNames(methodDef))
+            genericArity,
+            genericParameterNames)
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
+            HasInvalidGenericParameterDeclaration =
+                hasInvalidGenericParameterDeclaration,
             IsVirtualDispatchOpen =
                 DispatchCanTargetOverride(
                     _reader.GetTypeDefinition(typeHandle),
-                    methodDef),
+                    method),
         };
-    }
 
     internal static bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -373,14 +475,50 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return names.MoveToImmutable();
     }
 
-    bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)
+    bool IsExtensionMethod(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition methodDef,
+        UnsafePresenceWorkBudget? workBudget)
     {
         var type = _reader.GetTypeDefinition(typeHandle);
-        return (type.Attributes & TypeAttributes.Abstract) != 0
-            && (type.Attributes & TypeAttributes.Sealed) != 0
-            && (methodDef.Attributes & MethodAttributes.Static) != 0
-            && AttributeReader.HasExtensionAttribute(_reader, type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
+        if ((type.Attributes & TypeAttributes.Abstract) == 0
+            || (type.Attributes & TypeAttributes.Sealed) == 0
+            || (methodDef.Attributes & MethodAttributes.Static) == 0)
+        {
+            return false;
+        }
+
+        bool HasExtensionAttribute(
+            CustomAttributeHandleCollection attributes)
+        {
+            if (workBudget is null)
+            {
+                return AttributeReader.HasExtensionAttribute(
+                    _reader,
+                    attributes);
+            }
+            foreach (CustomAttributeHandle handle in attributes)
+            {
+                workBudget.ReserveCorrespondenceRow();
+                CustomAttribute attribute =
+                    _reader.GetCustomAttribute(handle);
+                string? attributeTypeName =
+                    AttributeReader.GetAttributeTypeName(
+                        _reader,
+                        attribute.Constructor,
+                        workBudget.ReserveCorrespondenceBytes);
+                workBudget.ThrowIfCorrespondenceByteBudgetExceeded();
+                if (attributeTypeName
+                    == KnownAttributeNames.ExtensionAttribute)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return HasExtensionAttribute(type.GetCustomAttributes())
+            && HasExtensionAttribute(methodDef.GetCustomAttributes());
     }
 
     static CallerUnsafeMode CallerUnsafeModeFromContract(
@@ -955,10 +1093,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             int typeParameterCount =
                 typeDefinition.GetGenericParameters()
                     .Count;
+            GenericParameterHandleCollection
+                methodGenericParameters =
+                    methodDefinition.GetGenericParameters();
             int methodParameterCount =
-                methodDefinition.GetGenericParameters()
-                    .Count;
-            if (SignatureTypeFacts.IsMalformed(
+                methodGenericParameters.Count;
+            if (!MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    methodGenericParameters,
+                    signature.GenericParameterCount,
+                    workBudget.ReserveCorrespondenceRow)
+                || SignatureTypeFacts.IsMalformed(
                     signature.ReturnType,
                     typeParameterCount,
                     methodParameterCount)
@@ -1003,6 +1148,97 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         }
 
         return resolved;
+    }
+
+    bool MayResolveSameImageTypeReference(
+        TypeReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        TypeRef type = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes)
+            .GetTypeFromReference(
+                _reader,
+                handle,
+                0);
+        if (type.Kind != TypeRefKind.Unsupported)
+            return CanCanonicalizeCurrentModuleReference(type);
+        if (!RawTypeReferenceMayResolveToCurrentModule(
+                handle,
+                workBudget))
+        {
+            return false;
+        }
+        throw new BadImageFormatException(
+            "A same-image declaring type contains unsupported "
+                + "or malformed metadata.");
+    }
+
+    bool RawTypeReferenceMayResolveToCurrentModule(
+        TypeReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        var visited =
+            new HashSet<TypeReferenceHandle>();
+        EntityHandle current = handle;
+        while (current.Kind == HandleKind.TypeReference)
+        {
+            TypeReferenceHandle currentHandle =
+                (TypeReferenceHandle)current;
+            if (!visited.Add(currentHandle))
+            {
+                throw new BadImageFormatException(
+                    "A type reference scope contains a cycle.");
+            }
+            workBudget.ReserveCorrespondenceRow();
+            current = _reader
+                .GetTypeReference(currentHandle)
+                .ResolutionScope;
+        }
+
+        return current.Kind switch
+        {
+            HandleKind.ModuleDefinition => true,
+            HandleKind.ModuleReference =>
+                ReadPresenceString(
+                    _reader.GetModuleReference(
+                        (ModuleReferenceHandle)current).Name,
+                    workBudget)
+                    .Equals(
+                        _moduleName,
+                        StringComparison.OrdinalIgnoreCase),
+            HandleKind.AssemblyReference =>
+                IsCurrentAssemblyReference(
+                    (AssemblyReferenceHandle)current,
+                    workBudget),
+            _ => false,
+        };
+    }
+
+    bool IsCurrentAssemblyReference(
+        AssemblyReferenceHandle handle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceRow();
+        System.Reflection.Metadata.AssemblyReference reference =
+            _reader.GetAssemblyReference(handle);
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(reference.Name).Length);
+        if (!reference.Culture.IsNil)
+        {
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    reference.Culture).Length);
+        }
+        if (!reference.PublicKeyOrToken.IsNil)
+        {
+            workBudget.ReserveCorrespondenceBytes(
+                _reader.GetBlobReader(
+                    reference.PublicKeyOrToken).Length);
+        }
+        return _assemblyIdentity is not null
+            && AssemblyReferenceIdentity
+                .From(_reader, handle)
+                .IsEquivalentTo(_assemblyIdentity);
     }
 
     bool FieldMatchesMemberReference(
@@ -1377,6 +1613,114 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
         => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
 
+    internal GenericScope CreatePresenceScope(
+        TypeDefinition typeDefinition,
+        MethodDefinition methodDefinition,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        GenericScope scope =
+            new(
+                GenericParameterNames(
+                    typeDefinition.GetGenericParameters(),
+                    workBudget),
+                GenericParameterNames(
+                    methodDefinition.GetGenericParameters(),
+                    workBudget));
+        EnsureExactGenericParameters(
+            methodDefinition,
+            scope,
+            workBudget);
+        return scope;
+    }
+
+    void EnsureExactGenericParameters(
+        MethodDefinitionHandle methodHandle,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        MethodDefinition method =
+            _reader.GetMethodDefinition(methodHandle);
+        EnsureExactGenericParameters(
+            method,
+            GenericScope.Empty,
+            workBudget);
+    }
+
+    void EnsureExactGenericParameters(
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        if (!HasExactGenericParameters(
+                method,
+                scope,
+                workBudget))
+        {
+            throw new BadImageFormatException(
+                "Method generic parameter declarations do not "
+                    + "match the signature.");
+        }
+    }
+
+    bool HasExactGenericParameters(
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(method.Signature).Length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "A method signature exceeds the safe decoding "
+                    + "limits.");
+        }
+
+        MethodSignature<TypeRef> signature =
+            method.DecodeSignature(
+                new TypeRefDecoder(
+                    workBudget.ReserveCorrespondenceBytes),
+                scope);
+        return MemberResolver.HasExactGenericParameters(
+            _reader,
+            method.GetGenericParameters(),
+            signature.GenericParameterCount,
+            workBudget.ReserveCorrespondenceRow);
+    }
+
+    bool HasExactGenericParameterDeclaration(
+        MethodDefinition method)
+    {
+        try
+        {
+            BlobReader signature =
+                _reader.GetBlobReader(method.Signature);
+            SignatureHeader header =
+                signature.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method)
+                return false;
+
+            int signatureGenericParameterCount =
+                header.IsGeneric
+                    ? signature.ReadCompressedInteger()
+                    : 0;
+            return signatureGenericParameterCount >= 0
+                && MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    method.GetGenericParameters(),
+                    signatureGenericParameterCount);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException)
+        {
+            return false;
+        }
+    }
+
     ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)
@@ -1384,6 +1728,26 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         var names = ImmutableArray.CreateBuilder<string>(handles.Count);
         foreach (var handle in handles)
             names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
+        return names.MoveToImmutable();
+    }
+
+    ImmutableArray<string> GenericParameterNames(
+        GenericParameterHandleCollection handles,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        if (handles.Count == 0)
+            return [];
+        var names =
+            ImmutableArray.CreateBuilder<string>(
+                handles.Count);
+        foreach (GenericParameterHandle handle in handles)
+        {
+            workBudget.ReserveCorrespondenceRow();
+            names.Add(
+                ReadPresenceString(
+                    _reader.GetGenericParameter(handle).Name,
+                    workBudget));
+        }
         return names.MoveToImmutable();
     }
 
