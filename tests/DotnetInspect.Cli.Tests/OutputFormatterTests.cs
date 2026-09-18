@@ -3421,6 +3421,49 @@ public class OutputFormatterTests
                 .Count(line => line == "Signals"));
     }
 
+    [Fact]
+    public async Task MultiAssemblyReport_TsvEmitsOneHeader()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        inspections[0].FileName = "First.dll";
+        inspections[1].FileName = "Second.dll";
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Library Info"],
+            Format = OutputFormat.Tsv,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(error);
+        string[] lines =
+            output.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Single(
+            lines,
+            line => line.StartsWith(
+                "library\t",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            line => line.StartsWith(
+                "First.dll\t",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            line => line.StartsWith(
+                "Second.dll\t",
+                StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("markdown")]
     [InlineData("plaintext")]

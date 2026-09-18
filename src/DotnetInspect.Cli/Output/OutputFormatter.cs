@@ -768,8 +768,11 @@ public static class OutputFormatter
         LibraryInspectionView auditView, LibraryInspection inspection,
         MarkoutWriterOptions writerOpts, LibraryOptions options,
         TextWriter output,
-        string? producerLibrary = null)
+        string? producerLibrary = null,
+        bool? showHeader = null)
     {
+        bool includeHeader =
+            showHeader ?? !options.NoHeader;
         IMarkoutFormatter AddProducerLibrary(
             IMarkoutFormatter formatter) =>
             producerLibrary is null
@@ -787,7 +790,7 @@ public static class OutputFormatter
         if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
         {
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
-            WriteTable(output, !options.NoHeader,
+            WriteTable(output, includeHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
                     inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
@@ -802,7 +805,7 @@ public static class OutputFormatter
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
-            WriteTable(output, !options.NoHeader,
+            WriteTable(output, includeHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(
                     groupView,
                     writer,
@@ -813,7 +816,7 @@ public static class OutputFormatter
         }
         else
         {
-            WriteTable(output, !options.NoHeader,
+            WriteTable(output, includeHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(
                     auditView,
                     writer,
@@ -916,8 +919,12 @@ public static class OutputFormatter
                 }
                 else
                 {
-                    foreach (var inspection in inspections)
+                    for (int index = 0;
+                        index < inspections.Count;
+                        index++)
                     {
+                        LibraryInspection inspection =
+                            inspections[index];
                         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                         var writerOpts = WriterOptions(inspection);
                         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
@@ -927,7 +934,10 @@ public static class OutputFormatter
                             writerOpts,
                             options,
                             output,
-                            inspection.FileName);
+                            inspection.FileName,
+                            showHeader:
+                                !options.NoHeader
+                                && (!options.Tsv || index == 0));
                     }
                 }
             });

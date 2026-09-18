@@ -3645,34 +3645,6 @@ public class LibraryCommand
         string? resolvedPackageName = resolution.PackageName;
         string? resolvedPackageVersion = resolution.Version;
 
-        // Tool wrapper packages have no managed payload of their own. Resolve their payload
-        // package before asking the package compile-selection owner for a projection.
-        string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
-        if (allDlls.Length == 0)
-        {
-            var payload = await TryResolveToolPayloadPackageAsync(
-                resolution, packageSource, sourceOptions, logger, httpClient).ConfigureAwait(false);
-
-            if (payload.Error != null)
-            {
-                CommandError.Write(payload.Error);
-                DeleteTempDir(tempDir);
-                return null;
-            }
-
-            if (payload.Result != null)
-            {
-                DeleteTempDir(tempDir);
-                resolution = payload.Result;
-                extractPath = resolution.ExtractPath;
-                tempDir = resolution.TempDir;
-                nupkgPath = resolution.NupkgPath;
-                resolvedPackageName = resolution.PackageName;
-                resolvedPackageVersion = resolution.Version;
-                allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
-            }
-        }
-
         string packageId =
             NuspecParser.FindAndParse(extractPath)?.PackageName
             ?? resolution.PackageName
@@ -4020,103 +3992,6 @@ public class LibraryCommand
             asset.Path.Replace(
                 '/',
                 Path.DirectorySeparatorChar));
-
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
-
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
-        PackageExtractionResult package,
-        string originalPackageSource,
-        NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger,
-        HttpClient httpClient)
-    {
-        var payloadId = GetToolPayloadPackageId(package.ExtractPath, package.PackageName);
-        if (payloadId == null)
-            return new(null, null);
-
-        var version = package.Version ?? GetNuspecVersion(package.ExtractPath);
-        if (version == null)
-            return new(null, $"Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
-
-        var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
-        var payloadOutcome = localPayload != null
-            ? await PackageExtractor.ExtractPackageAsync(httpClient, localPayload, logger.Log).ConfigureAwait(false)
-            : await PackageExtractor.ExtractPackageAsync(
-                httpClient, payloadId, logger.Log, sourceOptions: sourceOptions, version: version).ConfigureAwait(false);
-
-        if (!payloadOutcome.IsSuccess)
-            return new(null, $"Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
-
-        var payload = payloadOutcome.Result!;
-        var dlls = Directory.GetFiles(payload.ExtractPath, "*.dll", SearchOption.AllDirectories)
-            .Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (dlls.Count == 0)
-        {
-            DeleteTempDir(payload.TempDir);
-            return new(null, $"Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
-        }
-
-        logger.Log($"Tool package has no DLLs; inspecting payload package: {payload.PackageName} {payload.Version}");
-        return new(payload, null);
-    }
-
-    private static string? GetToolPayloadPackageId(string extractPath, string? packageName)
-    {
-        var toolsDir = Path.Combine(extractPath, "tools");
-        if (Directory.Exists(toolsDir))
-        {
-            var settings = DotnetToolSettingsParser.FindAndParse(toolsDir);
-            var anyPayload = settings?.RuntimeIdentifierPackages?
-                .FirstOrDefault(r => r.RuntimeIdentifier.Equals("any", StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(anyPayload?.PackageId))
-                return anyPayload.PackageId;
-        }
-
-        return TryGetSiblingAnyPackageId(packageName);
-    }
-
-    private static string? TryGetSiblingAnyPackageId(string? packageName)
-    {
-        if (string.IsNullOrWhiteSpace(packageName))
-            return null;
-
-        string[] knownRidSuffixes =
-        [
-            ".win-x64",
-            ".win-arm64",
-            ".linux-x64",
-            ".linux-arm64",
-            ".osx-arm64"
-        ];
-
-        var suffix = knownRidSuffixes.FirstOrDefault(s =>
-            packageName.EndsWith(s, StringComparison.OrdinalIgnoreCase));
-        return suffix == null ? null : packageName[..^suffix.Length] + ".any";
-    }
-
-    private static string? TryFindLocalSiblingPackage(string originalPackageSource, string payloadId, string version)
-    {
-        if (!originalPackageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        var directory = Path.GetDirectoryName(Path.GetFullPath(originalPackageSource));
-        if (directory == null)
-            return null;
-
-        var exact = Path.Combine(directory, $"{payloadId}.{version}.nupkg");
-        if (File.Exists(exact))
-            return exact;
-
-        return Directory.GetFiles(directory, $"{payloadId}.*.nupkg")
-            .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
-    }
-
-    private static string? GetNuspecVersion(string extractPath)
-    {
-        return NuspecParser.FindAndParse(extractPath)?.Version;
-    }
 
     private static void DeleteTempDir(string? tempDir)
     {

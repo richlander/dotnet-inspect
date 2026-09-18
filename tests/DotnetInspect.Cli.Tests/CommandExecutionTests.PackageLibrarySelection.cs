@@ -812,6 +812,67 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task LibraryCommand_ExactPackageLibraryRejectsEmptyAsset(
+        string asset)
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "library", asset,
+                "--package", packagePath,
+                "-S", "Library Info");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "The Library source must not be empty",
+                result.Error);
+            Assert.DoesNotContain("Test.Primary.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("package")]
+    public async Task ToolPointerAggregateDoesNotSubstitutePayloadPackage(
+        string command)
+    {
+        var (packagePath, _, tempDir) = CreateLocalToolPackageSet();
+        try
+        {
+            string[] arguments =
+                command == "library"
+                    ? [
+                        "library", packagePath,
+                        "-S", "Library Info",
+                    ]
+                    : [
+                        "package", packagePath,
+                        "-S", "Library Info",
+                    ];
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Package 'Test.Tool' has no selected compile libraries",
+                result.Error);
+            Assert.DoesNotContain("Test.Tool.any", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData("--all-libraries")]
     [InlineData("--all-libraries=false")]
     [InlineData("--all-libraries=true")]

@@ -173,7 +173,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_ToolPointerPackage_ResolvesAnyPayloadAssembly()
+    public async Task Library_ToolPointerPackage_HasNoLowerLibrarySubject()
     {
         var (packagePath, _, tempDir) = CreateLocalToolPackageSet();
         try
@@ -181,10 +181,12 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
-            Assert.Equal(0, exit);
-            Assert.Contains("# Test.Tool.dll", output);
-            Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
-            Assert.DoesNotContain("No DLLs found", error);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package 'Test.Tool' has no selected compile libraries",
+                error);
+            Assert.DoesNotContain("Test.Tool.any", error);
         }
         finally
         {
@@ -193,7 +195,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_ToolRidPackage_ResolvesSiblingAnyPayloadAssembly()
+    public async Task Library_ToolRidPackage_HasNoLowerLibrarySubject()
     {
         var (_, packagePath, tempDir) = CreateLocalToolPackageSet();
         try
@@ -201,10 +203,13 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
-            Assert.Equal(0, exit);
-            Assert.Contains("# Test.Tool.dll", output);
-            Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
-            Assert.DoesNotContain("No DLLs found", error);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package 'Test.Tool.linux-x64' has no selected "
+                    + "compile libraries",
+                error);
+            Assert.DoesNotContain("Test.Tool.any", error);
         }
         finally
         {

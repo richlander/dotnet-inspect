@@ -463,6 +463,14 @@ public static class InspectionCommandDefinitions
             var source = parseResult.GetValue(assemblyPathArg);
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
+            if (parseResult.GetResult(assemblyPathArg)
+                    is { Implicit: false }
+                && string.IsNullOrWhiteSpace(source))
+            {
+                CommandError.Write(
+                    "The Library source must not be empty.");
+                return 1;
+            }
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
