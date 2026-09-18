@@ -148,7 +148,7 @@ test.describe("published authored Source comparison transport", () => {
         });
       await openPublishedSite(page);
 
-      async function memberRequest(targetPage: Page, name: string, version = "1.0.0") {
+      async function memberRequest(targetPage: Page, name: string, selectedVersion = "1.0.0") {
         return targetPage.evaluate(async ({ memberName, version }) => {
           const packages = await import("/inspect-web-package.js");
           const loadResult = await packages.queryPackage(
@@ -183,27 +183,27 @@ test.describe("published authored Source comparison transport", () => {
             selectorKey: body.selectorKey,
             metadataToken: body.token,
           };
-        }, { memberName: name, version });
+        }, { memberName: name, version: selectedVersion });
       }
 
       async function compareMember(targetPage: Page, name: string) {
-        const request = await memberRequest(targetPage, name);
+        const selected = await memberRequest(targetPage, name);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
             `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
-        }, request);
+        }, selected);
       }
 
       async function memberSource(targetPage: Page, version: string) {
-        const request = await memberRequest(targetPage, "Value", version);
+        const selected = await memberRequest(targetPage, "Value", version);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
             request.selectorKey, request.metadataToken, "[]");
-        }, request);
+        }, selected);
       }
 
       const authoredMember = await memberSource(page, "1.0.0");
