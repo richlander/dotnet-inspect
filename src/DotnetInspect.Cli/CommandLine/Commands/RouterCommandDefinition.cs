@@ -78,6 +78,14 @@ public static class RouterCommandDefinition
                     CommandError.Write(error.Message);
                 return 1;
             }
+            if (PackageOptionsParser.Parse(sourceParseResult, opts, packageArgs)
+                    is PackageOptionsParser.UnrecognizedOption removedOption
+                && ArgumentPreprocessor.GetRemovedPackageOptionError(removedOption.Option)
+                    is { } removed)
+            {
+                CommandError.Write(removed);
+                return 1;
+            }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(sourceParseResult);
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
@@ -823,13 +831,6 @@ public static class RouterCommandDefinition
                 || ContainsOption(tail, "--project")
                 || (hasLibraryValue
                     && !hasPackageRelativeLibrary);
-            if (ContainsOption(tokens, "--latest-version"))
-            {
-                // Route the retired spelling only far enough for the package command to
-                // produce its replacement guidance; it is no longer a version-query mode.
-                rewritten = [PackageCommand.Name, .. tokens];
-                return true;
-            }
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
                 || ContainsOption(tokens, "--versions")

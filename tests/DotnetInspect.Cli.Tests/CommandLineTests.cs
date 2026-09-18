@@ -4,6 +4,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -1994,6 +1995,24 @@ public class CommandLineTests
         Assert.Empty(output);
         Assert.Contains("'--latest-version' is no longer valid", error);
         Assert.Contains("Package@latest --version", error);
+    }
+
+    [Fact]
+    public async Task Router_LatestVersionTextAsOutputValue_RetainsMemberRoute()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["Missing.Type.Run", "--out", "--latest-version", "--help"]);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect type members", output);
+        Assert.DoesNotContain("Inspect a NuGet package", output);
+        Assert.DoesNotContain("no longer valid", error);
     }
 
     [Fact]
