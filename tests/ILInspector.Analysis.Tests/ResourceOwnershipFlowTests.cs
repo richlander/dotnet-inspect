@@ -589,6 +589,11 @@ public sealed class ResourceOwnershipFlowTests
             parameter.Limits,
             limit => limit.Kind
                 == ResourceOwnershipFlowLimitKind.UnsupportedEffect);
+        ArrayPoolOwnershipMethodEvidence projected =
+            index.ArrayPoolOwnership.Single(candidate =>
+                candidate.Method.Name == "ReleaseDeclaredParameter");
+        Assert.True(projected.IsComplete);
+        Assert.True(Assert.Single(projected.Parameters).IsComplete);
     }
 
     [Fact]

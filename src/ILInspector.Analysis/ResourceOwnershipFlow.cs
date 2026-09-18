@@ -34,7 +34,8 @@ public sealed record ResourceOwnershipFlowLimit(
     ResourceEffectResolutionGap? ResolutionGap = null,
     ResolvedResourceEffect? Effect = null,
     ResourceEffectModelIdentity? Model = null,
-    ResourceKindIdentity? ResourceKind = null);
+    ResourceKindIdentity? ResourceKind = null,
+    int? ParameterIndex = null);
 
 /// <summary>
 /// One body-local ownership effect. A forwarded effect retains the physical
@@ -249,6 +250,7 @@ internal static class ResourceOwnershipFlow
                     effect,
                     resourceKind,
                     resourceKind.Identity,
+                    rootParameterIndex: null,
                     authority,
                     context,
                     reaching,
@@ -296,6 +298,15 @@ internal static class ResourceOwnershipFlow
                     && candidate.Offset == -1);
             if (definition is null)
             {
+                limits.Add(
+                    new(
+                        ResourceOwnershipFlowLimitKind
+                            .ReachingDefinitionsIncomplete,
+                        ResourceKind:
+                            isArrayCompatibilityType
+                                ? ArrayPoolResourceEffectModel.BufferKind
+                                : null,
+                        ParameterIndex: parameterIndex));
                 parameters.Add(
                     new(
                         parameterIndex,
@@ -317,6 +328,7 @@ internal static class ResourceOwnershipFlow
                     isArrayCompatibilityType
                         ? ArrayPoolResourceEffectModel.BufferKind
                         : null,
+                rootParameterIndex: parameterIndex,
                 acquisitionAuthority: null,
                 context,
                 reaching,
@@ -415,6 +427,7 @@ internal static class ResourceOwnershipFlow
         ResolvedResourceEffect? rootEffect,
         ResolvedResourceKindReference? resourceKind,
         ResourceKindIdentity? projectedResourceKind,
+        int? rootParameterIndex,
         ResolvedResourceEffect? acquisitionAuthority,
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
@@ -438,7 +451,8 @@ internal static class ResourceOwnershipFlow
                         ResourceOwnershipFlowLimitKind.ValueFlowUnsupported,
                         use.Offset,
                         Effect: rootEffect,
-                        ResourceKind: projectedResourceKind));
+                        ResourceKind: projectedResourceKind,
+                        ParameterIndex: rootParameterIndex));
                 continue;
             }
 
@@ -491,6 +505,14 @@ internal static class ResourceOwnershipFlow
                     if (releases.IsEmpty)
                     {
                         complete = false;
+                        limits.Add(
+                            new(
+                                ResourceOwnershipFlowLimitKind
+                                    .ValueFlowUnsupported,
+                                classification.OperationOffset,
+                                Effect: rootEffect,
+                                ResourceKind: projectedResourceKind,
+                                ParameterIndex: rootParameterIndex));
                         break;
                     }
                     foreach (ReleaseMatch release in releases)
@@ -516,7 +538,11 @@ internal static class ResourceOwnershipFlow
                                         .UnsupportedEffect,
                                     classification.OperationOffset,
                                     Effect: effect,
-                                    ResourceKind: projectedResourceKind));
+                                    ResourceKind:
+                                        effect.ResourceKinds.IsEmpty
+                                            ? projectedResourceKind
+                                            : null,
+                                    ParameterIndex: rootParameterIndex));
                         }
                     }
                     break;
@@ -548,22 +574,49 @@ internal static class ResourceOwnershipFlow
                     else
                     {
                         complete = false;
+                        limits.Add(
+                            new(
+                                ResourceOwnershipFlowLimitKind
+                                    .ValueFlowUnsupported,
+                                classification.OperationOffset,
+                                Effect: rootEffect,
+                                ResourceKind: projectedResourceKind,
+                                ParameterIndex: rootParameterIndex));
                     }
                     break;
                 case ArrayPoolUseClassifier.UseKind.LocalUse:
                     break;
                 default:
                     complete = false;
-                    foreach (ResolvedResourceEffect effect
-                        in incompleteReleases)
+                    if (incompleteReleases.IsEmpty)
                     {
                         limits.Add(
                             new(
                                 ResourceOwnershipFlowLimitKind
-                                    .UnsupportedEffect,
+                                    .ValueFlowUnsupported,
                                 classification.OperationOffset,
-                                Effect: effect,
-                                ResourceKind: projectedResourceKind));
+                                Effect: rootEffect,
+                                ResourceKind: projectedResourceKind,
+                                ParameterIndex: rootParameterIndex));
+                    }
+                    else
+                    {
+                        foreach (ResolvedResourceEffect effect
+                            in incompleteReleases)
+                        {
+                            limits.Add(
+                                new(
+                                    ResourceOwnershipFlowLimitKind
+                                        .UnsupportedEffect,
+                                    classification.OperationOffset,
+                                    Effect: effect,
+                                    ResourceKind:
+                                        effect.ResourceKinds.IsEmpty
+                                            ? projectedResourceKind
+                                            : null,
+                                    ParameterIndex:
+                                        rootParameterIndex));
+                        }
                     }
                     break;
             }

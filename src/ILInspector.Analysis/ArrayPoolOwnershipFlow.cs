@@ -86,16 +86,8 @@ static class ArrayPoolOwnershipProjection
             .. evidence.Parameters
                 .Where(static parameter =>
                     parameter.ValueType.Kind == TypeRefKind.SzArray)
-                .Select(static parameter =>
-                    new ArrayPoolParameterOwnership(
-                        parameter.ParameterIndex,
-                        [
-                            .. parameter.Uses.Select(
-                                use => ProjectUse(
-                                    use,
-                                    resourceKind: null)),
-                        ],
-                        parameter.IsComplete)),
+                .Select(parameter =>
+                    ProjectParameter(evidence, parameter)),
         ];
         bool hasArrayParameter = evidence.Member.ParameterTypes.Any(
             static parameter => parameter.Kind == TypeRefKind.SzArray);
@@ -114,6 +106,33 @@ static class ArrayPoolOwnershipProjection
             evidence.Member,
             rents,
             parameters,
+            isComplete);
+    }
+
+    static ArrayPoolParameterOwnership ProjectParameter(
+        ResourceOwnershipMethodEvidence method,
+        ResourceParameterOwnership parameter)
+    {
+        ResourceOwnershipFlowLimit[] parameterLimits =
+        [
+            .. method.Limits.Where(limit =>
+                limit.ParameterIndex == parameter.ParameterIndex),
+        ];
+        bool isComplete =
+            parameter.IsComplete
+            || (parameterLimits.Length > 0
+                && parameterLimits.All(limit =>
+                    !IsArrayPoolRelevant(
+                        limit,
+                        hasArrayPoolEvidence: true)));
+        return new(
+            parameter.ParameterIndex,
+            [
+                .. parameter.Uses.Select(
+                    use => ProjectUse(
+                        use,
+                        resourceKind: null)),
+            ],
             isComplete);
     }
 
