@@ -58,8 +58,8 @@ public record PackageExtractionResult(
     public string? CacheScopeKey => Authority is null ? ProducerKey : Authority.PersistentCacheKey;
 
     /// <summary>
-    /// Tool wrapper packages traversed before reaching this inspectable payload,
-    /// ordered from the requested package to the final redirect hop.
+    /// Tool wrapper packages encountered while resolving this request, ordered
+    /// from the requested package to the final followed redirect hop.
     /// </summary>
     public IReadOnlyList<ToolWrapperPackage> ToolWrapperChain { get; init; } = [];
 }
@@ -277,7 +277,7 @@ public static class PackageExtractor
     /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
     /// <param name="forceLatest">When true, always resolve version from network (bypass candidate metadata caches)</param>
     /// <param name="includePrerelease">When true, latest resolution includes prerelease/preview versions</param>
-    /// <param name="logToolWrapperPayload">When false, suppresses payload-specific progress after a tools-v2 redirect.</param>
+    /// <param name="followToolWrapperPayload">When false, returns the tools-v2 pointer without acquiring its payload.</param>
     /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
     public static Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
@@ -288,11 +288,11 @@ public static class PackageExtractor
         string? version = null,
         bool forceLatest = false,
         bool includePrerelease = false,
-        bool logToolWrapperPayload = true) =>
+        bool followToolWrapperPayload = true) =>
         ExtractPackageCoreAsync(
             client, packageSource, log, tempDirPrefix, sourceOptions,
             version, forceLatest, includePrerelease, authoritySession: null,
-            logToolWrapperPayload: logToolWrapperPayload);
+            followToolWrapperPayload: followToolWrapperPayload);
 
     public static Task<PackageExtractionOutcome>
         ExtractPackageWithCancellationAsync(
@@ -317,7 +317,7 @@ public static class PackageExtractor
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        bool logToolWrapperPayload = true)
+        bool followToolWrapperPayload = true)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -332,7 +332,7 @@ public static class PackageExtractor
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false,
             session,
-            logToolWrapperPayload: logToolWrapperPayload)
+            followToolWrapperPayload: followToolWrapperPayload)
             .ConfigureAwait(false);
     }
 
@@ -350,7 +350,7 @@ public static class PackageExtractor
         bool includePrerelease = false,
         string? rangeAddress = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        bool logToolWrapperPayload = true)
+        bool followToolWrapperPayload = true)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -374,7 +374,7 @@ public static class PackageExtractor
             client, packageId, log, tempDirPrefix, sourceOptions,
             selected.Result!.Version, forceLatest: false, includePrerelease: false,
             session, selected,
-            logToolWrapperPayload: logToolWrapperPayload).ConfigureAwait(false);
+            followToolWrapperPayload: followToolWrapperPayload).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -411,7 +411,7 @@ public static class PackageExtractor
         ConfiguredPackageExtractionSession? authoritySession,
         PackageExtractionOutcome? initialOutcome = null,
         CancellationToken cancellationToken = default,
-        bool logToolWrapperPayload = true)
+        bool followToolWrapperPayload = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool isLocalFile = authoritySession is null
@@ -437,7 +437,6 @@ public static class PackageExtractor
         bool currentForceLatest = forceLatest;
         bool currentIncludePrerelease = includePrerelease;
         NuGetSourceOptions? currentSourceOptions = sourceOptions;
-        Action<string>? currentLog = log;
 
         while (true)
         {
@@ -451,7 +450,7 @@ public static class PackageExtractor
                 outcome = initialOutcome ?? await DownloadAndExtractPackageAsync(
                     client,
                     currentPackageSource,
-                    currentLog,
+                    log,
                     tempDirPrefix,
                     currentSourceOptions,
                     currentVersion,
@@ -502,6 +501,14 @@ public static class PackageExtractor
             {
                 Authority = result.Authority,
             });
+            if (!followToolWrapperPayload)
+            {
+                PackageExtractionResult pointer = result with
+                {
+                    ToolWrapperChain = wrapperPackages.ToArray()
+                };
+                return authoritySession?.Complete(pointer) ?? pointer;
+            }
             if (!IsValidPackageId(redirectId))
             {
                 return PackageExtractionOutcome.Error(
@@ -518,15 +525,8 @@ public static class PackageExtractor
                     $"{string.Join(" -> ", redirectChain)} -> {redirectId}.");
             }
 
-            if (logToolWrapperPayload)
-            {
-                log?.Invoke(
-                    $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");
-            }
-            else
-            {
-                currentLog = null;
-            }
+            log?.Invoke(
+                $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");
 
             currentPackageSource = redirectId;
             currentVersion = result.Version;

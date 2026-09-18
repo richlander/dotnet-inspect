@@ -3369,6 +3369,18 @@ public partial class CommandExecutionTests
                 SectionNames.IdentifierConfusion,
                 "--tips",
                 "q");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--count",
+                "--tips",
+                "q");
 
             Assert.Equal(1, exit);
             Assert.Contains("### Lib.dll (net8.0)", output);
@@ -3380,6 +3392,15 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "IdentifierConfusionReferenceTraversalException",
                 error);
+            Assert.Equal(1, countExit);
+            Assert.Empty(countOutput);
+            Assert.Contains(
+                "Identifier audit failed for 'lib/net10.0/Lib.dll'",
+                countError);
+            Assert.Contains(
+                "Count output is unavailable because one or more selected "
+                    + "package Libraries could not be inspected",
+                countError);
         }
         finally
         {

@@ -1007,13 +1007,13 @@ public partial class PackageCommand
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
                         createComposition: context.CreatePackageSourceComposition,
-                        logToolWrapperPayload: !requestsLibrarySubject)
+                        followToolWrapperPayload: !requestsLibrarySubject)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
                         createComposition: context.CreatePackageSourceComposition,
-                        logToolWrapperPayload: !requestsLibrarySubject);
+                        followToolWrapperPayload: !requestsLibrarySubject);
             }
             else
             {
@@ -1025,7 +1025,7 @@ public partial class PackageCommand
                     version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
                     forceLatest: options.ForceLatest,
                     includePrerelease: options.IncludePrerelease,
-                    logToolWrapperPayload: !requestsLibrarySubject);
+                    followToolWrapperPayload: !requestsLibrarySubject);
             }
 
             if (!outcome.IsSuccess)

@@ -535,6 +535,13 @@ public static class InspectionCommandDefinitions
             }
 
             if (parseResult.GetValue(namesakeLibraryOption)
+                && platformAssembly is not null)
+            {
+                CommandError.Write(
+                    "--namesake-library cannot be combined with --platform.");
+                return 1;
+            }
+            if (parseResult.GetValue(namesakeLibraryOption)
                 && packagePath is null)
             {
                 CommandError.Write(

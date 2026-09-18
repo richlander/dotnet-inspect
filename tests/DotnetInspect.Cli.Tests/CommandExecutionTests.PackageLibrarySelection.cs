@@ -535,6 +535,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_NamesakeRejectsPlatformSource()
+    {
+        var result = await RunAppAsync(
+            "library",
+            "--package", "Definitely.Not.A.Real.Package@1.0.0",
+            "--platform", "System.Text.Json",
+            "--namesake-library",
+            "--offline",
+            "-S", "Library Info",
+            "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--namesake-library cannot be combined with --platform",
+            result.Error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_NamesakeAmbiguityFailsClosed()
     {
         var (packagePath, tempDir) =
@@ -873,7 +892,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ToolPointerPackageReferenceDoesNotSubstitutePayloadPackage()
+    public async Task ToolPointerPackageReferenceDoesNotAcquirePayloadPackage()
     {
         const string Source = "https://tool-wrapper.test/v3/index.json";
         var (packagePath, _, tempDir) = CreateLocalToolPackageSet();
@@ -938,7 +957,7 @@ public partial class CommandExecutionTests
                 request => request.EndsWith(
                     "/test.tool/1.0.0/test.tool.1.0.0.nupkg",
                     StringComparison.Ordinal));
-            Assert.Contains(
+            Assert.DoesNotContain(
                 requests,
                 request => request.EndsWith(
                     "/test.tool.any/1.0.0/test.tool.any.1.0.0.nupkg",

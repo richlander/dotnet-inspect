@@ -1138,8 +1138,7 @@ public class LibraryCommand
                     discoveryInspection && !fullEffectiveDiscovery, trace,
                     subjectSelections,
                     preservePackageRelativeFileName:
-                        aggregatePackageSelection
-                        || IsAllTfmPackageSelection(options));
+                        aggregatePackageSelection);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
                 bool libraryInspectionIncomplete =
@@ -1157,8 +1156,11 @@ public class LibraryCommand
                 }
                 if (options.Count
                     && (libraryInspectionIncomplete
+                        || collection.IdentifierAuditFailures.Count > 0
                         || descriptorSelectionExitCode != 0))
                 {
+                    PackageCommand.WriteIdentifierAuditFailures(
+                        collection.IdentifierAuditFailures);
                     CommandError.Write(
                         "Count output is unavailable because one or more "
                         + "selected package Libraries could not be inspected.");
@@ -3646,7 +3648,7 @@ public class LibraryCommand
             logger.Log,
             sourceOptions: sourceOptions,
             includePrerelease: includePrerelease,
-            logToolWrapperPayload: false);
+            followToolWrapperPayload: false);
         if (!outcome.IsSuccess)
         {
             CommandError.Write($"{outcome.ErrorMessage}");
