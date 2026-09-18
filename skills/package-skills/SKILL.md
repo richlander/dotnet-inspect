@@ -37,6 +37,14 @@ dnx dotnet-inspect -y -- project path/to/project \
   -S Skills --print --row 2 --bare
 ```
 
+For a known positional choice, select the complete inventory row first.
+`--row` then addresses the selected sequence:
+
+```bash
+dnx dotnet-inspect -y -- project path/to/project \
+  -S Skills -n 1 --tail --print --row 1 --bare
+```
+
 Request several skills as a group by issuing one independent command for each
 selected row. Keep each result separate; `--bare` intentionally carries no
 multi-document boundary.

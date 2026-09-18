@@ -19,14 +19,15 @@ The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges, plus a single package's `SourceLink: Files` section, have semantic
-`-n` adoption. Their supported Window and direction capabilities remain
-command-specific. These adopters also accept explicit rendered-line selection
-where their output format permits it. Unselected modes of a partially adopted
-command use the rendered-line fallback. Commands without an active semantic
-row adoption, including text documents and structured commands whose item rows
-have not yet been adopted, lower bare `-n` to rendered-line selection. Explicit
-`--lines` remains accepted as redundant unit selection.
+graph edges, a single package's `SourceLink: Files` section, and one selected
+Project document section have semantic `-n` adoption. Their supported Window
+and direction capabilities remain command-specific. These adopters also accept
+explicit rendered-line selection where their output format permits it.
+Unselected modes of a partially adopted command use the rendered-line fallback.
+Commands without an active semantic row adoption, including text documents and
+structured commands whose item rows have not yet been adopted, lower bare `-n`
+to rendered-line selection. Explicit `--lines` remains accepted as redundant
+unit selection.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -55,8 +56,12 @@ Workspace construction or acquisition. The Integration graph adoption selects
 logical edges after complete induced-set construction without reducing package
 acquisition or graph production. The Package `SourceLink: Files` adoption
 selects complete package-library/type/URL rows after SourceLink collection and
-type filtering without reducing package, library, or PDB acquisition. Semantic
-adoption for the remaining command row sets is still staged.
+type filtering without reducing package, library, or PDB acquisition. The
+Project document adoption selects complete restored-package Skill or root
+README rows after inventory construction and validation when exactly one
+section is selected. Multi-section Project output remains outside that
+declaration. Semantic adoption for the remaining command row sets is still
+staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -755,6 +760,44 @@ surfaces retain their existing row contracts and use rendered-line fallback
 for bare `-n`. Direct callers that provide only the legacy `RowWindow` also
 retain their existing behavior.
 
+## Project document row adoption
+
+The `project` command declares one semantic row per `ProjectDocumentRow` when
+the effective selection is exactly one of `Skills` or `Package README file`.
+This includes bare `-S`, whose focused default resolves to `Skills`. Project
+assets discovery, direct-package enumeration, document inventory construction,
+and row validation complete before Head/Tail or strict Window stages select
+from the ordered typed vector.
+
+```console
+$ dotnet-inspect project ./src/DotnetInspect.Cli \
+    -S Skills -n 1 --tail --jsonl
+{"package":"Markout","version":"0.37.0","path":"skills/markout/SKILL.md",...}
+```
+
+What to notice: `-n 1 --tail` selects the final complete package-document row.
+Markdown, table, TSV, JSONL, complete JSON, Count, value/path projection, and
+print/bare output consume that same selected vector. Printable document content
+is read only after row selection, while an invalid later Skill row still fails
+inventory construction instead of disappearing behind a selected prefix.
+Projection and print row numbers address the selected sequence and therefore
+start again at one.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before project resolution. One strict Window
+failure withholds every output shape:
+
+```console
+$ dotnet-inspect project ./src/DotnetInspect.Cli \
+    -S Skills --rows 2..3 --json
+Error: Project document row selection stage 1 requires row 3, but only 2 rows are available.
+```
+
+Multi-section `-S @Project`, effective or structural discovery, and direct
+callers that provide only the legacy `RowWindow` remain outside this semantic
+declaration. They retain their existing row contracts and use rendered-line
+fallback for bare `-n`.
+
 ## Demo-list adoption
 
 The finite `demo list` catalog and equivalent bare `demo` listing declare one
@@ -936,6 +979,14 @@ The Package SourceLink file adoption is enforced by:
 | `CommandExecutionTests.Package_SourceFilesSection_SemanticTailSelectsTheSameRowAcrossFormats`, `Package_SourceFilesSection_AliasAndTypeSugarAcceptSemanticOpenWindows`, and `Package_SourceFilesSection_Bare_ComposesSemanticAndLineWindows` | The canonical selector, legacy alias, and type-filter sugar select complete package SourceLink file rows after collection; Tail and open or closed Window stages feed Markdown, table, TSV, JSONL, complete JSON, Count, value/URL projection, and bare output, while explicit Lines remains a rendered-text operation. |
 | `CommandExecutionTests.Package_SourceFilesSection_UnavailableSemanticWindowWithholdsOutput`, `Package_SourceFilesSection_RejectsLegacyCountRows`, and `Package_SourceLinkFileLinesRejectJsonBeforePackageResolution` | One unavailable strict Window emits no partial payload, the retired numeric `--rows` count form is rejected, and explicit Lines rejects complete JSON before package resolution. |
 | `CommandExecutionTests.Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation` | The `@SourceLink` category, mixed section selection, embedded-library modes, and multiple-package inspection remain outside the semantic declaration and retain legacy Window validation. |
+
+The Project document row adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.Project_SkillsSection_SemanticTailSelectsSameRowAcrossOutputs`, `Project_SkillsCount_ObservesSemanticHead`, `Project_ReadmeSection_SemanticWindowReindexesPrintRows`, and `Project_ReadmePaths_SemanticWindowReindexesBeforeRowSelection` | One selected Skills or Package README section applies semantic Head/Tail and strict Window to complete document rows before Markdown, table, TSV, JSONL, complete JSON, Count, value/path projection, or print/bare lowering; bare `-S` reaches the Skills declaration, and projection or print row numbers address the selected sequence. |
+| `CommandExecutionTests.Project_SingleSection_UnavailableSemanticWindowWithholdsOutput`, `Project_SingleSection_ExplicitLinesClipsRenderedText`, `Project_SingleSection_RejectsInvalidRowRequestBeforeProjectResolution`, and `Project_SingleSection_SemanticHeadCannotHideInvalidLaterRow` | One unavailable strict Window emits no partial payload, explicit Lines clips rendered table text, numeric legacy `--rows` and complete-JSON line clipping fail before project resolution, and semantic Head cannot hide invalid later Skill metadata from complete inventory validation. |
+| `CommandExecutionTests.Project_MultiSection_RetainsLegacyWindowValidation` and `Project_MultiSection_InferredLinesRejectJsonBeforeProjectResolution` | Multi-section Project output remains outside the semantic declaration, retains its command-owned legacy row-window behavior, and infers rendered-line selection for bare `-n`. |
 
 The broad explicit-line rollout is enforced by:
 
