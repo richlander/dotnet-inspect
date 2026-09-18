@@ -169,6 +169,8 @@ internal static class CliRowSelectionCommandRegistry
             && adoption.IsActive(parseResult)
             && (adoption.Capabilities
                     != CliRowSelectionCapabilities.Lines
+                || adoption.DefaultUnit
+                    == CliRowSelectionDefaultUnit.RenderedLines
                 || parseResult.GetResult(adoption.Bindings.Limit)
                     is { Implicit: false }
                 || hasExplicitLineUnit))
@@ -316,7 +318,10 @@ internal static class CliRowSelectionCommandRegistry
                 parseResult,
                 out CliRowSelectionLowering<string>? lowering))
         {
-            semanticIntent = lowering.SemanticIntent;
+            semanticIntent =
+                lowering.SemanticIntent.Operations.Count > 0
+                    ? lowering.SemanticIntent
+                    : null;
             error = null;
             return true;
         }
@@ -399,12 +404,7 @@ internal static class CliRowSelectionCommandRegistry
             CliRowSelectionFailureReason.ModifierRequiresCount =>
                 $"{OptionName(failure.OccurrenceKind)} requires -n.",
             CliRowSelectionFailureReason.UnsupportedCapability =>
-                failure.OccurrenceKind == CliRowSelectionOccurrenceKind.Limit
-                    && failure.MissingCapabilities
-                        == CliRowSelectionCapabilities.HeadTail
-                    ? "-n selects semantic rows and is not available for this "
-                        + "command; add --lines to select rendered lines."
-                    : $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
+                $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
             _ => "The row-selection arguments are invalid."
         };
 
