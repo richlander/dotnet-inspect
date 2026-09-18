@@ -140,7 +140,7 @@ internal static class DependsShareProjection
             options,
             resolved.Coordinate.PackageId,
             resolved.Coordinate.Version);
-        return WorkspaceShareOutput.WritePrimary(
+        return WorkspaceShareOutput.WriteScalar(
             share,
             options.ShareFormat!.Value);
     }

@@ -57,7 +57,7 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
     public void BuilderWithoutEvidenceRequestUsesOrdinaryEntryPoint()
     {
         var service = new ExampleInspectionService();
-        var builder = new EvidenceBuilder<
+        var builder = new EvidenceInspectionBuilder<
             ExampleInspectionContent,
             ExampleInspectionEvidence>();
 
@@ -78,7 +78,7 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
     public void BuilderRequestMatchesCompilationAndReusesBaseline()
     {
         var service = new ExampleInspectionService();
-        var builder = new EvidenceBuilder<
+        var builder = new EvidenceInspectionBuilder<
             ExampleInspectionContent,
             ExampleInspectionEvidence>();
         var requestProbe = new EvidenceRequestProbe();
@@ -110,31 +110,61 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
     }
 
     [Fact]
+    public void BuilderRejectsASecondExecution()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceInspectionBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+
+        Build(builder, service, Request());
+
+        InvalidOperationException exception = Assert.Throws<
+            InvalidOperationException>(
+                () => Build(builder, service, Request()));
+
+        Assert.Equal(
+            "An evidence inspection builder can execute only once.",
+            exception.Message);
+        Assert.Equal(1, service.ExecutionCount);
+    }
+
+    [Fact]
     public async Task AsyncBuilderWithoutEvidenceRequestUsesOrdinaryEntryPoint()
     {
         var service = new ExampleInspectionService();
-        var builder = new EvidenceBuilder<
+        var builder = new EvidenceInspectionBuilder<
             ExampleInspectionContent,
             ExampleInspectionEvidence>();
+        using var cancellation = new CancellationTokenSource();
 
         (
             InspectionEnvelope<ExampleInspectionContent> inspection,
             EvidenceInspectionEnvelope<
                 ExampleInspectionContent,
                 ExampleInspectionEvidence>? evidence) =
-            await BuildAsync(builder, service, Request());
+            await builder.BuildAsync(
+                (Service: service, Request: Request()),
+                static (state, token) =>
+                    state.Service.ExecuteAsync(state.Request, token),
+                static (state, token) =>
+                    state.Service.ExecuteWithEvidenceAsync(
+                        state.Request,
+                        token),
+                cancellation.Token);
 
         Assert.Null(evidence);
         Assert.Equal(0, inspection.Content.MatchCount);
         Assert.Equal(1, service.ExecutionCount);
         Assert.Equal(0, service.EvidenceCaptureCount);
+        Assert.Equal(cancellation.Token, service.LastCancellationToken);
     }
 
     [Fact]
     public async Task AsyncBuilderRequestMatchesCompilationAndReusesBaseline()
     {
         var service = new ExampleInspectionService();
-        var builder = new EvidenceBuilder<
+        var builder = new EvidenceInspectionBuilder<
             ExampleInspectionContent,
             ExampleInspectionEvidence>();
         var requestProbe = new EvidenceRequestProbe();
@@ -145,7 +175,15 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
             EvidenceInspectionEnvelope<
                 ExampleInspectionContent,
                 ExampleInspectionEvidence>? evidence) =
-            await BuildAsync(builder, service, Request());
+            await builder.BuildAsync(
+                (Service: service, Request: Request()),
+                static (state, token) =>
+                    state.Service.ExecuteAsync(state.Request, token),
+                static (state, token) =>
+                    state.Service.ExecuteWithEvidenceAsync(
+                        state.Request,
+                        token),
+                TestContext.Current.CancellationToken);
 
         var buildProbe = new DebugBuildProbe();
         buildProbe.Mark();
@@ -165,13 +203,79 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
         }
     }
 
+    [Fact]
+    public async Task AsyncBuilderRejectsASecondExecution()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceInspectionBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+
+        await builder.BuildAsync(
+            (Service: service, Request: Request()),
+            static (state, token) =>
+                state.Service.ExecuteAsync(state.Request, token),
+            static (state, token) =>
+                state.Service.ExecuteWithEvidenceAsync(
+                    state.Request,
+                    token),
+            TestContext.Current.CancellationToken);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<
+            InvalidOperationException>(
+                async () => await builder.BuildAsync(
+                    (Service: service, Request: Request()),
+                    static (state, token) =>
+                        state.Service.ExecuteAsync(state.Request, token),
+                    static (state, token) =>
+                        state.Service.ExecuteWithEvidenceAsync(
+                            state.Request,
+                            token),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "An evidence inspection builder can execute only once.",
+            exception.Message);
+        Assert.Equal(1, service.ExecutionCount);
+    }
+
+    [Fact]
+    public async Task AsyncBuilderPropagatesCancellationAndRemainsOneShot()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceInspectionBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await builder.BuildAsync(
+                (Service: service, Request: Request()),
+                static (state, token) =>
+                    state.Service.ExecuteAsync(state.Request, token),
+                static (state, token) =>
+                    state.Service.ExecuteWithEvidenceAsync(
+                        state.Request,
+                        token),
+                cancellation.Token));
+
+        Assert.Equal(0, service.ExecutionCount);
+        Assert.Throws<InvalidOperationException>(
+            () => builder.Build(
+                (Service: service, Request: Request()),
+                static state => state.Service.Execute(state.Request),
+                static state =>
+                    state.Service.ExecuteWithEvidence(state.Request)));
+    }
+
     private static (
         InspectionEnvelope<ExampleInspectionContent> Inspection,
         EvidenceInspectionEnvelope<
             ExampleInspectionContent,
             ExampleInspectionEvidence>? Evidence)
         Build(
-            EvidenceBuilder<
+            EvidenceInspectionBuilder<
                 ExampleInspectionContent,
                 ExampleInspectionEvidence> builder,
             ExampleInspectionService service,
@@ -180,25 +284,6 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
             (Service: service, Request: request),
             static state => state.Service.Execute(state.Request),
             static state => state.Service.ExecuteWithEvidence(state.Request));
-
-    private static Task<(
-        InspectionEnvelope<ExampleInspectionContent> Inspection,
-        EvidenceInspectionEnvelope<
-            ExampleInspectionContent,
-            ExampleInspectionEvidence>? Evidence)>
-        BuildAsync(
-            EvidenceBuilder<
-                ExampleInspectionContent,
-                ExampleInspectionEvidence> builder,
-            ExampleInspectionService service,
-            ExampleInspectionRequest request) =>
-        builder.BuildAsync(
-            (Service: service, Request: request),
-            static state =>
-                Task.FromResult(state.Service.Execute(state.Request)),
-            static state =>
-                Task.FromResult(
-                    state.Service.ExecuteWithEvidence(state.Request)));
 
     private static ExampleInspectionRequest Request() =>
         new(["alpha", "beta"], "z");
@@ -267,6 +352,8 @@ internal sealed class ExampleInspectionService
 
     public int EvidenceCaptureCount { get; private set; }
 
+    public CancellationToken LastCancellationToken { get; private set; }
+
     public InspectionEnvelope<ExampleInspectionContent> Execute(
         ExampleInspectionRequest request) =>
         ExecuteCore(request, decisions: null);
@@ -285,6 +372,27 @@ internal sealed class ExampleInspectionService
         return new(
             inspection,
             new ExampleInspectionEvidence(decisions.ToImmutable()));
+    }
+
+    public ValueTask<InspectionEnvelope<ExampleInspectionContent>>
+        ExecuteAsync(
+            ExampleInspectionRequest request,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        LastCancellationToken = cancellationToken;
+        return ValueTask.FromResult(Execute(request));
+    }
+
+    public ValueTask<EvidenceInspectionEnvelope<
+        ExampleInspectionContent,
+        ExampleInspectionEvidence>> ExecuteWithEvidenceAsync(
+            ExampleInspectionRequest request,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        LastCancellationToken = cancellationToken;
+        return ValueTask.FromResult(ExecuteWithEvidence(request));
     }
 
     private InspectionEnvelope<ExampleInspectionContent> ExecuteCore(

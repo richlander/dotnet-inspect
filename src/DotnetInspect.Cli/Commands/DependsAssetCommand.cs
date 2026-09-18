@@ -153,7 +153,7 @@ public partial class DependsCommand
         var context = new CommandContext(options.Verbose);
         try
         {
-            var builder = new EvidenceBuilder<
+            var builder = new EvidenceInspectionBuilder<
                 DependencyInspectionContent,
                 DependencyInspectionEvidenceDocument>();
             builder.RequestEvidence(
@@ -166,8 +166,7 @@ public partial class DependsCommand
                 options.Effective && options.Depth is null
                     ? 1
                     : options.Depth,
-                pruneSource,
-                cancellationToken);
+                pruneSource);
             (
                 InspectionEnvelope<DependencyInspectionContent> inspection,
                 EvidenceInspectionEnvelope<
@@ -175,10 +174,13 @@ public partial class DependsCommand
                     DependencyInspectionEvidenceDocument>? evidence) =
                 await builder.BuildAsync(
                     state,
-                    static operation =>
-                        ExecuteAssetInspectionAsync(operation),
-                    static operation =>
-                        ExecuteAssetInspectionWithEvidenceAsync(operation))
+                    static (operation, token) =>
+                        ExecuteAssetInspectionAsync(operation, token),
+                    static (operation, token) =>
+                        ExecuteAssetInspectionWithEvidenceAsync(
+                            operation,
+                            token),
+                    cancellationToken)
                     .ConfigureAwait(false);
             DependsAssetProjection projection =
                 state.Projection
@@ -227,7 +229,7 @@ public partial class DependsCommand
                         options.CompactJson)
                         ? 0
                         : 1
-                    : WorkspaceShareOutput.WritePrimary(
+                    : WorkspaceShareOutput.WriteScalar(
                         inspection.Share,
                         shareFormat)
                 : options.EnvelopeOutput
@@ -296,36 +298,44 @@ public partial class DependsCommand
         }
     }
 
-    private static async Task<InspectionEnvelope<DependencyInspectionContent>>
+    private static async ValueTask<
+        InspectionEnvelope<DependencyInspectionContent>>
         ExecuteAssetInspectionAsync(
-            DependsAssetInspectionState operation)
+            DependsAssetInspectionState operation,
+            CancellationToken cancellationToken)
     {
         (DependencyInspectionResult result, InspectionShare share) =
-            await PrepareAssetInspectionAsync(operation)
+            await PrepareAssetInspectionAsync(
+                operation,
+                cancellationToken)
                 .ConfigureAwait(false);
         return DependencyInspectionOperation.Execute(
             result,
             share);
     }
 
-    private static async Task<EvidenceInspectionEnvelope<
+    private static async ValueTask<EvidenceInspectionEnvelope<
         DependencyInspectionContent,
         DependencyInspectionEvidenceDocument>>
         ExecuteAssetInspectionWithEvidenceAsync(
-            DependsAssetInspectionState operation)
+            DependsAssetInspectionState operation,
+            CancellationToken cancellationToken)
     {
         (DependencyInspectionResult result, InspectionShare share) =
-            await PrepareAssetInspectionAsync(operation)
+            await PrepareAssetInspectionAsync(
+                operation,
+                cancellationToken)
                 .ConfigureAwait(false);
         return DependencyInspectionOperation.ExecuteWithEvidence(
             result,
             share);
     }
 
-    private static async Task<(
+    private static async ValueTask<(
         DependencyInspectionResult Result,
         InspectionShare Share)> PrepareAssetInspectionAsync(
-            DependsAssetInspectionState operation)
+            DependsAssetInspectionState operation,
+            CancellationToken cancellationToken)
     {
         DependsAssetProjection projection =
             await AcquireAssetProjectionAsync(
@@ -334,7 +344,7 @@ public partial class DependsCommand
                 operation.Plan,
                 operation.TraversalDepth,
                 operation.PruneSource,
-                operation.CancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
         operation.Projection = projection;
         return (
             projection.Result,
@@ -368,8 +378,7 @@ public partial class DependsCommand
         CommandContext context,
         DependsAssetRequestPlan plan,
         int? traversalDepth,
-        Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-        CancellationToken cancellationToken)
+        Func<string, InstalledPlatformPruneSource.Result> pruneSource)
     {
         internal DependsOptions Options { get; } = options;
 
@@ -381,9 +390,6 @@ public partial class DependsCommand
 
         internal Func<string, InstalledPlatformPruneSource.Result>
             PruneSource { get; } = pruneSource;
-
-        internal CancellationToken CancellationToken { get; } =
-            cancellationToken;
 
         internal DependsAssetProjection? Projection { get; set; }
     }

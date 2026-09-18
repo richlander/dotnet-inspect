@@ -241,14 +241,6 @@ public static class SearchCommandDefinitions
             Description = "Filter implementer types by glob or name"
         };
         typeFilterOption.Aliases.Add("--type");
-        typeFilterOption.Validators.Add(result =>
-        {
-            if (int.TryParse(result.GetValue(typeFilterOption), out _))
-            {
-                result.AddError(
-                    "-t selects a type filter; use -n N to select implementer rows.");
-            }
-        });
 
         implCommand.Arguments.Add(targetTypeArg);
         implCommand.Options.Add(packageOption);
@@ -318,6 +310,7 @@ public static class SearchCommandDefinitions
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
                 Limit = null,
                 Rows = rowSelection is null ? opts.ParseRows(parseResult) : null,
                 RowSelection = rowSelection,
@@ -421,14 +414,6 @@ public static class SearchCommandDefinitions
             Description = "Filter declaring types by glob or name"
         };
         typeFilterOption.Aliases.Add("--type");
-        typeFilterOption.Validators.Add(result =>
-        {
-            if (int.TryParse(result.GetValue(typeFilterOption), out _))
-            {
-                result.AddError(
-                    "-t selects a type filter; use -n N to select extension rows.");
-            }
-        });
 
         extCommand.Arguments.Add(targetTypeArg);
         extCommand.Options.Add(packageOption);
@@ -502,6 +487,7 @@ public static class SearchCommandDefinitions
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
                 Limit = null,
                 Rows = rowSelection is null ? opts.ParseRows(parseResult) : null,
                 RowSelection = rowSelection,

@@ -51,7 +51,7 @@ internal static class WorkspaceShareOutput
         }
     }
 
-    internal static int WritePrimary(
+    internal static int WriteScalar(
         InspectionShare share,
         WorkspaceShareFormat format)
     {
@@ -66,7 +66,7 @@ internal static class WorkspaceShareOutput
             case InspectionShare.NonProjectable nonProjectable:
                 CommandError.Write(
                     $"--share is not projectable at {nonProjectable.Path}: "
-                    + nonProjectable.Reason);
+                        + nonProjectable.Reason);
                 return 1;
             default:
                 throw new InvalidOperationException(

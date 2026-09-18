@@ -1123,35 +1123,65 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 _catalog.EnsureAlive();
-
-                if (!TryProjectBinding(
-                        request.Target,
-                        request.Origin,
-                        request.Scope,
-                        out BindingKey key,
-                        out TypeResolutionFailure? failure))
-                {
-                    return failure switch
-                    {
-                        TypeResolutionFailure.UnregisteredAssembly =>
-                            new AssemblyBindingOutcome.ExpansionRequired(request),
-                        TypeResolutionFailure.InvalidBindingPolicy invalid =>
-                            new AssemblyBindingOutcome.Rejected(invalid.Failure),
-                        _ => new AssemblyBindingOutcome.Unavailable(
-                            CandidateUnavailableBinding(
-                                ProjectedCandidateFailure(
-                                    request,
-                                    failure))),
-                    };
-                }
-
-                return _bindings.TryGetValue(
-                        key,
-                        out AssemblyBindingOutcome? outcome)
-                    ? outcome
-                    : new AssemblyBindingOutcome.ExpansionRequired(request);
+                return BindCore(request);
             }
         }
+    }
+
+    /// <summary>
+    /// Projects one frozen binding answer into detached, resource-free
+    /// evidence.
+    /// </summary>
+    public AssemblyBindingDecision ProjectBindingDecision(
+        AssemblyBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                AssemblyBindingOutcome outcome = BindCore(request);
+                return AssemblyBindingDecisionProjection.Project(
+                    Catalog,
+                    Generation,
+                    _policyVersion,
+                    request,
+                    outcome,
+                    candidate => _inventories[candidate.Id]);
+            }
+        }
+    }
+
+    AssemblyBindingOutcome BindCore(AssemblyBindingRequest request)
+    {
+        if (!TryProjectBinding(
+                request.Target,
+                request.Origin,
+                request.Scope,
+                out BindingKey key,
+                out TypeResolutionFailure? failure))
+        {
+            return failure switch
+            {
+                TypeResolutionFailure.UnregisteredAssembly =>
+                    new AssemblyBindingOutcome.ExpansionRequired(request),
+                TypeResolutionFailure.InvalidBindingPolicy invalid =>
+                    new AssemblyBindingOutcome.Rejected(invalid.Failure),
+                _ => new AssemblyBindingOutcome.Unavailable(
+                    CandidateUnavailableBinding(
+                        ProjectedCandidateFailure(
+                            request,
+                            failure))),
+            };
+        }
+
+        return _bindings.TryGetValue(
+                key,
+                out AssemblyBindingOutcome? outcome)
+            ? outcome
+            : new AssemblyBindingOutcome.ExpansionRequired(request);
     }
 
     static AssemblyBindingFailure CandidateUnavailableBinding(

@@ -135,7 +135,7 @@ the claim.
 ### Reference implementation pattern
 
 The executable reference pattern is
-[`EvidenceBuilder.cs`](../src/DotnetInspector.Sections/EvidenceBuilder.cs)
+[`EvidenceInspectionBuilder.cs`](../src/DotnetInspector.Sections/EvidenceInspectionBuilder.cs)
 with its service and host example in
 [`EvidenceInspectionEnvelopeAdoptionPatternTests.cs`](../tests/DotnetInspector.Sections.Tests/EvidenceInspectionEnvelopeAdoptionPatternTests.cs).
 The test harness is the pattern's production host; it is not a retail CLI
@@ -147,14 +147,14 @@ The pattern separates three responsibilities:
 2. The evidence-enabled service entry point supplies a collector before the
    same core execution, then composes the unchanged baseline and settled
    evidence into `EvidenceInspectionEnvelope<TContent, TEvidence>`.
-3. The host uses `EvidenceBuilder<TContent, TEvidence>` to pass operation state
-   to two static delegates. Its `[Conditional("DEBUG")]` request method is
-   omitted by Release callers, including argument evaluation. `Build`, or
-   `BuildAsync` for an asynchronous operation, invokes exactly one delegate and
-   returns the ordinary inspection plus an optional evidence envelope that
-   contains the same inspection instance. The host uses the ordinary tuple
-   member for normal output and may write the optional enriched member to its
-   evidence destination.
+3. The host uses `EvidenceInspectionBuilder<TContent, TEvidence>` to pass
+   operation state to two static delegates. Its `[Conditional("DEBUG")]`
+   request method is omitted by Release callers, including argument evaluation.
+   `Build` and `BuildAsync` invoke exactly one delegate and reject reuse for a
+   second execution. They return the ordinary inspection plus an optional
+   evidence envelope that contains the same inspection instance. The host uses
+   the ordinary tuple member for normal output and may write the optional
+   enriched member to its evidence destination.
 
 This is the preferred split for adopters. Do not put the shared evidence type,
 serializer, or correctness tests behind `#if DEBUG`, because that would make

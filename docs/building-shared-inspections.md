@@ -195,7 +195,8 @@ Diagnostics. Each evidence field must answer one named question; do not collect
 speculative metrics, and do not treat static counts or one invocation's timing
 as runtime proof. Keep the service contract and correctness gates
 configuration-neutral. Use
-`EvidenceBuilder<TContent, TEvidence>` at the host boundary so Release callers
+`EvidenceInspectionBuilder<TContent, TEvidence>` at the host boundary so
+Release callers
 omit the evidence request and one of two static delegates performs the
 operation. Use `BuildAsync` when the operation itself is asynchronous. The
 returned ordinary inspection and optional enriched envelope share the same
