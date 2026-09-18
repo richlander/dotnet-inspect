@@ -1196,6 +1196,13 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (!TrySelectPackageSourceLinkFiles(
+                    result,
+                    options.SourceLinkFileRowSelection))
+            {
+                return 1;
+            }
+
             if (wantsSignals && options.Count && !effectiveDiscovery)
             {
                 await PopulatePackageSignalsAsync(
@@ -1477,5 +1484,30 @@ public partial class PackageCommand
         {
             PackageExtractor.Cleanup(resolution?.TempDir);
         }
+    }
+
+    private static bool TrySelectPackageSourceLinkFiles(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                result.SourceFiles ?? [],
+                "Package SourceLink files",
+                failure =>
+                    $"Package SourceLink file row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<PackageSourceFileInfo> selected))
+        {
+            return false;
+        }
+
+        result.SourceFiles = [.. selected];
+        return true;
     }
 }
