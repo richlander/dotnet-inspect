@@ -5,9 +5,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 namespace ILInspector.ILDiff.Tests;
 
 public class IlAssemblyDiffMetadataGraphSafetyTests
@@ -37,6 +34,24 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         AssertRejected(
             BuildTypeReferenceImage(DeepGraphLength, cyclic: false),
             "NodeBudget");
+        AssertOperandRejected(
+            BuildTypeDefinitionOperandImage(depth: 1, cyclic: true),
+            "Cycle");
+        AssertOperandRejected(
+            BuildTypeDefinitionOperandImage(DeepGraphLength, cyclic: false),
+            "NodeBudget");
+        AssertOperandRejected(
+            BuildTypeReferenceOperandImage(depth: 1, cyclic: true),
+            "Cycle");
+        AssertOperandRejected(
+            BuildTypeReferenceOperandImage(DeepGraphLength, cyclic: false),
+            "NodeBudget");
+        AssertOperandRejected(
+            BuildTypeDefinitionSignatureOperandImage(),
+            "Cycle");
+        AssertOperandRejected(
+            BuildTypeReferenceSignatureOperandImage(),
+            "Cycle");
     }
 
     [Fact]
@@ -56,52 +71,25 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
     }
 
     [Fact]
-    public void MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk()
+    public void ValidNestedTypeDefinitionOperandIdentity_DetectsRootChange()
     {
-        string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
-        string[] componentDirectories =
-        [
-            Path.Combine(sourceRoot, "ILInspector.ILDiff"),
-            Path.Combine(sourceRoot, "ILInspector.Instructions"),
-        ];
-        var actual = componentDirectories
-            .SelectMany(directory =>
-                Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
-            .Select(path =>
-            {
-                var root = CSharpSyntaxTree.ParseText(
-                    File.ReadAllText(path),
-                    path: path,
-                    cancellationToken: TestContext.Current.CancellationToken)
-                    .GetRoot(TestContext.Current.CancellationToken);
-                return new GraphEdgeCount(
-                    Path.GetRelativePath(sourceRoot, path)
-                        .Replace(Path.DirectorySeparatorChar, '/'),
-                    root.DescendantNodes()
-                        .OfType<InvocationExpressionSyntax>()
-                        .Count(invocation =>
-                            invocation.Expression is MemberAccessExpressionSyntax member
-                            && member.Name.Identifier.ValueText == "GetDeclaringType"),
-                    root.DescendantNodes()
-                        .OfType<MemberAccessExpressionSyntax>()
-                        .Count(member => member.Name.Identifier.ValueText == "ResolutionScope"));
-            })
-            .Where(count => count.DeclaringTypeEdges > 0 || count.TypeReferenceEdges > 0)
-            .OrderBy(count => count.File, StringComparer.Ordinal)
-            .ToArray();
+        var result = CompareOperand(
+            BuildTypeDefinitionOperandImage(depth: 3, cyclic: false, rootName: "OldRoot"),
+            BuildTypeDefinitionOperandImage(depth: 3, cyclic: false, rootName: "NewRoot"));
 
-        GraphEdgeCount[] expected =
-        [
-            // CompilerGeneratedOrdinals.cs resolves the declaring type of an attribute
-            // constructor to identify CompilerGeneratedAttribute. That is a single hop,
-            // not a relationship chain: its nesting walk goes through the bounded
-            // MetadataRelationshipTraversal, which is why this count is 1 and not 2.
-            new("ILInspector.ILDiff/CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
-            new("ILInspector.ILDiff/IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-            new("ILInspector.ILDiff/IlMetadataOperandResolver.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
-            new("ILInspector.Instructions/MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-        ];
-        Assert.Equal(expected, actual);
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, result.Diff.Outcome);
+        Assert.True(result.Diff.FailureRows.IsDefaultOrEmpty);
+    }
+
+    [Fact]
+    public void ValidNestedTypeReferenceOperandIdentity_DetectsRootChange()
+    {
+        var result = CompareOperand(
+            BuildTypeReferenceOperandImage(depth: 3, cyclic: false, rootName: "OldRoot"),
+            BuildTypeReferenceOperandImage(depth: 3, cyclic: false, rootName: "NewRoot"));
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, result.Diff.Outcome);
+        Assert.True(result.Diff.FailureRows.IsDefaultOrEmpty);
     }
 
     static bool IsSelectedWorker(string methodName)
@@ -177,6 +165,34 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             failure => Assert.Equal(expectedKind, failure.Kind));
         Assert.Equal(memberResult.Old.Identity, memberResult.New.Identity);
         Assert.StartsWith("token 0x0600", memberResult.Old.Identity, StringComparison.Ordinal);
+    }
+
+    static void AssertOperandRejected(byte[] image, string expectedKind)
+    {
+        var result = CompareOperand(image, image);
+
+        Assert.False(result.Diff.IsAvailable);
+        Assert.Contains(expectedKind, result.Diff.Failure, StringComparison.Ordinal);
+        var failure = Assert.Single(result.Diff.FailureRows);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, failure.Kind);
+        Assert.Equal("old", failure.Side);
+        Assert.Contains(expectedKind, failure.Message, StringComparison.Ordinal);
+        Assert.Empty(result.IdentityFailures);
+    }
+
+    static IlMemberDiffResult CompareOperand(byte[] oldImage, byte[] newImage)
+    {
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
+        var oldReader = oldPe.GetMetadataReader();
+        var newReader = newPe.GetMetadataReader();
+        return IlAssemblyDiff.CompareMembers(
+            oldPe,
+            oldReader,
+            FindMethod(oldReader),
+            newPe,
+            newReader,
+            FindMethod(newReader));
     }
 
     static string MemberIdentity(byte[] image)
@@ -260,6 +276,189 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         return Serialize(metadata, methodBodies);
     }
 
+    static byte[] BuildTypeDefinitionOperandImage(
+        int depth,
+        bool cyclic,
+        string rootName = "T")
+    {
+        var metadata = CreateMetadata();
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeDefinitionHandle parent = default;
+        for (int i = 0; i < depth; i++)
+        {
+            var current = metadata.AddTypeDefinition(
+                i == 0 ? TypeAttributes.Public : TypeAttributes.NestedPublic,
+                i == 0 ? metadata.GetOrAddString("N") : default,
+                metadata.GetOrAddString(i == 0 ? rootName : "T"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+            if (!parent.IsNil)
+                metadata.AddNestedType(current, parent);
+            parent = current;
+        }
+
+        if (cyclic)
+            metadata.AddNestedType(parent, parent);
+
+        var methodBodies = AddMethod(
+            metadata,
+            MethodSignature(metadata, default),
+            parent);
+        return Serialize(metadata, methodBodies);
+    }
+
+    static byte[] BuildTypeReferenceOperandImage(
+        int depth,
+        bool cyclic,
+        string rootName = "String")
+    {
+        var metadata = CreateMetadata();
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        TypeReferenceHandle typeReference;
+        if (cyclic)
+        {
+            typeReference = metadata.AddTypeReference(
+                MetadataTokens.TypeReferenceHandle(1),
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Loop"));
+        }
+        else
+        {
+            var coreLib = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+            typeReference = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString(rootName));
+            for (int i = 1; i < depth; i++)
+            {
+                typeReference = metadata.AddTypeReference(
+                    typeReference,
+                    default,
+                    metadata.GetOrAddString("T"));
+            }
+        }
+
+        var methodBodies = AddMethod(
+            metadata,
+            MethodSignature(metadata, default),
+            typeReference);
+        return Serialize(metadata, methodBodies);
+    }
+
+    static byte[] BuildTypeDefinitionSignatureOperandImage()
+    {
+        var metadata = CreateMetadata();
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var cyclicType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Loop"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddNestedType(cyclicType, cyclicType);
+
+        var methodBodies = AddSignatureOperandMethods(
+            metadata,
+            MethodSignature(metadata, cyclicType));
+        return Serialize(metadata, methodBodies);
+    }
+
+    static byte[] BuildTypeReferenceSignatureOperandImage()
+    {
+        var metadata = CreateMetadata();
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var cyclicType = metadata.AddTypeReference(
+            MetadataTokens.TypeReferenceHandle(1),
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Loop"));
+
+        var methodBodies = AddSignatureOperandMethods(
+            metadata,
+            MethodSignature(metadata, cyclicType));
+        return Serialize(metadata, methodBodies);
+    }
+
+    static BlobBuilder AddSignatureOperandMethods(
+        MetadataBuilder metadata,
+        BlobHandle targetSignature)
+    {
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        var targetIl = new BlobBuilder();
+        var targetInstructions = new InstructionEncoder(
+            targetIl,
+            new ControlFlowBuilder());
+        targetInstructions.OpCode(ILOpCode.Ret);
+        int targetBodyOffset = bodyEncoder.AddMethodBody(
+            targetInstructions,
+            maxStack: 0);
+        var target = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            targetSignature,
+            targetBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var entryIl = new BlobBuilder();
+        var entryInstructions = new InstructionEncoder(
+            entryIl,
+            new ControlFlowBuilder());
+        entryInstructions.OpCode(ILOpCode.Ldtoken);
+        entryInstructions.Token(target);
+        entryInstructions.OpCode(ILOpCode.Pop);
+        entryInstructions.OpCode(ILOpCode.Ret);
+        int entryBodyOffset = bodyEncoder.AddMethodBody(
+            entryInstructions,
+            maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            MethodSignature(metadata, default),
+            entryBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        return methodBodies;
+    }
+
     static MetadataBuilder CreateMetadata()
     {
         var metadata = new MetadataBuilder();
@@ -308,13 +507,24 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         return metadata.GetOrAddBlob(signature);
     }
 
-    static BlobBuilder AddMethod(MetadataBuilder metadata, BlobHandle signature)
+    static BlobBuilder AddMethod(
+        MetadataBuilder metadata,
+        BlobHandle signature,
+        EntityHandle operand = default)
     {
         var il = new BlobBuilder();
         var instructions = new InstructionEncoder(il, new ControlFlowBuilder());
+        if (!operand.IsNil)
+        {
+            instructions.OpCode(ILOpCode.Ldtoken);
+            instructions.Token(operand);
+            instructions.OpCode(ILOpCode.Pop);
+        }
         instructions.OpCode(ILOpCode.Ret);
         var methodBodies = new BlobBuilder();
-        int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(instructions, maxStack: 0);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(
+            instructions,
+            maxStack: operand.IsNil ? 0 : 1);
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -348,20 +558,4 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         throw new InvalidOperationException("Method M not found.");
     }
 
-    static string FindRepositoryRoot()
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-        {
-            string sourceDirectory = Path.Combine(directory.FullName, "src", "ILInspector.Instructions");
-            if (Directory.Exists(sourceDirectory))
-                return directory.FullName;
-        }
-
-        throw new DirectoryNotFoundException("Could not find repository root containing src/ILInspector.Instructions.");
-    }
-
-    readonly record struct GraphEdgeCount(
-        string File,
-        int DeclaringTypeEdges,
-        int TypeReferenceEdges);
 }

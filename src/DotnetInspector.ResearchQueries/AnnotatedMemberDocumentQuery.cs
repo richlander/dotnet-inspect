@@ -37,6 +37,101 @@ public readonly record struct AnnotatedCallGraphOccurrence(
     CallKind Kind,
     bool InLoop);
 
+internal readonly record struct AnnotatedCallGraphMappedCall(
+    DirectCall Call,
+    CallGraphRow Row);
+
+internal static class AnnotatedCallGraphOccurrenceProjection
+{
+    internal static (
+        ImmutableArray<AnnotatedCallGraphMappedCall> Calls,
+        string? Failure)
+        MapCalls(
+            CallGraphProjection projection,
+            IReadOnlyList<DirectCall> calls,
+            bool omitNotProjected)
+    {
+        var mapped =
+            ImmutableArray.CreateBuilder<AnnotatedCallGraphMappedCall>(
+                calls.Count);
+        foreach (DirectCall call in calls)
+        {
+            CallGraphRowMatch match =
+                projection.FindFocusCalleeRow(call, out CallGraphRow row);
+            if (match == CallGraphRowMatch.Found)
+            {
+                mapped.Add(new(call, row));
+                continue;
+            }
+            if (match == CallGraphRowMatch.NotProjected
+                && omitNotProjected)
+            {
+                continue;
+            }
+
+            return (
+                [],
+                match == CallGraphRowMatch.Ambiguous
+                    ? $"Call site IL_{call.ILOffset:X4} maps to more than one stable graph edge."
+                    : $"Call site IL_{call.ILOffset:X4} could not be joined to one stable graph edge.");
+        }
+
+        return (mapped.ToImmutable(), null);
+    }
+
+    internal static (
+        ImmutableArray<AnnotatedCallGraphOccurrence> Occurrences,
+        string? Failure)
+        MapFacts(
+            IReadOnlyList<AnnotatedCallGraphMappedCall> mappedCalls,
+            AnnotatedSourceDocument source)
+    {
+        var factsByOffset = source.Facts
+            .Where(fact =>
+                fact.Descriptor
+                    == ResearchFactRegistry.CallRelationshipDescriptorId)
+            .GroupBy(fact => fact.SourceOffset)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
+        var occurrences =
+            ImmutableArray.CreateBuilder<AnnotatedCallGraphOccurrence>(
+                mappedCalls.Count);
+        foreach (AnnotatedCallGraphMappedCall mapped in mappedCalls)
+        {
+            DirectCall call = mapped.Call;
+            if (!factsByOffset.TryGetValue(
+                    call.ILOffset,
+                    out ImmutableArray<AnnotatedSourceFact> facts)
+                || facts.Length == 0)
+            {
+                return (
+                    [],
+                    $"Call site IL_{call.ILOffset:X4} has no portable source fact.");
+            }
+            if (facts.Length != 1)
+            {
+                return (
+                    [],
+                    $"Call site IL_{call.ILOffset:X4} maps to more than one portable source fact.");
+            }
+
+            occurrences.Add(
+                new AnnotatedCallGraphOccurrence(
+                    mapped.Row.Number,
+                    facts[0].Id,
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
+                    call.ILOffset,
+                    call.OperandToken,
+                    call.Kind,
+                    call.InLoop));
+        }
+
+        return (occurrences.MoveToImmutable(), null);
+    }
+}
+
 /// <summary>
 /// Reasons an annotated cycle census cannot prove that no other focus cycle
 /// exists. Positive findings remain valid under every limit.
@@ -143,33 +238,20 @@ public static class AnnotatedMemberDocumentQuery
                 graphView,
                 projection,
                 input.OwnershipSearchOptions);
-        var mappedCalls =
-            ImmutableArray.CreateBuilder<(
-                DirectCall Call,
-                CallGraphRow Row)>();
         bool focusIsBudgetLimited =
             graphView.CalleeRoot.Status
                 is CallTreeStatus.DepthLimited
                 or CallTreeStatus.Truncated;
-        foreach (DirectCall call in graphView.FocusCallSites)
+        (
+            ImmutableArray<AnnotatedCallGraphMappedCall> mappedCalls,
+            string? mappingFailure) =
+            AnnotatedCallGraphOccurrenceProjection.MapCalls(
+                projection,
+                graphView.FocusCallSites,
+                focusIsBudgetLimited);
+        if (mappingFailure is not null)
         {
-            CallGraphRowMatch match =
-                projection.FindFocusCalleeRow(call, out CallGraphRow row);
-            if (match == CallGraphRowMatch.Found)
-            {
-                mappedCalls.Add((call, row));
-                continue;
-            }
-            if (match == CallGraphRowMatch.NotProjected
-                && focusIsBudgetLimited)
-            {
-                continue;
-            }
-
-            return Failure(
-                match == CallGraphRowMatch.Ambiguous
-                    ? $"Call site IL_{call.ILOffset:X4} maps to more than one stable graph edge."
-                    : $"Call site IL_{call.ILOffset:X4} could not be joined to one stable graph edge.");
+            return Failure(mappingFailure);
         }
 
         var sourceProjection = ResearchViews.ProjectMember(
@@ -185,7 +267,7 @@ public static class AnnotatedMemberDocumentQuery
                 SourceDocument: true,
                 CallSites:
                 [
-                    .. mappedCalls.Select(mapped => mapped.Call),
+                    .. mappedCalls.Select(static mapped => mapped.Call),
                 ]));
         if (sourceProjection.SourceDocument is not { } source)
         {
@@ -203,44 +285,15 @@ public static class AnnotatedMemberDocumentQuery
                 "The annotated source member does not match the call-graph focus.");
         }
 
-        var factsByOffset = source.Facts
-            .Where(fact =>
-                fact.Descriptor
-                    == ResearchFactRegistry.CallRelationshipDescriptorId)
-            .GroupBy(fact => fact.SourceOffset)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
-        var occurrences =
-            ImmutableArray.CreateBuilder<AnnotatedCallGraphOccurrence>(
-                mappedCalls.Count);
-        foreach ((DirectCall call, CallGraphRow row) in mappedCalls)
+        (
+            ImmutableArray<AnnotatedCallGraphOccurrence> occurrences,
+            string? occurrenceFailure) =
+            AnnotatedCallGraphOccurrenceProjection.MapFacts(
+                mappedCalls,
+                source);
+        if (occurrenceFailure is not null)
         {
-            if (!factsByOffset.TryGetValue(
-                    call.ILOffset,
-                    out ImmutableArray<AnnotatedSourceFact> facts)
-                || facts.Length == 0)
-            {
-                return Failure(
-                    $"Call site IL_{call.ILOffset:X4} has no portable source fact.");
-            }
-            if (facts.Length != 1)
-            {
-                return Failure(
-                    $"Call site IL_{call.ILOffset:X4} maps to more than one portable source fact.");
-            }
-            AnnotatedSourceFact fact = facts[0];
-
-            occurrences.Add(
-                new AnnotatedCallGraphOccurrence(
-                    row.Number,
-                    fact.Id,
-                    call.EvidenceMethod.ModuleVersionId,
-                    call.EvidenceMethod.MetadataToken,
-                    call.ILOffset,
-                    call.OperandToken,
-                    call.Kind,
-                    call.InLoop));
+            return Failure(occurrenceFailure);
         }
 
         return new AnnotatedMemberDocumentResult.Complete(
@@ -249,7 +302,7 @@ public static class AnnotatedMemberDocumentQuery
                 new AnnotatedCallGraphOverlay(
                     graphView.Tier,
                     projection,
-                    occurrences.MoveToImmutable(),
+                    occurrences,
                     cycles,
                     ownership,
                     graphView.Diagnostics)));
