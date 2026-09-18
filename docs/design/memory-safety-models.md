@@ -340,9 +340,11 @@ the updated rules, while continuing to compile and run against the selected
 shared framework. Repository file-based apps with source-generated JSON opt
 into the same rules explicitly. Affected readonly record values are registered
 for serialization-only generation in output contexts, avoiding unsafe
-boxed-struct setters without changing the value models. The one affected value
-that participates in existing API-output round trips uses a typed safe converter
-for both directions.
+boxed-struct setters without changing the value models. Affected values that
+also participate in deserialization own typed safe converters for both
+directions. Those converters preserve the existing API-output compact/default
+omission contract and the annotated-source strict-input and string-enum
+contracts.
 
 The same targets file has a repository-local alias that maps text values such
 as `updated` to the raw compiler feature. Fixtures and file-based apps use that
