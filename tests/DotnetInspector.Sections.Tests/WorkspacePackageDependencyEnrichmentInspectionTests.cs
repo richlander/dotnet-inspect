@@ -13,6 +13,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
 {
     private const string RootPackageId = "workspace.enrichment.root";
     private const string RootVersion = "1.0.0";
+    private const string TargetPackageId = "workspace.enrichment.target";
+    private const string TargetVersion = "1.0.0";
     private const string SourceUrl = "https://example.test/v3/index.json";
 
     private static readonly PackageSource Source =
@@ -135,6 +137,144 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             Assert.Equal(
                 "https://dotnet-inspect.net/?w=" + share.Packet,
                 share.FullUrl);
+        }
+        finally
+        {
+            Directory.Delete(feed, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_InheritsContextWideTargetAndDeduplicatesExistingMember()
+    {
+        string feed = CreateTemporaryDirectory();
+        try
+        {
+            WriteLocalSourcePackage(feed, "dependency.a", "2.0.0");
+            var store = await CachedRootStoreAsync(
+                """
+                <dependencies>
+                  <group targetFramework="net8.0">
+                    <dependency id="dependency.a" version="[2.0.0]" />
+                  </group>
+                </dependencies>
+                """);
+            await CommitCachedPackageAsync(
+                store,
+                TargetPackageId,
+                TargetVersion,
+                dependencies: "",
+                frameworks: ["net8.0"]);
+            using var client = new HttpClient(new FailingHandler());
+            await using var composition =
+                new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+
+            var inheritedRoot =
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    RootPackageId,
+                    RootVersion);
+            var targetProvider =
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    TargetPackageId,
+                    TargetVersion,
+                    Framework: "net8.0",
+                    RuntimeIdentifier: "linux-x64");
+            var existingDependency =
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    "dependency.a",
+                    "2.0.0");
+            CommittedScenarioDefinitionSet definitions = Prepare(
+                [
+                    new WorkspaceContextDefinition(
+                        "inherited-target",
+                        members:
+                        [
+                            inheritedRoot,
+                            targetProvider,
+                            existingDependency,
+                        ]),
+                ],
+                [
+                    new NavigationTabDefinition(
+                        "t0",
+                        coordinate:
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                RootPackageId,
+                                RootVersion,
+                                Framework: "net8.0",
+                                RuntimeIdentifier: "linux-x64")),
+                    new NavigationTabDefinition(
+                        "t1",
+                        coordinate: targetProvider),
+                    new NavigationTabDefinition(
+                        "t2",
+                        coordinate:
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                "dependency.a",
+                                "2.0.0",
+                                Framework: "net8.0",
+                                RuntimeIdentifier: "linux-x64")),
+                ],
+                focus: "t0");
+
+            InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
+                envelope =
+                    await WorkspacePackageDependencyEnrichmentInspection
+                        .ExecuteAsync(
+                            new WorkspacePackageDependencyEnrichmentRequest(
+                                definitions,
+                                LoadOptions(client, store),
+                                new DesktopPackageDependencyCandidateSource(
+                                    composition,
+                                    new NuGetSourceOptions
+                                    {
+                                        Sources = [feed],
+                                    })),
+                            TestContext.Current.CancellationToken);
+
+            Assert.True(
+                envelope.Content
+                    is WorkspacePackageDependencyEnrichmentOutcome.Succeeded,
+                envelope.Content
+                    is WorkspacePackageDependencyEnrichmentOutcome.Failed
+                        failedOutcome
+                    ? $"{failedOutcome.Failure.Kind}: "
+                        + failedOutcome.Failure.Message
+                    : null);
+            var success =
+                (WorkspacePackageDependencyEnrichmentOutcome.Succeeded)
+                    envelope.Content;
+            Assert.Equal(3, success.SelectedRootCount);
+            Assert.Equal(0, success.AddedMemberCount);
+            Assert.Equal(
+                [
+                    $"{RootPackageId}@{RootVersion}",
+                    $"{TargetPackageId}@{TargetVersion}",
+                    "dependency.a@2.0.0",
+                ],
+                PackageMembers(success.Definitions.Workspace!.Contexts[0]));
+            Assert.Null(
+                Assert.IsType<
+                    DefinitionMemberCoordinate.PackageCoordinate>(
+                        success.Definitions.Workspace.Contexts[0].Members[0])
+                    .Framework);
+            Assert.Null(
+                Assert.IsType<
+                    DefinitionMemberCoordinate.PackageCoordinate>(
+                        success.Definitions.Workspace.Contexts[0].Members[0])
+                    .RuntimeIdentifier);
+            Assert.Null(
+                Assert.IsType<
+                    DefinitionMemberCoordinate.PackageCoordinate>(
+                        success.Definitions.Workspace.Contexts[0].Members[2])
+                    .Framework);
+            Assert.Null(
+                Assert.IsType<
+                    DefinitionMemberCoordinate.PackageCoordinate>(
+                        success.Definitions.Workspace.Contexts[0].Members[2])
+                    .RuntimeIdentifier);
+            Assert.Equal(3, success.Definitions.Navigation!.Tabs.Count);
+            Assert.IsType<InspectionShare.Available>(envelope.Share);
         }
         finally
         {
@@ -380,41 +520,52 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         IReadOnlyList<string>? frameworks = null)
     {
         var store = new InMemoryPackageStore();
+        await CommitCachedPackageAsync(
+            store,
+            RootPackageId,
+            RootVersion,
+            dependencies,
+            frameworks ?? ["net8.0", "net9.0"]);
+        await CommitCachedPackageAsync(
+            store,
+            "dependency.a",
+            "2.0.0",
+            dependencies: "",
+            frameworks: ["net8.0"]);
+        return store;
+    }
+
+    private static async Task CommitCachedPackageAsync(
+        IPackageStore store,
+        string packageId,
+        string version,
+        string dependencies,
+        IReadOnlyList<string> frameworks)
+    {
         byte[] assembly = await File.ReadAllBytesAsync(
             typeof(WorkspacePackageDependencyEnrichmentInspection)
                 .Assembly.Location,
             TestContext.Current.CancellationToken);
-        var rootEntries =
+        var entries =
             new List<(string EntryPath, byte[] Content)>
             {
-                ($"{RootPackageId}.nuspec",
+                ($"{packageId}.nuspec",
                     ManifestBytes(
-                        RootPackageId,
-                        RootVersion,
+                        packageId,
+                        version,
                         dependencies)),
             };
-        foreach (string framework in frameworks ?? ["net8.0", "net9.0"])
+        foreach (string framework in frameworks)
         {
-            rootEntries.Add(
+            entries.Add(
                 ($"ref/{framework}/DotnetInspector.Sections.dll", assembly));
         }
         await store.CommitAsync(
-            RootPackageId,
-            RootVersion,
+            packageId,
+            version,
             NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(Archive([.. rootEntries])),
+            new MemoryStream(Archive([.. entries])),
             TestContext.Current.CancellationToken);
-        await store.CommitAsync(
-            "dependency.a",
-            "2.0.0",
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(
-                Archive(
-                    ("dependency.a.nuspec",
-                        ManifestBytes("dependency.a", "2.0.0", "")),
-                    ("ref/net8.0/DotnetInspector.Sections.dll", assembly))),
-            TestContext.Current.CancellationToken);
-        return store;
     }
 
     private static void WriteLocalSourcePackage(

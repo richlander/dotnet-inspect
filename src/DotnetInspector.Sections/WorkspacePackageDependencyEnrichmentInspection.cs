@@ -40,6 +40,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         }
 
         var resolvedRoots = new List<ResolvedRoot>();
+        var contextTargets =
+            new EffectiveWorkspaceContextTarget[workspace.Contexts.Count];
         var acquiredRoots =
             new Dictionary<string, PackageRootBinding>(
                 StringComparer.Ordinal);
@@ -49,6 +51,23 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         {
             WorkspaceContextDefinition context =
                 workspace.Contexts[contextIndex];
+            EffectiveWorkspaceContextTarget contextTarget;
+            try
+            {
+                contextTarget =
+                    InspectionDefinitionRegistry
+                        .ResolveEffectiveContextTarget(context);
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return Failure(
+                    WorkspacePackageDependencyEnrichmentFailureKind
+                        .InvalidDefinition,
+                    $"workspace.contexts[{contextIndex}]",
+                    ex.Message);
+            }
+            contextTargets[contextIndex] = contextTarget;
+
             for (int memberIndex = 0;
                 memberIndex < context.Members.Count;
                 memberIndex++)
@@ -62,9 +81,9 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 
                 string path =
                     $"workspace.contexts[{contextIndex}].members[{memberIndex}]";
-                string? framework = package.Framework ?? context.Framework;
+                string? framework = contextTarget.Framework;
                 string? runtimeIdentifier =
-                    package.RuntimeIdentifier ?? context.RuntimeIdentifier;
+                    contextTarget.RuntimeIdentifier;
                 if (framework is null)
                 {
                     return Failure(
@@ -224,7 +243,6 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 
                 resolvedRoots.Add(new ResolvedRoot(
                     contextIndex,
-                    memberIndex,
                     framework,
                     runtimeIdentifier,
                     dependencies));
@@ -240,7 +258,10 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         }
 
         RewriteResult rewritten =
-            RewriteDefinitions(request.Definitions, resolvedRoots);
+            RewriteDefinitions(
+                request.Definitions,
+                resolvedRoots,
+                contextTargets);
         if (!rewritten.Succeeded)
         {
             return Failure(
@@ -332,7 +353,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 
     private static RewriteResult RewriteDefinitions(
         CommittedScenarioDefinitionSet source,
-        IReadOnlyList<ResolvedRoot> roots)
+        IReadOnlyList<ResolvedRoot> roots,
+        IReadOnlyList<EffectiveWorkspaceContextTarget> contextTargets)
     {
         WorkspaceDefinition workspace =
             source.Workspace ?? throw new UnreachableException();
@@ -355,6 +377,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         {
             WorkspaceContextDefinition context =
                 workspace.Contexts[contextIndex];
+            EffectiveWorkspaceContextTarget contextTarget =
+                contextTargets[contextIndex];
             var members =
                 new List<DefinitionMemberCoordinate>(context.Members);
             var seen = new HashSet<EffectivePackageKey>();
@@ -367,8 +391,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                     package.Version
                         ?? throw new InvalidOperationException(
                             "Prepared Package members must use exact versions."),
-                    package.Framework ?? context.Framework,
-                    package.RuntimeIdentifier ?? context.RuntimeIdentifier));
+                    contextTarget.Framework,
+                    contextTarget.RuntimeIdentifier));
             }
 
             if (rootsByContext.TryGetValue(
@@ -383,8 +407,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                         EffectivePackageKey key = CreateKey(
                             dependency.PackageId,
                             dependency.Version,
-                            root.Framework,
-                            root.RuntimeIdentifier);
+                            contextTarget.Framework,
+                            contextTarget.RuntimeIdentifier);
                         if (!seen.Add(key))
                             continue;
 
@@ -629,7 +653,6 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 
     private sealed record ResolvedRoot(
         int ContextIndex,
-        int MemberIndex,
         string Framework,
         string? RuntimeIdentifier,
         IReadOnlyList<PackageSourceCoordinate> Dependencies);
