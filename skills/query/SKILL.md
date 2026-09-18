@@ -126,6 +126,7 @@ evidence unless a category is named.
 | `project` | `@Project` | none |
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
 | `ecosystem` | `@Ecosystem` | none |
+| `graph libraries` | `@Libraries` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -143,7 +144,10 @@ by exact name. Project `@Project` composes restored dependency `Skills` and
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
 the corresponding query family. Ecosystem `@Ecosystem` composes every section
 available after the optional focus operand chooses the route; select exact
-`Integrations` for configured Integration bindings. `Switches` is a section.
+`Integrations` for configured Integration bindings. Graph `@Libraries`
+composes the pair-wide call-site, summary, and direct-use cluster projections;
+coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
+section.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
@@ -332,17 +336,19 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` select semantic rows on commands
-  that declare them. Other commands reject `-n` alone.
-- Add `--lines` for the first N rendered lines or `--tail-lines` for the last
-  N. `--lines --tail` is equivalent to `--tail-lines`.
+- `-n N` and numeric shorthand like `-6` select semantic rows when the active
+  command or lens declares them; otherwise they select rendered lines.
+- Add `--tail` for the last N items. Use `--lines` to switch a semantic command
+  to rendered lines or `--tail-lines` for trailing rendered lines.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.
 - On commands retaining the legacy row window, `--rows 2..10` is an absolute
   1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
-  and `10..` runs from row 10 to the end. These legacy ranges reject
-  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
+  and `10..` runs from row 10 to the end. A legacy range rejects
+  `--head`/`--tail` when no `-n` is present. Legacy `--rows` composes with an
+  inferred or explicit rendered-line `-n`; in that composition, `--head` or
+  `--tail` modifies `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
