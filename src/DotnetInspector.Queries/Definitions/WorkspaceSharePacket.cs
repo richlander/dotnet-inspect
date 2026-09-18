@@ -63,7 +63,7 @@ public sealed class WorkspaceShareContext
 }
 
 /// <summary>
-/// One query-free committed view row in a format-2-or-3 workspace share packet.
+/// One query-free committed view row in a format-2-through-4 workspace share packet.
 /// </summary>
 public sealed class WorkspaceShareViewState
 {
@@ -164,8 +164,37 @@ public sealed class WorkspaceSharePacket
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates)
+        : this(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            tabs,
+            contexts,
+            registrations,
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates)
     {
-        FormatVersion = WorkspaceSharePacketCodec.CurrentFormatVersion;
+    }
+
+    private WorkspaceSharePacket(
+        int formatVersion,
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates)
+    {
+        if (formatVersion is not (
+            WorkspaceSharePacketCodec.CurrentFormatVersion
+            or WorkspaceSharePacketCodec.Format4Version))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(formatVersion),
+                formatVersion,
+                "A registration-bearing packet must use format 3 or 4.");
+        }
+
+        FormatVersion = formatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
             (WorkspaceShareTab[])tabs.Clone());
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
@@ -185,13 +214,29 @@ public sealed class WorkspaceSharePacket
             (WorkspaceShareViewState[])viewStates.Clone());
     }
 
+    internal static WorkspaceSharePacket CreateV4(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates) =>
+        new(
+            WorkspaceSharePacketCodec.Format4Version,
+            tabs,
+            contexts,
+            registrations,
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates);
+
     public int FormatVersion { get; }
 
     public IReadOnlyList<WorkspaceShareTab> Tabs { get; }
 
     public IReadOnlyList<WorkspaceShareContext> Contexts { get; }
 
-    /// <summary>Format-3 ordered portable Workspace registrations.</summary>
+    /// <summary>Format-3-or-4 ordered portable Workspace registrations.</summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
 
     /// <summary>
@@ -208,7 +253,7 @@ public sealed class WorkspaceSharePacket
     public int ActiveTabIndex { get; }
 
     /// <summary>
-    /// The selected context, or null for a format-3 registration-only
+    /// The selected context, or null for a format-3-or-4 registration-only
     /// Workspace.
     /// </summary>
     public int? SelectedContextIndex { get; }
@@ -231,7 +276,7 @@ public sealed class WorkspaceSharePacket
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }
 
-    /// <summary>Format-2-or-3 committed view rows.</summary>
+    /// <summary>Format-2-through-4 committed view rows.</summary>
     public IReadOnlyList<WorkspaceShareViewState> ViewStates { get; }
 }
 
