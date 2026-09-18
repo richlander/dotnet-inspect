@@ -943,6 +943,12 @@ public class ResearchFactRegistryTests
         Assert.Equal(
             typed.Payload.Callee,
             typed.Payload.EvidenceLocation.Method);
+        CallSiteCostEvidenceInput input =
+            Assert.Single(typed.Payload.AggregateInputs);
+        Assert.Equal(
+            CallSiteCostEvidenceInputKind.AllocationInLoop,
+            input.Kind);
+        Assert.Null(input.Value);
         Assert.Equal(call.ILOffset, typed.SourceOffset);
     }
 
@@ -1233,6 +1239,12 @@ public class ResearchFactRegistryTests
             Assert.Single(evidence.Locations);
         Assert.Equal(evidence.Subject, location.Method);
         Assert.Null(location.ILOffset);
+        CallSiteCostEvidenceInput input =
+            Assert.Single(evidence.AggregateInputs);
+        Assert.Equal(
+            CallSiteCostEvidenceInputKind.AllocationInLoop,
+            input.Kind);
+        Assert.Null(input.Value);
     }
 
     [Fact]

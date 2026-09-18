@@ -422,6 +422,7 @@ public static class IrPasses
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
         new SlotMaterializationPass(),
+        new PointerCompoundAssignmentPass(),
         // A value read of an unboxed managed pointer (unbox T; ldobj T) is the
         // same operation as unbox.any T; normalize it to the universal value
         // cast so the printer spells (T)o and reserves the ref-only
@@ -481,7 +482,7 @@ public static class IrPasses
     /// output, like SharpLab's, must always be valid C#.
     /// </summary>
     public static ImmutableArray<IIrPass> Lowered { get; } =
-        [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass))];
+        [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass or PointerCompoundAssignmentPass))];
 
     // Capture substitution exposes argument reads in place of environment-field
     // reads. Let the existing final slots-only inliner see those before storage
