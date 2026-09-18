@@ -23,7 +23,7 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class WorkspaceCommandTests
+public sealed partial class WorkspaceCommandTests
 {
     const string PackageId = "Workspace.Command.Fixture";
     const string Version = "1.0.0";
