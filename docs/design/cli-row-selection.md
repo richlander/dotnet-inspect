@@ -727,10 +727,11 @@ legacy `--rows` contract and uses the rendered-line fallback for `-n`.
 ## Type catalog adoption
 
 An unambiguous explicit-source `type` catalog declares one semantic row per
-`ApiType`. Package, library, platform, or project resolution and complete API
-extraction finish first. Type glob, kind, and unsafe filtering then establish
-the ordered catalog vector before Head/Tail or strict Window stages select from
-it.
+`ApiType`. This includes a catalog with no positional Type target, a positional
+Type glob, or a distinct `-t`/`--type` filter. Package, library, platform, or
+project resolution and complete API extraction finish first. Type glob, kind,
+and unsafe filtering then establish the ordered catalog vector before
+Head/Tail or strict Window stages select from it.
 
 ```console
 $ dotnet-inspect type --platform System.Text.Json \
@@ -1067,7 +1068,7 @@ The Type catalog adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats` and `TypeListing_FiltersBeforeSemanticSelection` | An explicit-source Type catalog applies semantic Tail after type filtering; Markdown, table, TSV, JSONL, and complete JSON consume the same selected `ApiType`, complete JSON recomputes selected counts, and assembly-level Type forwarders remain companion evidence. |
+| `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `TypeListing_FiltersBeforeSemanticSelection`, and `TypeListing_PositionalGlobAcceptsSemanticSelection` | An explicit-source Type catalog, including positional and `-t` Type glob forms, applies semantic Head/Tail or Window after type filtering; Markdown, table, TSV, JSONL, and complete JSON consume the same selected `ApiType`, complete JSON recomputes selected counts, and assembly-level Type forwarders remain companion evidence. |
 | `CommandExecutionTests.TypeListing_UnavailableWindowWithholdsOutput` and `TypeListing_RejectsInvalidRowsBeforeSourceResolution` | One unavailable strict Window emits no partial output, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before source resolution. |
 | `CommandExecutionTests.TypeListing_ExcludedModesInferRenderedLines`, `TypeListing_NumericTypeFilterIsOrdinaryFilterInput`, `TypeOptionsParserTests.NumericMemberLimit_IsDistinctFromTypeFilter`, `SharedParsersTests`, and `InspectionPlanningTests.CommandlessNumericTypeFilterSelectsTypeListing` | Exact-type and selected-section modes remain outside the declaration and infer rendered Lines; numeric `-t` is preserved as ordinary filter input distinct from numeric member limits, including commandless structural routing. |
 

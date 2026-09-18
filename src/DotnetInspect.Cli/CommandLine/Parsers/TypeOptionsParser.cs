@@ -90,12 +90,11 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
         var typeGesture = new TypeGestureIntent(typeFilter);
-        bool hasTypeFilter = typeGesture.SelectsListingCatalog(typeName);
+        bool selectsListingCatalog =
+            SelectsTypeListingCatalog(typeName, typeFilter);
         InspectionCatalogIdentity catalog =
             interpretedCatalog
-            ?? (hasTypeFilter
-                || string.IsNullOrWhiteSpace(typeName)
-                || TypeMatcher.IsTypeGlobPattern(typeName)
+            ?? (selectsListingCatalog
                     ? InspectionCatalogIdentity.ApiType
                     : InspectionCatalogIdentity.ApiMember);
         error = SharedParsers.ParseAnalysisQueryOptions(
@@ -191,10 +190,18 @@ public static class TypeOptionsParser
         string? typeFilter =
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
-        return string.IsNullOrWhiteSpace(typeTarget)
-            || new TypeGestureIntent(typeFilter)
-                .SelectsListingCatalog(typeTarget);
+        return SelectsTypeListingCatalog(
+            typeTarget,
+            typeFilter);
     }
+
+    private static bool SelectsTypeListingCatalog(
+        string? typeTarget,
+        string? typeFilter) =>
+        string.IsNullOrWhiteSpace(typeTarget)
+        || TypeMatcher.IsTypeGlobPattern(typeTarget)
+        || new TypeGestureIntent(typeFilter)
+            .SelectsListingCatalog(typeTarget);
 
     /// <summary>
     /// Result of parsing type command options.

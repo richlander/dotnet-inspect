@@ -272,6 +272,49 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task TypeListing_PositionalGlobAcceptsSemanticSelection()
+    {
+        string[] args =
+        [
+            "type",
+            "*Json*",
+            "--platform",
+            "System.Text.Json",
+            "--json",
+            "--tips",
+            "q",
+        ];
+        var window = await RunAppAsync(
+            [.. args, "--rows", "1..1"]);
+        var tail = await RunAppAsync(
+            [.. args, "-n", "1", "--tail"]);
+
+        Assert.Equal(0, window.Exit);
+        Assert.Empty(window.Error);
+        Assert.Equal(0, tail.Exit);
+        Assert.Empty(tail.Error);
+
+        using var windowDocument =
+            JsonDocument.Parse(window.Output);
+        using var tailDocument =
+            JsonDocument.Parse(tail.Output);
+        JsonElement first = Assert.Single(
+            windowDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray());
+        JsonElement last = Assert.Single(
+            tailDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray());
+        Assert.Equal(
+            "JsonMarshal",
+            first.GetProperty("name").GetString());
+        Assert.Equal(
+            "Utf8JsonWriter",
+            last.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task TypeListing_UnavailableWindowWithholdsOutput()
     {
         var (exit, output, error) = await RunAppAsync(

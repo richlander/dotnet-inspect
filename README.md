@@ -824,13 +824,13 @@ dotnet-inspect library coordinate 0x060002EA+0x0 \
 ```
 
 For a Type catalog with an explicit package, library, platform, or project
-source, `-n`, `--tail`, and `--rows A..B` select complete types after type,
-kind, and unsafe filtering. Markdown, table, TSV, JSONL, and JSON observe the
-same selected types; assembly-level companion evidence such as Type forwarders
-remains visible. Add `--lines` only to clip rendered text. Exact-type,
-selected-section, discovery, shape, match, and ambiguous commandless modes
-retain rendered-line fallback. Numeric `-t` is a literal Type filter, not a
-row-count spelling.
+source, including positional or `-t` Type globs, `-n`, `--tail`, and
+`--rows A..B` select complete types after type, kind, and unsafe filtering.
+Markdown, table, TSV, JSONL, and JSON observe the same selected types;
+assembly-level companion evidence such as Type forwarders remains visible. Add
+`--lines` only to clip rendered text. Exact-type, selected-section, discovery,
+shape, match, and ambiguous commandless modes retain rendered-line fallback.
+Numeric `-t` is a literal Type filter, not a row-count spelling.
 
 ### Compatibility and change tracking
 
