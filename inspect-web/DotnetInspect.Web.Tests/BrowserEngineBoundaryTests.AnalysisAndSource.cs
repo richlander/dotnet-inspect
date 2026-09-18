@@ -674,7 +674,13 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(coordinate.GetProperty("ilOffset").GetInt32() >= 0);
         Assert.Equal(JsonValueKind.Null, evidence.GetProperty("unavailableReason").ValueKind);
 
-        JsonElement calleeDocument = evidence.GetProperty("document");
+        int documentId = evidence.GetProperty("documentId").GetInt32();
+        JsonElement calleeDocument = Assert.Single(
+            annotatedSource
+                .GetProperty("findingEvidenceDocuments")
+                .EnumerateArray(),
+            candidate => candidate.GetProperty("id").GetInt32() == documentId)
+            .GetProperty("document");
         int nodeId = Assert.Single(
             evidence.GetProperty("nodeIds").EnumerateArray()).GetInt32();
         JsonElement node = calleeDocument
