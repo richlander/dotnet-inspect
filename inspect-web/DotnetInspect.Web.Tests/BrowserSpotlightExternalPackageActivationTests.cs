@@ -116,7 +116,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         Assert.Same(host.Authority, received.HostAuthority);
         Assert.Equal(
             [
-                EcosystemPackIds.Platform.Value,
+                EcosystemPackIds.Runtime.Value,
                 EcosystemPackIds.AspNetCore.Value,
                 EcosystemPackIds.MicrosoftExtensions.Value,
             ],

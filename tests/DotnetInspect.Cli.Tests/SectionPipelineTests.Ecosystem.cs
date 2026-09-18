@@ -16,7 +16,7 @@ public partial class SectionPipelineTests
             EcosystemSections.InfoSection,
             includePruning: false);
         AssertCatalog(
-            EcosystemSections.CreatePlatformPipeline(),
+            EcosystemSections.CreateRuntimePipeline(),
             EcosystemSections.InfoSection,
             includePruning: true);
     }
@@ -31,7 +31,7 @@ public partial class SectionPipelineTests
             EcosystemSections.CreateFocusedPipeline(),
             includePruning: false);
         AssertAutomaticMetadata(
-            EcosystemSections.CreatePlatformPipeline(),
+            EcosystemSections.CreateRuntimePipeline(),
             includePruning: true);
     }
 
