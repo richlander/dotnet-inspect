@@ -20,8 +20,9 @@ admission, local declaration validation, and immutable admitted declarations.
 The Analysis-owned
 [Resolved Resource Effects](resolved-resource-effects.md) owner binds those
 declarations to concrete metadata occurrences. Analysis is the first adopter
-through separate focused efforts, using the existing ArrayPool ownership flow
-and Resource Triage product path as its implementation and corpus baseline.
+through separate focused efforts. Root-bound occurrence evidence lands
+additively; the existing ArrayPool ownership flow and Resource Triage product
+path remain unchanged until final consumer fidelity and retirement.
 Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
 DocumentationHouse, Workspace, CLI, and Browser/Wasm adoption remain
 independently reviewed steps in the tracker.
@@ -1068,13 +1069,14 @@ end-to-end tracker. Its current total is 26 steps:
    under #6728;
 6. implement that resolver and the shipped typed C# ArrayPool mapping under
    #6729;
-7. generalize the existing ArrayPool method-ownership flow and prove the
-   declared-owner/ArrayPool composition witness under #6730;
-8. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
-   corpus sensor, and Resource Lifecycle Analysis, then retire the
-   ArrayPool-specific lifecycle semantic path under #6731;
-9. adopt generic ownership-flow evidence in Research and retire
-   ArrayPool-specific flow records under #6732;
+7. add root-bound Resource Occurrence Analysis beneath
+   `LibraryBodyAnalysisService` without changing existing ArrayPool semantics
+   under #6730;
+8. adopt occurrence evidence in generic lifecycle Analysis and Resource Triage
+   under #6731 while retaining the legacy ArrayPool path as the final oracle;
+9. adopt a focused generic summary in Research under #6732, then complete the
+   separately reviewed lifecycle and Research ArrayPool fidelity cutovers and
+   retire their legacy semantic paths;
 10. express `Inspector.Resources` and `AssemblyInspectionSession` through
    compiled effect attributes and prove equivalent admission from JSON
    test inputs;
