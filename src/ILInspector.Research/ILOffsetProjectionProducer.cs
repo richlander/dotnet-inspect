@@ -52,6 +52,15 @@ public static class ILOffsetProjectionProducer
                 decoded = false;
             }
         }
+        if (decoded
+            && (uint)request.ILOffset > (uint)methodBody!.IL.Length)
+        {
+            return ILOffsetProjectionOutcome.Failed(
+                ILOffsetProjectionFailureKind.InstructionUnavailable,
+                $"IL offset 0x{request.ILOffset:X} is outside the decoded "
+                + $"method body for token 0x{request.MethodToken:X}, whose "
+                + $"terminal boundary is 0x{methodBody.IL.Length:X}.");
+        }
 
         ILOffsetInstructionContextInfo? instructionContext = null;
         string? instructionError = decodeError == $"Could not decode IL for token 0x{request.MethodToken:X}."

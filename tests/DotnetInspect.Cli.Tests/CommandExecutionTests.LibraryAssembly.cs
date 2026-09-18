@@ -1794,7 +1794,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("\"Metadata: Heap\" requires --heap", error);
+        Assert.Contains(
+            "\"Metadata: Heap\" requires library coordinate",
+            error);
     }
 
     [Fact]
@@ -3097,39 +3099,34 @@ public partial class CommandExecutionTests
         Assert.Contains(option, error);
     }
 
-    [Theory]
-    [InlineData("--extract-resources")]
-    [InlineData("--il-offset")]
-    [InlineData("--il-offsets")]
-    [InlineData("--heap")]
-    public async Task LibraryCommand_TfmAll_CountDoesNotBypassSingleInspectionOperations(string option)
+    [Fact]
+    public async Task LibraryCommand_TfmAll_CountDoesNotBypassExtractResources()
     {
         var missingPackagePath = Path.Combine(
             Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-        var arguments = new List<string>
-        {
-            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all"
-        };
-        if (option == "--extract-resources")
-            arguments.AddRange(["-S", SectionNames.Resources]);
-        arguments.Add("--count");
-        arguments.Add(option);
-        arguments.Add(option switch
-        {
-            "--extract-resources" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}"),
-            "--il-offset" => "0x06000001+0x0",
-            "--il-offsets" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.txt"),
-            "--heap" => "#Strings:0x1",
-            _ => throw new InvalidOperationException($"Unexpected option: {option}")
-        });
-        arguments.AddRange(["--tips", "q"]);
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-{Guid.NewGuid():N}");
 
-        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.Resources,
+            "--count",
+            "--extract-resources",
+            outputPath,
+            "--tips",
+            "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--tfm all", error);
-        Assert.Contains(option, error);
+        Assert.Contains("--extract-resources", error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 

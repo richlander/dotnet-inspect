@@ -91,6 +91,24 @@ accumulated malformed and valid records separately and emitted every malformed
 row first. A Release fixture interleaves valid and malformed records and asserts
 the full result plus `-n 1 --head` and `-n 1 --tail`.
 
+### Method extent
+
+A decoded IL coordinate must fall between offset zero and the method body's
+terminal boundary, inclusive. The terminal boundary remains admissible because
+it can identify a return address after the final instruction. An interior
+offset that is not an instruction boundary may still contribute applicable
+member or other context during population-wide effective discovery. An offset
+beyond the terminal boundary is not a resolved record and produces a typed
+`InstructionUnavailable` failure even when that discovery tolerance is active.
+
+`ProjectILOffset_NonBoundaryToleranceRejectsOffsetOutsideMethodExtent` gates
+the Research boundary.
+`LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
+and
+`LibraryCoordinateCommand_FileEffectiveDiscoveryRejectsOffsetOutsideMethodExtent`
+gate the CLI distinction between an interior non-boundary coordinate and an
+out-of-range coordinate.
+
 ## Prototype producer workflows
 
 These workflows are intentionally producer-agnostic. The skill-worthy part is
