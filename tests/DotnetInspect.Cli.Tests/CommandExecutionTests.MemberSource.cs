@@ -1768,6 +1768,50 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task LibraryCoordinateFile_CountMatchesLegacy()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var legacy = await RunAppAsync(
+                "library",
+                TestAssemblyPath,
+                "--il-offsets",
+                path,
+                "--count",
+                "--tips",
+                "q");
+            var child = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                path,
+                "--library",
+                TestAssemblyPath,
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(legacy.Exit, child.Exit);
+            Assert.Equal(legacy.Output, child.Output);
+            Assert.Equal(legacy.Error, child.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     // Head, tail, an absolute range, an open range, and a window wider than the batch.
     [InlineData(new[] { "--rows", "2" }, 2)]
