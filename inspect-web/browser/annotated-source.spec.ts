@@ -106,6 +106,12 @@ test("Finding detail peeks exact callee evidence and navigates by typed target",
   await expect(detail).not.toContainText("IL_0012");
 
   await detail.locator('[data-annotated-action="close-detail"]').click();
+  await page.locator("#annotated-inspector-7").click();
+  await expect(detail.locator(".annotated-evidence-selected")).toHaveText(
+    "stackalloc byte[128]",
+  );
+
+  await detail.locator('[data-annotated-action="close-detail"]').click();
   await page.locator("#annotated-coordinate-toggle").click();
   await page.locator("#annotated-inspector-6").click();
   await expect(detail).toContainText("stack allocation");

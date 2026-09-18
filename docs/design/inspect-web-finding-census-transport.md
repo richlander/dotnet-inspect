@@ -43,7 +43,8 @@ The result carries:
   for body Finding rows;
 - `annotatedSource`: the existing Browser annotated-source envelope, including
   its product-owned caller document, viewer catalog, provenance, visible
-  context limitation, and instruction-level callee-evidence rows; and
+  context limitation, shared callee-document table, and instruction-level
+  callee-evidence rows; and
 - `sourceFactInstances`: the document-local `factId` to producer-issued
   `instanceKey` sidecar for body facts.
 
@@ -59,12 +60,14 @@ The transport fields are `factCensusReceipt`, `facts`,
 `cSharpLine`, and `instanceKey`, while sidecar rows use `factId` and
 `instanceKey`.
 
-Each `annotatedSource.findingEvidence` row carries the exact sidecar `factId`
-and `instanceKey` pair, a typed callee member target, method-qualified
-instruction coordinates, an optional callee document, exact evidence node ids,
-and an optional unavailable reason. The callee document uses the same compact
-Decompiler-owned JSON shape as the caller document. The transport does not
-join evidence by descriptor, caller offset, display text, or collection order.
+`annotatedSource.findingEvidenceDocuments` carries each admitted callee
+document once in the same compact Decompiler-owned JSON shape as the caller
+document. Each `annotatedSource.findingEvidence` row carries the exact sidecar
+`factId` and `instanceKey` pair, a typed callee member target,
+method-qualified instruction coordinates, an optional `documentId`, exact
+evidence node ids, and an optional unavailable reason. The transport does not
+join or deduplicate evidence by descriptor, caller offset, display text,
+document text, or collection order.
 
 The existing Analysis-only member Facts operation remains separate. This
 transport does not merge Analysis DTOs into the Research projection or claim
@@ -79,12 +82,14 @@ the combined envelope:
 - every keyed Facts row carries that receipt and a unique non-default key;
 - every source sidecar row carries that receipt, a unique non-default key, and
   a unique body fact id present in the document;
-- the sidecar covers every document body fact and no member-header fact; and
+- the sidecar covers every document body fact and no member-header fact;
 - the Facts and Annotated Source key sets are equal;
 - every callee-evidence row names one exact sidecar fact-id/key pair and no pair
-  appears more than once; and
-- an available evidence row carries a valid callee document and exact node ids,
-  while an unavailable row carries no node ids and a visible reason.
+  appears more than once;
+- every callee-document id is unique, non-negative, referenced, and resolves to
+  one valid compact document; and
+- an available evidence row carries a valid document reference and exact node
+  ids, while an unavailable row carries no node ids and a visible reason.
 
 A wrong receipt, incomplete row identity, duplicate or invalid key, invalid or
 duplicate fact id, incomplete body-fact sidecar, or projection mismatch fails
@@ -151,7 +156,10 @@ The Release Inspect Web engine suite gates:
 - wrong-receipt and malformed sidecar rejection before envelope
   serialization; and
 - mismatched or duplicate callee-evidence fact-id/key associations;
-- preservation of the exact nested `AnnotatedSourceDocument` field shape.
+- preservation of the exact nested `AnnotatedSourceDocument` field shape;
+- shared callee-document references and rejection of missing, duplicate, or
+  unreferenced document ids; and
+- bounded stress proving repeated Findings do not repeat document payload.
 
 The generated-facade drift gate proves the new operation and DTO closure are
 present in the checked-in Source TypeScript and JavaScript artifacts.
@@ -170,6 +178,5 @@ This transport does not:
   behavior;
 - add identity to the existing Analysis-only Facts payload;
 - persist identity in a Workspace or share packet;
-- deduplicate or budget callee documents;
 - change source acquisition or member resolution; or
 - define correspondence across different censuses.

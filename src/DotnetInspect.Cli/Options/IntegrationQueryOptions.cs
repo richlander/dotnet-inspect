@@ -30,10 +30,8 @@ public sealed record IntegrationQueryOptions
         ["--where"],
         ["="],
         "canonical ecosystem ID (exactly one predicate)",
-        [.. LibraryIntegrationCatalog.All
-            .Select(descriptor => descriptor.Ecosystem?.Value)
-            .OfType<string>()
-            .Distinct(StringComparer.Ordinal)],
+        [.. LibraryIntegrationCatalog.EcosystemBindings
+            .Select(binding => binding.Ecosystem.Value)],
         "--where \"ecosystem=ecosystem.aspire\"");
 
     public static SectionQueryKey IntegrationQueryKey { get; } = new(
@@ -136,10 +134,7 @@ public sealed record IntegrationQueryOptions
                 error = $"Unknown ecosystem '{id}'.";
                 return false;
             }
-            ecosystemConcepts =
-                [.. LibraryIntegrationCatalog.All
-                    .Where(descriptor => descriptor.Ecosystem == id)
-                    .Select(descriptor => descriptor.Concept)];
+            ecosystemConcepts = LibraryIntegrationCatalog.ConceptsFor(id);
             if (ecosystemConcepts.IsEmpty)
             {
                 error = new OptionError(

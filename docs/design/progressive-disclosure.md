@@ -55,6 +55,12 @@ retains `Skills`; selecting `@Project` explicitly requests both inventories.
 Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
 select the vocabularies consumed by those query families; bare output and bare
 `-S` retain the `Vocabulary Sections` index.
+Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
+operand first chooses the catalog-wide, focused-pack, or focused-Platform
+section set; `@Ecosystem` then composes that complete set. `@Integrations`
+selects the product-configured `Known Integrations` domain. Ordinary output
+retains `Ecosystems` or `Ecosystem Info`, while bare `-S` retains the complete
+route-specific composition.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -160,10 +166,10 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Package, type-listing, member, diff, project, and vocabulary catalogs follow
-this model. Commands not yet migrated may retain their existing discovery
-behavior; new work should follow the reference model rather than copy a legacy
-command.
+Package, type-listing, member, diff, project, vocabulary, and ecosystem
+catalogs follow this model. Commands not yet migrated may retain their existing
+discovery behavior; new work should follow the reference model rather than
+copy a legacy command.
 
 ## Query discovery
 

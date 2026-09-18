@@ -91,7 +91,7 @@ This intentionally corrects the current `library --il-offsets` implementation,
 which accumulates malformed and valid records separately and emits every
 malformed row first. The cutover does not claim legacy row-order parity for
 mixed files. A Release fixture interleaves valid and malformed records and
-asserts the full result plus `--rows 1 --head` and `--rows 1 --tail`.
+asserts the full result plus `-n 1 --head` and `-n 1 --tail`.
 
 ## Prototype producer workflows
 

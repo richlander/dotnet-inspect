@@ -50,7 +50,26 @@ text, or hide a failed producer behind an empty section.
 
 ### Workspace top-level inventory
 
-The `workspace` command constructs one ephemeral
+The `workspace` command first distinguishes durable definition output from
+runtime observation. With `--share`, direct Package and registration inputs
+become one schema-version-3 Workspace definition plus its committed peer
+records. Package coordinates coalesce by normalized identity, and
+registrations retain authored cross-kind command-line order. The
+Definitions-owned transposer and codec then emit a canonical format-3 packet or
+URL as the command's stdout scalar. This deliberately differs from noun-command
+Share, which is additive stderr output beside inspection content: the portable
+definition is the `workspace` command's primary result. With `--share`,
+canonical packet or exact Inspect Web URL input follows the same resource-free
+decode, transposition, and projection path. No
+`WorkspacePlan`, Package-store access, complete-restoration host, or live
+Workspace exists on this path. Inventory filters, Root reopening, and
+Navigation selectors are rejected rather than ignored because they request
+runtime observation. Inventory row controls are likewise rejected before
+output. Prerelease resolution and explicit NuGet source policy are also
+rejected because they are acquisition settings that the portable definition
+cannot preserve.
+
+Without `--share`, the `workspace` command constructs one ephemeral
 `WorkspaceRealizationCoordinator` candidate from direct Package and
 registration inputs, or delegates current-format packet input to the
 Definitions-owned complete restoration transaction. Direct Package membership
@@ -66,11 +85,10 @@ It lowers the shared typed document through Markout as compact `Kind`,
 entry arms. Kind filtering occurs in the shared operation and does not change
 construction.
 
-Direct construction supplies a non-projectable realized-Workspace Share
-basis. Packet restoration derives its basis from the exact
+Direct inventory construction supplies a non-projectable realized-Workspace
+Share basis. Packet restoration derives its basis from the exact
 `CompleteRestorationResult.Activated`, including the owner-issued definition
-and projection. The unfiltered packet route therefore re-emits the exact
-canonical packet without letting the CLI independently pair packet text with a
+and projection. The CLI does not independently pair packet text with a
 definition snapshot.
 
 The existing `--active-package` path resolves Package source order through the
@@ -614,8 +632,10 @@ member qualifiers; real-package probes cover both spellings.
 `library -S Integrations` renders observed Integration currency in one
 homogeneous section. `library --where
 "integration=integration.aspire"` narrows by canonical concept identity, while
-`library --where "ecosystem=ecosystem.aspire"` narrows by the concepts bound to
-one canonical ecosystem pack. All integrations remain enabled without either
+`library --where "ecosystem=ecosystem.aspire"` enables the Integration concepts
+registered to one canonical ecosystem pack. The current Aspire registration is
+the complete configured Integration catalog; only concepts observed in the
+inspected library produce rows. All integrations remain enabled without either
 predicate; normal section disclosure still determines which results are
 requested and shown. There is no separate scanner opt-in or scanner-only
 section.
@@ -626,8 +646,9 @@ not display-name inference or a claim that every pack has an Integration
 mapping. The initial supported ecosystem value is `ecosystem.aspire`; every configured
 Integration concept ID is a supported `integration` value. Malformed, unknown,
 and known-but-unbound ecosystem IDs fail before source acquisition. At most one
-equality predicate per facet is supported. When both are supplied, their
-concept sets intersect. Body Shapes predicates and Performance Triage
+equality predicate per facet is supported. The facets are composable rather
+than independent: `ecosystem` enables a registered set and `integration`
+optionally narrows within it. Body Shapes predicates and Performance Triage
 filters/rankings cannot be combined with either facet. Explicit ranking options
 remain incompatible under `--count`, even when count-mode normalization would
 discard the ranking.
