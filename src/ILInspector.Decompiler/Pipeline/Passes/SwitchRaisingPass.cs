@@ -456,8 +456,11 @@ public sealed class SwitchRaisingPass : IIrPass
     /// join — and the join is exactly <c>return L</c>, reading L once. Such a table
     /// is one value: <c>return v switch { labels =&gt; expr, …, _ =&gt; expr };</c>.
     /// The default may itself be a value block or a single conditional choosing
-    /// between two value blocks (lowered to a <c>?:</c> arm). This is the
-    /// AssemblyNameParser::IsWhiteSpace shape.
+    /// between two value blocks (lowered to a <c>?:</c> arm). A preceding enum
+    /// equality test may contribute one additional label when it enters an
+    /// existing value arm and the table is its only fall-through successor.
+    /// These are the AssemblyNameParser::IsWhiteSpace and
+    /// SerializabilityAnalyzer::TypeKindShouldBeIgnored shapes.
     /// </summary>
     static bool RaiseSwitchExpressionReturn(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
@@ -573,12 +576,37 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (int idx in owned)
             if (idx < defaultIndex || idx >= join)
                 return false;
-        if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
+        GuardCase? guardCase = TryGetPrecedingEnumCaseGuard(
+            function,
+            blocks,
+            s,
+            sw,
+            caseTargets,
+            offsetToIndex,
+            leaveTargets,
+            out var precedingGuard)
+                ? precedingGuard
+                : null;
+        if (!OnlyReachedByTable(
+                blocks,
+                owned,
+                s,
+                leaveTargets,
+                admittedDispatch: guardCase?.Branch))
             return false;
         if (!JoinOnlyReachedByValueBlocks(blocks, owned, join, leaveTargets))
             return false;
 
-        BuildSwitchExpression(function, container, s, sw, caseTargets, defaultArm, join, stepper);
+        BuildSwitchExpression(
+            function,
+            container,
+            s,
+            sw,
+            caseTargets,
+            defaultArm,
+            join,
+            guardCase,
+            stepper);
         return true;
     }
 
@@ -611,20 +639,40 @@ public sealed class SwitchRaisingPass : IIrPass
     static IrExpression ValueBlockExpr(Block block) => ((StoreLocal)block.Children[0]).Value;
 
     /// <summary>Replaces a value-producing jump table with <c>return v switch { … };</c>: the arms group case labels by their value block, and the default arm is supplied by the recognizer.</summary>
-    static void BuildSwitchExpression(IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
+    static void BuildSwitchExpression(
+        IrFunction function,
+        BlockContainer container,
+        int s,
+        SwitchBranch sw,
+        int[] caseTargets,
+        IrExpression defaultArm,
+        int join,
+        GuardCase? guardCase,
+        Stepper stepper)
     {
         var all = container.Blocks.ToList();
-        var input = TakeSwitchInput(function, sw);
+        var input = guardCase?.Input ?? TakeSwitchInput(function, sw);
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
-            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
+        {
+            (labelsByTarget.TryGetValue(caseTargets[i], out var list)
+                ? list
+                : labelsByTarget[caseTargets[i]] = [])
+                .Add(unchecked(input.LabelBase + i));
+        }
+        if (guardCase is { } guard)
+        {
+            guard.Branch.Detach();
+            var labels = labelsByTarget[guard.Target];
+            labels.Insert(0, guard.Label);
+        }
 
         var arms = new List<SwitchExpressionArm>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
             arms.Add(new SwitchExpressionArm(
-                TranslatedLabels(labels, input.LabelBase),
+                [.. labels],
                 isDefault: false,
                 (IrExpression)ValueBlockExpr(all[target]).Clone()));
         }
@@ -635,15 +683,20 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var block in all)
             block.Detach();
 
-        var switchBlock = all[s];
-        switchBlock.Add(new Return(new SwitchExpression(input.Value, arms)));
+        int replacementIndex = guardCase is null ? s : s - 1;
+        var replacementBlock = all[replacementIndex];
+        replacementBlock.Add(new Return(new SwitchExpression(input.Value, arms)));
 
         var rebuilt = new BlockContainer();
-        for (int idx = 0; idx <= s; idx++)
+        for (int idx = 0; idx <= replacementIndex; idx++)
             rebuilt.Add(all[idx]);
         for (int idx = join + 1; idx < all.Count; idx++)
             rebuilt.Add(all[idx]);
-        stepper.StepOver("raise value-producing jump table to switch expression", container);
+        stepper.StepOver(
+            guardCase is null
+                ? "raise value-producing jump table to switch expression"
+                : "raise value-producing jump table and enum case guard to switch expression",
+            container);
         container.ReplaceWith(rebuilt);
     }
 
@@ -1389,7 +1442,8 @@ public sealed class SwitchRaisingPass : IIrPass
         int s,
         HashSet<int> leaveTargets,
         IReadOnlyDictionary<int, List<int>>? regions = null,
-        int? consumedDefaultDispatcherOffset = null)
+        int? consumedDefaultDispatcherOffset = null,
+        ConditionalBranch? admittedDispatch = null)
     {
         if (!TryMapOwnedOffsets(blocks, owned, out var ownedByOffset))
             return false;
@@ -1407,6 +1461,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 {
                     continue;
                 }
+                if (ReferenceEquals(node, admittedDispatch))
+                    continue;
                 foreach (int target in TargetsInFunctionScope(node))
                 {
                     if (target == consumedDefaultDispatcherOffset)
@@ -2539,7 +2595,116 @@ public sealed class SwitchRaisingPass : IIrPass
 
     readonly record struct GuardRange(ConditionalBranch Branch, ImmutableArray<int> Labels);
 
+    readonly record struct GuardCase(
+        ConditionalBranch Branch,
+        int Label,
+        int Target,
+        SwitchInput Input);
+
     readonly record struct SwitchInput(IrExpression Value, int LabelBase);
+
+    static bool TryGetPrecedingEnumCaseGuard(
+        IrFunction function,
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        SwitchBranch sw,
+        IReadOnlyList<int> caseTargets,
+        IReadOnlyDictionary<int, int> offsetToIndex,
+        HashSet<int> leaveTargets,
+        out GuardCase guard)
+    {
+        guard = default;
+        if (switchIndex == 0
+            || blocks[switchIndex].Children is not [SwitchBranch]
+            || !OnlyReachedFromPrecedingGuard(blocks, switchIndex, leaveTargets)
+            || blocks[switchIndex - 1].Children is not [.., ConditionalBranch branch]
+            || !TryEqualityLabel(branch.Condition, out var guardValue, out int guardLabel)
+            || !offsetToIndex.TryGetValue(branch.TargetOffset, out int guardTarget)
+            || !caseTargets.Contains(guardTarget)
+            || !TryGuardedEnumSwitchInput(
+                function,
+                sw.Value,
+                sw.TargetOffsets.Length,
+                guardLabel,
+                out var input)
+            || input.Value is not { } switchValue
+            || switchValue.ResultType is not { } switchType
+            || guardValue.ResultType is not { } guardType
+            || !switchType.Equals(guardType)
+            || !PlaceIdentity.SameVariable(switchValue, guardValue)
+            || TranslatedLabels(
+                    Enumerable.Range(0, sw.TargetOffsets.Length),
+                    input.LabelBase)
+                .Contains(guardLabel))
+        {
+            return false;
+        }
+
+        guard = new GuardCase(branch, guardLabel, guardTarget, input);
+        return true;
+    }
+
+    static bool TryGuardedEnumSwitchInput(
+        IrFunction function,
+        IrExpression value,
+        int labelCount,
+        int guardLabel,
+        out SwitchInput input)
+    {
+        input = default;
+        if (TryRestoreEnumSwitchInput(
+                function,
+                value,
+                labelCount,
+                out var enumValue,
+                out int labelBase))
+        {
+            var knownEnumType = enumValue.ResultType!;
+            var underlying = function.EnumUnderlyingTypes[
+                CoercionRendering.NamedDefinition(knownEnumType)];
+            if (!CSharpConversionRules.ConstantFits(guardLabel, underlying))
+                return false;
+            input = new SwitchInput(enumValue, labelBase);
+            return true;
+        }
+
+        // The SwitchBranch proves an unresolved named operand is an I4 enum, but
+        // not its signedness or exact width. Restore only a direct enum place and
+        // labels representable by every legal I4 enum backing type; 0..127 is the
+        // intersection of sbyte, byte, short, ushort, int, and uint.
+        if (value is not Binary
+            {
+                Kind: BinaryKind.Add or BinaryKind.Subtract,
+                IsChecked: false,
+                Left: var left,
+                Right: Constant { Value: int offset },
+            } binary
+            || left is not (LoadArgument or LoadLocal)
+            || SwitchTypeFacts.EnumType(function, left) is not { } enumType
+            || enumType.Kind != TypeRefKind.Definition
+            || function.TypeShapes.GetValueOrDefault(enumType) is not (TypeShape.Unknown or TypeShape.Enum)
+            || function.EnumUnderlyingTypes.ContainsKey(
+                CoercionRendering.NamedDefinition(enumType)))
+        {
+            return false;
+        }
+
+        int restoredLabelBase = binary.Kind == BinaryKind.Subtract
+            ? offset
+            : unchecked(-offset);
+        if (!UniversallyFitsI4Enum(guardLabel)
+            || Enumerable.Range(0, labelCount)
+                .Select(index => unchecked(restoredLabelBase + index))
+                .Any(label => !UniversallyFitsI4Enum(label)))
+        {
+            return false;
+        }
+
+        input = new SwitchInput((IrExpression)left.Clone(), restoredLabelBase);
+        return true;
+    }
+
+    static bool UniversallyFitsI4Enum(int value) => value is >= 0 and <= sbyte.MaxValue;
 
     static bool TryGetPrecedingEnumGuardRange(
         IrFunction function,

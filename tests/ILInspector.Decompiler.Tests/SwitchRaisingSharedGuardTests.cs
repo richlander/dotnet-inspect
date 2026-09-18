@@ -48,6 +48,19 @@ enum ArrayOffsetAlgorithm
     Fifth = 28,
 }
 
+enum GuardedSwitchExpressionKind
+{
+    Unknown = 0,
+    Enum = 5,
+    Error = 6,
+    Struct = 7,
+    Module = 8,
+    Pointer = 9,
+    Dynamic = 10,
+    TypeParameter = 11,
+    Submission = 12,
+}
+
 static class SharedGuardSwitchFixture
 {
     public static void Check(SharedGuardAlgorithm algorithm)
@@ -203,6 +216,19 @@ static class SharedGuardSwitchFixture
         ArrayOffsetAlgorithm.Fifth => 5,
         _ => -1,
     };
+
+    // Real shape: Xunit.Analyzers.SerializabilityAnalyzer.TypeKindShouldBeIgnored
+    // in xunit.analyzers 2.1.0.
+    public static bool IsIgnored(GuardedSwitchExpressionKind kind) => kind switch
+    {
+        GuardedSwitchExpressionKind.Unknown
+            or GuardedSwitchExpressionKind.Enum
+            or GuardedSwitchExpressionKind.Error
+            or GuardedSwitchExpressionKind.Module
+            or GuardedSwitchExpressionKind.TypeParameter
+            or GuardedSwitchExpressionKind.Submission => true,
+        _ => false,
+    };
 }
 
 [Trait("Area", "Pass")]
@@ -280,6 +306,142 @@ public class SwitchRaisingSharedGuardTests
         Assert.Contains("HighOffsetAlgorithm.First => 1", output);
         Assert.Contains("HighOffsetAlgorithm.Fifth => 5", output);
         Assert.DoesNotContain("algorithm -", output);
+    }
+
+    [Fact]
+    public void CompilerProducedEnumSwitchExpression_AbsorbsPrecedingEqualityGuard()
+    {
+        var function = Import(nameof(SharedGuardSwitchFixture.IsIgnored));
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("kind switch", output);
+        Assert.Contains("GuardedSwitchExpressionKind.Unknown", output);
+        Assert.Contains("GuardedSwitchExpressionKind.Submission", output);
+        Assert.DoesNotContain("kind - 5", output);
+        Assert.DoesNotContain("__switchValue", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.DoesNotContain("IL_", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedEnumSwitchExpression_AbsorbsUniversallyRepresentableGuard(
+        bool hasConfirmedEnumShape)
+    {
+        var enumType = TypeRef.Definition("External", "Microsoft.CodeAnalysis", "TypeKind");
+        var function = BuildGuardedSwitchExpression(enumType);
+        if (hasConfirmedEnumShape)
+        {
+            function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [enumType] = TypeShape.Enum,
+            };
+        }
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var expression = Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        Assert.IsType<LoadArgument>(expression.Value);
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(
+            [0, 5, 6, 7, 8],
+            expression.Arms.SelectMany(arm => arm.Labels).Order());
+    }
+
+    [Fact]
+    public void UnresolvedEnumSwitchExpressionWithUnrepresentableGuard_RemainsFlat()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownKind");
+        var function = BuildGuardedSwitchExpression(enumType, guardLabel: 128);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+    }
+
+    [Fact]
+    public void UnresolvedEnumSwitchExpressionWithUnrepresentableTableLabel_RemainsFlat()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownKind");
+        var function = BuildGuardedSwitchExpression(enumType, switchOffset: 125);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+    }
+
+    [Fact]
+    public void GuardedSwitchExpressionOverDifferentPlace_RemainsFlat()
+    {
+        var function = BuildGuardedSwitchExpression(guardArgument: 1);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+    }
+
+    [Fact]
+    public void GuardedSwitchExpressionWithOverlappingLabel_RemainsFlat()
+    {
+        var function = BuildGuardedSwitchExpression(guardLabel: 5);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+    }
+
+    [Fact]
+    public void GuardedSwitchExpressionTargetingNonArm_RaisesTableWithoutGuard()
+    {
+        var function = BuildGuardedSwitchExpression(guardTargetsNonArm: true);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void GuardedSwitchExpressionWithCompetingEntry_RemainsFlat(
+        bool competingSwitchEntry,
+        bool competingArmEntry)
+    {
+        var function = BuildGuardedSwitchExpression(
+            competingSwitchEntry: competingSwitchEntry,
+            competingArmEntry: competingArmEntry);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.NotEmpty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
     }
 
     [Theory]
@@ -1234,6 +1396,104 @@ public class SwitchRaisingSharedGuardTests
                 GenericParameterCount: 0),
             [s_int],
             body);
+
+    static IrFunction BuildGuardedSwitchExpression(
+        TypeRef? governingType = null,
+        int guardArgument = 0,
+        int guardLabel = 0,
+        int switchOffset = 5,
+        bool guardTargetsNonArm = false,
+        bool competingSwitchEntry = false,
+        bool competingArmEntry = false)
+    {
+        governingType ??= TypeRef.Definition("Synthetic", "", "GuardedKind");
+        var body = new BlockContainer();
+
+        if (competingSwitchEntry)
+        {
+            var entry = new Block(-0x10);
+            entry.Add(new ConditionalBranch(new LoadArgument(2, "enterSwitch", s_bool), 0x03));
+            body.Add(entry);
+        }
+        if (competingArmEntry)
+        {
+            var entry = new Block(-0x08);
+            entry.Add(new ConditionalBranch(new LoadArgument(2, "enterSwitch", s_bool), 0x30));
+            body.Add(entry);
+        }
+
+        var guard = new Block(0);
+        guard.Add(new ConditionalBranch(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(guardArgument, guardArgument == 0 ? "kind" : "other", governingType),
+                new Constant(guardLabel, s_int)),
+            guardTargetsNonArm ? 0x60 : 0x20));
+        body.Add(guard);
+
+        var dispatch = new Block(0x03);
+        dispatch.Add(new SwitchBranch(
+            new Binary(
+                BinaryKind.Subtract,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(0, "kind", governingType),
+                new Constant(switchOffset, s_int)),
+            [0x20, 0x20, 0x30, 0x20]));
+        body.Add(dispatch);
+
+        var defaultDispatch = new Block(0x18);
+        defaultDispatch.Add(new Branch(0x30));
+        body.Add(defaultDispatch);
+
+        var whenTrue = new Block(0x20);
+        whenTrue.Add(new StoreLocal(0, s_bool, new Constant(true, s_bool)));
+        whenTrue.Add(new Branch(0x40));
+        body.Add(whenTrue);
+
+        var whenFalse = new Block(0x30);
+        whenFalse.Add(new StoreLocal(0, s_bool, new Constant(false, s_bool)));
+        body.Add(whenFalse);
+
+        var join = new Block(0x40);
+        join.Add(new Return(new LoadLocal(0, s_bool)));
+        body.Add(join);
+
+        if (guardTargetsNonArm)
+        {
+            var nonArm = new Block(0x60);
+            nonArm.Add(new Return(new Constant(false, s_bool)));
+            body.Add(nonArm);
+        }
+
+        var function = new IrFunction(
+            "Guarded",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_bool,
+                [
+                    new Parameter("kind", governingType),
+                    new Parameter("other", governingType),
+                    new Parameter("enterSwitch", s_bool),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [s_bool],
+            body);
+        if (governingType.Assembly != "External")
+        {
+            function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [governingType] = TypeShape.Enum,
+            };
+            function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+            {
+                [governingType] = s_int,
+            };
+        }
+        return function;
+    }
 
     static IrFunction Import(string methodName)
     {
