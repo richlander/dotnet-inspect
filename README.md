@@ -644,11 +644,10 @@ derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.
 
-`--packet` accepts either canonical packet text or the exact
-`https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
-re-emits the canonical packet or selected URL without complete restoration.
-The `--share` selection governs this scalar; inventory output formats apply
-only when `--share` is absent.
+`--packet` accepts canonical Base64URL packet text. With `--share`, it validates
+the input and emits the canonical packet or selected URL without complete
+restoration. The `--share` selection governs this output scalar; inventory
+output formats apply only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
 controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
 source policy is accepted only for dependency enrichment or coordinate
