@@ -1724,7 +1724,7 @@ test("failed managed history activation restores the incumbent entry", async () 
       },
     };
     h.location.href = new URL(destination, h.location).href;
-    h.history.state = entries[index]!.state;
+    h.history.state = entries[index].state;
     return true;
   };
   h.controls.retainedActivation = {
