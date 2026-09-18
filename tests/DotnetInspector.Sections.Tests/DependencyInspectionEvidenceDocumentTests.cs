@@ -232,29 +232,29 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             DependencyInspectionJsonContext.Default
                 .DependencyInspectionEvidenceDocument);
         JsonElement packageRoot =
-            root.GetProperty("packageInputs")
+            root.GetProperty("package_inputs")
                 .GetProperty("roots")[0];
 
         Assert.Equal(
             "package",
             packageRoot.GetProperty("identity")
-                .GetProperty("case")
+                .GetProperty("kind")
                 .GetString());
         Assert.Equal(
             "example.package.0",
             packageRoot.GetProperty("identity")
                 .GetProperty("coordinate")
-                .GetProperty("packageId")
+                .GetProperty("package_id")
                 .GetString());
         Assert.Equal(
             "package",
             packageRoot.GetProperty("provenance")
-                .GetProperty("case")
+                .GetProperty("kind")
                 .GetString());
         Assert.Equal(
             "DirectNuspec",
             packageRoot.GetProperty("provenance")
-                .GetProperty("acquisitionForm")
+                .GetProperty("acquisition_form")
                 .GetString());
 
     }
@@ -317,11 +317,11 @@ public sealed class DependencyInspectionEvidenceDocumentTests
         JsonElement evidenceIdentity =
             root.GetProperty("graph")
                 .GetProperty("edges")[0]
-                .GetProperty("evidenceIdentity");
+                .GetProperty("evidence_identity");
 
         Assert.Equal(
-            "packageVersionConstraint",
-            evidenceIdentity.GetProperty("case").GetString());
+            "package-version-constraint",
+            evidenceIdentity.GetProperty("kind").GetString());
         Assert.Equal(
             "[1.0.0,)",
             evidenceIdentity.GetProperty("value").GetString());
@@ -387,9 +387,11 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                         PackageId: "example.dependency",
                         VersionConstraint: "[1.0.0,)",
                         CandidateOutcome:
-                            new PackageDependencyTraversalCandidateResult.Failed(
-                                new PackageDependencyTraversalCandidateFailure
-                                    .NoMatchingVersion()),
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                new PackageDependencyTraversalCandidateResult
+                                    .Failed(
+                                        new PackageDependencyTraversalCandidateFailure
+                                            .NoMatchingVersion())),
                         ManifestFailure: null,
                         BudgetKind: null,
                         BudgetLimit: null,
@@ -402,10 +404,12 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                         DeclarationIdentity: declarationIdentity,
                         PackageId: "example.dependency",
                         VersionConstraint: "[1.0.0,)",
-                        Outcome: new PackageDependencyCandidateResult.Failed(
-                            declaration,
-                            new PackageDependencyCandidateFailure
-                                .NoMatchingVersion()))),
+                        Outcome:
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                new PackageDependencyCandidateResult.Failed(
+                                    declaration,
+                                    new PackageDependencyCandidateFailure
+                                        .NoMatchingVersion())))),
             ]);
 
         JsonElement root = JsonSerializer.SerializeToElement(
@@ -415,7 +419,7 @@ public sealed class DependencyInspectionEvidenceDocumentTests
         JsonElement traversalCandidate =
             root.GetProperty("failures")[0]
                 .GetProperty("value")
-                .GetProperty("candidateOutcome");
+                .GetProperty("candidate_outcome");
         JsonElement pruningCandidate =
             root.GetProperty("failures")[1]
                 .GetProperty("value")
@@ -423,24 +427,24 @@ public sealed class DependencyInspectionEvidenceDocumentTests
 
         Assert.Equal(
             "failed",
-            traversalCandidate.GetProperty("case").GetString());
+            traversalCandidate.GetProperty("kind").GetString());
         Assert.Equal(
-            "noMatchingVersion",
+            "no-matching-version",
             traversalCandidate.GetProperty("failure")
-                .GetProperty("case")
+                .GetProperty("kind")
                 .GetString());
         Assert.Equal(
             "failed",
-            pruningCandidate.GetProperty("case").GetString());
+            pruningCandidate.GetProperty("kind").GetString());
         Assert.Equal(
-            "noMatchingVersion",
+            "no-matching-version",
             pruningCandidate.GetProperty("failure")
-                .GetProperty("case")
+                .GetProperty("kind")
                 .GetString());
     }
 
     [Fact]
-    public void GeneratedContentJsonRetainsPruningEvaluation()
+    public void GeneratedContentJsonRetainsPruningResult()
     {
         PackageDependencyEvidenceRoot evidenceRoot =
             Assert.Single(Outcome(admittedRoots: 1).Roots);
@@ -532,15 +536,16 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             content,
             DependencyInspectionJsonContext.Default
                 .DependencyInspectionContent);
-        JsonElement evaluation =
+        JsonElement result =
             root.GetProperty("pruning")[0]
-                .GetProperty("evaluation");
+                .GetProperty("result");
 
+        Assert.Equal("evaluated", result.GetProperty("kind").GetString());
         Assert.Equal(
             "Subsumed",
-            evaluation.GetProperty("subsumption").GetString());
+            result.GetProperty("subsumption").GetString());
         Assert.True(
-            evaluation.GetProperty("delegatesToPlatform").GetBoolean());
+            result.GetProperty("delegates_to_platform").GetBoolean());
     }
 
     private static PackageDependencyEvidenceOutcome Outcome(

@@ -474,12 +474,12 @@ public sealed class DependsAssetCommandTests
             enriched.RootElement.GetProperty("diagnostics")));
         JsonElement packageInputs =
             enriched.RootElement.GetProperty("evidence")
-                .GetProperty("packageInputs");
+                .GetProperty("package_inputs");
         Assert.Equal(1, packageInputs.GetProperty("roots").GetArrayLength());
         Assert.Equal(
             1,
             enriched.RootElement.GetProperty("evidence")
-                .GetProperty("admittedRootOccurrences")[0]
+                .GetProperty("admitted_root_occurrences")[0]
                 .GetProperty("value")
                 .GetInt32());
     }
@@ -552,18 +552,18 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(
             "NotRequested",
             content.GetProperty("summary")
-                .GetProperty("restoredRelationshipCompletion")
+                .GetProperty("restored_relationship_completion")
                 .GetString());
         Assert.Empty(content.GetProperty("failures").EnumerateArray());
 
         JsonElement evidenceRoot =
             enriched.RootElement.GetProperty("evidence")
-                .GetProperty("packageInputs")
+                .GetProperty("package_inputs")
                 .GetProperty("roots")[0];
         Assert.Equal(
             "failed",
             evidenceRoot.GetProperty("relationships")
-                .GetProperty("case")
+                .GetProperty("kind")
                 .GetString());
     }
 
@@ -664,17 +664,17 @@ public sealed class DependsAssetCommandTests
                 TestContext.Current.CancellationToken));
         JsonElement packageInputs =
             enriched.RootElement.GetProperty("evidence")
-                .GetProperty("packageInputs");
+                .GetProperty("package_inputs");
         Assert.Empty(packageInputs.GetProperty("roots").EnumerateArray());
         JsonElement failure = Assert.Single(
-            packageInputs.GetProperty("failedRoots").EnumerateArray());
+            packageInputs.GetProperty("failed_roots").EnumerateArray());
         Assert.Equal(
             "acquisition",
-            failure.GetProperty("case").GetString());
+            failure.GetProperty("kind").GetString());
         Assert.Equal(
             packageId.ToLowerInvariant(),
             failure.GetProperty("coordinate")
-                .GetProperty("packageId")
+                .GetProperty("package_id")
                 .GetString());
         Assert.Equal(
             "1.0.0",
@@ -747,13 +747,13 @@ public sealed class DependsAssetCommandTests
                 TestContext.Current.CancellationToken));
         JsonElement failure = Assert.Single(
             enriched.RootElement.GetProperty("evidence")
-                .GetProperty("packageInputs")
-                .GetProperty("failedRoots")
+                .GetProperty("package_inputs")
+                .GetProperty("failed_roots")
                 .EnumerateArray());
         Assert.Equal(
             packageId.ToLowerInvariant(),
             failure.GetProperty("coordinate")
-                .GetProperty("packageId")
+                .GetProperty("package_id")
                 .GetString());
         Assert.Equal(
             version,
@@ -762,7 +762,7 @@ public sealed class DependsAssetCommandTests
                 .GetString());
         Assert.Equal(
             $"{packageId}@LaTeSt",
-            failure.GetProperty("sourceLabel").GetString());
+            failure.GetProperty("source_label").GetString());
     }
 
     [Fact]
