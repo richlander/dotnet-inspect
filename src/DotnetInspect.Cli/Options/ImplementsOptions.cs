@@ -52,6 +52,11 @@ public record ImplementsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool IncludeAll { get; init; }
 
     /// <summary>
+    /// Filter implementer type names by exact name or glob.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
     /// Limit number of results.
     /// </summary>
     public int? Limit { get; init; }

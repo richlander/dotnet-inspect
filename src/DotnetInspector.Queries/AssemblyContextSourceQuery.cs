@@ -57,17 +57,20 @@ public sealed class AssemblyContextSourceQueryContext
     public int MaxDecompilerBodyProjections { get; init; } =
         CSharpDecompilerService.DefaultMaxBodyProjections;
 
+    /// <summary>Authored settlement bounds for member Source and same-member comparison.</summary>
+    public SourceHouseLimits MemberSourceLimits { get; init; } = DefaultSourceLimits();
+
+    /// <summary>Authored settlement time after upstream PDB acquisition, excluding decompilation.</summary>
+    public TimeSpan MemberSourceTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Authored settlement bounds for type Source.</summary>
+    public SourceHouseLimits TypeSourceLimits { get; init; } = DefaultSourceLimits();
+
+    /// <summary>Type authored settlement time after upstream PDB acquisition.</summary>
+    public TimeSpan TypeSourceTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
     /// <summary>Authored settlement bounds for the selected-member pair query only.</summary>
-    public SourceHouseLimits MemberSourcePairLimits { get; init; } = new(
-        maximumAssemblyBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
-        maximumPortablePdbBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
-        targetBounds: new(65_536, 1_000_000, 100_000, 100_000, 8_000_000, 256_000_000),
-        sourceLinkReadLimits: new(512 * 1024 * 1024, 16_000_000, 100_000),
-        maximumDocuments: 1_000_000,
-        maximumTargetMappings: 1_000_000,
-        maximumCandidateAttempts: 3,
-        maximumSourceBytes: 64 * 1024 * 1024,
-        maximumSourceTextCharacters: 64 * 1024 * 1024);
+    public SourceHouseLimits MemberSourcePairLimits { get; init; } = DefaultSourceLimits();
 
     /// <summary>Per-endpoint settlement time after upstream PDB acquisition.</summary>
     public TimeSpan MemberSourcePairTimeout { get; init; } = TimeSpan.FromMinutes(5);
@@ -85,6 +88,17 @@ public sealed class AssemblyContextSourceQueryContext
     /// </summary>
     public bool AllowAdjacentPdbReads { get; init; }
     public Action<string>? Log { get; init; }
+
+    static SourceHouseLimits DefaultSourceLimits() => new(
+        maximumAssemblyBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
+        maximumPortablePdbBytes: (int)AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
+        targetBounds: new(65_536, 1_000_000, 100_000, 100_000, 8_000_000, 256_000_000),
+        sourceLinkReadLimits: new(512 * 1024 * 1024, 16_000_000, 100_000),
+        maximumDocuments: 1_000_000,
+        maximumTargetMappings: 1_000_000,
+        maximumCandidateAttempts: 3,
+        maximumSourceBytes: 64 * 1024 * 1024,
+        maximumSourceTextCharacters: 64 * 1024 * 1024);
 }
 
 /// <summary>
@@ -278,6 +292,9 @@ public abstract record AssemblyMemberSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyMemberSourceRequest Request)
 {
+    public SourceHouseOutcome? HouseOutcome { get; init; }
+    public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+
     public sealed record Available(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
@@ -301,6 +318,9 @@ public abstract record AssemblyMemberSourceEntry(
 
 public abstract record AssemblyMemberPdbSourceAttempt
 {
+    public SourceHouseOutcome? HouseOutcome { get; init; }
+    public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+
     public sealed record Available(
         PdbMemberSourceInspection Inspection,
         AssemblyPdbSourceProvenance Provenance)
@@ -367,6 +387,9 @@ public abstract record AssemblyTypeSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyTypeSourceRequest Request)
 {
+    public SourceHouseOutcome? HouseOutcome { get; init; }
+    public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+
     public sealed record Available(
         AssemblyContextSubject Subject,
         AssemblyTypeSourceRequest Request,
@@ -420,7 +443,7 @@ public static class AssemblyContextSourceComparisonQuery
 /// product-owned decompiled C#, for one participant in a binding-consistent
 /// assembly context group.
 /// </summary>
-public static class AssemblyContextSourceQuery
+public static partial class AssemblyContextSourceQuery
 {
     public static InspectionQuery<AssemblyMemberSourceEntry>
         MemberDefinition
@@ -502,6 +525,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             return await InspectMemberAsync(
+                    group,
                     subject,
                     participant,
                     request,
@@ -587,6 +611,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             return await InspectMemberComparisonAsync(
+                    group,
                     subject,
                     participant,
                     request,
@@ -671,6 +696,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             return await InspectTypeAsync(
+                    group,
                     subject,
                     participant,
                     request,
@@ -691,6 +717,7 @@ public static class AssemblyContextSourceQuery
     }
 
     internal static async Task<AssemblyMemberSourceEntry> InspectMemberAsync(
+        AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
@@ -702,12 +729,16 @@ public static class AssemblyContextSourceQuery
     {
         MemberPdbInspection pdb =
             await InspectMemberPdbAsync(
+                    group,
                     participant,
                     request,
                     context,
                     retained,
                     bindingPolicyVersion,
-                    cancellationToken)
+                    context.MemberSourceLimits,
+                    context.MemberSourceTimeout,
+                    cancellationToken,
+                    retainSymbols: true)
                 .ConfigureAwait(false);
         if (pdb.Inspection.IsComplete
             && pdb.Inspection.Text is { } pdbText
@@ -719,7 +750,11 @@ public static class AssemblyContextSourceQuery
                 new AssemblyMemberSource.Pdb(
                     pdbText,
                     pdb.Inspection,
-                    provenance));
+                    provenance))
+            {
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
 
         CSharpDecompilationAttempt decompiled =
@@ -741,7 +776,11 @@ public static class AssemblyContextSourceQuery
                 new AssemblyMemberSource.Decompiled(
                     decompiledText,
                     decompiled,
-                    pdb.Inspection));
+                    pdb.Inspection))
+            {
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
 
         return new AssemblyMemberSourceEntry.Unavailable(
@@ -749,11 +788,16 @@ public static class AssemblyContextSourceQuery
             request,
             BothUnavailable(),
             pdb.Inspection,
-            decompiled);
+            decompiled)
+        {
+            HouseOutcome = pdb.HouseOutcome,
+            LibraryFailure = pdb.LibraryFailure,
+        };
     }
 
     internal static async Task<AssemblyMemberSourceComparisonEntry>
         InspectMemberComparisonAsync(
+            AssemblyContextGroup group,
             AssemblyContextSubject subject,
             AssemblyContextParticipant participant,
             AssemblyMemberSourceRequest request,
@@ -765,23 +809,18 @@ public static class AssemblyContextSourceQuery
     {
         MemberPdbInspection pdb =
             await InspectMemberPdbAsync(
+                    group,
                     participant,
                     request,
                     context,
                     retained,
                     bindingPolicyVersion,
+                    context.MemberSourceLimits,
+                    context.MemberSourceTimeout,
                     cancellationToken,
-                    retainSymbolsOnSuccess: true)
+                    retainSymbols: true)
                 .ConfigureAwait(false);
-        AssemblyMemberPdbSourceAttempt pdbAttempt =
-            pdb.Inspection.IsComplete
-                && pdb.Inspection.Text is not null
-                && pdb.Provenance is { } provenance
-                    ? new AssemblyMemberPdbSourceAttempt.Available(
-                        pdb.Inspection,
-                        provenance)
-                    : new AssemblyMemberPdbSourceAttempt.Unavailable(
-                        pdb.Inspection);
+        AssemblyMemberPdbSourceAttempt pdbAttempt = pdb.ToAttempt();
 
         CSharpDecompilationAttempt decompiled =
             DecompileMember(
@@ -825,90 +864,6 @@ public static class AssemblyContextSourceQuery
                 decompiledAttempt);
     }
 
-    internal static async Task<MemberPdbInspection> InspectMemberPdbAsync(
-        AssemblyContextParticipant participant,
-        AssemblyMemberSourceRequest request,
-        AssemblyContextSourceQueryContext context,
-        ResolvedAssemblyReference retained,
-        AssemblyBindingPolicyVersion bindingPolicyVersion,
-        CancellationToken cancellationToken,
-        bool retainSymbolsOnSuccess = false)
-    {
-        var findingSubject = new FindingSubject(
-            "member",
-            request.Member.Format(MemberAnchorFormat.Qualified));
-        var sourceResult =
-            await OpenSourceLinkAsync(
-                    retained,
-                    context,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        PdbMemberSourceInspection inspection;
-        AssemblyPdbSourceProvenance? provenance = null;
-        ImmutableArray<byte>? pdbImage = null;
-        if (sourceResult.Source is { } source)
-        {
-            Exception? disposalFailure = null;
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                inspection =
-                    await PdbSourceHouse.AcquireMemberAsync(
-                            source,
-                            request.MetadataToken,
-                            request.Member.MemberName,
-                            findingSubject,
-                            context.SourceFetch,
-                            context.RepositoryPaths,
-                            cancellationToken,
-                            allowLocalSource:
-                                context.AllowLocalSourceReads)
-                        .ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                if (inspection.IsComplete)
-                    provenance = PdbProvenance(source);
-                if (retainSymbolsOnSuccess
-                    || !inspection.IsComplete
-                    || inspection.Text is null)
-                {
-                    pdbImage = source.Context.GetPortablePdbImage();
-                }
-            }
-            finally
-            {
-                disposalFailure = source.DisposeWithFailure();
-            }
-            ValidateAfterSourceDisposal(
-                participant,
-                bindingPolicyVersion,
-                cancellationToken,
-                disposalFailure);
-        }
-        else
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            EnsureBindingPolicyVersion(
-                participant,
-                bindingPolicyVersion);
-            inspection =
-                PdbSourceHouse
-                    .MemberPdbAcquisitionFailed(
-                        findingSubject,
-                        sourceResult.Failure!);
-        }
-
-        return new MemberPdbInspection(
-            inspection,
-            provenance,
-            pdbImage);
-    }
-
     static CSharpDecompilationAttempt DecompileMember(
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
@@ -945,6 +900,7 @@ public static class AssemblyContextSourceQuery
     }
 
     internal static async Task<AssemblyTypeSourceEntry> InspectTypeAsync(
+        AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,
@@ -954,80 +910,34 @@ public static class AssemblyContextSourceQuery
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
     {
-        var findingSubject = new FindingSubject(
-            "type",
-            request.Type.ToMetadataFullName());
-        var sourceResult =
-            await OpenSourceLinkAsync(
-                    retained,
+        TypePdbInspection pdb =
+            await InspectTypePdbAsync(
+                    group,
+                    participant,
+                    request,
                     context,
-                    cancellationToken)
+                    retained,
+                    bindingPolicyVersion,
+                    context.TypeSourceLimits,
+                    context.TypeSourceTimeout,
+                    cancellationToken,
+                    retainSymbols: true)
                 .ConfigureAwait(false);
-        PdbTypeSourceInspection pdbSource;
-        ImmutableArray<byte>? pdbImage = null;
-        if (sourceResult.Source is { } source)
+        if (pdb.Inspection.IsComplete
+            && pdb.Inspection.Text is { } pdbText
+            && pdb.Provenance is { } provenance)
         {
-            AssemblyTypeSourceEntry.Available? pdbEntry = null;
-            Exception? disposalFailure = null;
-            try
+            return new AssemblyTypeSourceEntry.Available(
+                subject,
+                request,
+                new AssemblyTypeSource.Pdb(
+                    pdbText,
+                    pdb.Inspection,
+                    provenance))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                pdbSource =
-                    await PdbSourceHouse.AcquireTypeAsync(
-                            source,
-                            request.Type,
-                            findingSubject,
-                            context.SourceFetch,
-                            context.RepositoryPaths,
-                            cancellationToken,
-                            allowLocalSource:
-                                context.AllowLocalSourceReads)
-                        .ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                if (pdbSource.IsComplete
-                    && pdbSource.Text is { } pdbText)
-                {
-                    pdbEntry =
-                        new AssemblyTypeSourceEntry.Available(
-                            subject,
-                            request,
-                            new AssemblyTypeSource.Pdb(
-                                pdbText,
-                                pdbSource,
-                                PdbProvenance(source)));
-                }
-                if (pdbEntry is null)
-                    pdbImage = source.Context.GetPortablePdbImage();
-            }
-            finally
-            {
-                disposalFailure = source.DisposeWithFailure();
-            }
-            ValidateAfterSourceDisposal(
-                participant,
-                bindingPolicyVersion,
-                cancellationToken,
-                disposalFailure);
-            if (pdbEntry is not null)
-                return pdbEntry;
-        }
-        else
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            EnsureBindingPolicyVersion(
-                participant,
-                bindingPolicyVersion);
-            pdbSource =
-                PdbSourceHouse
-                    .TypePdbAcquisitionFailed(
-                        findingSubject,
-                        sourceResult.Failure!);
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -1044,7 +954,7 @@ public static class AssemblyContextSourceQuery
                 target,
                 decompilerAssembly,
                 bindingPolicy,
-                pdbImage: pdbImage,
+                pdbImage: pdb.PdbImage,
                 printerOptions: request.PrinterOptions,
                 maxBodyProjections: context.MaxDecompilerBodyProjections,
                 cancellationToken: cancellationToken);
@@ -1062,15 +972,23 @@ public static class AssemblyContextSourceQuery
                 new AssemblyTypeSource.Decompiled(
                     decompiledText,
                     decompiled,
-                    pdbSource));
+                    pdb.Inspection))
+            {
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
 
         return new AssemblyTypeSourceEntry.Unavailable(
             subject,
             request,
             BothUnavailable(),
-            pdbSource,
-            decompiled);
+            pdb.Inspection,
+            decompiled)
+        {
+            HouseOutcome = pdb.HouseOutcome,
+            LibraryFailure = pdb.LibraryFailure,
+        };
     }
 
     static Task AcquirePdbAsync(
@@ -1292,10 +1210,6 @@ public static class AssemblyContextSourceQuery
         return (type, match);
     }
 
-    static AssemblyPdbSourceProvenance PdbProvenance(
-        SourceLinkService source)
-        => new(source.RepositoryUrl, source.CommitHash);
-
     static AssemblySourceFailure TargetNotFound(string detail)
         => new(
             AssemblySourceFailureKind.TargetNotFound,
@@ -1495,7 +1409,29 @@ public static class AssemblyContextSourceQuery
     internal sealed record MemberPdbInspection(
         PdbMemberSourceInspection Inspection,
         AssemblyPdbSourceProvenance? Provenance,
-        ImmutableArray<byte>? PdbImage);
+        ImmutableArray<byte>? PdbImage)
+    {
+        public SourceHouseOutcome? HouseOutcome { get; init; }
+        public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+
+        public AssemblyMemberPdbSourceAttempt ToAttempt()
+        {
+            AssemblyMemberPdbSourceAttempt attempt =
+                Inspection.IsComplete && Inspection.Text is not null && Provenance is not null
+                    ? new AssemblyMemberPdbSourceAttempt.Available(Inspection, Provenance)
+                    : new AssemblyMemberPdbSourceAttempt.Unavailable(Inspection);
+            return attempt with { HouseOutcome = HouseOutcome, LibraryFailure = LibraryFailure };
+        }
+    }
+
+    internal sealed record TypePdbInspection(
+        PdbTypeSourceInspection Inspection,
+        AssemblyPdbSourceProvenance? Provenance,
+        ImmutableArray<byte>? PdbImage)
+    {
+        public SourceHouseOutcome? HouseOutcome { get; init; }
+        public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+    }
 
     sealed record TypeInspectionSeed(
         ResolvedAssemblyReference Retained,

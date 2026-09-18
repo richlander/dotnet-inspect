@@ -148,12 +148,11 @@ test.describe("published authored Source comparison transport", () => {
         });
       await openPublishedSite(page);
 
-      async function compareMember(targetPage: Page, name: string) {
-        return targetPage.evaluate(async memberName => {
+      async function memberRequest(targetPage: Page, name: string, selectedVersion = "1.0.0") {
+        return targetPage.evaluate(async ({ memberName, version }) => {
           const packages = await import("/inspect-web-package.js");
-          const source = await import("/inspect-web-source.js");
           const loadResult = await packages.queryPackage(
-            "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
+            "InspectWeb.SourceComparisonFixture", version, "net11.0",
           );
           const surface = loadResult.surface;
           if (surface === null) {
@@ -173,7 +172,7 @@ test.describe("published authored Source comparison transport", () => {
             throw new Error(
               `The fixture does not expose Counter.${memberName}.`);
           }
-          const request = {
+          return {
             packageId: surface.package,
             beforeVersion: surface.version,
             afterVersion: "2.0.0",
@@ -184,13 +183,42 @@ test.describe("published authored Source comparison transport", () => {
             selectorKey: body.selectorKey,
             metadataToken: body.token,
           };
-          return source.queryMemberSourceComparison(
-            `source-comparison-fixture-${memberName}`,
-            JSON.stringify(request),
-          );
-        }, name);
+        }, { memberName: name, version: selectedVersion });
       }
 
+      async function compareMember(targetPage: Page, name: string) {
+        const selected = await memberRequest(targetPage, name);
+        return targetPage.evaluate(async request => {
+          const source = await import("/inspect-web-source.js");
+          return source.queryMemberSourceComparison(
+            `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
+        }, selected);
+      }
+
+      async function memberSource(targetPage: Page, version: string) {
+        const selected = await memberRequest(targetPage, "Value", version);
+        return targetPage.evaluate(async request => {
+          const source = await import("/inspect-web-source.js");
+          return source.queryMemberSource(
+            request.packageId, request.beforeVersion, request.framework,
+            request.assembly, request.typeIdentity, request.memberName,
+            request.selectorKey, request.metadataToken, "[]");
+        }, selected);
+      }
+
+      async function typeSource(targetPage: Page, version: string) {
+        const selected = await memberRequest(targetPage, "Value", version);
+        return targetPage.evaluate(async request => {
+          const source = await import("/inspect-web-source.js");
+          return source.queryTypeSource(
+            `type-source-fixture-${request.beforeVersion}`,
+            request.packageId, request.beforeVersion, request.framework,
+            request.assembly, request.typeIdentity, "[]");
+        }, selected);
+      }
+
+      const authoredMember = await memberSource(page, "1.0.0");
+      const authoredType = await typeSource(page, "1.0.0");
       const changed = await compareMember(page, "Value");
       const exact = await compareMember(page, "Unchanged");
       const moved = await compareMember(page, "MovedBlock");
@@ -199,8 +227,11 @@ test.describe("published authored Source comparison transport", () => {
       const unavailablePage = await page.context().newPage();
       await openPublishedSite(unavailablePage);
       const unavailable = await compareMember(unavailablePage, "Value");
+      const fallbackMember = await memberSource(unavailablePage, "2.0.0");
+      const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
+        authoredMember, fallbackMember, authoredType, fallbackType,
         changed, exact, moved, movedAndEdited, unavailable,
       };
       const evidencePath =
@@ -210,6 +241,27 @@ test.describe("published authored Source comparison transport", () => {
         path: evidencePath,
         contentType: "application/json",
       });
+
+      expect(authoredMember.provider).toBe("pdb");
+      expect(authoredMember.text).toContain("1 + 2");
+      expect(authoredMember.pdbSourceLimitation).toBeNull();
+      expect(authoredMember.url).toBeTruthy();
+      expect(fallbackMember.provider).toBe("decompiled");
+      expect(fallbackMember.text).toContain("Value");
+      expect(fallbackMember.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackMember.url).toBeNull();
+
+      expect(authoredType.kind).toBe("Succeeded");
+      expect(authoredType.value?.provider).toBe("pdb");
+      expect(authoredType.value?.text).toContain("class Counter");
+      expect(authoredType.value?.text).toContain("1 + 2");
+      expect(authoredType.value?.pdbSourceLimitation).toBeNull();
+      expect(authoredType.value?.url).toBeTruthy();
+      expect(fallbackType.kind).toBe("Succeeded");
+      expect(fallbackType.value?.provider).toBe("decompiled");
+      expect(fallbackType.value?.text).toContain("class Counter");
+      expect(fallbackType.value?.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackType.value?.url).toBeNull();
 
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");

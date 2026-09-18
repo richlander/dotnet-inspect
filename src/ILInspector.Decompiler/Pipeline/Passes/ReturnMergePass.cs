@@ -33,6 +33,9 @@ namespace ILInspector.Decompiler.Pipeline;
 ///     which already nests it without duplicating the tail;
 ///   • conditional predecessors are never rewritten here; fewer than two cannot
 ///     establish the mixed scattered-dispatch shape.
+///   • structured <c>break</c>/<c>continue</c> transfers do not reach their
+///     lexical successor. A compiler-produced labeled-break return-tail merge
+///     and a direct paired <c>continue</c> boundary test cover this classification.
 /// Runs before structuring.
 /// </summary>
 public sealed class ReturnMergePass : IIrPass
@@ -171,5 +174,6 @@ public sealed class ReturnMergePass : IIrPass
     /// <summary>Whether control reaching the end of this block continues into its successor.</summary>
     static bool FallsThrough(Block block) =>
         block.Children.Count == 0
-        || block.Children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
+        || block.Children[^1] is not (
+            Return or Throw or Branch or Leave or EndFinally or EndFilter or Break or Continue);
 }
