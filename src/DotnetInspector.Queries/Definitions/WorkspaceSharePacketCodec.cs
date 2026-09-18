@@ -1265,6 +1265,9 @@ public static class WorkspaceSharePacketCodec
 
         var libraries =
             new PortableLibraryIdentity[element.GetArrayLength()];
+        var semanticIdentities = new HashSet<AssemblyReferenceIdentity>(
+            libraries.Length,
+            AssemblyReferenceIdentity.EquivalentComparer);
         PortableLibraryIdentity? previous = null;
         int index = 0;
         foreach (JsonElement item in element.EnumerateArray())
@@ -1280,18 +1283,13 @@ public static class WorkspaceSharePacketCodec
                     "Workspace share view-state Library identities must be unique "
                         + "and in canonical order.");
             }
-            for (int previousIndex = 0;
-                previousIndex < index;
-                previousIndex++)
+            if (!semanticIdentities.Add(
+                PortableLibraryIdentityComparer.ToMetadataIdentity(
+                    library)))
             {
-                if (PortableLibraryIdentityComparer.AreEquivalent(
-                    libraries[previousIndex],
-                    library))
-                {
-                    throw InvalidShape(
-                        "Workspace share view-state Library identities must not "
-                            + "contain semantic duplicates.");
-                }
+                throw InvalidShape(
+                    "Workspace share view-state Library identities must not "
+                        + "contain semantic duplicates.");
             }
 
             libraries[index++] = library;
@@ -1904,6 +1902,9 @@ public static class WorkspaceSharePacketCodec
             }
 
             PortableLibraryIdentity? previousLibrary = null;
+            var semanticIdentities = new HashSet<AssemblyReferenceIdentity>(
+                state.Libraries.Count,
+                AssemblyReferenceIdentity.EquivalentComparer);
             for (int libraryIndex = 0;
                 libraryIndex < state.Libraries.Count;
                 libraryIndex++)
@@ -1919,18 +1920,13 @@ public static class WorkspaceSharePacketCodec
                         "Workspace share view-state Library identities must be "
                             + "unique and in canonical order.");
                 }
-                for (int previousIndex = 0;
-                    previousIndex < libraryIndex;
-                    previousIndex++)
+                if (!semanticIdentities.Add(
+                    PortableLibraryIdentityComparer.ToMetadataIdentity(
+                        library)))
                 {
-                    if (PortableLibraryIdentityComparer.AreEquivalent(
-                        state.Libraries[previousIndex],
-                        library))
-                    {
-                        throw InvalidShape(
-                            "Workspace share view-state Library identities must "
-                                + "not contain semantic duplicates.");
-                    }
+                    throw InvalidShape(
+                        "Workspace share view-state Library identities must "
+                            + "not contain semantic duplicates.");
                 }
                 previousLibrary = library;
             }

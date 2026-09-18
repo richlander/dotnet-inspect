@@ -1181,6 +1181,9 @@ public sealed record CommittedViewStateDefinition
     {
         IReadOnlyList<PortableLibraryIdentity> frozen =
             DefinitionCollections.Freeze(values);
+        var semanticIdentities = new HashSet<AssemblyReferenceIdentity>(
+            frozen.Count,
+            AssemblyReferenceIdentity.EquivalentComparer);
         for (int index = 0; index < frozen.Count; index++)
         {
             if (index > 0
@@ -1192,16 +1195,13 @@ public sealed record CommittedViewStateDefinition
                     "libraries must contain unique identities in canonical order.",
                     nameof(values));
             }
-            for (int previous = 0; previous < index; previous++)
+            if (!semanticIdentities.Add(
+                PortableLibraryIdentityComparer.ToMetadataIdentity(
+                    frozen[index])))
             {
-                if (PortableLibraryIdentityComparer.AreEquivalent(
-                    frozen[previous],
-                    frozen[index]))
-                {
-                    throw new ArgumentException(
-                        "libraries must not contain semantically equivalent identities.",
-                        nameof(values));
-                }
+                throw new ArgumentException(
+                    "libraries must not contain semantically equivalent identities.",
+                    nameof(values));
             }
         }
 
@@ -1531,11 +1531,6 @@ internal sealed class PortableLibraryIdentityComparer
 {
     public static PortableLibraryIdentityComparer Instance { get; } = new();
 
-    public static bool AreEquivalent(
-        PortableLibraryIdentity left,
-        PortableLibraryIdentity right) =>
-        ToMetadataIdentity(left).IsEquivalentTo(ToMetadataIdentity(right));
-
     public int Compare(PortableLibraryIdentity? x, PortableLibraryIdentity? y)
     {
         if (ReferenceEquals(x, y))
@@ -1585,7 +1580,7 @@ internal sealed class PortableLibraryIdentityComparer
             ? y is null ? 0 : -1
             : y is null ? 1 : string.CompareOrdinal(x, y);
 
-    private static AssemblyReferenceIdentity ToMetadataIdentity(
+    public static AssemblyReferenceIdentity ToMetadataIdentity(
         PortableLibraryIdentity identity) =>
         new(
             identity.Name,

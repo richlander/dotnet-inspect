@@ -537,6 +537,42 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
+    public void ViewState_LargeDistinctLibraryScopeHasLinearAllocation()
+    {
+        PortableLibraryIdentity[] libraries =
+        [
+            .. Enumerable.Range(0, 4_096).Select(index =>
+                new PortableLibraryIdentity(
+                    $"Library.{index:D5}",
+                    "1.0.0.0",
+                    null,
+                    null)),
+        ];
+        _ = new CommittedViewStateDefinition(
+            "warmup",
+            new PortableSubjectRequest.Package(),
+            new PortableRetainedSubjectContext.Package(),
+            facet: "package.overview",
+            queries: ["q"],
+            libraries: libraries[..1]);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = new CommittedViewStateDefinition(
+            "stj",
+            new PortableSubjectRequest.Package(),
+            new PortableRetainedSubjectContext.Package(),
+            facet: "package.overview",
+            queries: ["q"],
+            libraries: libraries);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 8 * 1024 * 1024,
+            $"Large Library scope validation allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Version2ProjectionToPacketFormat2_RoundTripsCanonicalRecords()
     {
         var prepared =
