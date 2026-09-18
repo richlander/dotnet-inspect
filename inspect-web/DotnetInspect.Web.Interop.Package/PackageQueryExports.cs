@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -285,18 +286,38 @@ namespace DotnetInspect.Web.Interop.Package
                 PackageAssemblyEvaluationOutcome.Matched { SelectedAsset: { } selected } matched =>
                     new(BrowserPackageQueryEventKind.Match,
                         new(id, version, BrowserPackageQueryAcquisitionTier.Assembly,
+                            [],
                             [
                                 new("selected-assembly",
-                                    $"{selected.Asset.Path}: {matched.Evidence.Occurrences.Length} literal uses; "
-                                    + $"{selected.UnevaluatedSiblings} sibling assemblies not evaluated.",
                                     BrowserPackageQueryEvidenceScope.Package,
+                                    null,
+                                    [
+                                        new("path", selected.Asset.Path.ToString()),
+                                        new(
+                                            "literal-use-count",
+                                            matched.Evidence.Occurrences.Length.ToString(
+                                                CultureInfo.InvariantCulture)),
+                                        new(
+                                            "unevaluated-sibling-count",
+                                            selected.UnevaluatedSiblings.ToString(
+                                                CultureInfo.InvariantCulture)),
+                                    ],
                                     null),
                                 .. matched.Evidence.Occurrences.Take(3).Select(occurrence =>
                                     new BrowserPackageQueryEvidence("literal-use",
-                                        $"Method 0x{occurrence.Address.MethodDefinitionToken:X8}, "
-                                        + $"IL_{occurrence.Address.ILOffset:X4}: "
-                                        + Excerpt(occurrence.LiteralText.ToString()),
                                         BrowserPackageQueryEvidenceScope.Package,
+                                        null,
+                                        [
+                                            new(
+                                                "method-token",
+                                                $"0x{occurrence.Address.MethodDefinitionToken:X8}"),
+                                            new(
+                                                "il-offset",
+                                                $"IL_{occurrence.Address.ILOffset:X4}"),
+                                            new(
+                                                "excerpt",
+                                                Excerpt(occurrence.LiteralText.ToString())),
+                                        ],
                                         null)),
                             ],
                             null, null, subject.Coordinate.Producer,
@@ -521,10 +542,22 @@ namespace DotnetInspect.Web.Interop.Package
                                 "Unknown package-query match tier."),
                         },
                         [
+                            .. match.Value.Answers.Select(answer =>
+                                new BrowserPackageQueryAnswer(
+                                    answer.Id,
+                                    answer.Value,
+                                    answer.Term is { } answerTerm
+                                        ? new BrowserPackageQueryTerm(
+                                            answerTerm.Key,
+                                            PortableQueryModel.TextOf(
+                                                answerTerm.Operator),
+                                            answerTerm.Value)
+                                        : null)),
+                        ],
+                        [
                             .. match.Value.Evidence.Select(evidence =>
                                 new BrowserPackageQueryEvidence(
                                     evidence.Id,
-                                    evidence.Value,
                                     evidence.Scope switch
                                     {
                                         PackageQueryEvidenceScope.Package =>
@@ -542,6 +575,14 @@ namespace DotnetInspect.Web.Interop.Package
                                                     value => value.ToString()),
                                             ])
                                         : null,
+                                    [
+                                        .. evidence.Properties.Select(
+                                            property =>
+                                                new BrowserPackageQueryEvidenceProperty(
+                                                    property.Name,
+                                                    property.Value)),
+                                    ],
+                                    evidence.Number,
                                     evidence.Term is { } term
                                         ? new BrowserPackageQueryTerm(
                                             term.Key,
@@ -742,12 +783,14 @@ namespace DotnetInspect.Web.Interop.Package
                     "",
                     "",
                     BrowserPackageQueryAcquisitionTier.SearchMetadata,
+                    [],
                     [
                         new BrowserPackageQueryEvidence(
                             "",
-                            "",
                             BrowserPackageQueryEvidenceScope.Query,
-                            new BrowserPackageQueryEvidenceSummary(0, [""])),
+                            new BrowserPackageQueryEvidenceSummary(0, [""]),
+                            [],
+                            null),
                     ],
                     TotalDownloads: 0,
                     Verified: false,
