@@ -259,6 +259,7 @@ public abstract record DependencyInspectionPruningFailure
     public sealed record Inventory(
         string PlatformFamily,
         string TargetFramework,
+        [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
         InertString Message,
         ImmutableArray<int> AffectedRootOccurrences,
         int AffectedDeclarations) : DependencyInspectionPruningFailure
@@ -272,6 +273,7 @@ public abstract record DependencyInspectionPruningFailure
         PackageDependencyEvidenceRootIdentity RootIdentity,
         InertString RootDisplay,
         DependencyEvidenceDeclarationState DeclarationState,
+        [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
         InertString Message) : DependencyInspectionPruningFailure;
 
     public sealed record Candidate(

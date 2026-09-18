@@ -134,6 +134,31 @@ public sealed partial class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Serialization_RoundTripsMultilinePackageProfileMessage()
+    {
+        const string message = "Profile unavailable\r\nRetry\tlater";
+        PackageProducerIdentity producer = PackageProducerIdentity.NuGetOrg;
+        var failure = new PackageDependencyEvidenceRootFailure.PackageProfile(
+            new PackageDependencyEvidenceSourceIdentity(
+                association: 1,
+                producer.Key,
+                producer.PortableKey,
+                PackageSourceKind.NuGetV3,
+                producer.Display),
+            PackageProfileFailureKind.Search,
+            ManifestFailureReason: null,
+            Coordinate: null,
+            PackageId: null,
+            Version: null,
+            new InertString(TextPolicy.Prose, message));
+
+        PackageDependencyEvidenceRootFailure.PackageProfile roundTripped =
+            RoundTrip(failure);
+
+        Assert.Equal(message, roundTripped.Message.ToString());
+    }
+
+    [Fact]
     public void Serialization_RoundTripsEveryAdmittedRootKind()
     {
         RestoredProjectDependencyFacts restored = Available(

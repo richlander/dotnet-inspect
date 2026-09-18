@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
@@ -177,6 +178,7 @@ public sealed record DependencyEvidenceFailureRow(
     string? PackageId,
     string? PackageVersion,
     InertString? SourceLabel,
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
     InertString Message,
     int Occurrences,
     string? EvidenceIdentity = null);

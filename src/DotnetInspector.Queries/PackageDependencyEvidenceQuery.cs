@@ -149,6 +149,8 @@ public abstract record PackageDependencyEvidenceRootFailure
         PackageSourceCoordinate? Coordinate,
         InertString? PackageId,
         InertString? Version,
+        [property: JsonConverter(
+            typeof(PackageDependencyEvidenceProseInertStringJsonConverter))]
         InertString Message) : PackageDependencyEvidenceRootFailure;
 
     public sealed record Acquisition(
@@ -1830,7 +1832,7 @@ public static class PackageDependencyEvidenceQuery
                     input.SourceLabel),
             input.SourceLabel
                 ?? new InertString(
-                    TextPolicy.Prose,
+                    TextPolicy.Field,
                     "Runtime dependency manifest"),
             new PackageDependencyEvidenceDeclarationResult.NotApplicable(),
             new PackageDependencyEvidenceSelection(
@@ -1867,7 +1869,7 @@ public static class PackageDependencyEvidenceQuery
                 input.Facts.ContentProvenance,
                 input.SourceLabel),
             input.SourceLabel
-                ?? new InertString(TextPolicy.Prose, "Restored project"),
+                ?? new InertString(TextPolicy.Field, "Restored project"),
             ProjectRestoredDeclaration(input.Facts),
             new PackageDependencyEvidenceSelection(
                 PackageDependencyEvidenceSelectionStatus.Unavailable,
@@ -1917,7 +1919,7 @@ public static class PackageDependencyEvidenceQuery
                 facts.ContentProvenance,
                 input.SourceLabel),
             input.SourceLabel
-                ?? new InertString(TextPolicy.Prose, "Authored project"),
+                ?? new InertString(TextPolicy.Field, "Authored project"),
             ProjectAuthoredProjectDeclaration(facts, limitations),
             new PackageDependencyEvidenceSelection(
                 PackageDependencyEvidenceSelectionStatus.Unavailable,

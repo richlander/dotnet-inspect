@@ -205,7 +205,9 @@ public sealed class DependencyInspectionJsonContextTests
                         PackageId: null,
                         PackageVersion: null,
                         SourceLabel: null,
-                        new InertString(TextPolicy.Prose, "Example failure"),
+                        new InertString(
+                            TextPolicy.Prose,
+                            "Example failure\r\nwith\tdetail"),
                         Occurrences: 1)),
                 new DependencyInspectionFailure.Traversal(
                     new DependencyInspectionTraversalFailure(
@@ -228,7 +230,7 @@ public sealed class DependencyInspectionJsonContextTests
                         "net11.0",
                         new InertString(
                             TextPolicy.Prose,
-                            "Inventory unavailable"),
+                            "Inventory unavailable\r\nTry again.\tLater."),
                         AffectedRootOccurrences: [1],
                         AffectedDeclarations: 1)),
             ]);
@@ -255,7 +257,7 @@ public sealed class DependencyInspectionJsonContextTests
         Assert.IsType<DependencyInspectionFailure.Evidence>(
             roundTripped.Failures[0]);
         Assert.Equal(
-            "Example failure",
+            "Example failure\r\nwith\tdetail",
             ((DependencyInspectionFailure.Evidence)
                 roundTripped.Failures[0]).Value.Message.ToString());
         Assert.IsType<DependencyInspectionFailure.Traversal>(
@@ -266,7 +268,26 @@ public sealed class DependencyInspectionJsonContextTests
             DependencyInspectionPruningFailure.Inventory>(
             ((DependencyInspectionFailure.Pruning)
                 roundTripped.Failures[2]).Value);
-        Assert.Equal("Inventory unavailable", inventory.Message.ToString());
+        Assert.Equal(
+            "Inventory unavailable\r\nTry again.\tLater.",
+            inventory.Message.ToString());
+    }
+
+    [Fact]
+    public void FieldValueRejectsMultilineEncodedText()
+    {
+        const string json =
+            """
+            {
+              "kind": "package-version-constraint",
+              "value": "line\nbreak"
+            }
+            """;
+        JsonTypeInfo<DependencyGraphEvidenceIdentity> typeInfo =
+            TypeInfo<DependencyGraphEvidenceIdentity>();
+
+        Assert.Throws<FormatException>(
+            () => JsonSerializer.Deserialize(json, typeInfo));
     }
 
     [Fact]
