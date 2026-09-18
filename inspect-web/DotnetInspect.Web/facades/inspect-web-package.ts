@@ -18,6 +18,16 @@ export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number
 
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 
+export type BrowserPackageAssemblyNotApplicableReason = "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "NoImplementationCounterpart" | number;
+
+export type BrowserPackageAssemblySemanticCandidateOutcomeKind = "Matched" | "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated" | number;
+
+export type BrowserPackageAssemblySemanticFailureKind = "Acquisition" | "Evaluation" | number;
+
+export type BrowserPackageAssemblySemanticNonEvaluationKind = "OperationDeadline" | number;
+
+export type BrowserPackageAssemblySemanticPopulationCompletionKind = "ExactPackageComplete" | "PrefixExhausted" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "SourceFailed" | number;
+
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected" | number;
@@ -267,6 +277,95 @@ export interface BrowserPackageAssemblyAssessment {
   readonly disposition: BrowserPackageAssemblyAssessmentKind;
   readonly message: string;
   readonly assetPath: string | null;
+  readonly rootRequest: string;
+}
+
+export interface BrowserPackageAssemblySemanticCandidateOutcome {
+  readonly kind: BrowserPackageAssemblySemanticCandidateOutcomeKind;
+  readonly candidateOrdinal: number;
+  readonly packageId: string;
+  readonly version: string;
+  readonly producer: string;
+  readonly result: BrowserPackageAssemblySemanticResult | null;
+  readonly selectedAsset: BrowserPackageAssemblySemanticSelectedAsset | null;
+  readonly rootRequest: string | null;
+  readonly notApplicableReason: BrowserPackageAssemblyNotApplicableReason | null;
+  readonly failureKind: BrowserPackageAssemblySemanticFailureKind | null;
+  readonly failureStage: string | null;
+  readonly nonEvaluationKind: BrowserPackageAssemblySemanticNonEvaluationKind | null;
+  readonly timeoutKind: string | null;
+  readonly timeoutSeconds: number | null;
+  readonly message: string | null;
+}
+
+export interface BrowserPackageAssemblySemanticCompletion {
+  readonly population: BrowserPackageAssemblySemanticPopulationCompletionKind;
+  readonly isRequestedPopulationComplete: boolean;
+  readonly allCandidatesHaveTerminalOutcomes: boolean;
+  readonly hasFailures: boolean;
+  readonly isSemanticEvaluationComplete: boolean;
+  readonly isOperationDeadlineExpired: boolean;
+}
+
+export interface BrowserPackageAssemblySemanticDocument {
+  readonly population: BrowserPackageAssemblySemanticPopulation;
+  readonly results: ReadonlyArray<BrowserPackageAssemblySemanticResult>;
+  readonly candidateOutcomes: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
+  readonly candidateCount: number;
+  readonly evaluatedCandidateCount: number;
+  readonly notEvaluatedCount: number;
+  readonly matchedPackageCount: number;
+  readonly occurrenceCount: number;
+  readonly semanticMissCount: number;
+  readonly notApplicableCount: number;
+  readonly failureCount: number;
+  readonly completion: BrowserPackageAssemblySemanticCompletion;
+}
+
+export interface BrowserPackageAssemblySemanticOccurrence {
+  readonly moduleVersionId: string;
+  readonly methodDefinitionToken: number;
+  readonly ilOffset: number;
+  readonly userStringToken: number;
+  readonly literalCharacterCount: number;
+  readonly literalText: string;
+}
+
+export interface BrowserPackageAssemblySemanticPopulation {
+  readonly requestedCandidates: number;
+  readonly candidates: number;
+  readonly completion: BrowserPackageAssemblySemanticPopulationCompletionKind;
+  readonly isRequestedPopulationComplete: boolean;
+  readonly failures: ReadonlyArray<BrowserPackageAssemblySemanticPopulationFailure>;
+}
+
+export interface BrowserPackageAssemblySemanticPopulationFailure {
+  readonly candidateOrdinal: number | null;
+  readonly packageId: string | null;
+  readonly version: string | null;
+  readonly authority: string;
+  readonly kind: string;
+  readonly message: string;
+  readonly timeoutKind: string | null;
+  readonly timeoutSeconds: number | null;
+}
+
+export interface BrowserPackageAssemblySemanticResult {
+  readonly candidateOrdinal: number;
+  readonly packageId: string;
+  readonly version: string;
+  readonly producer: string;
+  readonly selectedAsset: BrowserPackageAssemblySemanticSelectedAsset;
+  readonly occurrences: ReadonlyArray<BrowserPackageAssemblySemanticOccurrence>;
+}
+
+export interface BrowserPackageAssemblySemanticSelectedAsset {
+  readonly path: string;
+  readonly assemblyName: string;
+  readonly targetFramework: string;
+  readonly sequence: string;
+  readonly ordinal: number;
+  readonly unevaluatedSiblings: number;
   readonly rootRequest: string;
 }
 
@@ -604,6 +703,8 @@ export interface BrowserPackageQueryCompletion {
   readonly semanticMisses: number | null;
   readonly notApplicable: number | null;
   readonly scope: string | null;
+  readonly occurrences: number | null;
+  readonly notEvaluated: number | null;
 }
 
 export interface BrowserPackageQueryDeclaredDependency {
@@ -622,6 +723,7 @@ export interface BrowserPackageQueryDocument {
   readonly hasPackages: boolean;
   readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
   readonly completion: BrowserPackageQueryCompletion;
+  readonly assemblySemantic: BrowserPackageAssemblySemanticDocument | null;
 }
 
 export interface BrowserPackageQueryEvent {
@@ -942,11 +1044,13 @@ type $ManagedExports = {
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
             readonly "QueryPackagePruning.1579276339": (packageId: string, version: string, targetFramework: string, requestJson: string) => Promise<string>;
+            readonly "QueryPackageRoot.976702342": (rootRequest: string) => Promise<string>;
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
+            readonly "RunPackageAssemblySemanticQuery.1998922553": (operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.52840355": (operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
@@ -1245,6 +1349,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryPackageRoot.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageRoot.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "QueryPackageVersions.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageVersions.451505237\u0027 is not callable.");
@@ -1296,6 +1412,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "RunPackageActivity.1791926993");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "RunPackageAssemblySemanticQuery.1998922553");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageAssemblySemanticQuery.1998922553\u0027 is not callable.");
     }
   }
   {
@@ -1471,6 +1599,12 @@ export async function queryPackagePruning(packageId: string, version: string, ta
   return $parsed as BrowserPackagePruningResult;
 }
 
+export async function queryPackageRoot(rootRequest: string): Promise<BrowserPackageSurface> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageRoot.976702342"](rootRequest);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageSurface;
+}
+
 export async function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
   const $parsed: unknown = JSON.parse($result);
@@ -1497,6 +1631,12 @@ export async function runPackageActivity(operationId: string, requestJson: strin
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesResult;
+}
+
+export async function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageAssemblySemanticQuery.1998922553"](operationId, packageInput, literal, targetFramework, maximumCandidates, includePrerelease, initialMatchCredit, eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageQueryResult;
 }
 
 export async function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
