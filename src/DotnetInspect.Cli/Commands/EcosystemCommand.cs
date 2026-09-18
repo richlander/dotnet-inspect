@@ -91,8 +91,7 @@ public static class EcosystemCommand
                 sectionCategories: catalog.SelectionCategoryMap,
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                expandCategoryAliases: false);
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         if (options.Tree)
@@ -110,8 +109,7 @@ public static class EcosystemCommand
             catalog.SelectableSectionNames,
             catalog.InfoSectionNames,
             catalog.SelectionCategoryMap,
-            selectDefault: options.SelectDefault,
-            expandCategoryAliases: false);
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteErrors(selection.Unresolved))
             return 1;
 
