@@ -43,8 +43,8 @@ The result carries:
   for body Finding rows;
 - `annotatedSource`: the existing Browser annotated-source envelope, including
   its product-owned caller document, viewer catalog, provenance, visible
-  context limitation, shared callee-document table, and instruction-level
-  callee-evidence rows; and
+  context limitation, shared callee-document table, and typed callee-evidence
+  rows; and
 - `sourceFactInstances`: the document-local `factId` to producer-issued
   `instanceKey` sidecar for body facts.
 
@@ -63,11 +63,14 @@ The transport fields are `factCensusReceipt`, `facts`,
 `annotatedSource.findingEvidenceDocuments` carries each admitted callee
 document once in the same compact Decompiler-owned JSON shape as the caller
 document. Each `annotatedSource.findingEvidence` row carries the exact sidecar
-`factId` and `instanceKey` pair, a typed callee member target,
-method-qualified instruction coordinates, an optional `documentId`, exact
-evidence node ids, and an optional unavailable reason. The transport does not
-join or deduplicate evidence by descriptor, caller offset, display text,
-document text, or collection order.
+`factId` and `instanceKey` pair, a typed callee member target, an explicit
+instruction/method state, typed aggregate inputs, method-qualified instruction
+coordinates, an optional `documentId`, exact evidence node ids, and an optional
+unavailable reason. Instruction state owns coordinates and source-node
+correspondence. Method state owns non-empty producer-selected aggregate inputs
+and carries no document, coordinate, or node id. The transport does not join or
+deduplicate evidence by descriptor, caller offset, display text, document text,
+or collection order.
 
 The existing Analysis-only member Facts operation remains separate. This
 transport does not merge Analysis DTOs into the Research projection or claim
@@ -88,8 +91,11 @@ the combined envelope:
   appears more than once;
 - every callee-document id is unique, non-negative, referenced, and resolves to
   one valid compact document; and
-- an available evidence row carries a valid document reference and exact node
-  ids, while an unavailable row carries no node ids and a visible reason.
+- an available instruction-evidence row carries a valid document reference and
+  exact node ids, while an unavailable instruction row carries no node ids and
+  a visible reason; and
+- a method-evidence row carries ordered typed aggregate inputs and no callee
+  document, instruction coordinate, node id, or unavailable reason.
 
 A wrong receipt, incomplete row identity, duplicate or invalid key, invalid or
 duplicate fact id, incomplete body-fact sidecar, or projection mismatch fails
@@ -159,7 +165,9 @@ The Release Inspect Web engine suite gates:
 - preservation of the exact nested `AnnotatedSourceDocument` field shape;
 - shared callee-document references and rejection of missing, duplicate, or
   unreferenced document ids; and
-- bounded stress proving repeated Findings do not repeat document payload.
+- bounded stress proving repeated Findings do not repeat document payload; and
+- method-level aggregate evidence with no source coordinate or document
+  reference.
 
 The generated-facade drift gate proves the new operation and DTO closure are
 present in the checked-in Source TypeScript and JavaScript artifacts.

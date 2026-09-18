@@ -400,6 +400,8 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                         (version2.States, version2.ActiveStateIndex),
                     CompleteRestorationResolvedState.Version3 version3 =>
                         (version3.States, version3.ActiveStateIndex),
+                    CompleteRestorationResolvedState.Version4 version4 =>
+                        (version4.States, version4.ActiveStateIndex),
                     _ => throw new InvalidOperationException(
                         "Unknown complete restoration resolved state."),
                 };

@@ -125,6 +125,35 @@ test("Finding detail peeks exact callee evidence and navigates by typed target",
   );
 });
 
+test("Finding detail presents aggregate callee evidence at method scope", async ({
+  page,
+}) => {
+  await page.locator("#explore-annotated").click();
+  await page.locator("#annotated-inspector-8").click();
+
+  const detail = page.locator(".annotated-detail");
+  await expect(detail.getByRole("heading", {
+    name: "Caller relationship targets",
+  })).toBeVisible();
+  await expect(detail.getByRole("heading", {
+    name: "Callee evidence",
+  })).toBeVisible();
+  await expect(detail.locator(".annotated-evidence-member")).toContainText(
+    "ResearchProjectionProbe.AllocationInLoop(int)",
+  );
+  await expect(detail.locator(".annotated-method-evidence")).toContainText(
+    "Method-level aggregate evidence",
+  );
+  await expect(detail.locator(".annotated-method-evidence")).toContainText(
+    "no singular source line is claimed",
+  );
+  await expect(detail.locator(".annotated-method-evidence")).toContainText(
+    "Allocation in loop",
+  );
+  await expect(detail.locator(".annotated-evidence-source")).toHaveCount(0);
+  await expect(detail).not.toContainText("IL_");
+});
+
 test("modal finding chips preserve the source pane position", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   await page.addStyleTag({
