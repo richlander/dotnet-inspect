@@ -583,7 +583,9 @@ observe `Task` completion. Analysis authenticates only framework
 matches their complete ordinary instance signatures, including exact parameter
 and return types, non-generic method arity, and default calling convention.
 Fixed framework signature types require trusted framework identity; generic
-result members preserve and match the open declaring-type parameter. It
+result members preserve and match the open declaring-type parameter. Fixed
+types also retain their exact ECMA-335 primitive or value-type discriminator,
+so a same-name `CLASS`/`VALUETYPE` mismatch is not authenticated. It
 returns a typed operation kind; Research joins each positive observation to the
 existing physical `call.edge` fact. The classification needs no graph expansion,
 body reopening, ownership result, or inferred source text. It deliberately does

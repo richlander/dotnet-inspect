@@ -27,6 +27,8 @@ public sealed record SynchronousCompletionObservation(
 public static class SynchronousCompletionAnalysis
 {
     const byte InstanceDefaultSignature = 0x20;
+    const byte IntrinsicSignatureType = 0x00;
+    const byte ValueTypeSignatureType = 0x11;
 
     public static ImmutableArray<SynchronousCompletionObservation> Inspect(
         IEnumerable<DirectCall> calls)
@@ -97,23 +99,26 @@ public static class SynchronousCompletionAnalysis
             return false;
         }
 
-        if (IsCoreLibraryType(
+        if (IsCoreLibrarySignatureType(
                 callee.ReturnType,
                 "System",
-                "Void"))
+                "Void",
+                IntrinsicSignatureType))
         {
             return callee.ParameterTypes.Length == 0
                 || callee.ParameterTypes.Length == 1
-                    && IsCoreLibraryType(
+                    && IsCoreLibrarySignatureType(
                         callee.ParameterTypes[0],
                         "System.Threading",
-                        "CancellationToken");
+                        "CancellationToken",
+                        ValueTypeSignatureType);
         }
 
-        if (!IsCoreLibraryType(
+        if (!IsCoreLibrarySignatureType(
                 callee.ReturnType,
                 "System",
-                "Boolean"))
+                "Boolean",
+                IntrinsicSignatureType))
         {
             return false;
         }
@@ -124,15 +129,24 @@ public static class SynchronousCompletionAnalysis
             || callee.ParameterTypes.Length == 2
                 && IsTaskWaitTimeout(
                     callee.ParameterTypes[0])
-                && IsCoreLibraryType(
+                && IsCoreLibrarySignatureType(
                     callee.ParameterTypes[1],
                     "System.Threading",
-                    "CancellationToken");
+                    "CancellationToken",
+                    ValueTypeSignatureType);
     }
 
     static bool IsTaskWaitTimeout(TypeRef type) =>
-        IsCoreLibraryType(type, "System", "Int32")
-        || IsCoreLibraryType(type, "System", "TimeSpan");
+        IsCoreLibrarySignatureType(
+            type,
+            "System",
+            "Int32",
+            IntrinsicSignatureType)
+        || IsCoreLibrarySignatureType(
+            type,
+            "System",
+            "TimeSpan",
+            ValueTypeSignatureType);
 
     static bool IsTaskResult(MemberRef callee) =>
         callee.Name == "get_Result"
@@ -161,10 +175,11 @@ public static class SynchronousCompletionAnalysis
                 "System.Runtime.CompilerServices",
                 "ConfiguredTaskAwaitable+ConfiguredTaskAwaiter"))
         {
-            return IsCoreLibraryType(
+            return IsCoreLibrarySignatureType(
                 callee.ReturnType,
                 "System",
-                "Void");
+                "Void",
+                IntrinsicSignatureType);
         }
 
         return HasGenericResultSignature(callee)
@@ -203,11 +218,13 @@ public static class SynchronousCompletionAnalysis
                     == 0;
     }
 
-    static bool IsCoreLibraryType(
+    static bool IsCoreLibrarySignatureType(
         TypeRef type,
         string ns,
-        string name) =>
-        FrameworkIdentity.IsCoreLibraryType(
+        string name,
+        byte rawTypeKind) =>
+        type.RawTypeKind == rawTypeKind
+        && FrameworkIdentity.IsCoreLibraryType(
             type,
             ns,
             name);

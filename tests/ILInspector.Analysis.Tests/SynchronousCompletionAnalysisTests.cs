@@ -234,7 +234,9 @@ public sealed class SynchronousCompletionAnalysisTests
                             "Task"),
                         "Wait",
                         TypeRef.CoreLib("System", "Void"),
-                        untrustedCancellationToken),
+                        WithRawTypeKind(
+                            untrustedCancellationToken,
+                            0x11)),
                     Call(
                         TypeRef.CoreLib(
                             "System.Threading.Tasks",
@@ -248,6 +250,46 @@ public sealed class SynchronousCompletionAnalysisTests
                             "TaskAwaiter"),
                         "GetResult",
                         untrustedVoid),
+                ]));
+    }
+
+    [Fact]
+    public void RejectsMalformedFixedFrameworkTypeEncodings()
+    {
+        Assert.Empty(
+            SynchronousCompletionAnalysis.Inspect(
+                [
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Threading.Tasks",
+                            "Task"),
+                        "Wait",
+                        CoreLibraryType(
+                            "System",
+                            "Boolean",
+                            0x11),
+                        TypeRef.CoreLib(
+                            "System",
+                            "Int32")),
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Threading.Tasks",
+                            "Task"),
+                        "Wait",
+                        TypeRef.CoreLib("System", "Void"),
+                        CoreLibraryType(
+                            "System.Threading",
+                            "CancellationToken",
+                            0x12)),
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Runtime.CompilerServices",
+                            "TaskAwaiter"),
+                        "GetResult",
+                        CoreLibraryType(
+                            "System",
+                            "Void",
+                            0x12)),
                 ]));
     }
 
@@ -357,6 +399,22 @@ public sealed class SynchronousCompletionAnalysisTests
             name,
             trustedFrameworkAssembly: false);
 
+    static TypeRef CoreLibraryType(
+        string ns,
+        string name,
+        byte rawTypeKind) =>
+        WithRawTypeKind(
+            TypeRef.CoreLib(ns, name),
+            rawTypeKind);
+
+    static TypeRef WithRawTypeKind(
+        TypeRef type,
+        byte rawTypeKind)
+    {
+        type.RawTypeKind = rawTypeKind;
+        return type;
+    }
+
     public static TheoryData<TypeRef, TypeRef[]>
         TaskWaitSignatures =>
         new()
@@ -368,9 +426,10 @@ public sealed class SynchronousCompletionAnalysisTests
             {
                 TypeRef.CoreLib("System", "Void"),
                 [
-                    TypeRef.CoreLib(
+                    CoreLibraryType(
                         "System.Threading",
-                        "CancellationToken"),
+                        "CancellationToken",
+                        0x11),
                 ]
             },
             {
@@ -379,24 +438,34 @@ public sealed class SynchronousCompletionAnalysisTests
             },
             {
                 TypeRef.CoreLib("System", "Boolean"),
-                [TypeRef.CoreLib("System", "TimeSpan")]
-            },
-            {
-                TypeRef.CoreLib("System", "Boolean"),
                 [
-                    TypeRef.CoreLib("System", "Int32"),
-                    TypeRef.CoreLib(
-                        "System.Threading",
-                        "CancellationToken"),
+                    CoreLibraryType(
+                        "System",
+                        "TimeSpan",
+                        0x11),
                 ]
             },
             {
                 TypeRef.CoreLib("System", "Boolean"),
                 [
-                    TypeRef.CoreLib("System", "TimeSpan"),
-                    TypeRef.CoreLib(
+                    TypeRef.CoreLib("System", "Int32"),
+                    CoreLibraryType(
                         "System.Threading",
-                        "CancellationToken"),
+                        "CancellationToken",
+                        0x11),
+                ]
+            },
+            {
+                TypeRef.CoreLib("System", "Boolean"),
+                [
+                    CoreLibraryType(
+                        "System",
+                        "TimeSpan",
+                        0x11),
+                    CoreLibraryType(
+                        "System.Threading",
+                        "CancellationToken",
+                        0x11),
                 ]
             },
         };
